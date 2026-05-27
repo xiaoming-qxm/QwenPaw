@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>QwenPaw 架构文档</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="layout">
+  <nav>
+    <div class="logo">QwenPaw 架构</div>
+    <a href="index.html">首页</a>
+    <a href="overview.html">系统总览</a>
+    <a href="agent-core.html">核心 Agent 循环</a>
+    <a href="tools-mcp-skills.html">Tools / MCP / Skills</a>
+    <a href="app-layer.html">应用层</a>
+    <a href="providers.html">Provider 与模型层</a>
+    <a href="security-plugins.html">安全与插件</a>
+    <a href="agentscope-boundary.html">AgentScope 边界</a>
+    <a href="migration-notes.html">迁移建议</a>
+  </nav>
+  <main>
+    <h1>QwenPaw 架构文档</h1>
+    <p>本文档站点为 QwenPaw 新开发者提供系统架构的深度理解，特别关注与 AgentScope 1.x 的交互边界，为后续 AgentScope 2.0 重构提供参考。</p>
+
+    <h2>阅读顺序</h2>
+    <div class="card">
+      <p><strong>推荐路径（渐进式）：</strong></p>
+      <ol style="margin-top:0.5rem; padding-left:1.5rem;">
+        <li><a href="overview.html">系统总览</a> — 建立整体心智模型，理解分层架构和数据流</li>
+        <li><a href="agent-core.html">核心 Agent 循环</a> — 深入 ReAct 循环、Mixin 拦截链、Memory/Context</li>
+        <li><a href="tools-mcp-skills.html">Tools / MCP / Skills</a> — 工具定义、MCP 协议集成、Skill 引导机制及三者关系</li>
+        <li><a href="app-layer.html">应用层</a> — FastAPI 服务、Channel 抽象、多 Agent 管理</li>
+        <li><a href="providers.html">Provider 与模型层</a> — LLM 提供商适配、模型工厂、重试与限速</li>
+        <li><a href="security-plugins.html">安全与插件</a> — ToolGuard、审批流、插件加载机制</li>
+        <li><a href="agentscope-boundary.html">AgentScope 边界</a> — <strong>核心重点</strong>：精确 API 映射和完整调用链</li>
+        <li><a href="migration-notes.html">迁移建议</a> — AgentScope 2.0 迁移策略和风险评估</li>
+      </ol>
+    </div>
+
+    <h2>技术概要</h2>
+    <table>
+      <tr><th>属性</th><th>值</th></tr>
+      <tr><td>版本</td><td>v1.1.9b1</td></tr>
+      <tr><td>Python</td><td>3.10 ~ 3.13</td></tr>
+      <tr><td>核心依赖</td><td>agentscope==1.0.20, agentscope-runtime==1.1.6</td></tr>
+      <tr><td>Web 框架</td><td>FastAPI + Uvicorn</td></tr>
+      <tr><td>前端</td><td>React + TypeScript + Vite + Ant Design</td></tr>
+      <tr><td>Agent 范式</td><td>ReAct (Reasoning + Acting)</td></tr>
+      <tr><td>入口命令</td><td><code>qwenpaw app</code> (端口 8088)</td></tr>
+    </table>
+
+    <h2>仓库结构速查</h2>
+    <pre><code>src/qwenpaw/
+├── agents/          # Agent 核心：ReAct 循环、工具、Skill、Memory
+├── app/             # FastAPI 应用：Channel、Runner、Router、Workspace
+├── providers/       # LLM Provider 适配层
+├── config/          # Pydantic 配置模型
+├── plugins/         # 插件系统
+├── security/        # 安全：ToolGuard、SkillScanner
+├── cli/             # CLI 命令入口
+├── local_models/    # 本地模型管理
+└── utils/           # 公共工具
+
+console/             # 前端 React 应用
+plugins/             # 用户插件目录
+deploy/              # Docker 部署配置</code></pre>
+  </main>
+</div>
+<button class="theme-toggle" onclick="toggleTheme()">☀</button>
+<script src="diagrams.js"></script>
+</body>
+</html>
