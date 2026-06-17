@@ -246,3 +246,94 @@ def build_role_snapshot_from_aria(
     tree = "\n".join(result_lines) or "(empty)"
     snapshot = _compact_tree(tree) if options.get("compact") else tree
     return snapshot, refs
+
+
+def _ax_value(raw: Any) -> str | None:
+    if raw is None:
+        return None
+    if isinstance(raw, dict):
+        value = raw.get("value")
+    else:
+        value = raw
+    if value is None:
+        return None
+    text = str(value)
+    return text if text else None
+
+
+def from_cdp_ax_tree(
+    ax_tree_json: dict[str, Any],
+) -> tuple[str, dict[str, dict]]:
+    """Build snapshot + refs from CDP Accessibility.getFullAXTree output."""
+    nodes = ax_tree_json.get("nodes", ax_tree_json)
+    if not isinstance(nodes, list):
+        return "(empty)", {}
+
+    by_id = {
+        str(node.get("nodeId")): node for node in nodes if "nodeId" in node
+    }
+    child_ids = {
+        str(child_id)
+        for node in nodes
+        for child_id in node.get("childIds", []) or []
+    }
+    roots = [
+        node for node in nodes if str(node.get("nodeId")) not in child_ids
+    ] or nodes[:1]
+
+    refs: dict[str, dict] = {}
+    tracker = _create_tracker()
+    counter = [0]
+    lines: list[str] = []
+
+    def next_ref() -> str:
+        counter[0] += 1
+        return f"e{counter[0]}"
+
+    def visit(node: dict[str, Any], depth: int) -> None:
+        if node.get("ignored"):
+            return
+
+        role_raw = _ax_value(node.get("role"))
+        if not role_raw:
+            return
+        role = role_raw.lower()
+        name = _ax_value(node.get("name"))
+
+        is_interactive = role in INTERACTIVE_ROLES
+        is_content = role in CONTENT_ROLES
+        should_have_ref = is_interactive or (is_content and name)
+
+        prefix = "  " * depth
+        line = f"{prefix}- {role_raw}"
+        if name:
+            escaped_name = name.replace('"', '\\"')
+            line += f' "{escaped_name}"'
+
+        if should_have_ref:
+            ref = next_ref()
+            nth = tracker["get_next_index"](role, name)
+            tracker["track_ref"](role, name, ref)
+            ref_data = {"role": role, "name": name, "nth": nth}
+            backend_id = node.get("backendDOMNodeId") or node.get(
+                "backendNodeId",
+            )
+            if backend_id is not None:
+                ref_data["backendNodeId"] = backend_id
+            refs[ref] = ref_data
+
+            line += f" [ref={ref}]"
+            if nth is not None and nth > 0:
+                line += f" [nth={nth}]"
+
+        lines.append(line)
+        for child_id in node.get("childIds", []) or []:
+            child = by_id.get(str(child_id))
+            if child is not None:
+                visit(child, depth + 1)
+
+    for root in roots:
+        visit(root, 0)
+
+    _remove_nth_from_non_duplicates(refs, tracker)
+    return "\n".join(lines) or "(empty)", refs

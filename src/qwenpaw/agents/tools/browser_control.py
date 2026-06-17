@@ -4072,6 +4072,253 @@ async def _action_connect_cdp(state: dict, cdp_url: str) -> ToolChunk:
         )
 
 
+def _takeover_holder_id(state: dict) -> str:
+    workspace_id = state.get("workspace_id") or "default"
+    return f"browser_use:{workspace_id}"
+
+
+def _takeover_tab_id(page_id: str, index: int = -1) -> int:
+    if index >= 0:
+        return index
+    raw = (page_id or "").strip()
+    if raw.startswith("tab_"):
+        raw = raw[4:]
+    if raw.isdigit():
+        return int(raw)
+    raise ValueError("takeover actions require page_id/tab id or index")
+
+
+async def _action_takeover(  # pylint: disable=too-many-return-statements
+    state: dict,
+    action: str,
+    **kwargs,
+) -> ToolChunk:
+    """Dispatch browser_use takeover actions through NMBridge."""
+    from .cdp_relay import CDPRelaySession
+    from .nm_bridge import get_nm_bridge
+
+    bridge = get_nm_bridge()
+    holder_id = _takeover_holder_id(state)
+    action = (action or "").strip().lower()
+
+    if action == "start":
+        return _tool_response(
+            json.dumps(
+                {
+                    "ok": bridge.connected,
+                    "mode": "takeover",
+                    "message": (
+                        "Chrome extension bridge connected"
+                        if bridge.connected
+                        else "Chrome extension bridge is not connected"
+                    ),
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+        )
+
+    if action == "discover_tabs":
+        tabs = await bridge.discover_tabs()
+        return _tool_response(
+            json.dumps(
+                {"ok": True, "mode": "takeover", "tabs": tabs},
+                ensure_ascii=False,
+                indent=2,
+            ),
+        )
+
+    if action == "claim_tab":
+        tab_id = _takeover_tab_id(
+            kwargs.get("page_id", ""),
+            kwargs.get("index", -1),
+        )
+        await bridge.claim_tab(tab_id, holder_id)
+        await bridge.request(
+            "tab.attach",
+            {"tabId": tab_id, "holderId": holder_id},
+        )
+        await bridge.request(
+            "banner.show",
+            {
+                "tabId": tab_id,
+                "status_text": "QwenPaw takeover active",
+            },
+        )
+        state.setdefault("takeover_tabs", {})[str(tab_id)] = {
+            "tab_id": tab_id,
+            "holder_id": holder_id,
+        }
+        state["current_page_id"] = str(tab_id)
+        return _tool_response(
+            json.dumps(
+                {"ok": True, "mode": "takeover", "tab_id": tab_id},
+                ensure_ascii=False,
+                indent=2,
+            ),
+        )
+
+    if action == "release_tab":
+        tab_id = _takeover_tab_id(
+            kwargs.get("page_id", ""),
+            kwargs.get("index", -1),
+        )
+        await bridge.request("banner.hide", {"tabId": tab_id})
+        await bridge.request(
+            "tab.detach",
+            {"tabId": tab_id, "holderId": holder_id},
+        )
+        await bridge.release(tab_id, holder_id)
+        state.setdefault("takeover_tabs", {}).pop(str(tab_id), None)
+        return _tool_response(
+            json.dumps(
+                {"ok": True, "mode": "takeover", "tab_id": tab_id},
+                ensure_ascii=False,
+                indent=2,
+            ),
+        )
+
+    if action == "snapshot":
+        tab_id = _takeover_tab_id(
+            kwargs.get("page_id", ""),
+            kwargs.get("index", -1),
+        )
+        session = CDPRelaySession(
+            tab_id=tab_id,
+            holder_id=holder_id,
+            bridge=bridge,
+        )
+        ax_tree = await session.send("Accessibility.getFullAXTree")
+        from .browser_snapshot import from_cdp_ax_tree
+
+        snapshot, refs = from_cdp_ax_tree(ax_tree)
+        state.setdefault("refs", {})[str(tab_id)] = refs
+        return _tool_response(
+            json.dumps(
+                {
+                    "ok": True,
+                    "mode": "takeover",
+                    "tab_id": tab_id,
+                    "snapshot": snapshot,
+                    "refs": refs,
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+        )
+
+    if action == "click":
+        tab_id = _takeover_tab_id(
+            kwargs.get("page_id", ""),
+            kwargs.get("index", -1),
+        )
+        ref = kwargs.get("ref") or ""
+        refs = state.get("refs", {}).get(str(tab_id), {})
+        target = refs.get(ref, {}) if ref else {}
+        x = target.get("x", kwargs.get("x", 0)) or 0
+        y = target.get("y", kwargs.get("y", 0)) or 0
+        session = CDPRelaySession(
+            tab_id=tab_id,
+            holder_id=holder_id,
+            bridge=bridge,
+        )
+        await session.send_after_banner(
+            "Input.dispatchMouseEvent",
+            {
+                "type": "mousePressed",
+                "x": x,
+                "y": y,
+                "button": "left",
+                "clickCount": 1,
+            },
+            {"cursor": {"x": x, "y": y}, "status_text": "Click"},
+        )
+        await session.send(
+            "Input.dispatchMouseEvent",
+            {
+                "type": "mouseReleased",
+                "x": x,
+                "y": y,
+                "button": "left",
+                "clickCount": 1,
+            },
+        )
+        return _tool_response(
+            json.dumps(
+                {"ok": True, "mode": "takeover"},
+                ensure_ascii=False,
+                indent=2,
+            ),
+        )
+
+    if action == "type":
+        tab_id = _takeover_tab_id(
+            kwargs.get("page_id", ""),
+            kwargs.get("index", -1),
+        )
+        session = CDPRelaySession(
+            tab_id=tab_id,
+            holder_id=holder_id,
+            bridge=bridge,
+        )
+        await session.send(
+            "Input.insertText",
+            {"text": kwargs.get("text", "")},
+        )
+        return _tool_response(
+            json.dumps(
+                {"ok": True, "mode": "takeover"},
+                ensure_ascii=False,
+                indent=2,
+            ),
+        )
+
+    if action == "screenshot":
+        tab_id = _takeover_tab_id(
+            kwargs.get("page_id", ""),
+            kwargs.get("index", -1),
+        )
+        session = CDPRelaySession(
+            tab_id=tab_id,
+            holder_id=holder_id,
+            bridge=bridge,
+        )
+        result = await session.send(
+            "Page.captureScreenshot",
+            {"format": kwargs.get("screenshot_type", "png")},
+        )
+        return _tool_response(
+            json.dumps(
+                {"ok": True, "mode": "takeover", "screenshot": result},
+                ensure_ascii=False,
+                indent=2,
+            ),
+        )
+
+    if action == "stop":
+        await bridge.release_all(holder_id)
+        state.pop("takeover_tabs", None)
+        return _tool_response(
+            json.dumps(
+                {"ok": True, "mode": "takeover"},
+                ensure_ascii=False,
+                indent=2,
+            ),
+        )
+
+    return _tool_response(
+        json.dumps(
+            {
+                "ok": False,
+                "mode": "takeover",
+                "error": f"Unknown action: {action}",
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+    )
+
+
 async def stop_all_browsers() -> None:
     """Gracefully stop all active browser instances across all workspaces.
 
@@ -4197,6 +4444,7 @@ async def browser_use(  # pylint: disable=R0911,R0912
     executable_path: str = "",
     actions_json: str = "",
     cdp_url: str = "",
+    mode: str = "",
     port: int = 0,
     port_min: int = 0,
     port_max: int = 0,
@@ -4370,6 +4618,9 @@ async def browser_use(  # pylint: disable=R0911,R0912
         cdp_url (str):
             CDP base URL, e.g. "http://localhost:9222". Required for
             action=connect_cdp.
+        mode (str):
+            Browser backend mode. Use "takeover" to control the user's real
+            Chrome through the extension/native messaging bridge.
         port (int):
             Scan a single specific port for action=list_cdp_targets.
         port_min (int):
@@ -4405,6 +4656,16 @@ async def browser_use(  # pylint: disable=R0911,R0912
         page_id = current
 
     try:
+        if (mode or "").strip().lower() == "takeover":
+            return await _action_takeover(
+                state,
+                action,
+                page_id=page_id,
+                index=index,
+                ref=ref,
+                text=text,
+                screenshot_type=screenshot_type,
+            )
         if action == "start":
             return await _action_start(
                 state,

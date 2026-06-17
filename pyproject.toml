@@ -56,6 +56,7 @@ dependencies = [
     # anyio 4.13.0: _deliver_cancellation busy-loop / getpid storm (QwenPaw#2632)
     "anyio>=4.0.0,<4.13.0",
     "watchfiles>=0.22",
+    "websockets>=12.0",
     "orjson>=3.9",
     # Coding Mode — Python LSP server bundled as a zero-config fallback
     # so the `lsp` tool always works for .py files (see PROPOSAL §3.4).
