@@ -42,6 +42,7 @@ export const KEY_TO_PATH: Record<string, string> = {
   debug: "/debug",
   backups: "/backups",
   "plugin-manager": "/plugin-manager",
+  "browser-extension": "/browser-extension",
 };
 
 export const KEY_TO_LABEL: Record<string, string> = {
@@ -66,6 +67,7 @@ export const KEY_TO_LABEL: Record<string, string> = {
   agents: "nav.agents",
   debug: "nav.debug",
   backups: "nav.backups",
+  "browser-extension": "nav.browserExtension",
 };
 
 // ── URL helpers ───────────────────────────────────────────────────────────
@@ -121,7 +123,7 @@ export const compareVersions = (a: string, b: string): number => {
       preNum = preMatch[3] ? Number(preMatch[3]) : 0;
     }
 
-    const parts = coreVersion.split(/[.\-]/).map((seg) => Number(seg) || 0);
+    const parts = coreVersion.split(/[.-]/).map((seg) => Number(seg) || 0);
     // Append: preType (0 for stable, negative for pre-release), preNum, postNum
     return [...parts, preType, preNum, postNum];
   };

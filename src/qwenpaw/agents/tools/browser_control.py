@@ -4088,6 +4088,107 @@ def _takeover_tab_id(page_id: str, index: int = -1) -> int:
     raise ValueError("takeover actions require page_id/tab id or index")
 
 
+def _takeover_page_id(state: dict, page_id: str) -> str:
+    raw = (page_id or "").strip() or "default"
+    if raw != "default":
+        return raw
+    current = state.get("current_page_id")
+    takeover_tabs = state.get("takeover_tabs") or {}
+    if current and str(current) in takeover_tabs:
+        return str(current)
+    return raw
+
+
+def _takeover_jsonrpc_result(response: Any) -> Any:
+    if isinstance(response, dict) and response.get("jsonrpc") == "2.0":
+        return response.get("result", {})
+    return response
+
+
+def _takeover_created_tab_id(response: Any) -> int:
+    result = _takeover_jsonrpc_result(response)
+    if isinstance(result, dict):
+        value = result.get("id") or result.get("tabId")
+    else:
+        value = None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.isdigit():
+        return int(value)
+    raise ValueError("tab.create did not return a tab id")
+
+
+def _takeover_ref_backend_node_id(target: dict[str, Any]) -> int | None:
+    value = target.get("backendNodeId") or target.get("backendDOMNodeId")
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.isdigit():
+        return int(value)
+    return None
+
+
+def _takeover_quad_center(quads: Any) -> tuple[float, float] | None:
+    if not isinstance(quads, list) or not quads:
+        return None
+    quad = quads[0]
+    if not isinstance(quad, list) or len(quad) < 8:
+        return None
+    xs = [float(quad[index]) for index in range(0, 8, 2)]
+    ys = [float(quad[index]) for index in range(1, 8, 2)]
+    return (sum(xs) / len(xs), sum(ys) / len(ys))
+
+
+async def _takeover_resolve_point(
+    session: Any,
+    target: dict[str, Any],
+    *,
+    ref: str = "",
+    fallback_x: Any = None,
+    fallback_y: Any = None,
+) -> tuple[float, float]:
+    backend_node_id = _takeover_ref_backend_node_id(target)
+    if backend_node_id is not None:
+        params = {"backendNodeId": backend_node_id}
+        await session.send("DOM.scrollIntoViewIfNeeded", params)
+        quads = await session.send("DOM.getContentQuads", params)
+        point = _takeover_quad_center(quads.get("quads"))
+        if point is not None:
+            return point
+
+    x = target.get("x", fallback_x)
+    y = target.get("y", fallback_y)
+    if x is not None and y is not None:
+        return (float(x), float(y))
+
+    if ref:
+        raise ValueError(f"Unable to resolve coordinates for ref: {ref}")
+    return (0.0, 0.0)
+
+
+async def _takeover_click_at(session: Any, x: float, y: float, status_text: str) -> None:
+    await session.send_after_banner(
+        "Input.dispatchMouseEvent",
+        {
+            "type": "mousePressed",
+            "x": x,
+            "y": y,
+            "button": "left",
+            "clickCount": 1,
+        },
+        {"cursor": {"x": x, "y": y}, "status_text": status_text},
+    )
+    await session.send(
+        "Input.dispatchMouseEvent",
+        {
+            "type": "mouseReleased",
+            "x": x,
+            "y": y,
+            "button": "left",
+            "clickCount": 1,
+        },
+    )
+
+
 async def _action_takeover(  # pylint: disable=too-many-return-statements
     state: dict,
     action: str,
@@ -4129,10 +4230,17 @@ async def _action_takeover(  # pylint: disable=too-many-return-statements
         )
 
     if action == "claim_tab":
-        tab_id = _takeover_tab_id(
-            kwargs.get("page_id", ""),
-            kwargs.get("index", -1),
-        )
+        raw_page_id = str(kwargs.get("page_id", "")).strip() or "default"
+        url = str(kwargs.get("url") or "").strip()
+        if url and raw_page_id == "default" and kwargs.get("index", -1) < 0:
+            response = await bridge.request(
+                "tab.create",
+                {"url": url, "active": True},
+            )
+            tab_id = _takeover_created_tab_id(response)
+        else:
+            page_id = _takeover_page_id(state, raw_page_id)
+            tab_id = _takeover_tab_id(page_id, kwargs.get("index", -1))
         await bridge.claim_tab(tab_id, holder_id)
         await bridge.request(
             "tab.attach",
@@ -4160,7 +4268,7 @@ async def _action_takeover(  # pylint: disable=too-many-return-statements
 
     if action == "release_tab":
         tab_id = _takeover_tab_id(
-            kwargs.get("page_id", ""),
+            _takeover_page_id(state, str(kwargs.get("page_id", ""))),
             kwargs.get("index", -1),
         )
         await bridge.request("banner.hide", {"tabId": tab_id})
@@ -4180,7 +4288,7 @@ async def _action_takeover(  # pylint: disable=too-many-return-statements
 
     if action == "snapshot":
         tab_id = _takeover_tab_id(
-            kwargs.get("page_id", ""),
+            _takeover_page_id(state, str(kwargs.get("page_id", ""))),
             kwargs.get("index", -1),
         )
         session = CDPRelaySession(
@@ -4209,40 +4317,25 @@ async def _action_takeover(  # pylint: disable=too-many-return-statements
 
     if action == "click":
         tab_id = _takeover_tab_id(
-            kwargs.get("page_id", ""),
+            _takeover_page_id(state, str(kwargs.get("page_id", ""))),
             kwargs.get("index", -1),
         )
         ref = kwargs.get("ref") or ""
         refs = state.get("refs", {}).get(str(tab_id), {})
         target = refs.get(ref, {}) if ref else {}
-        x = target.get("x", kwargs.get("x", 0)) or 0
-        y = target.get("y", kwargs.get("y", 0)) or 0
         session = CDPRelaySession(
             tab_id=tab_id,
             holder_id=holder_id,
             bridge=bridge,
         )
-        await session.send_after_banner(
-            "Input.dispatchMouseEvent",
-            {
-                "type": "mousePressed",
-                "x": x,
-                "y": y,
-                "button": "left",
-                "clickCount": 1,
-            },
-            {"cursor": {"x": x, "y": y}, "status_text": "Click"},
+        x, y = await _takeover_resolve_point(
+            session,
+            target,
+            ref=ref,
+            fallback_x=kwargs.get("x"),
+            fallback_y=kwargs.get("y"),
         )
-        await session.send(
-            "Input.dispatchMouseEvent",
-            {
-                "type": "mouseReleased",
-                "x": x,
-                "y": y,
-                "button": "left",
-                "clickCount": 1,
-            },
-        )
+        await _takeover_click_at(session, x, y, "Click")
         return _tool_response(
             json.dumps(
                 {"ok": True, "mode": "takeover"},
@@ -4253,14 +4346,20 @@ async def _action_takeover(  # pylint: disable=too-many-return-statements
 
     if action == "type":
         tab_id = _takeover_tab_id(
-            kwargs.get("page_id", ""),
+            _takeover_page_id(state, str(kwargs.get("page_id", ""))),
             kwargs.get("index", -1),
         )
+        ref = kwargs.get("ref") or ""
+        refs = state.get("refs", {}).get(str(tab_id), {})
+        target = refs.get(ref, {}) if ref else {}
         session = CDPRelaySession(
             tab_id=tab_id,
             holder_id=holder_id,
             bridge=bridge,
         )
+        if ref:
+            x, y = await _takeover_resolve_point(session, target, ref=ref)
+            await _takeover_click_at(session, x, y, "Focus")
         await session.send(
             "Input.insertText",
             {"text": kwargs.get("text", "")},
@@ -4275,7 +4374,7 @@ async def _action_takeover(  # pylint: disable=too-many-return-statements
 
     if action == "screenshot":
         tab_id = _takeover_tab_id(
-            kwargs.get("page_id", ""),
+            _takeover_page_id(state, str(kwargs.get("page_id", ""))),
             kwargs.get("index", -1),
         )
         session = CDPRelaySession(
@@ -4296,6 +4395,15 @@ async def _action_takeover(  # pylint: disable=too-many-return-statements
         )
 
     if action == "stop":
+        for tab in list((state.get("takeover_tabs") or {}).values()):
+            tab_id = int(tab["tab_id"])
+            tab_holder_id = str(tab.get("holder_id") or holder_id)
+            await bridge.request("banner.hide", {"tabId": tab_id})
+            await bridge.request(
+                "tab.detach",
+                {"tabId": tab_id, "holderId": tab_holder_id},
+            )
+            await bridge.release(tab_id, tab_holder_id)
         await bridge.release_all(holder_id)
         state.pop("takeover_tabs", None)
         return _tool_response(
@@ -4662,9 +4770,11 @@ async def browser_use(  # pylint: disable=R0911,R0912
                 action,
                 page_id=page_id,
                 index=index,
+                url=url,
                 ref=ref,
                 text=text,
                 screenshot_type=screenshot_type,
+                wait=wait,
             )
         if action == "start":
             return await _action_start(

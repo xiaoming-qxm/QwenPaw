@@ -67,7 +67,38 @@
     "debug": "Debug",
     "plugins": "Plugins",
     "backups": "Backups",
-    "pluginManager": "Plugin Manager"
+    "pluginManager": "Plugin Manager",
+    "browserExtension": "Browser Extension"
+  },
+  "browserExtension": {
+    "title": "Browser Extension",
+    "desc": "Prepare the Chrome extension and Native Messaging bridge, then load the unpacked extension in Chrome developer mode.",
+    "status": {
+      "installed": "Installed",
+      "notInstalled": "Not installed",
+      "connected": "Connected",
+      "notConnected": "Not connected"
+    },
+    "actions": {
+      "installRefresh": "Install / Refresh",
+      "installSuccess": "Extension files ready",
+      "installFailed": "Extension setup failed"
+    },
+    "sections": {
+      "paths": "Install paths",
+      "chrome": "Chrome load"
+    },
+    "paths": {
+      "extensionDir": "Extension folder",
+      "nativeManifest": "Native manifest",
+      "nativeHost": "Native host",
+      "config": "Bridge config"
+    },
+    "steps": {
+      "open": "Open chrome://extensions and enable Developer mode.",
+      "load": "Choose Load unpacked and select the extension folder above.",
+      "verify": "Return here and refresh; Connected turns green after Chrome connects."
+    }
   },
   "debug": {
     "title": "Debug",

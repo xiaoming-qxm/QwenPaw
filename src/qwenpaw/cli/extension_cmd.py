@@ -14,7 +14,7 @@ import click
 
 NATIVE_HOST_NAME = "com.qwenpaw.browser"
 EXTENSION_ID = "nflcgkfjgoiipklkpenmbiificbakoch"
-DEFAULT_WS_URL = "ws://127.0.0.1:8765/ws/nm-bridge"
+DEFAULT_WS_URL = "ws://127.0.0.1:8088/ws/nm-bridge"
 
 
 def native_manifest_path(
@@ -122,6 +122,66 @@ def _uninstall(qwenpaw_home: Path) -> None:
             path.unlink()
 
 
+def setup_extension_files(
+    *,
+    install_mode: str = "unpacked",
+    ws_url: str = DEFAULT_WS_URL,
+    reset: bool = False,
+) -> dict[str, str | bool]:
+    """Install extension files and Native Messaging registration."""
+    qwenpaw_home = _qwenpaw_home()
+    if reset:
+        _uninstall(qwenpaw_home)
+
+    token = secrets.token_urlsafe(32)
+    extension_dir = _copy_extension(qwenpaw_home)
+    config_path = _write_nm_config(qwenpaw_home, token, ws_url)
+    host_path = _write_host(qwenpaw_home)
+    manifest_path = _write_native_manifest(host_path)
+    return {
+        "installed": True,
+        "install_mode": install_mode,
+        "extension_id": EXTENSION_ID,
+        "extension_dir": str(extension_dir),
+        "native_manifest_path": str(manifest_path),
+        "native_host_path": str(host_path),
+        "config_path": str(config_path),
+        "ws_url": ws_url,
+        "chrome_extensions_url": "chrome://extensions",
+    }
+
+
+def extension_install_status() -> dict[str, str | bool | None]:
+    """Return install paths and whether the local registration exists."""
+    qwenpaw_home = _qwenpaw_home()
+    extension_dir = qwenpaw_home / "chrome-extension" / "qwenpaw-browser-bridge"
+    manifest_path = native_manifest_path()
+    host_path = qwenpaw_home / "bin" / "qwenpaw-nm-host"
+    config_path = qwenpaw_home / "nm-bridge.json"
+    ws_url = None
+    if config_path.exists():
+        try:
+            ws_url = json.loads(config_path.read_text(encoding="utf-8")).get("ws_url")
+        except (OSError, json.JSONDecodeError):
+            ws_url = None
+    installed = (
+        (extension_dir / "manifest.json").exists()
+        and manifest_path.exists()
+        and host_path.exists()
+    )
+    return {
+        "installed": installed,
+        "install_mode": "unpacked" if installed else None,
+        "extension_id": EXTENSION_ID,
+        "extension_dir": str(extension_dir),
+        "native_manifest_path": str(manifest_path),
+        "native_host_path": str(host_path),
+        "config_path": str(config_path),
+        "ws_url": ws_url or DEFAULT_WS_URL,
+        "chrome_extensions_url": "chrome://extensions",
+    }
+
+
 @click.command("setup-extension")
 @click.option(
     "--mode",
@@ -160,16 +220,13 @@ def setup_extension_cmd(
             )
         )
 
-    if reset:
-        _uninstall(qwenpaw_home)
+    result = setup_extension_files(
+        install_mode=install_mode,
+        ws_url=ws_url,
+        reset=reset,
+    )
 
-    token = secrets.token_urlsafe(32)
-    extension_dir = _copy_extension(qwenpaw_home)
-    _write_nm_config(qwenpaw_home, token, ws_url)
-    host_path = _write_host(qwenpaw_home)
-    manifest_path = _write_native_manifest(host_path)
-
-    click.echo(f"Extension mode: {install_mode}")
-    click.echo(f"Extension files: {extension_dir}")
-    click.echo(f"Native host manifest: {manifest_path}")
-    click.echo(f"Native host executable: {host_path}")
+    click.echo(f"Extension mode: {result['install_mode']}")
+    click.echo(f"Extension files: {result['extension_dir']}")
+    click.echo(f"Native host manifest: {result['native_manifest_path']}")
+    click.echo(f"Native host executable: {result['native_host_path']}")

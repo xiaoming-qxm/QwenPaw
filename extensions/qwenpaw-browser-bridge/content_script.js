@@ -4,6 +4,7 @@
 
   const state = {
     visible: false,
+    paused: false,
     statusText: "操控中",
   };
 
@@ -11,6 +12,8 @@
   let shadowRoot = null;
   let banner = null;
   let status = null;
+  let pauseButton = null;
+  let resumeButton = null;
   let cursor = null;
   let cursorPosition = { x: 24, y: 24 };
 
@@ -135,17 +138,34 @@
     const actions = document.createElement("div");
     actions.className = "qwenpaw-actions";
 
-    const pause = document.createElement("button");
-    pause.type = "button";
-    pause.textContent = "⏸ 暂停";
-    pause.addEventListener("click", () => emit("hitl.paused", {}));
+    pauseButton = document.createElement("button");
+    pauseButton.type = "button";
+    pauseButton.textContent = "⏸ 暂停";
+    pauseButton.addEventListener("click", () => {
+      state.paused = true;
+      render();
+      emit("hitl.paused", {});
+    });
+
+    resumeButton = document.createElement("button");
+    resumeButton.type = "button";
+    resumeButton.textContent = "▶ 恢复";
+    resumeButton.addEventListener("click", () => {
+      state.paused = false;
+      render();
+      emit("hitl.resumed", {});
+    });
 
     const stop = document.createElement("button");
     stop.type = "button";
     stop.textContent = "■ 停止";
-    stop.addEventListener("click", () => emit("hitl.stopped", {}));
+    stop.addEventListener("click", () => {
+      state.paused = false;
+      render();
+      emit("hitl.stopped", {});
+    });
 
-    actions.append(pause, stop);
+    actions.append(pauseButton, resumeButton, stop);
     cursor = document.createElement("div");
     cursor.className = "qwenpaw-cursor";
     banner.append(status, actions);
@@ -158,7 +178,13 @@
       return;
     }
     banner.dataset.visible = state.visible ? "true" : "false";
-    status.textContent = `🐾 QwenPaw · 操控中 · "${state.statusText}"`;
+    if (pauseButton && resumeButton) {
+      pauseButton.disabled = state.paused;
+      resumeButton.disabled = !state.paused;
+      resumeButton.hidden = !state.paused;
+    }
+    const statusLabel = state.paused ? "已暂停" : "操控中";
+    status.textContent = `🐾 QwenPaw · ${statusLabel} · "${state.statusText}"`;
   }
 
   function emit(method, params) {

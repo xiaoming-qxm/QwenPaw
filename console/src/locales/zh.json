@@ -67,7 +67,38 @@
     "debug": "调试",
     "plugins": "插件",
     "backups": "备份",
-    "pluginManager": "插件管理"
+    "pluginManager": "插件管理",
+    "browserExtension": "浏览器扩展"
+  },
+  "browserExtension": {
+    "title": "浏览器扩展",
+    "desc": "准备 Chrome 扩展和 Native Messaging 桥接文件，然后在 Chrome 开发者模式中加载未打包扩展。",
+    "status": {
+      "installed": "已安装",
+      "notInstalled": "未安装",
+      "connected": "已连接",
+      "notConnected": "未连接"
+    },
+    "actions": {
+      "installRefresh": "一键安装/刷新",
+      "installSuccess": "扩展文件已准备好",
+      "installFailed": "扩展安装失败"
+    },
+    "sections": {
+      "paths": "安装路径",
+      "chrome": "Chrome 加载"
+    },
+    "paths": {
+      "extensionDir": "扩展目录",
+      "nativeManifest": "Native manifest",
+      "nativeHost": "Native host",
+      "config": "桥接配置"
+    },
+    "steps": {
+      "open": "打开 chrome://extensions 并启用开发者模式。",
+      "load": "选择“加载已解压的扩展程序”，并选择上方扩展目录。",
+      "verify": "回到此页点击刷新；Chrome 连接后“已连接”会变为绿色。"
+    }
   },
   "debug": {
     "title": "调试",

@@ -22,8 +22,11 @@ CDP_CAPABILITY_MAP: dict[str, str] = {
     # perceive
     "Accessibility.getFullAXTree": "perceive",
     "DOM.getDocument": "perceive",
+    "DOM.getContentQuads": "perceive",
     "DOM.describeNode": "perceive",
+    "DOM.focus": "input",
     "DOM.resolveNode": "perceive",
+    "DOM.scrollIntoViewIfNeeded": "perceive",
     "Page.getLayoutMetrics": "perceive",
     # screenshot
     "Page.captureScreenshot": "screenshot",

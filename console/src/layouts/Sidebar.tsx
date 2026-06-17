@@ -43,7 +43,7 @@ import {
   SparkEmailLine,
   SparkCardLine,
 } from "@agentscope-ai/icons";
-import { Package } from "lucide-react";
+import { Package, Puzzle } from "lucide-react";
 import { clearAuthToken } from "../api/config";
 import { authApi } from "../api/modules/auth";
 import api from "../api";
@@ -368,6 +368,12 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
       path: "/plugin-manager",
       label: t("nav.pluginManager", "Plugin Manager"),
     },
+    {
+      key: "browser-extension",
+      icon: <Puzzle size={18} />,
+      path: "/browser-extension",
+      label: t("nav.browserExtension", "Browser Extension"),
+    },
     // Append plugin nav items dynamically
     ...pluginRoutes.map((route) => ({
       key: route.path.replace(/^\//, ""),
@@ -516,6 +522,13 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
           label: collapsed ? null : t("nav.pluginManager", "Plugin Manager"),
           icon: <Package size={16} />,
         },
+        {
+          key: "browser-extension",
+          label: collapsed
+            ? null
+            : t("nav.browserExtension", "Browser Extension"),
+          icon: <Puzzle size={16} />,
+        },
       ],
     },
   ];
@@ -530,7 +543,7 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
         label: collapsed ? null : route.label,
         icon: <span style={{ fontSize: 16 }}>{route.icon}</span>,
       })),
-    } as any);
+    });
   }
 
   // ── Render ────────────────────────────────────────────────────────────────

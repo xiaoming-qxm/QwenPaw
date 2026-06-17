@@ -47,6 +47,9 @@ const BackupsPage = lazyImportWithRetry("../../pages/Settings/Backups");
 const PluginManagerPage = lazyImportWithRetry(
   "../../pages/Settings/PluginManager",
 );
+const BrowserExtensionPage = lazyImportWithRetry(
+  "../../pages/Settings/BrowserExtension",
+);
 
 const { Content } = Layout;
 
@@ -94,6 +97,7 @@ const pathToKey: Record<string, string> = {
   "/debug": "debug",
   "/backups": "backups",
   "/plugin-manager": "plugin-manager",
+  "/browser-extension": "browser-extension",
 };
 
 export default function MainLayout() {
@@ -167,6 +171,10 @@ export default function MainLayout() {
                   <Route
                     path="/plugin-manager"
                     element={<PluginManagerPage />}
+                  />
+                  <Route
+                    path="/browser-extension"
+                    element={<BrowserExtensionPage />}
                   />
 
                   {/* Plugin routes — dynamically injected at runtime */}

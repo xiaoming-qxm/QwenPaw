@@ -9,12 +9,19 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from pydantic import BaseModel, Field
+
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from starlette.responses import JSONResponse
 
+from qwenpaw.cli.extension_cmd import (
+    DEFAULT_WS_URL,
+    extension_install_status,
+    setup_extension_files,
+)
+
 router = APIRouter(tags=["nm-bridge"])
 
-DEFAULT_WS_URL = "ws://127.0.0.1:8765/ws/nm-bridge"
 DEFAULT_CONFIG_PATH = Path.home() / ".qwenpaw" / "nm-bridge.json"
 
 _bridge_token: str | None = None
@@ -22,6 +29,12 @@ _bridge_ws_url: str = DEFAULT_WS_URL
 _bridge_config_path: Path = DEFAULT_CONFIG_PATH
 _connected: WebSocket | None = None
 _connected_since: datetime | None = None
+
+
+class ExtensionSetupRequest(BaseModel):
+    install_mode: str = Field(default="unpacked", pattern="^(unpacked|cws)$")
+    ws_url: str = DEFAULT_WS_URL
+    reset: bool = False
 
 
 def configure_nm_bridge(
@@ -125,9 +138,9 @@ async def nm_bridge_ws(websocket: WebSocket) -> None:
 
 def get_extension_status() -> dict[str, Any]:
     return {
+        **extension_install_status(),
         "connected": _connected is not None,
         "version": None,
-        "install_mode": None,
         "connected_since": (
             _connected_since.isoformat() if _connected_since is not None else None
         ),
@@ -137,3 +150,17 @@ def get_extension_status() -> dict[str, Any]:
 @router.get("/extension/status")
 async def extension_status() -> dict[str, Any]:
     return get_extension_status()
+
+
+@router.post("/extension/setup")
+async def extension_setup(request: ExtensionSetupRequest) -> dict[str, Any]:
+    result = setup_extension_files(
+        install_mode=request.install_mode,
+        ws_url=request.ws_url,
+        reset=request.reset,
+    )
+    configure_nm_bridge(
+        ws_url=str(result["ws_url"]),
+        config_path=str(result["config_path"]),
+    )
+    return {**result, **get_extension_status()}
