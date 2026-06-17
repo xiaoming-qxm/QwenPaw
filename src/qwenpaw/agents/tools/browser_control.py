@@ -4077,6 +4077,57 @@ def _takeover_holder_id(state: dict) -> str:
     return f"browser_use:{workspace_id}"
 
 
+def _takeover_sessions(state: dict) -> dict[str, Any]:
+    sessions = state.setdefault("takeover_sessions", {})
+    if isinstance(sessions, dict):
+        return sessions
+    sessions = {}
+    state["takeover_sessions"] = sessions
+    return sessions
+
+
+def _takeover_get_session(
+    state: dict,
+    *,
+    tab_id: int,
+    holder_id: str,
+    bridge: Any,
+) -> Any:
+    from .cdp_relay import CDPRelaySession
+
+    sessions = _takeover_sessions(state)
+    key = str(tab_id)
+    session = sessions.get(key)
+    if session is not None and not getattr(session, "_closed", False):
+        return session
+
+    session = CDPRelaySession(
+        tab_id=tab_id,
+        holder_id=holder_id,
+        bridge=bridge,
+    )
+    sessions[key] = session
+    return session
+
+
+async def _takeover_close_session(
+    state: dict,
+    *,
+    tab_id: int,
+    holder_id: str,
+    bridge: Any,
+) -> None:
+    sessions = _takeover_sessions(state)
+    session = sessions.pop(str(tab_id), None)
+    if session is not None:
+        await session.close()
+    else:
+        await bridge.release(tab_id, holder_id)
+
+    if not sessions:
+        state.pop("takeover_sessions", None)
+
+
 def _takeover_tab_id(page_id: str, index: int = -1) -> int:
     if index >= 0:
         return index
@@ -4195,7 +4246,6 @@ async def _action_takeover(  # pylint: disable=too-many-return-statements
     **kwargs,
 ) -> ToolChunk:
     """Dispatch browser_use takeover actions through NMBridge."""
-    from .cdp_relay import CDPRelaySession
     from .nm_bridge import get_nm_bridge
 
     bridge = get_nm_bridge()
@@ -4246,6 +4296,12 @@ async def _action_takeover(  # pylint: disable=too-many-return-statements
             "tab.attach",
             {"tabId": tab_id, "holderId": holder_id},
         )
+        _takeover_get_session(
+            state,
+            tab_id=tab_id,
+            holder_id=holder_id,
+            bridge=bridge,
+        )
         await bridge.request(
             "banner.show",
             {
@@ -4276,7 +4332,12 @@ async def _action_takeover(  # pylint: disable=too-many-return-statements
             "tab.detach",
             {"tabId": tab_id, "holderId": holder_id},
         )
-        await bridge.release(tab_id, holder_id)
+        await _takeover_close_session(
+            state,
+            tab_id=tab_id,
+            holder_id=holder_id,
+            bridge=bridge,
+        )
         state.setdefault("takeover_tabs", {}).pop(str(tab_id), None)
         return _tool_response(
             json.dumps(
@@ -4291,7 +4352,8 @@ async def _action_takeover(  # pylint: disable=too-many-return-statements
             _takeover_page_id(state, str(kwargs.get("page_id", ""))),
             kwargs.get("index", -1),
         )
-        session = CDPRelaySession(
+        session = _takeover_get_session(
+            state,
             tab_id=tab_id,
             holder_id=holder_id,
             bridge=bridge,
@@ -4323,7 +4385,8 @@ async def _action_takeover(  # pylint: disable=too-many-return-statements
         ref = kwargs.get("ref") or ""
         refs = state.get("refs", {}).get(str(tab_id), {})
         target = refs.get(ref, {}) if ref else {}
-        session = CDPRelaySession(
+        session = _takeover_get_session(
+            state,
             tab_id=tab_id,
             holder_id=holder_id,
             bridge=bridge,
@@ -4352,7 +4415,8 @@ async def _action_takeover(  # pylint: disable=too-many-return-statements
         ref = kwargs.get("ref") or ""
         refs = state.get("refs", {}).get(str(tab_id), {})
         target = refs.get(ref, {}) if ref else {}
-        session = CDPRelaySession(
+        session = _takeover_get_session(
+            state,
             tab_id=tab_id,
             holder_id=holder_id,
             bridge=bridge,
@@ -4377,7 +4441,8 @@ async def _action_takeover(  # pylint: disable=too-many-return-statements
             _takeover_page_id(state, str(kwargs.get("page_id", ""))),
             kwargs.get("index", -1),
         )
-        session = CDPRelaySession(
+        session = _takeover_get_session(
+            state,
             tab_id=tab_id,
             holder_id=holder_id,
             bridge=bridge,
@@ -4403,7 +4468,12 @@ async def _action_takeover(  # pylint: disable=too-many-return-statements
                 "tab.detach",
                 {"tabId": tab_id, "holderId": tab_holder_id},
             )
-            await bridge.release(tab_id, tab_holder_id)
+            await _takeover_close_session(
+                state,
+                tab_id=tab_id,
+                holder_id=tab_holder_id,
+                bridge=bridge,
+            )
         await bridge.release_all(holder_id)
         state.pop("takeover_tabs", None)
         return _tool_response(

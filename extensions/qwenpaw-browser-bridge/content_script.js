@@ -1,4 +1,10 @@
 (() => {
+  const CONTENT_LOADED_FLAG = "__qwenpawBrowserBridgeContentLoaded";
+  if (window[CONTENT_LOADED_FLAG]) {
+    return;
+  }
+  window[CONTENT_LOADED_FLAG] = true;
+
   const SOURCE = "qwenpaw-browser-bridge-content";
   const HOST_ID = "qwenpaw-browser-bridge-host";
 
@@ -203,8 +209,14 @@
   function bezier(start, control, end, t) {
     const oneMinusT = 1 - t;
     return {
-      x: oneMinusT * oneMinusT * start.x + 2 * oneMinusT * t * control.x + t * t * end.x,
-      y: oneMinusT * oneMinusT * start.y + 2 * oneMinusT * t * control.y + t * t * end.y,
+      x:
+        oneMinusT * oneMinusT * start.x +
+        2 * oneMinusT * t * control.x +
+        t * t * end.x,
+      y:
+        oneMinusT * oneMinusT * start.y +
+        2 * oneMinusT * t * control.y +
+        t * t * end.y,
     };
   }
 
@@ -236,7 +248,11 @@
 
   function animateCursor(target) {
     ensureBanner();
-    if (!target || typeof target.x !== "number" || typeof target.y !== "number") {
+    if (
+      !target ||
+      typeof target.x !== "number" ||
+      typeof target.y !== "number"
+    ) {
       return Promise.resolve({ ok: true, animationDone: false });
     }
 
@@ -244,9 +260,14 @@
     const end = { x: target.x, y: target.y };
     const control = {
       x: (start.x + end.x) / 2,
-      y: Math.min(start.y, end.y) - Math.max(48, Math.abs(end.x - start.x) * 0.18),
+      y:
+        Math.min(start.y, end.y) -
+        Math.max(48, Math.abs(end.x - start.x) * 0.18),
     };
-    const duration = Math.max(180, Math.min(650, Math.hypot(end.x - start.x, end.y - start.y) * 1.2));
+    const duration = Math.max(
+      180,
+      Math.min(650, Math.hypot(end.x - start.x, end.y - start.y) * 1.2),
+    );
     const started = performance.now();
 
     cursor.dataset.visible = "true";

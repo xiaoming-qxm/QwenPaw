@@ -69,10 +69,17 @@ class CDPRelaySession:
         self.closed_by_watchdog = False
         self.paused = False
         self.last_snapshot: dict[str, Any] | None = None
+        self._registered_bridge_handlers: list[
+            tuple[str, Callable[[dict[str, Any]], Any]]
+        ] = []
         if hasattr(self.bridge, "add_event_listener"):
-            self.bridge.add_event_listener("hitl.paused", self._on_hitl_paused)
-            self.bridge.add_event_listener("hitl.resumed", self._on_hitl_resumed)
-            self.bridge.add_event_listener("hitl.stopped", self._on_hitl_stopped)
+            for method, handler in (
+                ("hitl.paused", self._on_hitl_paused),
+                ("hitl.resumed", self._on_hitl_resumed),
+                ("hitl.stopped", self._on_hitl_stopped),
+            ):
+                self.bridge.add_event_listener(method, handler)
+                self._registered_bridge_handlers.append((method, handler))
         self._start_heartbeat()
         self._start_watchdog()
 
@@ -151,6 +158,11 @@ class CDPRelaySession:
                 task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await task
+        if hasattr(self.bridge, "remove_event_listener"):
+            for method, handler in self._registered_bridge_handlers:
+                with contextlib.suppress(ValueError):
+                    self.bridge.remove_event_listener(method, handler)
+        self._registered_bridge_handlers.clear()
         await self.bridge.release(self.tab_id, self.holder_id)
 
     def _event_matches(self, params: dict[str, Any]) -> bool:

@@ -81,14 +81,19 @@ function detachDebugger(tabId) {
 
 function sendCdp(tabId, method, params) {
   return new Promise((resolve, reject) => {
-    chrome.debugger.sendCommand(debuggerTarget(tabId), method, params || {}, (result) => {
-      if (chrome.runtime.lastError) {
-        reject(new Error(chrome.runtime.lastError.message));
-        return;
-      }
+    chrome.debugger.sendCommand(
+      debuggerTarget(tabId),
+      method,
+      params || {},
+      (result) => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message));
+          return;
+        }
 
-      resolve(result || {});
-    });
+        resolve(result || {});
+      },
+    );
   });
 }
 
@@ -99,7 +104,8 @@ function listTabs(queryInfo) {
 function createTab(params) {
   return chrome.tabs.create({
     url: params && params.url ? params.url : "about:blank",
-    active: params && params.active !== undefined ? Boolean(params.active) : true,
+    active:
+      params && params.active !== undefined ? Boolean(params.active) : true,
   });
 }
 
@@ -110,13 +116,31 @@ async function ensureContentScript(tabId) {
   });
 }
 
+function missingContentScriptReceiver(error) {
+  const message = error && error.message ? error.message : String(error || "");
+  return (
+    message.includes("Receiving end does not exist") ||
+    message.includes("Could not establish connection")
+  );
+}
+
 async function sendBannerMessage(tabId, method, params) {
-  await ensureContentScript(tabId);
-  return chrome.tabs.sendMessage(tabId, {
+  const message = {
     source: "qwenpaw-browser-bridge",
     method,
     params: params || {},
-  });
+  };
+
+  try {
+    return await chrome.tabs.sendMessage(tabId, message);
+  } catch (error) {
+    if (!missingContentScriptReceiver(error)) {
+      throw error;
+    }
+  }
+
+  await ensureContentScript(tabId);
+  return chrome.tabs.sendMessage(tabId, message);
 }
 
 async function cleanupOrphans() {
@@ -169,7 +193,7 @@ async function handleMessage(message) {
       case "cdp.send":
         return jsonRpcResult(
           id,
-          await sendCdp(params.tabId, params.method, params.params || {})
+          await sendCdp(params.tabId, params.method, params.params || {}),
         );
       case "tabs.list":
         return jsonRpcResult(id, await listTabs(params.query || {}));
@@ -182,12 +206,12 @@ async function handleMessage(message) {
       case "banner.show":
         return jsonRpcResult(
           id,
-          await sendBannerMessage(params.tabId, "banner.show", params)
+          await sendBannerMessage(params.tabId, "banner.show", params),
         );
       case "banner.hide":
         return jsonRpcResult(
           id,
-          await sendBannerMessage(params.tabId, "banner.hide", params)
+          await sendBannerMessage(params.tabId, "banner.hide", params),
         );
       default:
         return jsonRpcError(id, -32601, "Method not found");
@@ -221,7 +245,9 @@ function connectNative() {
     scheduleReconnect();
   });
 
-  sendEvent("bridge.connected", { version: chrome.runtime.getManifest().version });
+  sendEvent("bridge.connected", {
+    version: chrome.runtime.getManifest().version,
+  });
 }
 
 chrome.debugger.onEvent.addListener((source, method, params) => {
