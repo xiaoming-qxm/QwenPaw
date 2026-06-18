@@ -39,6 +39,7 @@ repos:
           | ^docs
           | \.html$
           | .*/skills/.*
+          | ^plugins/bundle/
           | ^e2e/
           )
         args: [

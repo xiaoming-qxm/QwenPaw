@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Shared isolation fixtures for plugin unit tests."""
+# pylint: disable=protected-access
 
 from __future__ import annotations
 

@@ -49,7 +49,10 @@ def load_browser_takeover_submodule(name: str) -> ModuleType:
     return module
 
 
-def export_public(module: ModuleType, target_globals: dict[str, object]) -> None:
+def export_public(
+    module: ModuleType,
+    target_globals: dict[str, object],
+) -> None:
     """Copy public module attributes into a shim module's globals."""
     public_names = [
         name
