@@ -20,7 +20,9 @@ from qwenpaw.cli.extension_cmd import (
     setup_extension_files,
 )
 
-router = APIRouter(tags=["nm-bridge"])
+ws_router = APIRouter(tags=["nm-bridge"])
+api_router = APIRouter(tags=["nm-bridge"])
+router = api_router
 
 DEFAULT_CONFIG_PATH = Path.home() / ".qwenpaw" / "nm-bridge.json"
 
@@ -93,12 +95,12 @@ def _resolve_bridge(websocket: WebSocket) -> Any | None:
     return get_nm_bridge()
 
 
-@router.on_event("startup")
+@ws_router.on_event("startup")
 async def startup_nm_bridge() -> None:
     _expected_token()
 
 
-@router.websocket("/ws/nm-bridge")
+@ws_router.websocket("/ws/nm-bridge")
 async def nm_bridge_ws(websocket: WebSocket) -> None:
     """Accept the Native Messaging host WebSocket connection."""
     global _connected, _connected_since
@@ -153,12 +155,12 @@ def get_extension_status() -> dict[str, Any]:
     }
 
 
-@router.get("/extension/status")
+@api_router.get("/extension/status")
 async def extension_status() -> dict[str, Any]:
     return get_extension_status()
 
 
-@router.post("/extension/setup")
+@api_router.post("/extension/setup")
 async def extension_setup(request: ExtensionSetupRequest) -> dict[str, Any]:
     result = setup_extension_files(
         install_mode=request.install_mode,

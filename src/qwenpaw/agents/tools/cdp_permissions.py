@@ -66,10 +66,10 @@ DEFAULT_POLICIES: dict[str, str] = {
     "input": "allow",
     "navigate": "ask_new_domain",
     "evaluate": "deny",
-    "storage": "ask",
+    "storage": "deny",
     "network": "ask",
     "download_upload": "ask",
-    "browser_control": "ask",
+    "browser_control": "deny",
     "debugger": "deny",
     "unknown": "deny",
 }
@@ -164,9 +164,10 @@ def load_permissions(
         return PermissionsConfig()
 
     raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    capabilities = raw.get("capabilities") or {}
-    domains = raw.get("domains") or []
-    approved_domains = raw.get("approved_domains") or []
+    takeover = raw.get("takeover") or raw
+    capabilities = takeover.get("capabilities") or {}
+    domains = takeover.get("domain_rules") or takeover.get("domains") or []
+    approved_domains = takeover.get("approved_domains") or []
 
     return PermissionsConfig(
         capability_rules={

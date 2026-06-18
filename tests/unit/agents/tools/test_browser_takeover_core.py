@@ -1,18 +1,23 @@
 # -*- coding: utf-8 -*-
 """Focused coverage for Chrome takeover browser plumbing."""
 
+# pylint: disable=protected-access
+
 from __future__ import annotations
 
 import asyncio
 import json
 from collections import defaultdict
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
+from qwenpaw.agents.tools import browser_control
 from qwenpaw.agents.tools.browser_control import browser_use
 from qwenpaw.agents.tools.browser_snapshot import from_cdp_ax_tree
 from qwenpaw.agents.tools.cdp_permissions import (
+    DEFAULT_POLICIES,
     PermissionsConfig,
     check_permission,
     load_permissions,
@@ -248,6 +253,65 @@ async def test_cdp_relay_approval_callback_tracks_new_domain() -> None:
 
 
 @pytest.mark.asyncio
+async def test_takeover_session_uses_request_context_for_approval(
+    monkeypatch,
+) -> None:
+    class Bridge(_FakeRelayBridge):
+        connected = True
+
+        async def claim_tab(self, _tab_id: int, _holder_id: str) -> bool:
+            return True
+
+    approvals: list[dict[str, Any]] = []
+
+    class ApprovalService:
+        async def create_pending_summary(self, **kwargs: Any) -> Any:
+            approvals.append(kwargs)
+            return SimpleNamespace(request_id="approval-1")
+
+        async def wait_for_approval(
+            self,
+            _request_id: str,
+            _timeout_seconds: float,
+        ) -> Any:
+            from qwenpaw.security.tool_guard.approval import ApprovalDecision
+
+            return ApprovalDecision.APPROVED
+
+    from qwenpaw.agents.tools import nm_bridge
+    from qwenpaw.app import agent_context
+
+    def get_approval_service() -> ApprovalService:
+        return ApprovalService()
+
+    bridge = Bridge()
+    monkeypatch.setattr(nm_bridge, "get_nm_bridge", lambda: bridge)
+    monkeypatch.setattr(
+        "qwenpaw.app.approvals.get_approval_service",
+        get_approval_service,
+    )
+    agent_context.set_current_agent_id("agent-1")
+    agent_context.set_current_session_id("session-1")
+    agent_context.set_current_root_session_id("root-session-1")
+
+    state: dict[str, Any] = {"workspace_id": "workspace-1"}
+    await browser_control._action_takeover(
+        state,
+        "claim_tab",
+        page_id="tab_3",
+        index=-1,
+    )
+    session = state["takeover_sessions"]["3"]
+
+    await session.send("Page.navigate", {"url": "https://example.com/a"})
+
+    assert approvals
+    assert approvals[0]["session_id"] == "session-1"
+    assert approvals[0]["root_session_id"] == "root-session-1"
+    assert bridge.requests[-1][0] == "cdp.send"
+
+
+@pytest.mark.asyncio
 async def test_cdp_relay_pause_resume_and_watchdog_release() -> None:
     bridge = _EventBridge()
     session = CDPRelaySession(
@@ -289,6 +353,28 @@ async def test_cdp_relay_watchdog_releases_idle_session() -> None:
     assert bridge.get_lease(3) is None
 
 
+@pytest.mark.asyncio
+async def test_cdp_relay_watchdog_detaches_and_hides_banner() -> None:
+    bridge = _FakeRelayBridge()
+    session = CDPRelaySession(
+        3,
+        "holder",
+        bridge,
+        heartbeat_interval=0,
+        watchdog_interval=0.01,
+        idle_timeout=0.01,
+    )
+
+    await asyncio.sleep(0.03)
+
+    assert session.closed_by_watchdog is True
+    assert bridge.requests[:2] == [
+        ("tab.detach", {"tabId": 3, "holderId": "holder"}),
+        ("banner.hide", {"tabId": 3}),
+    ]
+    assert bridge.released == [(3, "holder")]
+
+
 def test_cdp_permission_defaults_and_domain_severity(tmp_path) -> None:
     assert check_permission("Accessibility.getFullAXTree").decision == "allow"
     assert check_permission("Runtime.evaluate").decision == "deny"
@@ -328,6 +414,140 @@ def test_cdp_permission_defaults_and_domain_severity(tmp_path) -> None:
         {"pattern": "*.internal.test", "policy": "deny"},
     ]
     assert loaded.approved_domains == {"example.com"}
+
+
+def test_cdp_default_policies_deny_storage_and_browser_control() -> None:
+    assert DEFAULT_POLICIES["storage"] == "deny"
+    assert DEFAULT_POLICIES["browser_control"] == "deny"
+
+
+def test_load_permissions_accepts_takeover_nested_schema(tmp_path) -> None:
+    config_path = tmp_path / "browser-permissions.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "takeover:",
+                "  capabilities:",
+                "    storage: ask",
+                "  domain_rules:",
+                "    - pattern: '*.nested.test'",
+                "      policy: deny",
+                "  approved_domains:",
+                "    - allowed.test",
+            ],
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = load_permissions(config_path)
+
+    assert loaded.capability_rules == {"storage": "ask"}
+    assert loaded.domain_rules == [
+        {"pattern": "*.nested.test", "policy": "deny"},
+    ]
+    assert loaded.approved_domains == {"allowed.test"}
+
+
+@pytest.mark.asyncio
+async def test_claim_tab_denied_domain_does_not_create_tab(
+    monkeypatch,
+) -> None:
+    class Bridge:
+        connected = True
+
+        def __init__(self) -> None:
+            self.requests: list[tuple[str, dict[str, Any]]] = []
+            self.claimed: list[tuple[int, str]] = []
+
+        async def request(
+            self,
+            method: str,
+            params: dict[str, Any] | None = None,
+        ) -> dict[str, Any]:
+            self.requests.append((method, params or {}))
+            if method == "tab.create":
+                return {"jsonrpc": "2.0", "result": {"id": 9}}
+            return {"jsonrpc": "2.0", "result": {"ok": True}}
+
+        async def claim_tab(self, tab_id: int, holder_id: str) -> bool:
+            self.claimed.append((tab_id, holder_id))
+            return True
+
+    from qwenpaw.agents.tools import cdp_permissions, nm_bridge
+
+    bridge = Bridge()
+    monkeypatch.setattr(nm_bridge, "get_nm_bridge", lambda: bridge)
+    monkeypatch.setattr(
+        cdp_permissions,
+        "load_permissions",
+        lambda: PermissionsConfig(
+            domain_rules=[
+                {"pattern": "denied.example.com", "policy": "deny"},
+            ],
+        ),
+    )
+
+    response = await browser_control._action_takeover(
+        {"workspace_id": "workspace-1"},
+        "claim_tab",
+        url="https://denied.example.com/path",
+    )
+    payload = json.loads(response.content[0].text)
+
+    assert payload["ok"] is False
+    assert "denied.example.com" in payload["error"]
+    assert not any(method == "tab.create" for method, _ in bridge.requests)
+    assert not bridge.claimed
+
+
+@pytest.mark.asyncio
+async def test_claim_tab_attach_rollback_releases_lease(
+    monkeypatch,
+) -> None:
+    class Bridge:
+        connected = True
+
+        def __init__(self) -> None:
+            self.requests: list[tuple[str, dict[str, Any]]] = []
+            self.claimed: list[tuple[int, str]] = []
+            self.released: list[tuple[int, str]] = []
+
+        async def request(
+            self,
+            method: str,
+            params: dict[str, Any] | None = None,
+        ) -> dict[str, Any]:
+            self.requests.append((method, params or {}))
+            if method == "tab.attach":
+                return {
+                    "jsonrpc": "2.0",
+                    "error": {"message": "DevTools conflict"},
+                }
+            return {"jsonrpc": "2.0", "result": {"ok": True}}
+
+        async def claim_tab(self, tab_id: int, holder_id: str) -> bool:
+            self.claimed.append((tab_id, holder_id))
+            return True
+
+        async def release(self, tab_id: int, holder_id: str) -> None:
+            self.released.append((tab_id, holder_id))
+
+    from qwenpaw.agents.tools import nm_bridge
+
+    bridge = Bridge()
+    monkeypatch.setattr(nm_bridge, "get_nm_bridge", lambda: bridge)
+
+    response = await browser_control._action_takeover(
+        {"workspace_id": "workspace-1"},
+        "claim_tab",
+        page_id="tab_7",
+    )
+    payload = json.loads(response.content[0].text)
+
+    assert payload["ok"] is False
+    assert "DevTools conflict" in payload["error"]
+    assert bridge.claimed == [(7, "browser_use:workspace-1")]
+    assert bridge.released == [(7, "browser_use:workspace-1")]
 
 
 def test_from_cdp_ax_tree_builds_refs_and_prunes_ignored_nodes() -> None:

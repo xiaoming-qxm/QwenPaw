@@ -24,7 +24,7 @@ import subprocess
 import sys
 import time
 from typing import Any, Optional
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 from urllib import request as urllib_request
 
 from agentscope.message import TextBlock
@@ -1619,7 +1619,7 @@ async def _action_click(  # pylint: disable=too-many-branches
         mods = _parse_json_param(modifiers_json, [])
         if not isinstance(mods, list):
             mods = []
-        kwargs = {
+        kwargs: dict[str, Any] = {
             "button": (
                 button if button in ("left", "right", "middle") else "left"
             ),
@@ -2448,7 +2448,7 @@ def _direct_url_download_rejected_response(
 ) -> ToolChunk:
     payload = {
         "ok": False,
-        "error": error.reason,
+        "error": error.message or str(error),
         "hint": (
             "Take a snapshot, pass the download control's ref, and let the "
             "browser download event save the file directly."
@@ -3542,9 +3542,11 @@ async def _action_clear_browser_cache(state: dict) -> ToolChunk:
                     _get_executor(),
                     lambda: context.new_cdp_session(page),
                 )
+                assert cdp is not None
+                cdp_session = cdp
                 await loop.run_in_executor(
                     _get_executor(),
-                    lambda: cdp.send("Network.clearBrowserCache"),
+                    lambda: cdp_session.send("Network.clearBrowserCache"),
                 )
             else:
                 cdp = await context.new_cdp_session(page)
@@ -3848,7 +3850,7 @@ async def _action_batch(  # pylint: disable=too-many-nested-blocks
             if resp is not None and resp.content:
                 try:
                     # ToolChunk content is a list of TextBlocks; extract text from the first one
-                    raw_text = resp.content[0]["text"]
+                    raw_text = str(getattr(resp.content[0], "text", ""))
                     resp_data = json.loads(raw_text)
                     if isinstance(resp_data, dict):
                         step_result.update(resp_data)
@@ -4086,12 +4088,65 @@ def _takeover_sessions(state: dict) -> dict[str, Any]:
     return sessions
 
 
+def _takeover_request_context() -> dict[str, Any]:
+    context: dict[str, Any] = {}
+
+    try:
+        from ...tool_calls import get_call_context
+
+        call_context = get_call_context()
+    except Exception:
+        call_context = None
+
+    if call_context is not None:
+        context.update(
+            {
+                "tool_call_id": call_context.tool_call_id,
+                "session_id": call_context.session_id,
+                "root_session_id": call_context.root_session_id,
+                "agent_id": call_context.agent_id,
+            },
+        )
+
+    try:
+        from ...app.agent_context import (
+            get_current_agent_id,
+            get_current_root_session_id,
+            get_current_session_id,
+        )
+
+        context.setdefault("agent_id", get_current_agent_id())
+        session_id = get_current_session_id()
+        if session_id:
+            context.setdefault("session_id", session_id)
+        root_session_id = get_current_root_session_id()
+        if root_session_id:
+            context.setdefault("root_session_id", root_session_id)
+    except Exception:
+        pass
+
+    try:
+        from ...config.context import get_current_session_id as get_config_sid
+
+        session_id = get_config_sid()
+        if session_id:
+            context.setdefault("session_id", session_id)
+            context.setdefault("root_session_id", session_id)
+    except Exception:
+        pass
+
+    if context.get("session_id"):
+        context.setdefault("root_session_id", context["session_id"])
+    return context
+
+
 def _takeover_get_session(
     state: dict,
     *,
     tab_id: int,
     holder_id: str,
     bridge: Any,
+    request_context: dict[str, Any] | None = None,
 ) -> Any:
     from .cdp_relay import CDPRelaySession
 
@@ -4105,6 +4160,7 @@ def _takeover_get_session(
         tab_id=tab_id,
         holder_id=holder_id,
         bridge=bridge,
+        request_context=request_context,
     )
     sessions[key] = session
     return session
@@ -4156,7 +4212,19 @@ def _takeover_jsonrpc_result(response: Any) -> Any:
     return response
 
 
+def _takeover_jsonrpc_error(response: Any) -> str | None:
+    if not isinstance(response, dict) or "error" not in response:
+        return None
+    error = response["error"]
+    if isinstance(error, dict):
+        return str(error.get("message") or "JSON-RPC error")
+    return str(error)
+
+
 def _takeover_created_tab_id(response: Any) -> int:
+    error = _takeover_jsonrpc_error(response)
+    if error:
+        raise ValueError(error)
     result = _takeover_jsonrpc_result(response)
     if isinstance(result, dict):
         value = result.get("id") or result.get("tabId")
@@ -4167,6 +4235,85 @@ def _takeover_created_tab_id(response: Any) -> int:
     if isinstance(value, str) and value.isdigit():
         return int(value)
     raise ValueError("tab.create did not return a tab id")
+
+
+async def _takeover_request_domain_approval(
+    request_context: dict[str, Any],
+    request: dict[str, Any],
+) -> bool:
+    session_id = str(request_context.get("session_id") or "")
+    if not session_id:
+        return False
+
+    from qwenpaw.app.approvals import get_approval_service
+    from qwenpaw.app.approvals.models import ApprovalRequestSummary
+    from qwenpaw.constant import TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS
+    from qwenpaw.security.tool_guard.approval import ApprovalDecision
+
+    svc = get_approval_service()
+    pending = await svc.create_pending_summary(
+        session_id=session_id,
+        root_session_id=str(
+            request_context.get("root_session_id") or session_id,
+        ),
+        owner_agent_id=str(request_context.get("root_agent_id") or ""),
+        user_id=str(request_context.get("user_id") or ""),
+        channel=str(request_context.get("channel") or ""),
+        agent_id=str(request_context.get("agent_id") or "unknown"),
+        summary=ApprovalRequestSummary(
+            source_type="browser_takeover_cdp",
+            name="browser_use.takeover",
+            severity="medium",
+            findings_count=1,
+            result_summary=(
+                "Chrome takeover wants to open a new tab on domain "
+                f"{request['domain']}."
+            ),
+            payload=request,
+        ),
+        timeout_seconds=TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS,
+        extra={
+            "tool_call": {
+                "id": str(request_context.get("tool_call_id") or ""),
+                "name": "browser_use",
+                "input": request,
+            },
+        },
+    )
+    decision = await svc.wait_for_approval(
+        pending.request_id,
+        TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS,
+    )
+    return decision == ApprovalDecision.APPROVED
+
+
+async def _takeover_tab_create_denial_reason(
+    url: str,
+    request_context: dict[str, Any],
+) -> str | None:
+    from .cdp_permissions import check_permission, load_permissions
+
+    permissions = load_permissions()
+    result = check_permission("Page.navigate", url, permissions)
+    if result.decision == "allow":
+        return None
+
+    domain = result.domain or (urlparse(url).hostname or "").lower() or url
+    if result.decision == "deny":
+        return f"Domain '{domain}' denied by browser-permissions policy"
+
+    request = {
+        "policy": result.decision,
+        "method": "Page.navigate",
+        "url": url,
+        "domain": domain,
+    }
+    if await _takeover_request_domain_approval(request_context, request):
+        if result.domain:
+            permissions.approved_domains.add(result.domain)
+        return None
+
+    return f"Domain '{domain}' not approved by user"
 
 
 def _takeover_ref_backend_node_id(target: dict[str, Any]) -> int | None:
@@ -4255,6 +4402,7 @@ async def _action_takeover(  # pylint: disable=too-many-return-statements
 
     bridge = get_nm_bridge()
     holder_id = _takeover_holder_id(state)
+    request_context = _takeover_request_context()
     action = (action or "").strip().lower()
 
     if action == "start":
@@ -4288,6 +4436,22 @@ async def _action_takeover(  # pylint: disable=too-many-return-statements
         raw_page_id = str(kwargs.get("page_id", "")).strip() or "default"
         url = str(kwargs.get("url") or "").strip()
         if url and raw_page_id == "default" and kwargs.get("index", -1) < 0:
+            denial_reason = await _takeover_tab_create_denial_reason(
+                url,
+                request_context,
+            )
+            if denial_reason:
+                return _tool_response(
+                    json.dumps(
+                        {
+                            "ok": False,
+                            "mode": "takeover",
+                            "error": denial_reason,
+                        },
+                        ensure_ascii=False,
+                        indent=2,
+                    ),
+                )
             response = await bridge.request(
                 "tab.create",
                 {"url": url, "active": True},
@@ -4297,15 +4461,39 @@ async def _action_takeover(  # pylint: disable=too-many-return-statements
             page_id = _takeover_page_id(state, raw_page_id)
             tab_id = _takeover_tab_id(page_id, kwargs.get("index", -1))
         await bridge.claim_tab(tab_id, holder_id)
-        await bridge.request(
-            "tab.attach",
-            {"tabId": tab_id, "holderId": holder_id},
-        )
+        try:
+            attach_response = await bridge.request(
+                "tab.attach",
+                {"tabId": tab_id, "holderId": holder_id},
+            )
+            attach_error = _takeover_jsonrpc_error(attach_response)
+            if attach_error:
+                raise RuntimeError(attach_error)
+        except Exception as exc:
+            try:
+                await bridge.release(tab_id, holder_id)
+            except Exception:
+                logger.debug(
+                    "Failed to release takeover lease after attach failure",
+                    exc_info=True,
+                )
+            return _tool_response(
+                json.dumps(
+                    {
+                        "ok": False,
+                        "mode": "takeover",
+                        "error": f"Failed to attach tab {tab_id}: {exc!s}",
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+            )
         _takeover_get_session(
             state,
             tab_id=tab_id,
             holder_id=holder_id,
             bridge=bridge,
+            request_context=request_context,
         )
         await bridge.request(
             "banner.show",
@@ -4362,6 +4550,7 @@ async def _action_takeover(  # pylint: disable=too-many-return-statements
             tab_id=tab_id,
             holder_id=holder_id,
             bridge=bridge,
+            request_context=request_context,
         )
         ax_tree = await session.send("Accessibility.getFullAXTree")
         from .browser_snapshot import from_cdp_ax_tree
@@ -4395,6 +4584,7 @@ async def _action_takeover(  # pylint: disable=too-many-return-statements
             tab_id=tab_id,
             holder_id=holder_id,
             bridge=bridge,
+            request_context=request_context,
         )
         x, y = await _takeover_resolve_point(
             session,
@@ -4425,6 +4615,7 @@ async def _action_takeover(  # pylint: disable=too-many-return-statements
             tab_id=tab_id,
             holder_id=holder_id,
             bridge=bridge,
+            request_context=request_context,
         )
         if ref:
             x, y = await _takeover_resolve_point(session, target, ref=ref)
@@ -4451,6 +4642,7 @@ async def _action_takeover(  # pylint: disable=too-many-return-statements
             tab_id=tab_id,
             holder_id=holder_id,
             bridge=bridge,
+            request_context=request_context,
         )
         result = await session.send(
             "Page.captureScreenshot",

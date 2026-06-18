@@ -40,7 +40,10 @@ from .routers.approval import router as approval_router
 from .routers.coding_mode import router as coding_mode_router
 from .routers.tool_calls import router as tool_calls_router
 from .routers.voice import voice_router
-from .routers.nm_bridge import router as nm_bridge_root_router
+from .routers.nm_bridge import (
+    api_router as nm_bridge_api_router,
+    ws_router as nm_bridge_ws_router,
+)
 from ..envs import load_envs_into_environ
 from ..providers.provider_manager import ProviderManager
 from ..local_models.manager import LocalModelManager
@@ -807,6 +810,10 @@ app.include_router(coding_mode_router, prefix="/api")
 agent_scoped_router = create_agent_scoped_router()
 app.include_router(agent_scoped_router, prefix="/api")
 
+# Native Messaging REST endpoints: /api/extension/status and
+# /api/extension/setup, protected by the API auth middleware.
+app.include_router(nm_bridge_api_router, prefix="/api", tags=["nm-bridge"])
+
 app.include_router(
     _agent_router,
     prefix="/api/agent",
@@ -819,7 +826,7 @@ app.include_router(voice_router, tags=["voice"])
 
 # Native Messaging bridge: Chrome extension endpoint at root-level
 # /ws/nm-bridge.
-app.include_router(nm_bridge_root_router, tags=["nm-bridge"])
+app.include_router(nm_bridge_ws_router, tags=["nm-bridge"])
 
 # Custom channel routes (before SPA catch-all to ensure route priority)
 register_custom_channel_routes(app)

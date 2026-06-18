@@ -14,6 +14,11 @@ import click
 
 NATIVE_HOST_NAME = "com.qwenpaw.browser"
 EXTENSION_ID = "nflcgkfjgoiipklkpenmbiificbakoch"
+CWS_EXTENSION_ID = EXTENSION_ID
+CWS_URL = (
+    "https://chromewebstore.google.com/detail/"
+    f"qwenpaw-browser-bridge/{CWS_EXTENSION_ID}"
+)
 DEFAULT_WS_URL = "ws://127.0.0.1:8088/ws/nm-bridge"
 
 
@@ -97,7 +102,10 @@ def _write_host(qwenpaw_home: Path) -> Path:
     return host
 
 
-def _write_native_manifest(host_path: Path) -> Path:
+def _write_native_manifest(
+    host_path: Path,
+    extension_id: str = EXTENSION_ID,
+) -> Path:
     manifest_path = native_manifest_path()
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     manifest = {
@@ -105,7 +113,7 @@ def _write_native_manifest(host_path: Path) -> Path:
         "description": "QwenPaw Chrome browser bridge Native Messaging host",
         "path": str(host_path),
         "type": "stdio",
-        "allowed_origins": [f"chrome-extension://{EXTENSION_ID}/"],
+        "allowed_origins": [f"chrome-extension://{extension_id}/"],
     }
     manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     manifest_path.chmod(0o600)
@@ -134,22 +142,33 @@ def setup_extension_files(
     if reset:
         _uninstall(qwenpaw_home)
 
+    if install_mode not in {"unpacked", "cws"}:
+        raise ValueError("install_mode must be 'unpacked' or 'cws'")
+
     token = secrets.token_urlsafe(32)
-    extension_dir = _copy_extension(qwenpaw_home)
+    extension_dir = (
+        _copy_extension(qwenpaw_home) if install_mode == "unpacked" else None
+    )
     config_path = _write_nm_config(qwenpaw_home, token, ws_url)
     host_path = _write_host(qwenpaw_home)
-    manifest_path = _write_native_manifest(host_path)
-    return {
+    extension_id = CWS_EXTENSION_ID if install_mode == "cws" else EXTENSION_ID
+    manifest_path = _write_native_manifest(host_path, extension_id)
+    result: dict[str, str | bool] = {
         "installed": True,
         "install_mode": install_mode,
-        "extension_id": EXTENSION_ID,
-        "extension_dir": str(extension_dir),
+        "extension_id": extension_id,
+        "extension_dir": str(extension_dir)
+        if extension_dir is not None
+        else "",
         "native_manifest_path": str(manifest_path),
         "native_host_path": str(host_path),
         "config_path": str(config_path),
         "ws_url": ws_url,
         "chrome_extensions_url": "chrome://extensions",
     }
+    if install_mode == "cws":
+        result["cws_url"] = CWS_URL
+    return result
 
 
 def extension_install_status() -> dict[str, str | bool | None]:

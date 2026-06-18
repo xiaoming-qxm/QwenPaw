@@ -9,6 +9,18 @@ let cleanupEpoch = 0;
 let reconnectAttempts = 0;
 const managedTabs = new Set();
 
+async function persistManagedTabs() {
+  await chrome.storage.session.set({ managedTabs: Array.from(managedTabs) });
+}
+
+async function restoreManagedTabs() {
+  const data = await chrome.storage.session.get("managedTabs");
+  const tabIds = Array.isArray(data.managedTabs) ? data.managedTabs : [];
+  for (const tabId of tabIds) {
+    managedTabs.add(tabId);
+  }
+}
+
 function jsonRpcResult(id, result) {
   return { jsonrpc: JSONRPC_VERSION, id, result };
 }
@@ -48,22 +60,24 @@ function debuggerTarget(tabId) {
   return { tabId };
 }
 
-function attachDebugger(tabId) {
-  return new Promise((resolve, reject) => {
+async function attachDebugger(tabId) {
+  await new Promise((resolve, reject) => {
     chrome.debugger.attach(debuggerTarget(tabId), "1.3", () => {
       if (chrome.runtime.lastError) {
         reject(new Error(chrome.runtime.lastError.message));
         return;
       }
 
-      managedTabs.add(tabId);
-      resolve({ tabId, attached: true });
+      resolve();
     });
   });
+  managedTabs.add(tabId);
+  await persistManagedTabs();
+  return { tabId, attached: true };
 }
 
-function detachDebugger(tabId) {
-  return new Promise((resolve, reject) => {
+async function detachDebugger(tabId) {
+  await new Promise((resolve, reject) => {
     chrome.debugger.detach(debuggerTarget(tabId), () => {
       if (chrome.runtime.lastError) {
         const message = chrome.runtime.lastError.message || "";
@@ -73,10 +87,12 @@ function detachDebugger(tabId) {
         }
       }
 
-      managedTabs.delete(tabId);
-      resolve({ tabId, detached: true });
+      resolve();
     });
   });
+  managedTabs.delete(tabId);
+  await persistManagedTabs();
+  return { tabId, detached: true };
 }
 
 function sendCdp(tabId, method, params) {
@@ -97,8 +113,14 @@ function sendCdp(tabId, method, params) {
   });
 }
 
-function listTabs(queryInfo) {
-  return chrome.tabs.query(queryInfo || {});
+function isAttachableTab(tab) {
+  const url = (tab && tab.url) || "";
+  return url.startsWith("http://") || url.startsWith("https://");
+}
+
+async function listTabs(queryInfo) {
+  const tabs = await chrome.tabs.query(queryInfo || {});
+  return tabs.filter(isAttachableTab);
 }
 
 function createTab(params) {
@@ -157,6 +179,13 @@ async function cleanupOrphans() {
     } catch (error) {
       console.warn("Failed to detach tab during cleanup", tabId, error);
       managedTabs.delete(tabId);
+      await persistManagedTabs();
+    }
+
+    try {
+      await sendBannerMessage(tabId, "banner.hide", {});
+    } catch (error) {
+      console.debug("Failed to hide banner during cleanup", tabId, error);
     }
   }
 }
@@ -262,16 +291,36 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
   });
 });
 
-chrome.debugger.onDetach.addListener((source, reason) => {
+chrome.debugger.onDetach.addListener(async (source, reason) => {
   if (!source || source.tabId === undefined) {
     return;
   }
 
   managedTabs.delete(source.tabId);
+  await persistManagedTabs();
   sendEvent("tab.detached", {
     tabId: source.tabId,
     reason,
   });
+});
+
+chrome.webNavigation.onCompleted.addListener(async (details) => {
+  if (!details || details.frameId !== 0 || !managedTabs.has(details.tabId)) {
+    return;
+  }
+  if (!isAttachableTab({ url: details.url })) {
+    return;
+  }
+
+  try {
+    await ensureContentScript(details.tabId);
+  } catch (error) {
+    console.debug(
+      "Failed to re-inject content script after navigation",
+      details.tabId,
+      error,
+    );
+  }
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -320,4 +369,12 @@ chrome.runtime.onStartup.addListener(() => {
   connectNative();
 });
 
-connectNative();
+async function initialize() {
+  await restoreManagedTabs();
+  if (managedTabs.size > 0 && !nmPort) {
+    await cleanupOrphans();
+  }
+  connectNative();
+}
+
+initialize();

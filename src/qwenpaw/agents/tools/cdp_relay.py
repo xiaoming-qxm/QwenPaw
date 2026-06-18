@@ -172,6 +172,13 @@ class CDPRelaySession:
                 with contextlib.suppress(ValueError):
                     self.bridge.remove_event_listener(method, handler)
         self._registered_bridge_handlers.clear()
+        with contextlib.suppress(Exception):
+            await self.bridge.request(
+                "tab.detach",
+                {"tabId": self.tab_id, "holderId": self.holder_id},
+            )
+        with contextlib.suppress(Exception):
+            await self.bridge.request("banner.hide", {"tabId": self.tab_id})
         await self.bridge.release(self.tab_id, self.holder_id)
 
     def _event_matches(self, params: dict[str, Any]) -> bool:
