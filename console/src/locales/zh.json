@@ -71,8 +71,19 @@
     "browserExtension": "浏览器扩展"
   },
   "browserExtension": {
-    "title": "浏览器扩展",
+    "title": "浏览器接管",
     "desc": "准备 Chrome 扩展和 Native Messaging 桥接文件，然后在 Chrome 开发者模式中加载未打包扩展。",
+    "hero": {
+      "title": "浏览器接管",
+      "subtitle": "让 QwenPaw 在任务需要浏览器时读取页面、点击控件并操作 Chrome。",
+      "installCws": "从 Chrome 商店安装",
+      "devMode": "我是开发者，使用本地加载"
+    },
+    "progress": {
+      "installed": "已安装",
+      "connecting": "连接中",
+      "ready": "就绪"
+    },
     "status": {
       "installed": "已安装",
       "notInstalled": "未安装",
@@ -82,7 +93,43 @@
     "actions": {
       "installRefresh": "一键安装/刷新",
       "installSuccess": "扩展文件已准备好",
-      "installFailed": "扩展安装失败"
+      "installFailed": "扩展安装失败",
+      "refreshStatus": "刷新状态"
+    },
+    "connecting": {
+      "title": "等待 Chrome 连接",
+      "message": "打开或重新加载 Chrome 中的 QwenPaw 扩展。此页面会每 3 秒检查一次桥接状态。",
+      "tipsTitle": "还没有连接？",
+      "tips": {
+        "enable": "确认已启用开发者模式。",
+        "click": "点击一次 Chrome 工具栏中的 QwenPaw 扩展图标。",
+        "reload": "重新加载扩展，或重新打开目标浏览器标签页。"
+      }
+    },
+    "ready": {
+      "title": "浏览器桥接就绪",
+      "version": "扩展版本",
+      "versionUnknown": "未知",
+      "connectedSince": "连接时间",
+      "justNow": "刚刚",
+      "minutesAgo": "{{count}} 分钟前",
+      "hoursAgo": "{{count}} 小时前",
+      "daysAgo": "{{count}} 天前",
+      "usageTitle": "接下来可以这样用",
+      "testConnection": "测试连接",
+      "usage": {
+        "example1": "打开当前浏览器页面并总结内容。",
+        "example2": "点击这个页面上的下一个可操作按钮。",
+        "example3": "把可见的商品价格整理成表格。"
+      }
+    },
+    "developer": {
+      "title": "开发者选项",
+      "installMode": "安装模式",
+      "wsUrl": "桥接地址",
+      "regenerate": "重新生成文件",
+      "reset": "重置配置",
+      "unpackedTitle": "本地未打包加载"
     },
     "sections": {
       "paths": "安装路径",

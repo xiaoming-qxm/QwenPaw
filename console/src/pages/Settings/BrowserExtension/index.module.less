@@ -14,33 +14,140 @@
   gap: 16px;
 }
 
-.toolbar {
+.heroCard,
+.progressView,
+.connectedView {
+  width: min(100%, 720px);
+  margin: 0 auto;
+  border-radius: 8px;
+}
+
+.heroCard {
+  max-width: 600px;
+  text-align: center;
+  padding: 18px 10px;
+}
+
+.heroIcon,
+.successIcon {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 12px;
+}
+
+.heroIcon {
+  color: #1677ff;
+  background: rgba(22, 119, 255, 0.1);
+}
+
+.heroSubtitle {
+  max-width: 520px;
+  margin: 0 auto 24px;
+  color: rgba(0, 0, 0, 0.62);
+}
+
+.heroActions {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: center;
   gap: 12px;
   flex-wrap: wrap;
 }
 
-.toolbarLeft,
-.toolbarRight {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.statusGrid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 12px;
-}
-
-.statusItem {
+.progressView {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 24px;
+}
+
+.progressBody {
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.progressMessage {
+  max-width: 560px;
+  color: rgba(0, 0, 0, 0.62);
+}
+
+.tipList {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.tipList li {
+  margin: 4px 0;
+}
+
+.connectedView {
+  text-align: center;
+  border-color: rgba(82, 196, 26, 0.36);
+}
+
+.successIcon {
+  color: #389e0d;
+  background: rgba(82, 196, 26, 0.12);
+}
+
+.readyMeta {
+  margin: 18px 0 20px;
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  color: rgba(0, 0, 0, 0.64);
+}
+
+.usageSection {
+  margin: 18px 0 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: stretch;
+}
+
+.usageList {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  text-align: left;
+}
+
+.usageList > div {
   min-width: 0;
+  min-height: 72px;
+  padding: 12px;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.02);
+  color: rgba(0, 0, 0, 0.72);
+  overflow-wrap: anywhere;
+}
+
+.developerPanel {
+  width: min(100%, 920px);
+  margin: 0 auto;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.developerContent {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.modeRow {
+  display: grid;
+  grid-template-columns: minmax(128px, 180px) minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
 }
 
 .statusLabel {
@@ -75,25 +182,74 @@
   padding: 4px 8px;
 }
 
-.steps {
+.developerActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.unpackedSteps {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.02);
+}
+
+.unpackedSteps ol {
   margin: 0;
   padding-left: 20px;
 }
 
-.steps li {
+.unpackedSteps li {
   margin: 6px 0;
 }
 
 @media (max-width: 720px) {
+  .content {
+    padding: 12px;
+  }
+
+  .heroActions,
+  .developerActions,
+  .readyMeta {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .usageList {
+    grid-template-columns: 1fr;
+  }
+
+  .modeRow,
   .pathRow {
     grid-template-columns: 1fr;
   }
 }
 
 :global(.dark-mode) {
-  .pathValue {
+  .heroSubtitle,
+  .progressMessage,
+  .readyMeta {
+    color: rgba(255, 255, 255, 0.68);
+  }
+
+  .pathValue,
+  .usageList > div,
+  .unpackedSteps {
     color: rgba(255, 255, 255, 0.78);
     background: rgba(255, 255, 255, 0.08);
     border-color: rgba(255, 255, 255, 0.12);
+  }
+
+  .heroIcon {
+    background: rgba(22, 119, 255, 0.18);
+  }
+
+  .successIcon {
+    background: rgba(82, 196, 26, 0.18);
   }
 }

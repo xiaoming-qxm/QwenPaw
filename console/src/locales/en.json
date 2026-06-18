@@ -71,8 +71,19 @@
     "browserExtension": "Browser Extension"
   },
   "browserExtension": {
-    "title": "Browser Extension",
+    "title": "Browser Takeover",
     "desc": "Prepare the Chrome extension and Native Messaging bridge, then load the unpacked extension in Chrome developer mode.",
+    "hero": {
+      "title": "Browser Takeover",
+      "subtitle": "Let QwenPaw read pages, click controls, and operate Chrome when a task needs the browser.",
+      "installCws": "Install from Chrome Web Store",
+      "devMode": "I'm a developer — use local loading"
+    },
+    "progress": {
+      "installed": "Installed",
+      "connecting": "Connecting",
+      "ready": "Ready"
+    },
     "status": {
       "installed": "Installed",
       "notInstalled": "Not installed",
@@ -82,7 +93,43 @@
     "actions": {
       "installRefresh": "Install / Refresh",
       "installSuccess": "Extension files ready",
-      "installFailed": "Extension setup failed"
+      "installFailed": "Extension setup failed",
+      "refreshStatus": "Refresh Status"
+    },
+    "connecting": {
+      "title": "Waiting for Chrome to connect",
+      "message": "Open or reload the QwenPaw browser extension in Chrome. This page checks the bridge every 3 seconds.",
+      "tipsTitle": "Still not connected?",
+      "tips": {
+        "enable": "Make sure Developer mode is enabled.",
+        "click": "Click the QwenPaw extension icon in Chrome once.",
+        "reload": "Reload the extension or reopen the target browser tab."
+      }
+    },
+    "ready": {
+      "title": "Browser Bridge Active",
+      "version": "Extension version",
+      "versionUnknown": "unknown",
+      "connectedSince": "Connected",
+      "justNow": "just now",
+      "minutesAgo": "{{count}} minutes ago",
+      "hoursAgo": "{{count}} hours ago",
+      "daysAgo": "{{count}} days ago",
+      "usageTitle": "What you can do next",
+      "testConnection": "Test Connection",
+      "usage": {
+        "example1": "Open the current browser page and summarize it.",
+        "example2": "Click the next actionable button on this page.",
+        "example3": "Collect the visible product prices into a table."
+      }
+    },
+    "developer": {
+      "title": "Developer Options",
+      "installMode": "Install mode",
+      "wsUrl": "Bridge endpoint",
+      "regenerate": "Regenerate Files",
+      "reset": "Reset Config",
+      "unpackedTitle": "Local unpacked loading"
     },
     "sections": {
       "paths": "Install paths",
