@@ -165,7 +165,7 @@ class CDPRelaySession:
         for task in (self._heartbeat_task, self._watchdog_task):
             if task is not None and task is not current_task:
                 task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
+                with contextlib.suppress(asyncio.CancelledError, Exception):
                     await task
         if hasattr(self.bridge, "remove_event_listener"):
             for method, handler in self._registered_bridge_handlers:

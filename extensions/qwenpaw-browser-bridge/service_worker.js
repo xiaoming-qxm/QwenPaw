@@ -1,12 +1,32 @@
 const NATIVE_HOST = "com.qwenpaw.browser";
 const JSONRPC_VERSION = "2.0";
 const RECONNECT_ALARM = "qwenpaw-native-reconnect";
-const MAX_RECONNECT_BACKOFF_SECONDS = 300;
+const PRODUCTION_INITIAL_RECONNECT_BACKOFF_SECONDS = 30;
+const PRODUCTION_MAX_RECONNECT_BACKOFF_SECONDS = 300;
+const TAKEOVER_TAB_GROUP_TITLE = "QwenPaw";
+const TAKEOVER_TAB_GROUP_COLOR = "blue";
+
+if (typeof importScripts === "function") {
+  try {
+    importScripts("bridge_config.js");
+  } catch (error) {
+    // Optional local development config; production builds omit it.
+  }
+}
+
+const bridgeConfig = globalThis.QWENPAW_BRIDGE_CONFIG || {};
+const INITIAL_RECONNECT_BACKOFF_SECONDS =
+  Number(bridgeConfig.initialReconnectBackoffSeconds) ||
+  PRODUCTION_INITIAL_RECONNECT_BACKOFF_SECONDS;
+const MAX_RECONNECT_BACKOFF_SECONDS =
+  Number(bridgeConfig.maxReconnectBackoffSeconds) ||
+  PRODUCTION_MAX_RECONNECT_BACKOFF_SECONDS;
 
 let nmPort = null;
 let nextNotificationId = 1;
 let cleanupEpoch = 0;
 let reconnectAttempts = 0;
+let lastDisconnectReason = "";
 const managedTabs = new Set();
 
 async function persistManagedTabs() {
@@ -123,12 +143,34 @@ async function listTabs(queryInfo) {
   return tabs.filter(isAttachableTab);
 }
 
-function createTab(params) {
-  return chrome.tabs.create({
+async function groupTakeoverTab(tab) {
+  if (!tab || tab.id === undefined) {
+    return tab;
+  }
+  if (!chrome.tabs.group || !chrome.tabGroups || !chrome.tabGroups.update) {
+    return tab;
+  }
+
+  try {
+    const groupId = await chrome.tabs.group({ tabIds: tab.id });
+    await chrome.tabGroups.update(groupId, {
+      title: TAKEOVER_TAB_GROUP_TITLE,
+      color: TAKEOVER_TAB_GROUP_COLOR,
+    });
+  } catch (error) {
+    console.warn("Failed to group takeover tab", error);
+  }
+
+  return tab;
+}
+
+async function createTab(params) {
+  const tab = await chrome.tabs.create({
     url: params && params.url ? params.url : "about:blank",
     active:
       params && params.active !== undefined ? Boolean(params.active) : true,
   });
+  return groupTakeoverTab(tab);
 }
 
 async function ensureContentScript(tabId) {
@@ -190,13 +232,33 @@ async function cleanupOrphans() {
   }
 }
 
+async function stopManagedTab(tabId) {
+  if (tabId === undefined || tabId === null) {
+    return;
+  }
+
+  try {
+    await detachDebugger(tabId);
+  } catch (error) {
+    console.warn("Failed to detach tab after stop request", tabId, error);
+    managedTabs.delete(tabId);
+    await persistManagedTabs();
+  }
+
+  try {
+    await sendBannerMessage(tabId, "banner.hide", {});
+  } catch (error) {
+    console.debug("Failed to hide banner after stop request", tabId, error);
+  }
+}
+
 function reconnectBackoffSeconds() {
   if (reconnectAttempts <= 0) {
-    return 30;
+    return INITIAL_RECONNECT_BACKOFF_SECONDS;
   }
   return Math.min(
     MAX_RECONNECT_BACKOFF_SECONDS,
-    30 * Math.pow(2, reconnectAttempts),
+    INITIAL_RECONNECT_BACKOFF_SECONDS * Math.pow(2, reconnectAttempts),
   );
 }
 
@@ -211,6 +273,11 @@ function scheduleReconnect() {
 function clearReconnectAlarm() {
   reconnectAttempts = 0;
   chrome.alarms.clear(RECONNECT_ALARM);
+}
+
+function runtimeLastErrorMessage() {
+  const lastError = chrome.runtime.lastError;
+  return lastError && lastError.message ? lastError.message : "";
 }
 
 async function handleMessage(message) {
@@ -251,9 +318,16 @@ async function handleMessage(message) {
 }
 
 function connectNative() {
+  if (nmPort) {
+    return;
+  }
+
+  let port = null;
   try {
     cleanupEpoch++;
-    nmPort = chrome.runtime.connectNative(NATIVE_HOST);
+    port = chrome.runtime.connectNative(NATIVE_HOST);
+    nmPort = port;
+    lastDisconnectReason = "";
     clearReconnectAlarm();
   } catch (error) {
     console.warn("Failed to connect native host", error);
@@ -262,15 +336,32 @@ function connectNative() {
     return;
   }
 
-  nmPort.onMessage.addListener(async (message) => {
+  port.onMessage.addListener(async (message) => {
+    if (port !== nmPort) {
+      return;
+    }
+
     const response = await handleMessage(message);
     postNative(response);
   });
 
-  nmPort.onDisconnect.addListener(async () => {
+  port.onDisconnect.addListener(async () => {
+    const disconnectReason = runtimeLastErrorMessage();
+    if (disconnectReason) {
+      console.warn("Native host disconnected", disconnectReason);
+    }
+
+    if (port !== nmPort) {
+      return;
+    }
+
+    lastDisconnectReason = disconnectReason;
     nmPort = null;
     await cleanupOrphans();
-    sendEvent("bridge.disconnected", {});
+    sendEvent(
+      "bridge.disconnected",
+      disconnectReason ? { reason: disconnectReason } : {},
+    );
     scheduleReconnect();
   });
 
@@ -326,12 +417,16 @@ chrome.webNavigation.onCompleted.addListener(async (details) => {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message && message.source === "qwenpaw-browser-bridge-popup") {
     if (message.method === "status.get") {
+      if (!nmPort) {
+        connectNative();
+      }
       sendResponse({
         ok: true,
         connected: Boolean(nmPort),
         nativeHost: NATIVE_HOST,
         managedTabsCount: managedTabs.size,
         reconnectAttempts,
+        lastDisconnectReason,
         version: chrome.runtime.getManifest().version,
       });
       return false;
@@ -342,10 +437,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return false;
   }
 
+  const tabId = sender && sender.tab ? sender.tab.id : undefined;
   sendEvent(message.method, {
     ...(message.params || {}),
-    tabId: sender && sender.tab ? sender.tab.id : undefined,
+    tabId,
   });
+  if (message.method === "hitl.stopped") {
+    void stopManagedTab(tabId);
+  }
   sendResponse({ ok: true });
   return false;
 });

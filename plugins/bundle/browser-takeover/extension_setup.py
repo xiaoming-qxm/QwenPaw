@@ -7,7 +7,9 @@ import json
 import secrets
 import shutil
 import stat
+import subprocess
 import sys
+import webbrowser
 from pathlib import Path
 
 import click
@@ -20,6 +22,10 @@ CWS_URL = (
     f"qwenpaw-browser-bridge/{CWS_EXTENSION_ID}"
 )
 DEFAULT_WS_URL = "ws://127.0.0.1:8088/ws/nm-bridge"
+CHROME_EXTENSIONS_URL = "chrome://extensions"
+LOCAL_BRIDGE_CONFIG_JS = "bridge_config.js"
+LOCAL_INITIAL_RECONNECT_BACKOFF_SECONDS = 5
+LOCAL_MAX_RECONNECT_BACKOFF_SECONDS = 60
 
 
 def native_manifest_path(
@@ -73,6 +79,22 @@ def _copy_extension(qwenpaw_home: Path) -> Path:
     return target
 
 
+def _write_local_extension_config(extension_dir: Path) -> Path:
+    config_path = extension_dir / LOCAL_BRIDGE_CONFIG_JS
+    config = {
+        "initialReconnectBackoffSeconds": (
+            LOCAL_INITIAL_RECONNECT_BACKOFF_SECONDS
+        ),
+        "maxReconnectBackoffSeconds": LOCAL_MAX_RECONNECT_BACKOFF_SECONDS,
+    }
+    config_path.write_text(
+        "globalThis.QWENPAW_BRIDGE_CONFIG = "
+        f"{json.dumps(config, separators=(',', ':'))};\n",
+        encoding="utf-8",
+    )
+    return config_path
+
+
 def _write_nm_config(qwenpaw_home: Path, token: str, ws_url: str) -> Path:
     config_path = qwenpaw_home / "nm-bridge.json"
     config_path.parent.mkdir(parents=True, exist_ok=True)
@@ -82,6 +104,18 @@ def _write_nm_config(qwenpaw_home: Path, token: str, ws_url: str) -> Path:
     )
     config_path.chmod(0o600)
     return config_path
+
+
+def _read_existing_nm_token(qwenpaw_home: Path) -> str | None:
+    config_path = qwenpaw_home / "nm-bridge.json"
+    if not config_path.exists():
+        return None
+    try:
+        raw = json.loads(config_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    token = str(raw.get("token") or "").strip()
+    return token or None
 
 
 def _write_host(qwenpaw_home: Path) -> Path:
@@ -145,10 +179,12 @@ def setup_extension_files(
     if install_mode not in {"unpacked", "cws"}:
         raise ValueError("install_mode must be 'unpacked' or 'cws'")
 
-    token = secrets.token_urlsafe(32)
-    extension_dir = (
-        _copy_extension(qwenpaw_home) if install_mode == "unpacked" else None
-    )
+    token = None if reset else _read_existing_nm_token(qwenpaw_home)
+    token = token or secrets.token_urlsafe(32)
+    extension_dir = None
+    if install_mode == "unpacked":
+        extension_dir = _copy_extension(qwenpaw_home)
+        _write_local_extension_config(extension_dir)
     config_path = _write_nm_config(qwenpaw_home, token, ws_url)
     host_path = _write_host(qwenpaw_home)
     extension_id = CWS_EXTENSION_ID if install_mode == "cws" else EXTENSION_ID
@@ -164,7 +200,7 @@ def setup_extension_files(
         "native_host_path": str(host_path),
         "config_path": str(config_path),
         "ws_url": ws_url,
-        "chrome_extensions_url": "chrome://extensions",
+        "chrome_extensions_url": CHROME_EXTENSIONS_URL,
     }
     if install_mode == "cws":
         result["cws_url"] = CWS_URL
@@ -202,8 +238,57 @@ def extension_install_status() -> dict[str, str | bool | None]:
         "native_host_path": str(host_path),
         "config_path": str(config_path),
         "ws_url": ws_url or DEFAULT_WS_URL,
-        "chrome_extensions_url": "chrome://extensions",
+        "chrome_extensions_url": CHROME_EXTENSIONS_URL,
     }
+
+
+def open_chrome_extensions_page(
+    *,
+    platform: str | None = None,
+) -> dict[str, str | bool]:
+    """Open Chrome's extension manager through a fixed local action."""
+    platform = platform or sys.platform
+    commands: list[list[str]] = []
+
+    if platform == "darwin":
+        commands.append(["open", "-a", "Google Chrome", CHROME_EXTENSIONS_URL])
+    elif platform == "win32":
+        commands.append(
+            ["cmd", "/c", "start", "", "chrome", CHROME_EXTENSIONS_URL],
+        )
+    else:
+        commands.extend(
+            [
+                [browser, CHROME_EXTENSIONS_URL]
+                for browser in (
+                    "google-chrome",
+                    "google-chrome-stable",
+                    "chromium",
+                    "chromium-browser",
+                )
+            ],
+        )
+
+    for command in commands:
+        try:
+            subprocess.Popen(  # pylint: disable=consider-using-with
+                command,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            return {"opened": True, "url": CHROME_EXTENSIONS_URL}
+        except OSError:
+            continue
+
+    try:
+        opened = webbrowser.open(CHROME_EXTENSIONS_URL)
+    except Exception as exc:  # pragma: no cover - defensive OS fallback
+        return {
+            "opened": False,
+            "url": CHROME_EXTENSIONS_URL,
+            "error": str(exc),
+        }
+    return {"opened": bool(opened), "url": CHROME_EXTENSIONS_URL}
 
 
 @click.command("setup-extension")

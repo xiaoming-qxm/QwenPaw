@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import inspect
+import logging
 import time
 from collections import defaultdict
 from collections.abc import Callable
@@ -16,6 +17,7 @@ from qwenpaw.browser.connection_manager import BridgeConnectionManager
 
 JSONRPC_VERSION = "2.0"
 LEASE_TTL_SECONDS = 30.0
+logger = logging.getLogger(__name__)
 
 
 class NMBridgeError(RuntimeError):
@@ -194,8 +196,20 @@ class NMBridge(BridgeConnectionManager):
             "params": params or {},
         }
         try:
-            await self._ws.send_json(message)
+            ws = self._ws
+            if ws is None:
+                raise NMBridgeDisconnectedError(
+                    "NM bridge is not connected",
+                )
+            await ws.send_json(message)
             return await future
+        except NMBridgeDisconnectedError:
+            raise
+        except Exception as exc:
+            await self.detach_websocket(ws)
+            raise NMBridgeDisconnectedError(
+                "NM bridge disconnected",
+            ) from exc
         finally:
             self._pending.pop(request_id, None)
 
@@ -241,9 +255,15 @@ class NMBridge(BridgeConnectionManager):
             params = message.get("params")
             event = params if isinstance(params, dict) else {}
             for handler in list(self._event_handlers.get(method, [])):
-                result = handler(event)
-                if inspect.isawaitable(result):
-                    await result
+                try:
+                    result = handler(event)
+                    if inspect.isawaitable(result):
+                        await result
+                except Exception:
+                    logger.exception(
+                        "Native Messaging bridge event handler failed: %s",
+                        method,
+                    )
         return None
 
     def add_event_listener(

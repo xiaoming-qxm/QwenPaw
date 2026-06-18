@@ -146,6 +146,112 @@
       "verify": "Return here and refresh; Connected turns green after Chrome connects."
     }
   },
+  "pluginDetail": {
+    "manager": "Plugin Manager",
+    "advanced": "Advanced",
+    "capabilities": "Capabilities",
+    "status": {
+      "connected": "Connected"
+    },
+    "tags": {
+      "builtin": "Built-in"
+    },
+    "actions": {
+      "refresh": "Refresh",
+      "configure": "Configure"
+    },
+    "messages": {
+      "loadFailed": "Failed to load",
+      "enabled": "Plugin enabled",
+      "disabled": "Plugin disabled",
+      "updateFailed": "Update failed",
+      "setupFailed": "Setup failed",
+      "copied": "Copied",
+      "copyFailed": "Copy failed"
+    },
+    "time": {
+      "justNow": "just now",
+      "minutesAgo": "{{count}} min ago",
+      "hoursAgo": "{{count}} hr ago"
+    },
+    "meta": {
+      "extensionVersion": "Extension v{{version}}",
+      "connected": "connected {{time}}"
+    },
+    "dev": {
+      "installMode": "Install mode",
+      "extensionId": "Extension ID",
+      "extensionDir": "Extension folder",
+      "nativeManifest": "Native manifest",
+      "nativeHost": "Native host",
+      "config": "Connection config",
+      "wsUrl": "Connection URL",
+      "chromeUrl": "Chrome extensions page",
+      "regenerate": "Prepare again",
+      "reset": "Reset"
+    },
+    "footer": {
+      "id": "ID",
+      "author": "Author",
+      "updated": "Version",
+      "type": "Type",
+      "unknown": "Unknown"
+    },
+    "browserTakeover": {
+      "name": "Browser Takeover",
+      "description": "Connect QwenPaw to Chrome so it can understand and operate the current page when you ask.",
+      "status": {
+        "disabled": "Disabled",
+        "connected": "Connected",
+        "waiting": "Waiting for Chrome",
+        "notStarted": "Not started"
+      },
+      "statusDesc": {
+        "disabled": "Enable this plugin to start connecting Chrome.",
+        "connected": "Chrome is connected. You can ask QwenPaw to read or operate pages in chat.",
+        "waiting": "Local files are ready. Load or enable the QwenPaw extension in Chrome.",
+        "notStarted": "Let QwenPaw prepare the local connection files first."
+      },
+      "actions": {
+        "start": "Start",
+        "openChrome": "Open Chrome",
+        "check": "Check",
+        "connected": "Connected"
+      },
+      "messages": {
+        "ready": "Ready. Load the extension in Chrome next.",
+        "connected": "Chrome is connected.",
+        "waiting": "Still waiting for Chrome.",
+        "openedChrome": "Chrome opened.",
+        "chromeUrlCopied": "Could not open Chrome directly. The address was copied.",
+        "openChromeFailed": "Could not open Chrome."
+      },
+      "steps": {
+        "prepare": {
+          "title": "Prepare",
+          "desc": "QwenPaw prepares the local files Chrome needs."
+        },
+        "load": {
+          "title": "Load",
+          "desc": "Load the QwenPaw extension in Chrome."
+        },
+        "connect": {
+          "title": "Connect",
+          "desc": "Return here and confirm Chrome is connected."
+        }
+      },
+      "capabilities": {
+        "read": {
+          "title": "Read pages",
+          "desc": "Summarize the current tab and extract information from it."
+        },
+        "act": {
+          "title": "Act for you",
+          "desc": "Click, type, and navigate after you ask."
+        }
+      }
+    }
+  },
   "debug": {
     "title": "Debug",
     "desc": "View the backend daemon log file to help diagnose issues. Logs refresh automatically while this page is open.",
@@ -2034,6 +2140,9 @@
       },
       "compact": {
         "description": "Compact the conversation context; optional instruction supported"
+      },
+      "takeover": {
+        "description": "Use your real Chrome for this browser task"
       },
       "approve": {
         "description": "Approve the pending tool action and continue execution"

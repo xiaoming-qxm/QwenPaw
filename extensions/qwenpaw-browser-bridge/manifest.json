@@ -12,6 +12,7 @@
     "activeTab",
     "alarms",
     "storage",
+    "tabGroups",
     "webNavigation"
   ],
   "host_permissions": [

@@ -8,10 +8,14 @@ import asyncio
 import json
 import struct
 import sys
+import time
 from pathlib import Path
 from typing import Any, BinaryIO, Callable
 
 DEFAULT_CONFIG_PATH = Path.home() / ".qwenpaw" / "nm-bridge.json"
+DEFAULT_CONNECT_RETRY_SECONDS = 120.0
+INITIAL_CONNECT_RETRY_DELAY_SECONDS = 0.5
+MAX_CONNECT_RETRY_DELAY_SECONDS = 5.0
 
 
 class InvalidTokenError(ValueError):
@@ -78,6 +82,37 @@ async def connect_websocket(
     )
 
 
+async def connect_websocket_with_retry(
+    ws_url: str,
+    token: str,
+    connector: Callable[..., Any] | None = None,
+    *,
+    retry_seconds: float = DEFAULT_CONNECT_RETRY_SECONDS,
+    sleep: Callable[[float], Any] = asyncio.sleep,
+    monotonic: Callable[[], float] = time.monotonic,
+) -> Any:
+    """Connect to QwenPaw, tolerating a short local server restart."""
+    if retry_seconds <= 0:
+        return await connect_websocket(ws_url, token, connector)
+
+    deadline = monotonic() + retry_seconds
+    delay = INITIAL_CONNECT_RETRY_DELAY_SECONDS
+
+    while True:
+        try:
+            return await connect_websocket(ws_url, token, connector)
+        except Exception:
+            remaining = deadline - monotonic()
+            if remaining <= 0:
+                raise
+            wait_seconds = min(delay, remaining)
+
+            result = sleep(wait_seconds)
+            if asyncio.iscoroutine(result):
+                await result
+            delay = min(delay * 2, MAX_CONNECT_RETRY_DELAY_SECONDS)
+
+
 async def pump_stdin_to_ws(reader: BinaryIO, ws: Any) -> None:
     while True:
         message = await asyncio.to_thread(read_nm_message, reader)
@@ -102,9 +137,15 @@ async def run_bridge(
     config_path: Path = DEFAULT_CONFIG_PATH,
     stdin: BinaryIO | None = None,
     stdout: BinaryIO | None = None,
+    *,
+    connect_retry_seconds: float = DEFAULT_CONNECT_RETRY_SECONDS,
 ) -> None:
     config = load_config(config_path)
-    ws = await connect_websocket(config["ws_url"], config["token"])
+    ws = await connect_websocket_with_retry(
+        config["ws_url"],
+        config["token"],
+        retry_seconds=connect_retry_seconds,
+    )
     stdin = stdin or sys.stdin.buffer
     stdout = stdout or sys.stdout.buffer
 

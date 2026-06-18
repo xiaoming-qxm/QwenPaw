@@ -33,6 +33,7 @@ import { ApprovalCard } from "../../components/ApprovalCard/ApprovalCard";
 import { commandsApi } from "../../api/modules/commands";
 import { useApprovalContext } from "../../contexts/ApprovalContext";
 import { planApi } from "../../api/modules/plan";
+import { buildCommandSuggestions } from "./commandSuggestions";
 
 interface ApprovalMessageData {
   requestId: string;
@@ -84,12 +85,6 @@ interface CustomWindow extends Window {
 }
 
 declare const window: CustomWindow;
-
-interface CommandSuggestion {
-  command: string;
-  value: string;
-  description: string;
-}
 
 function messageRequestsHistoryClear(message: unknown): boolean {
   if (!message || typeof message !== "object") return false;
@@ -1188,35 +1183,7 @@ export default function ChatPage() {
 
   const options = useMemo(() => {
     const i18nConfig = getDefaultConfig(t);
-    const commandSuggestions: CommandSuggestion[] = [
-      {
-        command: "/clear",
-        value: "clear",
-        description: t("chat.commands.clear.description"),
-      },
-      {
-        command: "/compact",
-        value: "compact",
-        description: t("chat.commands.compact.description"),
-      },
-      {
-        command: "/mission",
-        value: "mission",
-        description: t("chat.commands.mission.description"),
-      },
-      {
-        command: "/skills",
-        value: "skills",
-        description: t("chat.commands.skills.description"),
-      },
-    ];
-    if (planEnabled) {
-      commandSuggestions.push({
-        command: "/plan",
-        value: "plan ",
-        description: t("chat.commands.plan.description"),
-      });
-    }
+    const commandSuggestions = buildCommandSuggestions(t, planEnabled);
 
     const handleBeforeSubmit = async () => {
       if (isComposingRef.current) return false;

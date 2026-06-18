@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import secrets
+import contextlib
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -17,6 +18,7 @@ from starlette.responses import JSONResponse
 from .extension_setup import (
     DEFAULT_WS_URL,
     extension_install_status,
+    open_chrome_extensions_page,
     setup_extension_files,
 )
 
@@ -33,10 +35,27 @@ _connected: WebSocket | None = None
 _connected_since: datetime | None = None
 
 
+def _read_existing_token(config_path: Path) -> str | None:
+    if not config_path.exists():
+        return None
+    try:
+        raw = json.loads(config_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    token = str(raw.get("token") or "").strip()
+    return token or None
+
+
 class ExtensionSetupRequest(BaseModel):
     install_mode: str = Field(default="unpacked", pattern="^(unpacked|cws)$")
     ws_url: str = DEFAULT_WS_URL
     reset: bool = False
+
+
+class OpenChromeExtensionsResponse(BaseModel):
+    opened: bool
+    url: str
+    error: str | None = None
 
 
 def configure_nm_bridge(
@@ -48,8 +67,9 @@ def configure_nm_bridge(
     """Configure NM bridge auth and write the host-side config file."""
     global _bridge_token, _bridge_ws_url, _bridge_config_path
 
-    token = token or secrets.token_urlsafe(32)
     config_path = Path(config_path)
+    token = token or _read_existing_token(config_path)
+    token = token or secrets.token_urlsafe(32)
     config_path.parent.mkdir(parents=True, exist_ok=True)
     config_path.write_text(
         json.dumps({"ws_url": ws_url, "token": token}, indent=2),
@@ -95,6 +115,32 @@ def _resolve_bridge(websocket: WebSocket) -> Any | None:
     return get_nm_bridge()
 
 
+def _default_bridge() -> Any | None:
+    try:
+        from .nm_bridge import get_nm_bridge
+    except ImportError:
+        return None
+    return get_nm_bridge()
+
+
+async def _drop_connected_websocket(bridge: Any | None) -> None:
+    global _connected, _connected_since
+
+    websocket = _connected
+    if websocket is None:
+        return
+
+    if bridge is not None and hasattr(bridge, "detach_websocket"):
+        await bridge.detach_websocket(websocket)
+
+    with contextlib.suppress(Exception):
+        await websocket.close(code=1000)
+
+    if _connected is websocket:
+        _connected = None
+        _connected_since = None
+
+
 @ws_router.on_event("startup")
 async def startup_nm_bridge() -> None:
     _expected_token()
@@ -109,19 +155,14 @@ async def nm_bridge_ws(websocket: WebSocket) -> None:
         await _deny(websocket, 401, "Invalid Native Messaging bridge token")
         return
 
+    bridge = _resolve_bridge(websocket)
     if _connected is not None:
-        await _deny(
-            websocket,
-            409,
-            "Native Messaging bridge already connected",
-        )
-        return
+        await _drop_connected_websocket(bridge)
 
     await websocket.accept()
     _connected = websocket
     _connected_since = datetime.now(UTC)
 
-    bridge = _resolve_bridge(websocket)
     if bridge is not None and hasattr(bridge, "attach_websocket"):
         await bridge.attach_websocket(websocket)
 
@@ -143,13 +184,18 @@ async def nm_bridge_ws(websocket: WebSocket) -> None:
 
 
 def get_extension_status() -> dict[str, Any]:
+    bridge = _default_bridge()
+    connected = _connected is not None
+    if bridge is not None and hasattr(bridge, "is_connected"):
+        connected = bool(bridge.is_connected())
+
     return {
         **extension_install_status(),
-        "connected": _connected is not None,
+        "connected": connected,
         "version": None,
         "connected_since": (
             _connected_since.isoformat()
-            if _connected_since is not None
+            if connected and _connected_since is not None
             else None
         ),
     }
@@ -172,3 +218,8 @@ async def extension_setup(request: ExtensionSetupRequest) -> dict[str, Any]:
         config_path=str(result["config_path"]),
     )
     return {**result, **get_extension_status()}
+
+
+@api_router.post("/open-chrome-extensions")
+async def open_chrome_extensions() -> OpenChromeExtensionsResponse:
+    return OpenChromeExtensionsResponse(**open_chrome_extensions_page())

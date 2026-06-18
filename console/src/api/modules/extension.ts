@@ -21,11 +21,21 @@ export interface ExtensionSetupRequest {
   reset?: boolean;
 }
 
+export interface OpenChromeExtensionsResult {
+  opened: boolean;
+  url: string;
+  error?: string | null;
+}
+
 export const extensionApi = {
   getStatus: () => request<ExtensionStatus>("/extension/status"),
   setup: (payload: ExtensionSetupRequest) =>
     request<ExtensionStatus>("/extension/setup", {
       method: "POST",
       body: JSON.stringify(payload),
+    }),
+  openChromeExtensionsPage: () =>
+    request<OpenChromeExtensionsResult>("/extension/open-chrome-extensions", {
+      method: "POST",
     }),
 };

@@ -146,6 +146,112 @@
       "verify": "回到此页点击刷新；Chrome 连接后“已连接”会变为绿色。"
     }
   },
+  "pluginDetail": {
+    "manager": "插件管理",
+    "advanced": "高级信息",
+    "capabilities": "能力",
+    "status": {
+      "connected": "已连接"
+    },
+    "tags": {
+      "builtin": "内置"
+    },
+    "actions": {
+      "refresh": "刷新",
+      "configure": "配置"
+    },
+    "messages": {
+      "loadFailed": "加载失败",
+      "enabled": "插件已启用",
+      "disabled": "插件已停用",
+      "updateFailed": "更新失败",
+      "setupFailed": "准备失败",
+      "copied": "已复制",
+      "copyFailed": "复制失败"
+    },
+    "time": {
+      "justNow": "刚刚",
+      "minutesAgo": "{{count}} 分钟前",
+      "hoursAgo": "{{count}} 小时前"
+    },
+    "meta": {
+      "extensionVersion": "扩展 v{{version}}",
+      "connected": "已连接 {{time}}"
+    },
+    "dev": {
+      "installMode": "安装模式",
+      "extensionId": "扩展 ID",
+      "extensionDir": "扩展目录",
+      "nativeManifest": "本机清单",
+      "nativeHost": "本机程序",
+      "config": "连接配置",
+      "wsUrl": "连接地址",
+      "chromeUrl": "Chrome 扩展页",
+      "regenerate": "重新准备",
+      "reset": "重置"
+    },
+    "footer": {
+      "id": "ID",
+      "author": "作者",
+      "updated": "版本",
+      "type": "类型",
+      "unknown": "未知"
+    },
+    "browserTakeover": {
+      "name": "浏览器接管",
+      "description": "把 QwenPaw 连接到 Chrome，让它在你需要时理解并操作当前页面。",
+      "status": {
+        "disabled": "已停用",
+        "connected": "已连接",
+        "waiting": "等待 Chrome",
+        "notStarted": "还未开始"
+      },
+      "statusDesc": {
+        "disabled": "启用插件后即可开始连接 Chrome。",
+        "connected": "Chrome 已连接，可以在对话中让 QwenPaw 读取或操作页面。",
+        "waiting": "本机文件已准备好，请在 Chrome 中加载或启用 QwenPaw 扩展。",
+        "notStarted": "先让 QwenPaw 准备本机连接文件。"
+      },
+      "actions": {
+        "start": "开始",
+        "openChrome": "打开 Chrome",
+        "check": "检查",
+        "connected": "已连接"
+      },
+      "messages": {
+        "ready": "已准备好，请在 Chrome 中加载扩展。",
+        "connected": "Chrome 已连接。",
+        "waiting": "还在等待 Chrome 连接。",
+        "openedChrome": "已打开 Chrome。",
+        "chromeUrlCopied": "未能直接打开 Chrome，已复制地址。",
+        "openChromeFailed": "未能打开 Chrome。"
+      },
+      "steps": {
+        "prepare": {
+          "title": "准备",
+          "desc": "QwenPaw 准备 Chrome 需要的本机文件。"
+        },
+        "load": {
+          "title": "加载",
+          "desc": "在 Chrome 中加载 QwenPaw 扩展。"
+        },
+        "connect": {
+          "title": "连接",
+          "desc": "回到这里确认 Chrome 已连上。"
+        }
+      },
+      "capabilities": {
+        "read": {
+          "title": "读取页面",
+          "desc": "总结当前标签页，提取页面里的信息。"
+        },
+        "act": {
+          "title": "替你操作",
+          "desc": "在你提出请求后点击、输入和跳转。"
+        }
+      }
+    }
+  },
   "debug": {
     "title": "调试",
     "desc": "查看后端守护进程日志文件，便于排查问题。在此页面打开时日志会自动刷新。",
@@ -1882,6 +1988,9 @@
       },
       "compact": {
         "description": "压缩对话上下文并生成摘要，支持附带说明"
+      },
+      "takeover": {
+        "description": "用你的真实 Chrome 执行本次浏览器操作"
       },
       "approve": {
         "description": "批准待执行的工具操作并继续执行"

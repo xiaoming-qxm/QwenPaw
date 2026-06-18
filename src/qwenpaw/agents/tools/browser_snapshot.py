@@ -64,6 +64,16 @@ STRUCTURAL_ROLES = frozenset(
     },
 )
 
+_DOM_SNAPSHOT_MAX_LINES = 220
+_DOM_SNAPSHOT_MAX_TEXT_LENGTH = 180
+
+_BASE64_IMAGE_PREFIXES = (
+    "ivborw0kggo",  # PNG
+    "/9j/",  # JPEG
+    "r0lgod",  # GIF
+    "uklgr",  # WebP RIFF
+)
+
 
 def _get_indent_level(line: str) -> int:
     m = re.match(r"^(\s*)", line)
@@ -259,6 +269,152 @@ def _ax_value(raw: Any) -> str | None:
         return None
     text = str(value)
     return text if text else None
+
+
+def _dom_snapshot_string(strings: Any, value: Any) -> str:
+    if isinstance(value, int) and isinstance(strings, list):
+        if 0 <= value < len(strings):
+            return str(strings[value])
+        return ""
+    if isinstance(value, str):
+        return value
+    return ""
+
+
+def _dom_snapshot_value_at(values: Any, index: int) -> Any:
+    return values[index] if isinstance(values, list) and index < len(values) else None
+
+
+def _normalize_dom_text(text: str) -> str:
+    text = re.sub(r"\s+", " ", text).strip()
+    if len(text) > _DOM_SNAPSHOT_MAX_TEXT_LENGTH:
+        text = text[: _DOM_SNAPSHOT_MAX_TEXT_LENGTH - 1].rstrip() + "…"
+    return text
+
+
+def _is_private_use_only(text: str) -> bool:
+    compact = "".join(ch for ch in text if not ch.isspace())
+    return bool(compact) and all(
+        "\ue000" <= ch <= "\uf8ff" for ch in compact
+    )
+
+
+def _looks_like_encoded_blob(text: str) -> bool:
+    compact = re.sub(r"\s+", "", text)
+    if not compact:
+        return False
+
+    lower = compact.lower()
+    if "base64," in lower and lower.startswith("data:"):
+        return True
+    if lower.startswith(_BASE64_IMAGE_PREFIXES):
+        return True
+    if re.search(r"[\u4e00-\u9fff]", compact):
+        return False
+    if len(compact) < 120:
+        return False
+
+    base64_chars = sum(
+        1 for ch in compact if ch.isalnum() or ch in {"+", "/", "="}
+    )
+    symbol_hint = any(ch in compact for ch in {"+", "/", "="})
+    digit_count = sum(1 for ch in compact if ch.isdigit())
+    return (
+        base64_chars / len(compact) > 0.96
+        and (symbol_hint or digit_count / len(compact) > 0.12)
+    )
+
+
+def _append_unique_dom_line(
+    lines: list[str],
+    seen: set[str],
+    text: str,
+) -> None:
+    if _is_private_use_only(text) or _looks_like_encoded_blob(text):
+        return
+    text = _normalize_dom_text(text)
+    if not text or text in seen:
+        return
+    seen.add(text)
+    lines.append(text)
+
+
+def from_cdp_dom_snapshot(
+    snapshot_json: dict[str, Any],
+) -> tuple[str, dict[str, dict]]:
+    """Build a read-only text snapshot from CDP DOMSnapshot output."""
+    documents = snapshot_json.get("documents")
+    strings = snapshot_json.get("strings") or []
+    if not isinstance(documents, list):
+        return "(empty)", {}
+
+    lines: list[str] = []
+    seen: set[str] = set()
+
+    for document in documents:
+        if not isinstance(document, dict):
+            continue
+        nodes = document.get("nodes") or {}
+        layout = document.get("layout") or {}
+        node_names = nodes.get("nodeName") or []
+        node_values = nodes.get("nodeValue") or []
+        text_values = nodes.get("textValue") or {}
+        input_values = nodes.get("inputValue") or {}
+        layout_node_indexes = layout.get("nodeIndex") or []
+        layout_texts = layout.get("text") or []
+
+        for index, raw_text in enumerate(layout_texts):
+            text = _dom_snapshot_string(strings, raw_text)
+            if not text:
+                node_index = _dom_snapshot_value_at(layout_node_indexes, index)
+                if isinstance(node_index, int):
+                    text = _dom_snapshot_string(
+                        strings,
+                        _dom_snapshot_value_at(node_values, node_index),
+                    )
+            _append_unique_dom_line(lines, seen, text)
+            if len(lines) >= _DOM_SNAPSHOT_MAX_LINES:
+                break
+
+        if len(lines) >= _DOM_SNAPSHOT_MAX_LINES:
+            break
+
+        for values in (text_values, input_values):
+            if not isinstance(values, dict):
+                continue
+            value_indexes = values.get("index") or []
+            raw_values = values.get("value") or []
+            for pos, _node_index in enumerate(value_indexes):
+                raw_value = _dom_snapshot_value_at(raw_values, pos)
+                text = _dom_snapshot_string(strings, raw_value)
+                _append_unique_dom_line(lines, seen, text)
+                if len(lines) >= _DOM_SNAPSHOT_MAX_LINES:
+                    break
+            if len(lines) >= _DOM_SNAPSHOT_MAX_LINES:
+                break
+
+        if len(lines) >= _DOM_SNAPSHOT_MAX_LINES:
+            break
+
+        for node_index, raw_name in enumerate(node_names):
+            name = _dom_snapshot_string(strings, raw_name).lower()
+            if name not in {"title", "h1", "h2", "h3", "button", "a"}:
+                continue
+            text = _dom_snapshot_string(
+                strings,
+                _dom_snapshot_value_at(node_values, node_index),
+            )
+            _append_unique_dom_line(lines, seen, text)
+            if len(lines) >= _DOM_SNAPSHOT_MAX_LINES:
+                break
+
+    if not lines:
+        return "(empty)", {}
+    rendered_lines = []
+    for line in lines:
+        escaped = line.replace('"', '\\"')
+        rendered_lines.append(f'- text "{escaped}"')
+    return "\n".join(rendered_lines), {}
 
 
 def from_cdp_ax_tree(

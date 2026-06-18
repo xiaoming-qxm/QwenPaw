@@ -167,6 +167,7 @@
     stop.textContent = "■ 停止";
     stop.addEventListener("click", () => {
       state.paused = false;
+      state.visible = false;
       render();
       emit("hitl.stopped", {});
     });
