@@ -3,13 +3,18 @@ import { useTranslation } from "react-i18next";
 import { Modal } from "antd";
 import { useRequest } from "ahooks";
 import { useAppMessage } from "@/hooks/useAppMessage";
-import { fetchPlugins, uninstallPlugin } from "@/api/modules/plugin";
+import {
+  fetchPlugins,
+  uninstallPlugin,
+  updatePluginEnabled,
+} from "@/api/modules/plugin";
 import type { PluginInfo } from "@/api/modules/plugin";
 
 export function usePluginManager() {
   const { t } = useTranslation();
   const { message } = useAppMessage();
   const [uninstallingId, setUninstallingId] = useState<string | null>(null);
+  const [togglingId, setTogglingId] = useState<string | null>(null);
 
   const {
     data: plugins,
@@ -49,11 +54,31 @@ export function usePluginManager() {
     [message, t, refresh],
   );
 
+  const handleToggle = useCallback(
+    async (plugin: PluginInfo, enabled: boolean) => {
+      setTogglingId(plugin.id);
+      try {
+        await updatePluginEnabled(plugin.id, enabled);
+        message.success(enabled ? t("common.enabled") : t("common.disabled"));
+        refresh();
+      } catch (err) {
+        const msg =
+          err instanceof Error ? err.message : t("pluginManager.updateFailed");
+        message.error(msg);
+      } finally {
+        setTogglingId(null);
+      }
+    },
+    [message, t, refresh],
+  );
+
   return {
     plugins,
     loading,
     refresh,
     uninstallingId,
+    togglingId,
     handleUninstall,
+    handleToggle,
   };
 }

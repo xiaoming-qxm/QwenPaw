@@ -5,7 +5,9 @@ from __future__ import annotations
 
 import json
 
-from qwenpaw.cli import extension_cmd
+from qwenpaw.browser.takeover_plugin import load_browser_takeover_submodule
+
+extension_cmd = load_browser_takeover_submodule("extension_setup")
 
 
 def test_setup_extension_files_registers_native_host(

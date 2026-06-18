@@ -47,8 +47,8 @@ const BackupsPage = lazyImportWithRetry("../../pages/Settings/Backups");
 const PluginManagerPage = lazyImportWithRetry(
   "../../pages/Settings/PluginManager",
 );
-const BrowserExtensionPage = lazyImportWithRetry(
-  "../../pages/Settings/BrowserExtension",
+const PluginDetailPage = lazyImportWithRetry(
+  "../../pages/Settings/PluginDetail",
 );
 
 const { Content } = Layout;
@@ -97,7 +97,6 @@ const pathToKey: Record<string, string> = {
   "/debug": "debug",
   "/backups": "backups",
   "/plugin-manager": "plugin-manager",
-  "/browser-extension": "browser-extension",
 };
 
 export default function MainLayout() {
@@ -111,7 +110,9 @@ export default function MainLayout() {
   useSyncCodingMode();
 
   // Resolve selected key: check static routes first, then plugin routes
-  let selectedKey = pathToKey[currentPath] || "";
+  let selectedKey =
+    pathToKey[currentPath] ||
+    (currentPath.startsWith("/plugin-manager/") ? "plugin-manager" : "");
   if (!selectedKey) {
     const matchedPlugin = pluginRoutes.find(
       (route) => currentPath === route.path,
@@ -173,8 +174,14 @@ export default function MainLayout() {
                     element={<PluginManagerPage />}
                   />
                   <Route
+                    path="/plugin-manager/:pluginId"
+                    element={<PluginDetailPage />}
+                  />
+                  <Route
                     path="/browser-extension"
-                    element={<BrowserExtensionPage />}
+                    element={
+                      <Navigate to="/plugin-manager/browser-takeover" replace />
+                    }
                   />
 
                   {/* Plugin routes — dynamically injected at runtime */}

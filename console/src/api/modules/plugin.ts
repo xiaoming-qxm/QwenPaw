@@ -28,6 +28,63 @@ export interface PluginInfo {
   frontend_entry?: string;
 }
 
+export interface PluginCapability {
+  id: string;
+  title: string;
+  description?: string;
+}
+
+export interface PluginSetupStep {
+  id: string;
+  title: string;
+  description?: string;
+}
+
+export interface PluginSetup {
+  kind?: string;
+  cta?: string;
+  steps?: PluginSetupStep[];
+  [key: string]: unknown;
+}
+
+export interface PluginManifest {
+  id: string;
+  name: string;
+  version: string;
+  description: string;
+  author?: string;
+  icon?: string;
+  capabilities?: PluginCapability[];
+  setup?: PluginSetup;
+  meta?: Record<string, unknown>;
+  plugin_type?: PluginType;
+}
+
+export interface PluginRuntimeStatus {
+  installed?: boolean;
+  connected?: boolean;
+  version?: string | null;
+  connected_since?: string | null;
+  install_mode?: string | null;
+  extension_id?: string;
+  extension_dir?: string;
+  native_manifest_path?: string;
+  native_host_path?: string;
+  config_path?: string;
+  ws_url?: string;
+  chrome_extensions_url?: string;
+  [key: string]: unknown;
+}
+
+export interface PluginDetail extends PluginInfo {
+  icon?: string;
+  capabilities: PluginCapability[];
+  setup: PluginSetup;
+  meta?: Record<string, unknown>;
+  manifest: PluginManifest;
+  runtime_status: PluginRuntimeStatus;
+}
+
 export interface InstallPluginResult {
   id: string;
   name: string;
@@ -43,6 +100,10 @@ export interface PluginStatus {
   loaded: boolean;
   enabled: boolean;
   version?: string;
+}
+
+export interface UpdatePluginResult extends PluginInfo {
+  message?: string;
 }
 
 /** Entry from ``GET /api/plugins/catalog`` (official CDN manifest). */
@@ -81,6 +142,42 @@ export async function fetchPlugins(): Promise<PluginInfo[]> {
   if (!response.ok) {
     console.warn("[plugin] Failed to fetch plugin list:", response.status);
     return [];
+  }
+
+  return response.json();
+}
+
+export async function fetchPluginDetail(
+  pluginId: string,
+): Promise<PluginDetail> {
+  const response = await fetch(getApiUrl(`/plugins/${pluginId}/detail`), {
+    headers: buildAuthHeaders(),
+  });
+
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(body.detail ?? `Plugin detail failed (${response.status})`);
+  }
+
+  return response.json();
+}
+
+export async function updatePluginEnabled(
+  pluginId: string,
+  enabled: boolean,
+): Promise<UpdatePluginResult> {
+  const response = await fetch(getApiUrl(`/plugins/${pluginId}`), {
+    method: "PATCH",
+    headers: {
+      ...buildAuthHeaders(),
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ enabled }),
+  });
+
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(body.detail ?? `Plugin update failed (${response.status})`);
   }
 
   return response.json();

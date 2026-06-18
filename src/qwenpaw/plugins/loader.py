@@ -17,6 +17,7 @@ from typing import Dict, List, Optional, Tuple
 from .architecture import PluginManifest, PluginRecord
 from .api import PluginApi
 from .registry import PluginRegistry
+from .state import PluginStateStore
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +25,11 @@ logger = logging.getLogger(__name__)
 class PluginLoader:
     """Plugin loader for discovering and loading plugins."""
 
-    def __init__(self, plugin_dirs: List[Path]):
+    def __init__(
+        self,
+        plugin_dirs: List[Path],
+        state_store: Optional[PluginStateStore] = None,
+    ):
         """Initialize plugin loader.
 
         Args:
@@ -32,7 +37,42 @@ class PluginLoader:
         """
         self.plugin_dirs = [Path(d) for d in plugin_dirs]
         self.registry = PluginRegistry()
+        self.state_store = state_store or PluginStateStore()
         self._loaded_plugins: Dict[str, PluginRecord] = {}
+
+    @staticmethod
+    def manifest_to_dict(manifest: PluginManifest) -> Dict:
+        """Return a JSON-like manifest dict for registry/API consumers."""
+        return {
+            "id": manifest.id,
+            "name": manifest.name,
+            "version": manifest.version,
+            "description": manifest.description,
+            "author": manifest.author,
+            "dependencies": manifest.dependencies,
+            "min_version": manifest.min_version,
+            "icon": manifest.icon,
+            "capabilities": manifest.capabilities,
+            "setup": manifest.setup,
+            "meta": manifest.meta,
+            "plugin_type": manifest.plugin_type,
+        }
+
+    def _record_disabled_plugin(
+        self,
+        manifest: PluginManifest,
+        source_path: Path,
+    ) -> PluginRecord:
+        plugin_id = manifest.id
+        record = PluginRecord(
+            manifest=manifest,
+            source_path=source_path,
+            enabled=False,
+            instance=None,
+        )
+        self._loaded_plugins[plugin_id] = record
+        logger.info("Plugin '%s' is disabled; skipping load", plugin_id)
+        return record
 
     def discover_plugins(self) -> List[Tuple[PluginManifest, Path]]:
         """Discover all plugins in plugin directories.
@@ -113,6 +153,9 @@ class PluginLoader:
             logger.warning(f"Plugin '{plugin_id}' already loaded")
             return self._loaded_plugins[plugin_id]
 
+        if not self.state_store.is_enabled(plugin_id):
+            return self._record_disabled_plugin(manifest, source_path)
+
         # Load backend module (if declared and exists)
         backend_entry = manifest.entry.backend
         frontend_entry = manifest.entry.frontend
@@ -187,16 +230,7 @@ class PluginLoader:
                 plugin_def = module.plugin
 
                 # Create plugin API instance with manifest
-                manifest_dict = {
-                    "id": manifest.id,
-                    "name": manifest.name,
-                    "version": manifest.version,
-                    "description": manifest.description,
-                    "author": manifest.author,
-                    "dependencies": manifest.dependencies,
-                    "min_version": manifest.min_version,
-                    "meta": manifest.meta,
-                }
+                manifest_dict = self.manifest_to_dict(manifest)
                 api = PluginApi(plugin_id, config or {}, manifest_dict)
                 api.set_registry(self.registry)
 
@@ -536,6 +570,7 @@ class PluginLoader:
         self,
         plugin_id: str,
         delete_files: bool = False,
+        run_uninstall_hooks: bool = True,
     ) -> None:
         """Unload a plugin from memory and optionally remove its files.
 
@@ -576,28 +611,29 @@ class PluginLoader:
                     f"for plugin '{plugin_id}': {exc}",
                 )
 
-        # Execute uninstall hooks (only run on explicit unload/remove)
-        uninstall_hooks = [
-            h
-            for h in self.registry.get_uninstall_hooks()
-            if h.plugin_id == plugin_id
-        ]
-        for hook in uninstall_hooks:
-            try:
-                result = hook.callback(
-                    plugin_id=plugin_id,
-                    delete_files=delete_files,
-                )
-                if inspect.iscoroutine(result) or inspect.isawaitable(
-                    result,
-                ):
-                    await result
-            except Exception as exc:
-                logger.error(
-                    f"Error in uninstall hook '{hook.hook_name}' "
-                    f"for plugin '{plugin_id}': {exc}",
-                    exc_info=True,
-                )
+        if run_uninstall_hooks:
+            # Execute uninstall hooks (only run on explicit unload/remove)
+            uninstall_hooks = [
+                h
+                for h in self.registry.get_uninstall_hooks()
+                if h.plugin_id == plugin_id
+            ]
+            for hook in uninstall_hooks:
+                try:
+                    result = hook.callback(
+                        plugin_id=plugin_id,
+                        delete_files=delete_files,
+                    )
+                    if inspect.iscoroutine(result) or inspect.isawaitable(
+                        result,
+                    ):
+                        await result
+                except Exception as exc:
+                    logger.error(
+                        f"Error in uninstall hook '{hook.hook_name}' "
+                        f"for plugin '{plugin_id}': {exc}",
+                        exc_info=True,
+                    )
 
         # Remove Python module and all sub-modules so the next import
         # gets a fresh copy (e.g. plugin_foo.utils must not be reused).
@@ -628,6 +664,63 @@ class PluginLoader:
                 )
 
         logger.info(f"Unloaded plugin '{plugin_id}'")
+
+    def _find_discovered_plugin(
+        self,
+        plugin_id: str,
+    ) -> Tuple[PluginManifest, Path]:
+        for manifest, source_path in self.discover_plugins():
+            if manifest.id == plugin_id:
+                return manifest, source_path
+        raise KeyError(f"Plugin '{plugin_id}' was not found")
+
+    async def disable_plugin(self, plugin_id: str) -> PluginRecord:
+        """Disable a plugin and unload its runtime registrations."""
+        record = self._loaded_plugins.get(plugin_id)
+        if record is None:
+            manifest, source_path = self._find_discovered_plugin(plugin_id)
+        else:
+            manifest = record.manifest
+            source_path = record.source_path
+
+        self.state_store.set_enabled(plugin_id, False)
+
+        if record is not None and record.instance is not None:
+            await self.unload_plugin(
+                plugin_id,
+                delete_files=False,
+                run_uninstall_hooks=False,
+            )
+
+        disabled = PluginRecord(
+            manifest=manifest,
+            source_path=source_path,
+            enabled=False,
+            instance=None,
+        )
+        self._loaded_plugins[plugin_id] = disabled
+        return disabled
+
+    async def enable_plugin(
+        self,
+        plugin_id: str,
+        config: Optional[Dict] = None,
+    ) -> PluginRecord:
+        """Enable a plugin and load its runtime registrations."""
+        record = self._loaded_plugins.get(plugin_id)
+        if record is None:
+            manifest, source_path = self._find_discovered_plugin(plugin_id)
+        else:
+            manifest = record.manifest
+            source_path = record.source_path
+            if record.instance is not None:
+                record.enabled = True
+                self.state_store.set_enabled(plugin_id, True)
+                return record
+            self._loaded_plugins.pop(plugin_id, None)
+
+        self.state_store.set_enabled(plugin_id, True)
+        return await self.load_plugin(manifest, source_path, config)
 
     def _cleanup_plugin_tools(
         self,

@@ -40,10 +40,6 @@ from .routers.approval import router as approval_router
 from .routers.coding_mode import router as coding_mode_router
 from .routers.tool_calls import router as tool_calls_router
 from .routers.voice import voice_router
-from .routers.nm_bridge import (
-    api_router as nm_bridge_api_router,
-    ws_router as nm_bridge_ws_router,
-)
 from ..envs import load_envs_into_environ
 from ..providers.provider_manager import ProviderManager
 from ..local_models.manager import LocalModelManager
@@ -466,6 +462,12 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             plugin_dirs = [
                 get_plugins_dir(),
             ]
+            bundled_browser_takeover_dir = (
+                Path(__file__).resolve().parents[3]
+                / "plugins"
+                / "bundle"
+                / "browser-takeover"
+            )
 
             plugin_loader = PluginLoader(plugin_dirs)
 
@@ -482,6 +484,23 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             loaded_plugins = await plugin_loader.load_all_plugins(
                 configs=plugin_configs,
             )
+            if bundled_browser_takeover_dir.is_dir():
+                try:
+                    if (
+                        plugin_loader.get_loaded_plugin("browser-takeover")
+                        is None
+                    ):
+                        await plugin_loader.load_plugin_from_path(
+                            source_path=bundled_browser_takeover_dir,
+                            install_dir=bundled_browser_takeover_dir.parent,
+                            config=plugin_configs.get("browser-takeover"),
+                        )
+                except Exception as exc:
+                    logger.error(
+                        "Failed to load bundled browser-takeover plugin: %s",
+                        exc,
+                        exc_info=True,
+                    )
             logger.debug(f"Loaded {len(loaded_plugins)} plugin(s)")
 
             runtime_helpers = RuntimeHelpers(
@@ -810,10 +829,6 @@ app.include_router(coding_mode_router, prefix="/api")
 agent_scoped_router = create_agent_scoped_router()
 app.include_router(agent_scoped_router, prefix="/api")
 
-# Native Messaging REST endpoints: /api/extension/status and
-# /api/extension/setup, protected by the API auth middleware.
-app.include_router(nm_bridge_api_router, prefix="/api", tags=["nm-bridge"])
-
 app.include_router(
     _agent_router,
     prefix="/api/agent",
@@ -823,10 +838,6 @@ app.include_router(
 # Voice channel: Twilio-facing endpoints at root level (not under /api/).
 # POST /voice/incoming, WS /voice/ws, POST /voice/status-callback
 app.include_router(voice_router, tags=["voice"])
-
-# Native Messaging bridge: Chrome extension endpoint at root-level
-# /ws/nm-bridge.
-app.include_router(nm_bridge_ws_router, tags=["nm-bridge"])
 
 # Custom channel routes (before SPA catch-all to ensure route priority)
 register_custom_channel_routes(app)

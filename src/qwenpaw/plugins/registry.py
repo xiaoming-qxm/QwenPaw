@@ -89,6 +89,7 @@ class HttpRouterRegistration:
 
     plugin_id: str
     prefix: str
+    under_api: bool
     routes: List[Any]
 
 
@@ -147,6 +148,7 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         *,
         prefix: str,
         tags: Optional[List[Any]] = None,
+        under_api: bool = True,
     ) -> None:
         """Mount a plugin ``APIRouter`` at ``/api`` + *prefix*.
 
@@ -157,6 +159,7 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
                 ``GET /api/pets/...``. Must start with ``/`` and must not
                 end with ``/`` (except the single slash ``/`` is not allowed).
             tags: Optional OpenAPI tags for included routes
+            under_api: When false, mount at *prefix* from the application root.
 
         Raises:
             RuntimeError: If the FastAPI app was not configured.
@@ -179,8 +182,9 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
                 "segment such as '/pets'.",
             )
 
-        if normalized in self._http_prefix_to_plugin:
-            owner = self._http_prefix_to_plugin[normalized]
+        route_key = f"{'api' if under_api else 'root'}:{normalized}"
+        if route_key in self._http_prefix_to_plugin:
+            owner = self._http_prefix_to_plugin[route_key]
             raise ValueError(
                 f"Plugin HTTP prefix '{normalized}' is already registered "
                 f"by plugin '{owner}'",
@@ -192,7 +196,7 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         else:
             effective_tags = [f"plugin:{plugin_id}"]
 
-        full_prefix = f"/api{normalized}"
+        full_prefix = f"/api{normalized}" if under_api else normalized
         added = _mount_plugin_http_on_app(
             http_app,
             router,
@@ -204,14 +208,15 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
             HttpRouterRegistration(
                 plugin_id=plugin_id,
                 prefix=normalized,
+                under_api=under_api,
                 routes=added,
             ),
         )
-        self._http_prefix_to_plugin[normalized] = plugin_id
+        self._http_prefix_to_plugin[route_key] = plugin_id
         logger.info(
-            "Registered HTTP routes for plugin '%s' at prefix '/api%s'",
+            "Registered HTTP routes for plugin '%s' at prefix '%s'",
             plugin_id,
-            normalized,
+            full_prefix,
         )
 
     def get_http_router_registrations(self) -> List[HttpRouterRegistration]:
@@ -230,7 +235,8 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         ]
         routes = http_app.router.routes
         for reg in to_drop:
-            self._http_prefix_to_plugin.pop(reg.prefix, None)
+            route_key = f"{'api' if reg.under_api else 'root'}:{reg.prefix}"
+            self._http_prefix_to_plugin.pop(route_key, None)
             for route in reg.routes:
                 try:
                     routes.remove(route)

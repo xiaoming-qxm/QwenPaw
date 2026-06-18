@@ -67,8 +67,7 @@
     "debug": "调试",
     "plugins": "插件",
     "backups": "备份",
-    "pluginManager": "插件管理",
-    "browserExtension": "浏览器扩展"
+    "pluginManager": "插件管理"
   },
   "browserExtension": {
     "title": "浏览器接管",
@@ -2408,11 +2407,13 @@
     "uninstallFailed": "插件卸载失败",
     "statusLoaded": "运行中",
     "statusUnloaded": "未加载",
+    "enabled": "启用",
     "type": "类型",
     "version": "版本",
     "author": "作者",
     "unknown": "未知",
     "loadFailed": "加载插件列表失败",
+    "updateFailed": "更新插件失败",
     "confirmTitle": "确认卸载",
     "officialTitle": "官方插件",
     "officialDesc": "从下载站获取已发布的插件，一键安装到本机。",

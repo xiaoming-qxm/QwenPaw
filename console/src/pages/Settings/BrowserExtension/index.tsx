@@ -1,3 +1,6 @@
+// Deprecated: Browser Takeover is now managed by
+// /plugin-manager/browser-takeover. This component is retained only for
+// compatibility tests while the old route redirects to the plugin detail page.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,

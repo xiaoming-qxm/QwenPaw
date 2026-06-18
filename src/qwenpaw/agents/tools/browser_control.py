@@ -4398,9 +4398,15 @@ async def _action_takeover(  # pylint: disable=too-many-return-statements
     **kwargs,
 ) -> ToolChunk:
     """Dispatch browser_use takeover actions through NMBridge."""
-    from .nm_bridge import get_nm_bridge
+    from qwenpaw.browser.connection_manager import (
+        get_bridge_connection_manager,
+    )
 
-    bridge = get_nm_bridge()
+    manager = get_bridge_connection_manager()
+    if manager is not None:
+        bridge = manager.get_connection()
+    else:
+        bridge = None
     holder_id = _takeover_holder_id(state)
     request_context = _takeover_request_context()
     action = (action or "").strip().lower()
@@ -4409,13 +4415,26 @@ async def _action_takeover(  # pylint: disable=too-many-return-statements
         return _tool_response(
             json.dumps(
                 {
-                    "ok": bridge.connected,
+                    "ok": bridge is not None and bridge.connected,
                     "mode": "takeover",
                     "message": (
                         "Chrome extension bridge connected"
-                        if bridge.connected
+                        if bridge is not None and bridge.connected
                         else "Chrome extension bridge is not connected"
                     ),
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+        )
+
+    if bridge is None:
+        return _tool_response(
+            json.dumps(
+                {
+                    "ok": False,
+                    "mode": "takeover",
+                    "error": "Chrome extension bridge is not connected",
                 },
                 ensure_ascii=False,
                 indent=2,

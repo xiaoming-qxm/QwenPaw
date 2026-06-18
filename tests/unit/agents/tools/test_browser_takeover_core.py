@@ -28,13 +28,40 @@ from qwenpaw.agents.tools.cdp_relay import (
     CDPRelayPaused,
     CDPRelaySession,
 )
-from qwenpaw.agents.tools.nm_bridge import (
-    LEASE_TTL_SECONDS,
-    NMBridge,
-    NMBridgeDisconnectedError,
-    StaleLeaseError,
-    TabOccupiedError,
+from qwenpaw.browser.connection_manager import (
+    clear_bridge_connection_manager,
+    set_bridge_connection_manager,
 )
+from qwenpaw.browser.takeover_plugin import load_browser_takeover_submodule
+
+_nm_bridge = load_browser_takeover_submodule("nm_bridge")
+LEASE_TTL_SECONDS = _nm_bridge.LEASE_TTL_SECONDS
+NMBridge = _nm_bridge.NMBridge
+NMBridgeDisconnectedError = _nm_bridge.NMBridgeDisconnectedError
+StaleLeaseError = _nm_bridge.StaleLeaseError
+TabOccupiedError = _nm_bridge.TabOccupiedError
+
+
+class _BridgeManager:
+    def __init__(self, bridge: Any) -> None:
+        self.bridge = bridge
+
+    def get_connection(self) -> Any:
+        return self.bridge
+
+    def is_connected(self) -> bool:
+        return bool(getattr(self.bridge, "connected", False))
+
+
+@pytest.fixture(autouse=True)
+def _clear_bridge_manager():
+    clear_bridge_connection_manager()
+    yield
+    clear_bridge_connection_manager()
+
+
+def _set_test_bridge(bridge: Any) -> None:
+    set_bridge_connection_manager(_BridgeManager(bridge))
 
 
 class _FakeWebSocket:
@@ -278,14 +305,13 @@ async def test_takeover_session_uses_request_context_for_approval(
 
             return ApprovalDecision.APPROVED
 
-    from qwenpaw.agents.tools import nm_bridge
     from qwenpaw.app import agent_context
 
     def get_approval_service() -> ApprovalService:
         return ApprovalService()
 
     bridge = Bridge()
-    monkeypatch.setattr(nm_bridge, "get_nm_bridge", lambda: bridge)
+    _set_test_bridge(bridge)
     monkeypatch.setattr(
         "qwenpaw.app.approvals.get_approval_service",
         get_approval_service,
@@ -473,10 +499,10 @@ async def test_claim_tab_denied_domain_does_not_create_tab(
             self.claimed.append((tab_id, holder_id))
             return True
 
-    from qwenpaw.agents.tools import cdp_permissions, nm_bridge
+    from qwenpaw.agents.tools import cdp_permissions
 
     bridge = Bridge()
-    monkeypatch.setattr(nm_bridge, "get_nm_bridge", lambda: bridge)
+    _set_test_bridge(bridge)
     monkeypatch.setattr(
         cdp_permissions,
         "load_permissions",
@@ -501,9 +527,7 @@ async def test_claim_tab_denied_domain_does_not_create_tab(
 
 
 @pytest.mark.asyncio
-async def test_claim_tab_attach_rollback_releases_lease(
-    monkeypatch,
-) -> None:
+async def test_claim_tab_attach_rollback_releases_lease() -> None:
     class Bridge:
         connected = True
 
@@ -532,10 +556,8 @@ async def test_claim_tab_attach_rollback_releases_lease(
         async def release(self, tab_id: int, holder_id: str) -> None:
             self.released.append((tab_id, holder_id))
 
-    from qwenpaw.agents.tools import nm_bridge
-
     bridge = Bridge()
-    monkeypatch.setattr(nm_bridge, "get_nm_bridge", lambda: bridge)
+    _set_test_bridge(bridge)
 
     response = await browser_control._action_takeover(
         {"workspace_id": "workspace-1"},
@@ -590,13 +612,11 @@ def test_from_cdp_ax_tree_builds_refs_and_prunes_ignored_nodes() -> None:
 
 
 @pytest.mark.asyncio
-async def test_browser_use_routes_takeover_start(monkeypatch) -> None:
+async def test_browser_use_routes_takeover_start() -> None:
     class Bridge:
         connected = True
 
-    from qwenpaw.agents.tools import nm_bridge
-
-    monkeypatch.setattr(nm_bridge, "get_nm_bridge", Bridge)
+    _set_test_bridge(Bridge())
 
     response = await browser_use(action="start", mode="takeover")
     payload = json.loads(response.content[0].text)

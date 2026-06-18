@@ -11,7 +11,9 @@ import pytest
 
 from qwenpaw.app import auth as auth_module
 from qwenpaw.app.auth import AuthMiddleware
-from qwenpaw.app.routers import nm_bridge as nm_bridge_router
+from qwenpaw.browser.takeover_plugin import load_browser_takeover_submodule
+
+nm_bridge_router = load_browser_takeover_submodule("routes")
 
 
 class _Bridge:
@@ -36,8 +38,8 @@ def _include_nm_bridge_routes(app: FastAPI) -> None:
         "api_router",
         nm_bridge_router.router,
     )
-    app.include_router(ws_router)
-    app.include_router(api_router, prefix="/api")
+    app.include_router(ws_router, prefix="/ws")
+    app.include_router(api_router, prefix="/api/extension")
 
 
 def _app_with_router(bridge: _Bridge) -> FastAPI:

@@ -274,6 +274,7 @@ class PluginApi:
         *,
         prefix: str,
         tags: Optional[List[str]] = None,
+        under_api: bool = True,
     ) -> None:
         """Expose REST endpoints under ``/api`` + *prefix*.
 
@@ -286,6 +287,7 @@ class PluginApi:
             router: ``fastapi.APIRouter`` instance
             prefix: Path under ``/api``, e.g. ``"/pets"``
             tags: Optional OpenAPI tags for these routes
+            under_api: When false, mount from the application root.
 
         Raises:
             RuntimeError: If the registry has no HTTP parent router.
@@ -297,6 +299,7 @@ class PluginApi:
                 router,
                 prefix=prefix,
                 tags=tags,
+                under_api=under_api,
             )
 
     def register_control_command(

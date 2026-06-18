@@ -1,0 +1,63 @@
+# -*- coding: utf-8 -*-
+"""Helpers for loading the bundled Browser Takeover plugin modules."""
+
+from __future__ import annotations
+
+import importlib.util
+import sys
+import types
+from pathlib import Path
+from types import ModuleType
+
+_PACKAGE_NAME = "plugin_browser_takeover"
+
+
+def get_browser_takeover_plugin_dir() -> Path:
+    """Return the bundled Browser Takeover plugin directory."""
+    return (
+        Path(__file__).resolve().parents[3]
+        / "plugins"
+        / "bundle"
+        / "browser-takeover"
+    )
+
+
+def load_browser_takeover_submodule(name: str) -> ModuleType:
+    """Load a Browser Takeover plugin submodule by file name."""
+    plugin_dir = get_browser_takeover_plugin_dir()
+    module_name = f"{_PACKAGE_NAME}.{name}"
+    cached = sys.modules.get(module_name)
+    if cached is not None:
+        return cached
+
+    package = sys.modules.get(_PACKAGE_NAME)
+    if package is None:
+        package = types.ModuleType(_PACKAGE_NAME)
+        package.__path__ = [str(plugin_dir)]  # type: ignore[attr-defined]
+        package.__package__ = _PACKAGE_NAME
+        sys.modules[_PACKAGE_NAME] = package
+
+    module_path = plugin_dir / f"{name}.py"
+    spec = importlib.util.spec_from_file_location(module_name, module_path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Could not load browser takeover module: {name}")
+
+    module = importlib.util.module_from_spec(spec)
+    module.__package__ = _PACKAGE_NAME
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def export_public(module: ModuleType, target_globals: dict[str, object]) -> None:
+    """Copy public module attributes into a shim module's globals."""
+    public_names = [
+        name
+        for name in dir(module)
+        if not (name.startswith("__") and name != "__all__")
+    ]
+    for name in public_names:
+        target_globals[name] = getattr(module, name)
+    target_globals["__all__"] = [
+        name for name in public_names if not name.startswith("_")
+    ]

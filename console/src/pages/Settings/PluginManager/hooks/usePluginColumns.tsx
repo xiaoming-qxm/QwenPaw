@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next";
-import { Tag, Tooltip, Button, Space, Typography } from "antd";
+import { Tag, Tooltip, Button, Space, Typography, Switch } from "antd";
 import { Package, Trash2, CheckCircle, XCircle } from "lucide-react";
 import type { PluginType, PluginInfo } from "@/api/modules/plugin";
 import { PluginTypeTag } from "../components/PluginTypeTag";
@@ -8,12 +8,16 @@ const { Text } = Typography;
 
 interface UsePluginColumnsOptions {
   uninstallingId: string | null;
+  togglingId: string | null;
   onUninstall: (record: PluginInfo) => void;
+  onToggle: (record: PluginInfo, enabled: boolean) => void;
 }
 
 export function usePluginColumns({
   uninstallingId,
+  togglingId,
   onUninstall,
+  onToggle,
 }: UsePluginColumnsOptions) {
   const { t } = useTranslation();
 
@@ -66,6 +70,24 @@ export function usePluginColumns({
       ),
     },
     {
+      title: t("pluginManager.enabled"),
+      dataIndex: "enabled",
+      key: "enabled",
+      width: 96,
+      render: (enabled: boolean, record: PluginInfo) => (
+        <Switch
+          size="small"
+          checked={enabled}
+          loading={togglingId === record.id}
+          onClick={(_, event) => event.stopPropagation()}
+          onChange={(checked, event) => {
+            event.stopPropagation();
+            onToggle(record, checked);
+          }}
+        />
+      ),
+    },
+    {
       title: "Status",
       dataIndex: "loaded",
       key: "loaded",
@@ -101,7 +123,10 @@ export function usePluginColumns({
             size="small"
             icon={<Trash2 size={14} />}
             loading={uninstallingId === record.id}
-            onClick={() => onUninstall(record)}
+            onClick={(event) => {
+              event.stopPropagation();
+              onUninstall(record);
+            }}
           />
         </Tooltip>
       ),

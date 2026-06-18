@@ -67,8 +67,7 @@
     "debug": "Debug",
     "plugins": "Plugins",
     "backups": "Backups",
-    "pluginManager": "Plugin Manager",
-    "browserExtension": "Browser Extension"
+    "pluginManager": "Plugin Manager"
   },
   "browserExtension": {
     "title": "Browser Takeover",
@@ -2400,11 +2399,13 @@
     "uninstallFailed": "Plugin uninstallation failed",
     "statusLoaded": "Running",
     "statusUnloaded": "Not loaded",
+    "enabled": "Enabled",
     "type": "Type",
     "version": "Version",
     "author": "Author",
     "unknown": "Unknown",
     "loadFailed": "Failed to load plugin list",
+    "updateFailed": "Failed to update plugin",
     "confirmTitle": "Confirm Uninstall",
     "officialTitle": "Official Plugins",
     "officialDesc": "Install published plugins from the download CDN.",

@@ -1,4 +1,5 @@
 import { useTranslation } from "react-i18next";
+import { useNavigate } from "react-router-dom";
 import { Button, Empty, Spin, Table, Tabs } from "antd";
 import { Package, Plus } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
@@ -11,15 +12,25 @@ import styles from "./index.module.less";
 
 export default function PluginManagerPage() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
 
-  const { plugins, loading, refresh, uninstallingId, handleUninstall } =
-    usePluginManager();
+  const {
+    plugins,
+    loading,
+    refresh,
+    uninstallingId,
+    togglingId,
+    handleUninstall,
+    handleToggle,
+  } = usePluginManager();
 
   const installModal = useInstallModal(refresh);
 
   const columns = usePluginColumns({
     uninstallingId,
+    togglingId,
     onUninstall: handleUninstall,
+    onToggle: handleToggle,
   });
 
   const tabItems = [
@@ -41,6 +52,10 @@ export default function PluginManagerPage() {
               rowKey="id"
               pagination={false}
               className={styles.table}
+              rowClassName={styles.clickableRow}
+              onRow={(record) => ({
+                onClick: () => navigate(`/plugin-manager/${record.id}`),
+              })}
             />
           )}
         </Spin>

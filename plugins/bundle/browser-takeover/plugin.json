@@ -1,0 +1,56 @@
+{
+  "id": "browser-takeover",
+  "name": "Browser Takeover",
+  "version": "0.1.0",
+  "type": "general",
+  "description": "Connect QwenPaw to Chrome through the local browser bridge for live browser control.",
+  "author": "QwenPaw",
+  "entry": {
+    "backend": "main.py"
+  },
+  "dependencies": [],
+  "min_version": "1.1.7",
+  "icon": "Chrome",
+  "capabilities": [
+    {
+      "id": "native-messaging-bridge",
+      "title": "Chrome bridge",
+      "description": "Connects the Chrome extension to QwenPaw through Native Messaging."
+    },
+    {
+      "id": "browser-takeover",
+      "title": "Browser takeover",
+      "description": "Lets approved agent actions inspect pages and control selected tabs."
+    },
+    {
+      "id": "human-in-the-loop",
+      "title": "Human approval",
+      "description": "Routes sensitive browser actions through QwenPaw approval checks."
+    }
+  ],
+  "setup": {
+    "kind": "native-messaging",
+    "cta": "Configure browser bridge",
+    "steps": [
+      {
+        "id": "install-extension",
+        "title": "Install the Chrome extension",
+        "description": "Install or load the QwenPaw browser bridge extension in Chrome."
+      },
+      {
+        "id": "register-host",
+        "title": "Register Native Messaging",
+        "description": "Create the local Native Messaging host and bridge config files."
+      },
+      {
+        "id": "connect",
+        "title": "Connect Chrome",
+        "description": "Open Chrome and wait for the extension to connect to QwenPaw."
+      }
+    ]
+  },
+  "meta": {
+    "builtin": true,
+    "category": "browser"
+  }
+}
