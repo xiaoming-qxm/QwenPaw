@@ -77,7 +77,7 @@ def _request_token(websocket: WebSocket) -> str:
 
 async def _deny(websocket: WebSocket, status_code: int, detail: str) -> None:
     await websocket.send_denial_response(
-        JSONResponse({"detail": detail}, status_code=status_code)
+        JSONResponse({"detail": detail}, status_code=status_code),
     )
 
 
@@ -108,7 +108,11 @@ async def nm_bridge_ws(websocket: WebSocket) -> None:
         return
 
     if _connected is not None:
-        await _deny(websocket, 409, "Native Messaging bridge already connected")
+        await _deny(
+            websocket,
+            409,
+            "Native Messaging bridge already connected",
+        )
         return
 
     await websocket.accept()
@@ -142,7 +146,9 @@ def get_extension_status() -> dict[str, Any]:
         "connected": _connected is not None,
         "version": None,
         "connected_since": (
-            _connected_since.isoformat() if _connected_since is not None else None
+            _connected_since.isoformat()
+            if _connected_since is not None
+            else None
         ),
     }
 

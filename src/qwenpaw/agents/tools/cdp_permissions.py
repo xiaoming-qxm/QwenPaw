@@ -91,7 +91,9 @@ class PermissionsConfig:
     approved_domains: set[str] = field(default_factory=set)
 
 
-DEFAULT_PERMISSIONS_PATH = Path.home() / ".qwenpaw" / "browser-permissions.yaml"
+DEFAULT_PERMISSIONS_PATH = (
+    Path.home() / ".qwenpaw" / "browser-permissions.yaml"
+)
 
 
 def _domain_from_url(url: str | None) -> str | None:
@@ -154,7 +156,9 @@ def check_permission(
     )
 
 
-def load_permissions(path: str | Path = DEFAULT_PERMISSIONS_PATH) -> PermissionsConfig:
+def load_permissions(
+    path: str | Path = DEFAULT_PERMISSIONS_PATH,
+) -> PermissionsConfig:
     path = Path(path)
     if not path.exists():
         return PermissionsConfig()
@@ -171,7 +175,10 @@ def load_permissions(path: str | Path = DEFAULT_PERMISSIONS_PATH) -> Permissions
             if str(value) in POLICY_SEVERITY
         },
         domain_rules=[
-            {"pattern": str(rule.get("pattern")), "policy": str(rule.get("policy"))}
+            {
+                "pattern": str(rule.get("pattern")),
+                "policy": str(rule.get("policy")),
+            }
             for rule in domains
             if isinstance(rule, dict)
             and rule.get("pattern")

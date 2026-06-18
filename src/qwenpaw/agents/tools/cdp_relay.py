@@ -58,7 +58,9 @@ class CDPRelaySession:
         self.lease_version: int | None = None
         if hasattr(self.bridge, "lease_version"):
             self.lease_version = self.bridge.lease_version(tab_id, holder_id)
-        self.event_handlers: dict[str, list[Callable[..., Any]]] = defaultdict(list)
+        self.event_handlers: dict[str, list[Callable[..., Any]]] = defaultdict(
+            list,
+        )
         self._closed = False
         self._heartbeat_interval = heartbeat_interval
         self._heartbeat_task: asyncio.Task[None] | None = None
@@ -95,7 +97,11 @@ class CDPRelaySession:
 
         await self._ensure_approved(method, params or {})
         if hasattr(self.bridge, "validate_lease"):
-            self.bridge.validate_lease(self.tab_id, self.holder_id, self.lease_version)
+            self.bridge.validate_lease(
+                self.tab_id,
+                self.holder_id,
+                self.lease_version,
+            )
         self._last_activity = self._now()
 
         response = await self.bridge.request(
@@ -119,7 +125,10 @@ class CDPRelaySession:
             return response.get("result", {})
         return response
 
-    async def show_banner(self, params: dict[str, Any] | None = None) -> dict[str, Any]:
+    async def show_banner(
+        self,
+        params: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         response = await self.bridge.request(
             "banner.show",
             {"tabId": self.tab_id, **(params or {})},
@@ -188,7 +197,11 @@ class CDPRelaySession:
         self.paused = True
         await self.close()
 
-    async def _ensure_approved(self, method: str, params: dict[str, Any]) -> None:
+    async def _ensure_approved(
+        self,
+        method: str,
+        params: dict[str, Any],
+    ) -> None:
         from .cdp_permissions import check_permission
 
         target_url = str(params.get("url") or "") or None
@@ -203,7 +216,8 @@ class CDPRelaySession:
         request = self._approval_request(method, params, result.decision)
         if request is None:
             raise CDPApprovalDenied(
-                f"CDP command {method} requires approval but no request could be built",
+                f"CDP command {method} requires approval but "
+                "no request could be built",
             )
         approved = await self._request_approval(request)
         if not approved:
@@ -255,7 +269,9 @@ class CDPRelaySession:
             root_session_id=str(
                 self.request_context.get("root_session_id") or session_id,
             ),
-            owner_agent_id=str(self.request_context.get("root_agent_id") or ""),
+            owner_agent_id=str(
+                self.request_context.get("root_agent_id") or "",
+            ),
             user_id=str(self.request_context.get("user_id") or ""),
             channel=str(self.request_context.get("channel") or ""),
             agent_id=str(self.request_context.get("agent_id") or "unknown"),

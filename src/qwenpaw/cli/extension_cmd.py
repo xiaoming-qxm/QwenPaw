@@ -88,11 +88,12 @@ def _write_host(qwenpaw_home: Path) -> Path:
 
     host = bin_dir / "qwenpaw-nm-host"
     host.write_text(
-        "#!/usr/bin/env sh\n"
-        f'exec "{sys.executable}" "{host_impl}" "$@"\n',
+        "#!/usr/bin/env sh\n" f'exec "{sys.executable}" "{host_impl}" "$@"\n',
         encoding="utf-8",
     )
-    host.chmod(host.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+    host.chmod(
+        host.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH,
+    )
     return host
 
 
@@ -154,14 +155,18 @@ def setup_extension_files(
 def extension_install_status() -> dict[str, str | bool | None]:
     """Return install paths and whether the local registration exists."""
     qwenpaw_home = _qwenpaw_home()
-    extension_dir = qwenpaw_home / "chrome-extension" / "qwenpaw-browser-bridge"
+    extension_dir = (
+        qwenpaw_home / "chrome-extension" / "qwenpaw-browser-bridge"
+    )
     manifest_path = native_manifest_path()
     host_path = qwenpaw_home / "bin" / "qwenpaw-nm-host"
     config_path = qwenpaw_home / "nm-bridge.json"
     ws_url = None
     if config_path.exists():
         try:
-            ws_url = json.loads(config_path.read_text(encoding="utf-8")).get("ws_url")
+            ws_url = json.loads(config_path.read_text(encoding="utf-8")).get(
+                "ws_url",
+            )
         except (OSError, json.JSONDecodeError):
             ws_url = None
     installed = (
@@ -192,7 +197,11 @@ def extension_install_status() -> dict[str, str | bool | None]:
 )
 @click.option("--ws-url", default=DEFAULT_WS_URL, show_default=True)
 @click.option("--reset", is_flag=True, help="Overwrite existing setup files.")
-@click.option("--uninstall", is_flag=True, help="Remove Native Messaging setup.")
+@click.option(
+    "--uninstall",
+    is_flag=True,
+    help="Remove Native Messaging setup.",
+)
 @click.option("--yes", is_flag=True, help="Use defaults without prompting.")
 def setup_extension_cmd(
     install_mode: str | None,

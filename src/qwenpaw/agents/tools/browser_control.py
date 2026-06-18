@@ -4216,7 +4216,12 @@ async def _takeover_resolve_point(
     return (0.0, 0.0)
 
 
-async def _takeover_click_at(session: Any, x: float, y: float, status_text: str) -> None:
+async def _takeover_click_at(
+    session: Any,
+    x: float,
+    y: float,
+    status_text: str,
+) -> None:
     await session.send_after_banner(
         "Input.dispatchMouseEvent",
         {

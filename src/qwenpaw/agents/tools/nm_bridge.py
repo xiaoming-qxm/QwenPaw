@@ -51,9 +51,10 @@ class NMBridge:
         self._ws: Any | None = None
         self._next_id = 1
         self._lock = asyncio.Lock()
-        self._event_handlers: dict[str, list[Callable[[dict[str, Any]], Any]]] = (
-            defaultdict(list)
-        )
+        self._event_handlers: dict[
+            str,
+            list[Callable[[dict[str, Any]], Any]],
+        ] = defaultdict(list)
         self.connected = False
 
     async def attach_websocket(self, websocket: Any) -> None:
@@ -67,7 +68,9 @@ class NMBridge:
         self.connected = False
         for future in list(self._pending.values()):
             if not future.done():
-                future.set_exception(NMBridgeDisconnectedError("NM bridge disconnected"))
+                future.set_exception(
+                    NMBridgeDisconnectedError("NM bridge disconnected"),
+                )
         self._pending.clear()
         self._leases.clear()
 
@@ -97,7 +100,7 @@ class NMBridge:
         current = self.get_lease(tab_id)
         if current is not None and current.holder_id != holder_id:
             raise TabOccupiedError(
-                f"Tab {tab_id} is already held by {current.holder_id}"
+                f"Tab {tab_id} is already held by {current.holder_id}",
             )
         if current is not None and current.holder_id == holder_id:
             return True
@@ -123,7 +126,7 @@ class NMBridge:
         if lease_version is not None and current.version != lease_version:
             raise StaleLeaseError(
                 f"Lease version mismatch for tab {tab_id}: "
-                f"{lease_version} != {current.version}"
+                f"{lease_version} != {current.version}",
             )
         return current
 
@@ -148,7 +151,9 @@ class NMBridge:
         if current is None:
             return
         if current.holder_id != holder_id:
-            raise TabOccupiedError(f"Tab {tab_id} is held by {current.holder_id}")
+            raise TabOccupiedError(
+                f"Tab {tab_id} is held by {current.holder_id}",
+            )
         self._leases.pop(tab_id, None)
 
     async def release_all(self, holder_id: str | None = None) -> None:

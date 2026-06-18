@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """Native Messaging host for the QwenPaw Chrome browser bridge."""
 
 from __future__ import annotations
@@ -89,7 +90,11 @@ async def pump_ws_to_stdout(ws: Any, writer: BinaryIO) -> None:
     async for raw_message in ws:
         if isinstance(raw_message, bytes):
             raw_message = raw_message.decode("utf-8")
-        message = json.loads(raw_message) if isinstance(raw_message, str) else raw_message
+        message = (
+            json.loads(raw_message)
+            if isinstance(raw_message, str)
+            else raw_message
+        )
         await asyncio.to_thread(write_nm_message, writer, message)
 
 
@@ -107,7 +112,10 @@ async def run_bridge(
         asyncio.create_task(pump_stdin_to_ws(stdin, ws)),
         asyncio.create_task(pump_ws_to_stdout(ws, stdout)),
     }
-    done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+    done, pending = await asyncio.wait(
+        tasks,
+        return_when=asyncio.FIRST_COMPLETED,
+    )
 
     for task in pending:
         task.cancel()
