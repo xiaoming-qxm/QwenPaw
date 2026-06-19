@@ -48,9 +48,7 @@ logger = logging.getLogger(__name__)
 
 TELEGRAM_MAX_MESSAGE_LENGTH = 4096
 TELEGRAM_SEND_CHUNK_SIZE = 4000
-TELEGRAM_MAX_FILE_SIZE_BYTES = (
-    50 * 1024 * 1024
-)  # 50 MB – Telegram bot upload limit
+TELEGRAM_MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024  # 50 MB – Telegram bot upload limit
 
 _DEFAULT_MEDIA_DIR = WORKING_DIR / "media" / "telegram"
 _TYPING_TIMEOUT_S = 180
@@ -174,9 +172,7 @@ async def _build_content_parts_from_message(
         return [], False, False
 
     content_parts: list[Any] = []
-    text = (
-        getattr(message, "text", None) or getattr(message, "caption") or ""
-    ).strip()
+    text = (getattr(message, "text", None) or getattr(message, "caption") or "").strip()
 
     entities = (
         getattr(message, "entities", None)
@@ -294,6 +290,8 @@ class TelegramChannel(BaseChannel):
         http_proxy: str,
         http_proxy_auth: str,
         bot_prefix: str,
+        base_url: str = "",
+        base_file_url: str = "",
         on_reply_sent: OnReplySent = None,
         show_tool_details: bool = True,
         media_dir: str = "",
@@ -329,6 +327,8 @@ class TelegramChannel(BaseChannel):
         self._bot_token = bot_token
         self._http_proxy = http_proxy or ""
         self._http_proxy_auth = http_proxy_auth or ""
+        self._base_url = base_url or ""
+        self._base_file_url = base_file_url or ""
         self.bot_prefix = bot_prefix
         self._workspace_dir = (
             Path(workspace_dir).expanduser() if workspace_dir else None
@@ -388,6 +388,10 @@ class TelegramChannel(BaseChannel):
             return self._http_proxy
 
         builder = Application.builder().token(self._bot_token)
+        if self._base_url:
+            builder = builder.base_url(self._base_url)
+        if self._base_file_url:
+            builder = builder.base_file_url(self._base_file_url)
         builder = builder.get_updates_read_timeout(20)
         builder = builder.get_updates_connect_timeout(10)
         proxy = proxy_url()
@@ -458,8 +462,7 @@ class TelegramChannel(BaseChannel):
     ) -> tuple[bool, list[Any]]:
         """Process media-only Telegram messages without waiting for text."""
         has_media = any(
-            getattr(part, "type", None)
-            not in (ContentType.TEXT, ContentType.REFUSAL)
+            getattr(part, "type", None) not in (ContentType.TEXT, ContentType.REFUSAL)
             for part in content_parts
         )
         if has_media:
@@ -565,6 +568,8 @@ class TelegramChannel(BaseChannel):
             http_proxy=os.getenv("TELEGRAM_HTTP_PROXY", ""),
             http_proxy_auth=os.getenv("TELEGRAM_HTTP_PROXY_AUTH", ""),
             bot_prefix=os.getenv("TELEGRAM_BOT_PREFIX", ""),
+            base_url=os.getenv("TELEGRAM_BASE_URL", ""),
+            base_file_url=os.getenv("TELEGRAM_BASE_FILE_URL", ""),
             on_reply_sent=on_reply_sent,
             show_typing=os.getenv("TELEGRAM_SHOW_TYPING", "1") == "1",
             dm_policy=os.getenv("TELEGRAM_DM_POLICY", "open"),
@@ -604,6 +609,8 @@ class TelegramChannel(BaseChannel):
             http_proxy=_get_str("http_proxy"),
             http_proxy_auth=_get_str("http_proxy_auth"),
             bot_prefix=_get_str("bot_prefix"),
+            base_url=_get_str("base_url"),
+            base_file_url=_get_str("base_file_url"),
             on_reply_sent=on_reply_sent,
             show_tool_details=show_tool_details,
             filter_tool_messages=filter_tool_messages,
@@ -924,11 +931,7 @@ class TelegramChannel(BaseChannel):
         use_html: bool = False,
     ) -> bool:
         """Edit an existing message; return True on success."""
-        bot = (
-            getattr(self._application, "bot", None)
-            if self._application
-            else None
-        )
+        bot = getattr(self._application, "bot", None) if self._application else None
         if not bot:
             return False
         # Telegram rejects empty text
@@ -1033,14 +1036,10 @@ class TelegramChannel(BaseChannel):
         if not chat_id:
             return
         prefix = "💭 " if stream_type == "reasoning" else ""
-        display_text = (
-            f"{prefix}{accumulated_text}" if prefix else accumulated_text
-        )
+        display_text = f"{prefix}{accumulated_text}" if prefix else accumulated_text
         # If text exceeds Telegram limit, show only the tail portion
         if len(display_text) > TELEGRAM_MAX_MESSAGE_LENGTH:
-            display_text = (
-                "..." + display_text[-(TELEGRAM_MAX_MESSAGE_LENGTH - 4) :]
-            )
+            display_text = "..." + display_text[-(TELEGRAM_MAX_MESSAGE_LENGTH - 4) :]
         success = await self._edit_stream_message(
             chat_id,
             msg_id,
@@ -1071,9 +1070,7 @@ class TelegramChannel(BaseChannel):
         if not chat_id:
             return
         prefix = "💭 " if stream_type == "reasoning" else ""
-        final_text = (
-            f"{prefix}{accumulated_text}" if prefix else accumulated_text
-        )
+        final_text = f"{prefix}{accumulated_text}" if prefix else accumulated_text
 
         # If placeholder was never sent (e.g. API error), fall back to
         # normal send so the reply is not silently lost.
@@ -1258,10 +1255,7 @@ class TelegramChannel(BaseChannel):
         self._polling_error_task = None
 
         def _on_poll_error(exc) -> None:
-            if (
-                self._polling_error_task
-                and not self._polling_error_task.done()
-            ):
+            if self._polling_error_task and not self._polling_error_task.done():
                 return
             if self._looks_like_polling_conflict(exc):
                 self._polling_error_task = app.create_task(
@@ -1525,7 +1519,7 @@ class TelegramChannel(BaseChannel):
             channel_meta=meta,
         )
         request.user_id = user_id
-        request.channel_meta = meta
+        setattr(request, "channel_meta", meta)
         return request
 
     def to_handle_from_target(self, *, user_id: str, session_id: str) -> str:

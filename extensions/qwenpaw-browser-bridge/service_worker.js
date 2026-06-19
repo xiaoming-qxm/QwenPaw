@@ -81,6 +81,10 @@ function debuggerTarget(tabId) {
 }
 
 async function attachDebugger(tabId) {
+  if (managedTabs.has(tabId)) {
+    return { tabId, attached: true, alreadyAttached: true };
+  }
+
   await new Promise((resolve, reject) => {
     chrome.debugger.attach(debuggerTarget(tabId), "1.3", () => {
       if (chrome.runtime.lastError) {
@@ -140,7 +144,10 @@ function isAttachableTab(tab) {
 
 async function listTabs(queryInfo) {
   const tabs = await chrome.tabs.query(queryInfo || {});
-  return tabs.filter(isAttachableTab);
+  return tabs.filter(isAttachableTab).map((tab) => ({
+    ...tab,
+    managed: tab && tab.id !== undefined ? managedTabs.has(tab.id) : false,
+  }));
 }
 
 async function groupTakeoverTab(tab) {
@@ -171,6 +178,47 @@ async function createTab(params) {
       params && params.active !== undefined ? Boolean(params.active) : true,
   });
   return groupTakeoverTab(tab);
+}
+
+async function activateTab(params) {
+  const tabId = params && params.tabId;
+  if (tabId === undefined || tabId === null) {
+    throw new Error("tabId required");
+  }
+  const tab = await chrome.tabs.update(tabId, { active: true });
+  return { tabId, active: true, windowId: tab && tab.windowId };
+}
+
+async function closeTab(params) {
+  const tabId = params && params.tabId;
+  if (tabId === undefined || tabId === null) {
+    throw new Error("tabId required");
+  }
+
+  try {
+    await sendBannerMessage(tabId, "banner.hide", {});
+  } catch (error) {
+    console.debug("Failed to hide banner before closing tab", tabId, error);
+  }
+
+  if (managedTabs.has(tabId)) {
+    try {
+      await detachDebugger(tabId);
+    } catch (error) {
+      console.debug(
+        "Failed to detach debugger before closing tab",
+        tabId,
+        error,
+      );
+      managedTabs.delete(tabId);
+      await persistManagedTabs();
+    }
+  }
+
+  await chrome.tabs.remove(tabId);
+  managedTabs.delete(tabId);
+  await persistManagedTabs();
+  return { tabId, closed: true };
 }
 
 async function ensureContentScript(tabId) {
@@ -297,6 +345,10 @@ async function handleMessage(message) {
         return jsonRpcResult(id, await attachDebugger(params.tabId));
       case "tab.detach":
         return jsonRpcResult(id, await detachDebugger(params.tabId));
+      case "tab.activate":
+        return jsonRpcResult(id, await activateTab(params));
+      case "tab.close":
+        return jsonRpcResult(id, await closeTab(params));
       case "tab.create":
         return jsonRpcResult(id, await createTab(params));
       case "banner.show":

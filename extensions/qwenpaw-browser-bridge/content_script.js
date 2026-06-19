@@ -21,6 +21,7 @@
   let pauseButton = null;
   let resumeButton = null;
   let cursor = null;
+  let keyboard = null;
   let cursorPosition = { x: 24, y: 24 };
 
   function ensureBanner() {
@@ -100,36 +101,63 @@
         z-index: 2147483647;
         left: 0;
         top: 0;
-        width: 18px;
-        height: 18px;
-        border: 2px solid #0f766e;
-        border-radius: 999px;
-        background: rgba(45, 212, 191, 0.16);
-        box-shadow: 0 0 0 4px rgba(45, 212, 191, 0.14);
+        width: 28px;
+        height: 28px;
         pointer-events: none;
         transform: translate3d(24px, 24px, 0);
         opacity: 0;
+        filter: drop-shadow(0 8px 14px rgba(15, 23, 42, 0.24));
       }
 
       .qwenpaw-cursor[data-visible="true"] {
         opacity: 1;
       }
 
+      .qwenpaw-cursor svg {
+        display: block;
+        width: 28px;
+        height: 28px;
+      }
+
       .qwenpaw-cursor[data-flash="true"] {
         animation: qwenpaw-click-flash 260ms ease-out;
       }
 
+      .qwenpaw-keyboard {
+        position: fixed;
+        z-index: 2147483647;
+        left: 0;
+        top: 0;
+        max-width: min(360px, calc(100vw - 32px));
+        padding: 7px 10px;
+        border: 1px solid rgba(20, 24, 36, 0.16);
+        border-radius: 8px;
+        background: rgba(15, 23, 42, 0.92);
+        color: #ffffff;
+        box-shadow: 0 10px 28px rgba(15, 23, 42, 0.24);
+        font: 13px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        pointer-events: none;
+        opacity: 0;
+        transform: translate3d(36px, 56px, 0);
+        transition: opacity 140ms ease-out, transform 140ms ease-out;
+      }
+
+      .qwenpaw-keyboard[data-visible="true"] {
+        opacity: 1;
+        transform: translate3d(var(--x), var(--y), 0);
+      }
+
       @keyframes qwenpaw-click-flash {
         0% {
-          box-shadow: 0 0 0 4px rgba(45, 212, 191, 0.2);
           transform: translate3d(var(--x), var(--y), 0) scale(1);
         }
         50% {
-          box-shadow: 0 0 0 12px rgba(45, 212, 191, 0.08);
-          transform: translate3d(var(--x), var(--y), 0) scale(1.35);
+          transform: translate3d(var(--x), var(--y), 0) scale(1.18);
         }
         100% {
-          box-shadow: 0 0 0 4px rgba(45, 212, 191, 0.14);
           transform: translate3d(var(--x), var(--y), 0) scale(1);
         }
       }
@@ -175,8 +203,24 @@
     actions.append(pauseButton, resumeButton, stop);
     cursor = document.createElement("div");
     cursor.className = "qwenpaw-cursor";
+    cursor.innerHTML = `
+      <svg viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+        <path
+          d="M12.4 16.3c1.1-1.3 2.1-2.2 3.6-2.2s2.6.9 3.7 2.2c.6.8 1.3 1.4 2.2 1.9 2.2 1.2 2.3 4.2.2 5.5-1.7 1.1-3.8.3-5.2-.5-.6-.3-1.2-.3-1.8 0-1.4.8-3.5 1.6-5.2.5-2.1-1.3-2-4.3.2-5.5.9-.5 1.6-1.1 2.3-1.9Z"
+          fill="#ffffff"
+          stroke="#0f766e"
+          stroke-width="1.7"
+        />
+        <circle cx="9.7" cy="11.2" r="3" fill="#14b8a6" stroke="#ffffff" stroke-width="1.2" />
+        <circle cx="15" cy="8.7" r="3" fill="#0f766e" stroke="#ffffff" stroke-width="1.2" />
+        <circle cx="20.8" cy="10.1" r="3" fill="#14b8a6" stroke="#ffffff" stroke-width="1.2" />
+        <circle cx="24.1" cy="15" r="2.7" fill="#0f766e" stroke="#ffffff" stroke-width="1.2" />
+      </svg>
+    `;
+    keyboard = document.createElement("div");
+    keyboard.className = "qwenpaw-keyboard";
     banner.append(status, actions);
-    shadowRoot.append(style, banner, cursor);
+    shadowRoot.append(style, banner, cursor, keyboard);
     render();
   }
 
@@ -247,6 +291,43 @@
     }, 280);
   }
 
+  function keyboardLabel(input) {
+    if (!input || typeof input !== "object") {
+      return "";
+    }
+    if (input.key) {
+      return `按键 ${String(input.key).slice(0, 32)}`;
+    }
+    if (input.text) {
+      const value = String(input.text).replace(/\s+/g, " ").trim();
+      return `输入 ${value.slice(0, 72)}`;
+    }
+    return "";
+  }
+
+  function showKeyboard(input) {
+    ensureBanner();
+    if (!keyboard) {
+      return;
+    }
+    const label = keyboardLabel(input);
+    if (!label) {
+      return;
+    }
+    const x = `${Math.min(window.innerWidth - 24, cursorPosition.x + 34)}px`;
+    const y = `${Math.min(window.innerHeight - 24, cursorPosition.y + 34)}px`;
+    keyboard.textContent = label;
+    keyboard.style.setProperty("--x", x);
+    keyboard.style.setProperty("--y", y);
+    keyboard.dataset.visible = "true";
+    window.clearTimeout(keyboard._hideTimer);
+    keyboard._hideTimer = window.setTimeout(() => {
+      if (keyboard) {
+        keyboard.dataset.visible = "false";
+      }
+    }, 1200);
+  }
+
   function animateCursor(target) {
     ensureBanner();
     if (
@@ -301,6 +382,7 @@
     }
     render();
     const animation = await animateCursor(params.cursor);
+    showKeyboard(params.keyboard);
     return { ok: true, visible: true, ...animation };
   }
 

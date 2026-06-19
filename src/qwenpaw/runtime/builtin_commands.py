@@ -10,9 +10,7 @@ and delegates to the original handler.
 
 from __future__ import annotations
 
-import json
 import logging
-import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -213,9 +211,7 @@ def _make_control_adapter(
             except Exception:
                 pass
 
-        full_query = (
-            f"/{command_name} {args}".strip() if args else f"/{command_name}"
-        )
+        full_query = f"/{command_name} {args}".strip() if args else f"/{command_name}"
         parsed_args = parse_args(
             full_query,
             f"/{command_name}",
@@ -398,389 +394,12 @@ def _make_conversation_adapter(name: str) -> CommandSpec:
 
 
 def _collect_conversation_specs() -> list[CommandSpec]:
-    return [
-        _make_conversation_adapter(n) for n in sorted(_CONVERSATION_COMMANDS)
-    ]
+    return [_make_conversation_adapter(n) for n in sorted(_CONVERSATION_COMMANDS)]
 
 
 # ======================================================================
 # Browser takeover command adapter
 # ======================================================================
-
-_TAKEOVER_SITE_ALIASES: tuple[tuple[str, str, str], ...] = (
-    ("小红书", "小红书", "https://www.xiaohongshu.com"),
-    ("xiaohongshu", "小红书", "https://www.xiaohongshu.com"),
-    ("xhs", "小红书", "https://www.xiaohongshu.com"),
-    ("rednote", "小红书", "https://www.xiaohongshu.com"),
-)
-
-_TAKEOVER_READ_WORDS = (
-    "看",
-    "查看",
-    "看看",
-    "有什么",
-    "有哪些",
-    "读取",
-    "告诉我",
-    "show",
-    "inspect",
-    "read",
-    "what",
-)
-
-_TAKEOVER_CART_WORDS = (
-    "购物车",
-    "购物栏",
-    "shopping cart",
-    "cart",
-)
-
-_TAKEOVER_TAOBAO_WORDS = (
-    "淘宝",
-    "taobao",
-    "www.taobao.com",
-    "cart.taobao.com",
-)
-
-
-def _takeover_extract_url(user_input: str) -> tuple[str, str] | None:
-    text = user_input.strip()
-    match = re.search(r"https?://[^\s\]\)）>]+", text)
-    if not match:
-        return None
-    url = match.group(0).rstrip("。.,，、")
-    return url, url
-
-
-def _takeover_contains_any(text: str, words: tuple[str, ...]) -> bool:
-    lower = text.lower()
-    return any(word.lower() in lower for word in words)
-
-
-def _takeover_requested_url(user_input: str) -> tuple[str, str] | None:
-    extracted = _takeover_extract_url(user_input)
-    if extracted is not None:
-        return extracted
-
-    lower = user_input.strip().lower()
-    for keyword, label, url in _TAKEOVER_SITE_ALIASES:
-        if keyword in lower:
-            return url, label
-    return None
-
-
-def _takeover_inspection_target(user_input: str) -> tuple[str, str] | None:
-    if not _takeover_contains_any(user_input, _TAKEOVER_READ_WORDS):
-        return None
-
-    extracted = _takeover_extract_url(user_input)
-    if extracted is not None:
-        return extracted
-
-    if (
-        _takeover_contains_any(user_input, _TAKEOVER_CART_WORDS)
-        and _takeover_contains_any(user_input, _TAKEOVER_TAOBAO_WORDS)
-    ):
-        return "https://cart.taobao.com", "淘宝购物车"
-
-    return None
-
-
-def _prepare_takeover_tool_context(ctx: Any) -> None:
-    try:
-        from ..app.agent_context import (
-            set_current_agent_id,
-            set_current_root_session_id,
-            set_current_session_id,
-        )
-
-        agent_id = getattr(ctx, "agent_id", None) or "default"
-        session_id = getattr(ctx, "session_id", None) or ""
-        root_session_id = (
-            getattr(ctx, "root_session_id", None) or session_id
-        )
-        set_current_agent_id(agent_id)
-        set_current_session_id(session_id)
-        set_current_root_session_id(root_session_id)
-    except Exception:
-        logger.debug("takeover: failed to seed app context", exc_info=True)
-
-    workspace_dir = getattr(ctx, "workspace_dir", None)
-    if workspace_dir is not None:
-        try:
-            from ..config.context import set_current_workspace_dir
-
-            set_current_workspace_dir(workspace_dir)
-        except Exception:
-            logger.debug(
-                "takeover: failed to seed workspace context",
-                exc_info=True,
-            )
-
-
-def _tool_payload_text(tool_response: Any) -> str:
-    content = getattr(tool_response, "content", None) or []
-    if not content:
-        return ""
-    first = content[0]
-    return str(getattr(first, "text", "") or "")
-
-
-def _tool_payload(tool_response: Any) -> dict[str, Any]:
-    payload_text = _tool_payload_text(tool_response)
-    try:
-        payload = json.loads(payload_text)
-    except json.JSONDecodeError:
-        return {"ok": False, "error": payload_text or "Unknown error"}
-    if isinstance(payload, dict):
-        return payload
-    return {"ok": False, "error": "Unexpected tool response"}
-
-
-def _takeover_failure_text(label: str, payload: dict[str, Any]) -> str:
-    error = str(payload.get("error") or payload.get("message") or "")
-    if "bridge is not connected" in error:
-        return (
-            "还没有连上 Chrome。请确认 QwenPaw Browser Bridge "
-            "扩展已启用并显示已连接。"
-        )
-    return f"没能打开{label}：{error or '未知错误'}"
-
-
-def _takeover_snapshot_excerpt(snapshot: str, *, max_lines: int = 90) -> str:
-    seen: set[str] = set()
-    lines: list[str] = []
-    for raw_line in snapshot.splitlines():
-        line = re.sub(r"\s+", " ", raw_line.strip())
-        if not line or line in seen:
-            continue
-        seen.add(line)
-        lines.append(line)
-        if len(lines) >= max_lines:
-            break
-    return "\n".join(lines)
-
-
-def _takeover_snapshot_text_lines(snapshot: str) -> list[str]:
-    seen: set[str] = set()
-    lines: list[str] = []
-    for raw_line in snapshot.splitlines():
-        line = re.sub(r"\s+", " ", raw_line.strip())
-        if not line:
-            continue
-        match = re.match(r'^-\s*text\s+"(.*)"$', line)
-        if match:
-            line = match.group(1)
-        if line in seen:
-            continue
-        seen.add(line)
-        lines.append(line)
-    return lines
-
-
-def _takeover_join_price_fragments(lines: list[str], start: int) -> str:
-    fragments: list[str] = []
-    for value in lines[start + 1 : start + 5]:
-        if re.fullmatch(r"\d+(?:\.\d+)?|\.", value):
-            fragments.append(value)
-            if (
-                len(fragments) >= 3
-                and fragments[-2] == "."
-                and fragments[-1].isdigit()
-            ):
-                break
-            continue
-        break
-    price = "".join(fragments).strip(".")
-    return f"¥{price}" if price else ""
-
-
-def _takeover_taobao_cart_summary(snapshot: str) -> str:
-    lines = _takeover_snapshot_text_lines(snapshot)
-    if not lines:
-        return ""
-
-    start = next(
-        (
-            idx
-            for idx, line in enumerate(lines)
-            if line.startswith("全部商品") or line == "全选"
-        ),
-        0,
-    )
-    end = next(
-        (
-            idx
-            for idx, line in enumerate(lines[start + 1 :], start + 1)
-            if line == "猜你喜欢"
-        ),
-        len(lines),
-    )
-    cart_lines = lines[start:end]
-    if not cart_lines:
-        return ""
-
-    count = ""
-    for line in cart_lines:
-        match = re.search(r"全部商品\((\d+)\)", line)
-        if match:
-            count = match.group(1)
-            break
-
-    skip_exact = {
-        "降价",
-        "0",
-        "全选",
-        "移入收藏",
-        "删除",
-        "分类",
-        "状态",
-        "信用卡支付",
-        "消费券",
-        "15天价保",
-        "假一赔十",
-        "破损包退",
-        "平台加补后",
-        "￥",
-        ".",
-    }
-
-    store = ""
-    product = ""
-    specs: list[str] = []
-    price = ""
-    for idx, line in enumerate(cart_lines):
-        if not store and line in {"天猫超市"}:
-            store = line
-            continue
-        if (
-            not product
-            and len(line) >= 6
-            and line not in skip_exact
-            and not line.startswith("- RootWebArea")
-            and not line.startswith("全部商品")
-            and not line.startswith("直降")
-            and not line.endswith("前送达")
-        ):
-            product = line
-            continue
-        if line.startswith(("净含量：", "套餐类型：", "购买规格：")):
-            specs.append(line)
-        if line == "￥" and not price:
-            price = _takeover_join_price_fragments(cart_lines, idx)
-
-    if not product:
-        return ""
-
-    title = (
-        f"我在购物车里看到 {count} 件商品："
-        if count
-        else "我在购物车里看到："
-    )
-    details = product
-    if store:
-        details = f"{store}：{details}"
-    parts = [f"- {details}"]
-    if specs:
-        parts.append(f"  规格：{'；'.join(specs)}")
-    if price:
-        parts.append(f"  当前显示价格：{price}")
-    return "\n".join([title, *parts])
-
-
-async def _open_takeover_url(ctx: Any, url: str, label: str) -> "Msg":
-    from agentscope.message import Msg, TextBlock
-
-    _prepare_takeover_tool_context(ctx)
-
-    from ..agents.tools.browser_control import browser_use
-
-    tool_response = await browser_use(
-        action="claim_tab",
-        mode="takeover",
-        url=url,
-        user_initiated=True,
-    )
-    payload = _tool_payload(tool_response)
-
-    if payload.get("ok"):
-        text = f"已在你的 Chrome 中打开{label}。"
-    else:
-        text = _takeover_failure_text(label, payload)
-
-    return Msg(
-        name="assistant",
-        role="assistant",
-        content=[TextBlock(type="text", text=text)],
-    )
-
-
-async def _inspect_takeover_url(ctx: Any, url: str, label: str) -> "Msg":
-    from agentscope.message import Msg, TextBlock
-
-    _prepare_takeover_tool_context(ctx)
-
-    from ..agents.tools.browser_control import browser_use
-
-    claim_payload = _tool_payload(
-        await browser_use(
-            action="claim_tab",
-            mode="takeover",
-            url=url,
-            user_initiated=True,
-        ),
-    )
-    if not claim_payload.get("ok"):
-        text = _takeover_failure_text(label, claim_payload)
-        return Msg(
-            name="assistant",
-            role="assistant",
-            content=[TextBlock(type="text", text=text)],
-        )
-
-    tab_id = claim_payload.get("tab_id")
-    await browser_use(action="wait_for", mode="takeover", wait_time=8)
-    snapshot_payload = _tool_payload(
-        await browser_use(
-            action="snapshot",
-            mode="takeover",
-            page_id=str(tab_id) if tab_id is not None else "default",
-        ),
-    )
-    snapshot = str(snapshot_payload.get("snapshot") or "")
-    excerpt = _takeover_snapshot_excerpt(snapshot)
-    if not snapshot_payload.get("ok"):
-        error = str(
-            snapshot_payload.get("error")
-            or snapshot_payload.get("message")
-            or "未知错误",
-        )
-        text = f"已打开{label}，但读取页面内容失败：{error}"
-    elif excerpt:
-        summary = ""
-        if label == "淘宝购物车":
-            summary = _takeover_taobao_cart_summary(snapshot)
-        if summary:
-            text = (
-                f"已在你的 Chrome 中打开{label}，并读取了当前可见页面。\n\n"
-                f"{summary}"
-            )
-        else:
-            text = (
-                f"已在你的 Chrome 中打开{label}，并读取了当前可见页面。\n\n"
-                f"页面可见内容摘录：\n{excerpt}"
-            )
-    else:
-        text = (
-            f"已在你的 Chrome 中打开{label}，但当前页面快照没有读到"
-            "可见内容。页面可能仍在加载、需要登录或需要人工验证。"
-        )
-
-    return Msg(
-        name="assistant",
-        role="assistant",
-        content=[TextBlock(type="text", text=text)],
-    )
 
 
 def _takeover_prompt(user_input: str) -> str:
@@ -790,38 +409,86 @@ def _takeover_prompt(user_input: str) -> str:
         "Chrome browser through QwenPaw Browser Takeover.\n\n"
         "Required behavior:\n"
         '- Use browser_use with mode="takeover" for browser actions.\n'
+        "- Turn the user's real-world browser goal into an observe-act-verify "
+        "loop: observe the page, choose the next browser action, then verify "
+        "the visible result before continuing or answering.\n"
         '- When opening a website, start with browser_use(action="claim_tab", '
-        'mode="takeover", url=...).\n'
+        'mode="takeover", url=...). If the user names a site without a URL, '
+        "resolve a concrete URL from general knowledge or search; ask only "
+        "when the target is genuinely ambiguous.\n"
         "- For the first URL or site the user explicitly requested in this "
         "/takeover command, pass user_initiated=True.\n"
-        '- When the user refers to an existing or current tab, call '
+        "- A successful claim_tab/open response with ok=true and tab_id means "
+        "the tab is already opened and claimed. Treat that step as complete. "
+        "Your next browser tool call after a successful claim_tab/open MUST "
+        "be wait_for or snapshot; do not call claim_tab/open again for the "
+        "same URL/tab.\n"
+        '- If the tool response includes next_action="snapshot", follow it. '
+        "If you are unsure whether the page loaded, observe with snapshot "
+        "or wait_for then snapshot; never repeat open/claim to check.\n"
+        "- Do not use shell commands, HTTP clients, local files, or other "
+        "non-browser tools as substitutes for waiting, observing, or verifying "
+        "the real Chrome page. Use browser_use wait_for, snapshot, and "
+        "screenshot for browser state.\n"
+        "- The user must be able to watch, assist, pause, or stop the work. "
+        "Keep the active takeover tab visible and use browser_use click, type, "
+        "press_key, wait_for, snapshot, and screenshot so mouse and keyboard "
+        "actions remain visible in the user's Chrome window.\n"
+        "- When the user refers to an existing or current tab, call "
         'browser_use(action="tabs", mode="takeover") first, then select it '
         'with browser_use(action="claim_tab", mode="takeover", page_id=...).\n'
-        '- To change the current takeover tab URL, use '
+        "- Keep a single active claimed tab for one browsing target unless "
+        "the user's task explicitly needs multiple tabs. Do not open duplicate "
+        "tabs for the same target; navigate or click within the claimed tab.\n"
+        "- To change the current takeover tab URL, use "
         'browser_use(action="navigate", mode="takeover", page_id=..., '
         'url=...). You may also use action="open" with page_id to navigate '
         "an already claimed tab.\n"
-        '- If the user asks for Taobao cart, shopping cart, 购物车, or '
-        '购物栏, open/claim Taobao once, then navigate the claimed tab to '
-        'https://cart.taobao.com instead of opening another Taobao tab or '
-        "stopping on the Taobao homepage.\n"
-        '- After navigation, call browser_use(action="wait_for", '
-        'mode="takeover", wait_time=...) and then action="snapshot" before '
-        "deciding what to click or report.\n"
-        "- Do not stop after saying that a page is loading; continue with "
-        "wait_for and snapshot until you can report page contents or a real "
-        "tool error.\n"
-        '- For takeover click, prefer ref or selector. If only visible text '
+        "- After every material navigation, click, type, or wait, call "
+        'browser_use(action="snapshot", mode="takeover", ...) before '
+        "deciding the next step or reporting results. Use "
+        'browser_use(action="wait_for", mode="takeover", wait_time=...) '
+        "before snapshot when the page is loading or changing.\n"
+        "- Observation ladder: first use snapshot as structured page evidence "
+        "(accessibility/DOM text, refs, roles, names). Use refs/selectors from "
+        "that structured evidence for clicks and typing when possible.\n"
+        '- Visual fallback: call browser_use(action="screenshot", '
+        'mode="takeover", page_id=...) when snapshot is empty, only shows a '
+        "generic RootWebArea, misses key visual state, the page is mostly "
+        "image/canvas based, layout/position matters, or structured evidence "
+        "does not explain what to do next. The screenshot tool output already "
+        "includes the image as visual evidence; inspect that image directly "
+        "from the tool result to decide the next browser action or verify "
+        "completion.\n"
+        '- Do not call browser_use(action="eval"), action="evaluate", '
+        "run_code, JavaScript snippets, arbitrary CDP Runtime calls, or "
+        "local shell/code tools to inspect the page. To check URLs or tabs, "
+        'use browser_use(action="tabs", mode="takeover").\n'
+        "- Do not call view_image, view_video, read_file, desktop_screenshot, "
+        "or send_file_to_user to inspect a browser screenshot. The visual "
+        "fallback must remain inside the browser_use takeover observe-act-"
+        "verify loop.\n"
+        "- If structured and visual evidence disagree, trust the more recent "
+        "observation and gather another snapshot/screenshot after the next "
+        "action.\n"
+        "- Never report success from intent alone. Only answer as complete "
+        "after the requested state is visible in snapshot/screenshot output "
+        "or after a browser tool returns a concrete result.\n"
+        "- If a page is still loading, authentication is required, a CAPTCHA "
+        "or risk check appears, or the site blocks automation, report that "
+        "specific blocker and what user action is needed. Do not invent page "
+        "contents.\n"
+        "- For takeover click, prefer ref or selector. If only visible text "
         'is available, browser_use(action="click", mode="takeover", '
-        'text=...) is supported.\n'
+        "text=...) is supported.\n"
         "- Prefer snapshot for reading page text and reporting results. "
         "Only use screenshot when the user explicitly asks for a screenshot "
-        "or text snapshot is not enough.\n"
+        "or text snapshot is not enough to determine the page state.\n"
         "- Do not call send_file_to_user unless a tool returned a real local "
         "file path.\n"
         "- Supported takeover actions include: claim_tab, tabs, open, "
-        "navigate, snapshot, screenshot, click, type, wait_for, release_tab, "
-        "and stop.\n"
+        "navigate, snapshot, screenshot, click, type, press_key, wait_for, "
+        "release_tab, and stop.\n"
         "- Do not use the default/headless/managed-CDP browser for this "
         "request.\n"
         "- If the Chrome bridge is disconnected or setup is missing, explain "
@@ -882,16 +549,6 @@ def _make_takeover_adapter() -> CommandSpec:
                     ),
                 ],
             )
-
-        inspection_target = _takeover_inspection_target(args)
-        if inspection_target is not None:
-            url, label = inspection_target
-            return await _inspect_takeover_url(ctx, url, label)
-
-        requested = _takeover_requested_url(args)
-        if requested is not None:
-            url, label = requested
-            return await _open_takeover_url(ctx, url, label)
 
         _rewrite_last_input_text(ctx, _takeover_prompt(args))
         return None
@@ -973,11 +630,7 @@ async def _skill_fallback_handler(
 
     skills_dir = get_workspace_skills_dir(Path(workspace_dir))
     skill_dir = next(
-        (
-            skills_dir / sn
-            for sn in effective_skills
-            if sn.lower() == skill_name
-        ),
+        (skills_dir / sn for sn in effective_skills if sn.lower() == skill_name),
         None,
     )
     if skill_dir is None or not skill_dir.exists():

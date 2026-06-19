@@ -21,6 +21,7 @@ POLICY_SEVERITY = {
 CDP_CAPABILITY_MAP: dict[str, str] = {
     # perceive
     "Accessibility.getFullAXTree": "perceive",
+    "DOM.enable": "perceive",
     "DOM.getDocument": "perceive",
     "DOM.getContentQuads": "perceive",
     "DOM.describeNode": "perceive",
@@ -96,15 +97,28 @@ class PermissionsConfig:
     approved_domains: set[str] = field(default_factory=set)
 
 
-DEFAULT_PERMISSIONS_PATH = (
-    Path.home() / ".qwenpaw" / "browser-permissions.yaml"
-)
+DEFAULT_PERMISSIONS_PATH = Path.home() / ".qwenpaw" / "browser-permissions.yaml"
 
 
 def _domain_from_url(url: str | None) -> str | None:
     if not url:
         return None
     return (urlparse(url).hostname or "").lower() or None
+
+
+def _domain_is_approved(
+    domain: str | None,
+    approved_domains: set[str],
+) -> bool:
+    if not domain:
+        return False
+    for approved in approved_domains:
+        approved = str(approved).lower().strip()
+        if not approved:
+            continue
+        if domain == approved or domain.endswith(f".{approved}"):
+            return True
+    return False
 
 
 def _max_policy(*policies: str) -> str:
@@ -146,7 +160,7 @@ def check_permission(
     if (
         category == "navigate"
         and capability_policy == "ask_new_domain"
-        and domain in config.approved_domains
+        and _domain_is_approved(domain, config.approved_domains)
     ):
         capability_policy = "allow"
 

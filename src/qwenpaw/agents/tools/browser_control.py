@@ -12,6 +12,7 @@ wait_for, pdf, close. Uses refs from snapshot for ref-based actions.
 import asyncio
 import atexit
 import base64
+import contextlib
 from collections.abc import Iterable
 from concurrent import futures
 import json
@@ -28,7 +29,7 @@ from typing import Any, Optional
 from urllib.parse import urljoin, urlparse
 from urllib import request as urllib_request
 
-from agentscope.message import TextBlock
+from agentscope.message import DataBlock, TextBlock, URLSource
 from agentscope.tool import ToolChunk
 from agentscope.message import ToolResultState
 
@@ -192,9 +193,7 @@ _workspace_states: dict[str, dict[str, Any]] = {}
 def _make_fresh_state(workspace_id: str, workspace_dir: str) -> dict[str, Any]:
     """Create a fresh browser state dict for a workspace."""
     user_data_dir = (
-        str(Path(workspace_dir) / "browser" / "user_data")
-        if workspace_dir
-        else ""
+        str(Path(workspace_dir) / "browser" / "user_data") if workspace_dir else ""
     )
     return {
         "playwright": None,
@@ -350,6 +349,15 @@ def _tool_response(text: str) -> ToolChunk:
         is_last=True,
         state=ToolResultState.SUCCESS,
         content=[TextBlock(type="text", text=text)],
+    )
+
+
+def _tool_response_with_blocks(text: str, blocks: list[Any]) -> ToolChunk:
+    """Wrap text plus additional content blocks for agentscope Toolkit."""
+    return ToolChunk(
+        is_last=True,
+        state=ToolResultState.SUCCESS,
+        content=[TextBlock(type="text", text=text), *blocks],
     )
 
 
@@ -1012,14 +1020,11 @@ async def _action_start(
     # Check browser state based on mode
     if _USE_SYNC_PLAYWRIGHT:
         browser_exists = (
-            state["_sync_browser"] is not None
-            or state["_sync_context"] is not None
+            state["_sync_browser"] is not None or state["_sync_context"] is not None
         )
         current_headless = bool(state.get("_sync_headless", True))
     else:
-        browser_exists = (
-            state["browser"] is not None or state["context"] is not None
-        )
+        browser_exists = state["browser"] is not None or state["context"] is not None
         current_headless = bool(state["headless"])
 
     # If user asks for visible window (headed=True)
@@ -1136,9 +1141,7 @@ async def _action_start(
                     # launch_persistent_context returns context directly; no separate browser object
                     _attach_context_listeners(state, context)
                     state["playwright"] = pw
-                    state[
-                        "browser"
-                    ] = None  # not needed for persistent context
+                    state["browser"] = None  # not needed for persistent context
                     state["context"] = context
                 else:
                     launch_kwargs = {"headless": state["headless"]}
@@ -1206,9 +1209,7 @@ async def _action_start(
         )
         if cdp_url:
             result["cdp_url"] = cdp_url
-            result["message"] = (
-                msg + f" with CDP port {cdp_url.rsplit(':', 1)[-1]}"
-            )
+            result["message"] = msg + f" with CDP port {cdp_url.rsplit(':', 1)[-1]}"
         return _tool_response(
             json.dumps(result, ensure_ascii=False, indent=2),
         )
@@ -1507,16 +1508,12 @@ async def _action_screenshot(
                 await _run_sync(
                     locator.screenshot,
                     path=path,
-                    type=(
-                        screenshot_type if screenshot_type == "jpeg" else "png"
-                    ),
+                    type=(screenshot_type if screenshot_type == "jpeg" else "png"),
                 )
             else:
                 await locator.screenshot(
                     path=path,
-                    type=(
-                        screenshot_type if screenshot_type == "jpeg" else "png"
-                    ),
+                    type=(screenshot_type if screenshot_type == "jpeg" else "png"),
                 )
         else:
             if frame_selector and frame_selector.strip():
@@ -1526,20 +1523,12 @@ async def _action_screenshot(
                     await _run_sync(
                         locator.screenshot,
                         path=path,
-                        type=(
-                            screenshot_type
-                            if screenshot_type == "jpeg"
-                            else "png"
-                        ),
+                        type=(screenshot_type if screenshot_type == "jpeg" else "png"),
                     )
                 else:
                     await locator.screenshot(
                         path=path,
-                        type=(
-                            screenshot_type
-                            if screenshot_type == "jpeg"
-                            else "png"
-                        ),
+                        type=(screenshot_type if screenshot_type == "jpeg" else "png"),
                     )
             else:
                 if _USE_SYNC_PLAYWRIGHT:
@@ -1547,21 +1536,13 @@ async def _action_screenshot(
                         page.screenshot,
                         path=path,
                         full_page=full_page,
-                        type=(
-                            screenshot_type
-                            if screenshot_type == "jpeg"
-                            else "png"
-                        ),
+                        type=(screenshot_type if screenshot_type == "jpeg" else "png"),
                     )
                 else:
                     await page.screenshot(
                         path=path,
                         full_page=full_page,
-                        type=(
-                            screenshot_type
-                            if screenshot_type == "jpeg"
-                            else "png"
-                        ),
+                        type=(screenshot_type if screenshot_type == "jpeg" else "png"),
                     )
         return _tool_response(
             json.dumps(
@@ -1622,9 +1603,7 @@ async def _action_click(  # pylint: disable=too-many-branches
         if not isinstance(mods, list):
             mods = []
         kwargs: dict[str, Any] = {
-            "button": (
-                button if button in ("left", "right", "middle") else "left"
-            ),
+            "button": (button if button in ("left", "right", "middle") else "left"),
         }
         if mods:
             kwargs["modifiers"] = [
@@ -2008,9 +1987,7 @@ async def _action_snapshot(
             compact=False,
         )
         state["refs"][page_id] = refs
-        state["refs_frame"][page_id] = (
-            frame_selector.strip() if frame_selector else ""
-        )
+        state["refs_frame"][page_id] = frame_selector.strip() if frame_selector else ""
         out = {
             "ok": True,
             "snapshot": snapshot,
@@ -2223,9 +2200,7 @@ async def _action_console_messages(
         )
     logs = state["console_logs"].get(page_id, [])
     filtered = (
-        [m for m in logs if order.index(m["level"]) <= idx]
-        if level in order
-        else logs
+        [m for m in logs if order.index(m["level"]) <= idx] if level in order else logs
     )
     lines = [f"[{m['level']}] {m['text']}" for m in filtered]
     text = "\n".join(lines)
@@ -2397,9 +2372,7 @@ async def _download_context_url(
         )
     head_headers = head_response.headers
     raw_content_length = (
-        head_headers.get("content-length")
-        or head_headers.get("Content-Length")
-        or ""
+        head_headers.get("content-length") or head_headers.get("Content-Length") or ""
     )
     if not raw_content_length:
         raise DirectUrlDownloadRejectedError(
@@ -2431,9 +2404,7 @@ async def _download_context_url(
     if not response.ok:
         return status, ""
     headers = response.headers
-    content_type = (
-        headers.get("content-type") or headers.get("Content-Type") or ""
-    )
+    content_type = headers.get("content-type") or headers.get("Content-Type") or ""
     if _USE_SYNC_PLAYWRIGHT:
         body = await _run_sync(response.body)
     else:
@@ -2730,9 +2701,7 @@ async def _file_download_click_fallback(
                 "url": current_url,
                 "status": status,
                 "content_type": content_type,
-                "download_method": (
-                    "browser_context_request_after_inline_navigation"
-                ),
+                "download_method": ("browser_context_request_after_inline_navigation"),
                 "note": (
                     "The click navigated to an inline resource instead of "
                     "firing a browser download event."
@@ -3108,9 +3077,7 @@ async def _action_drag(
             json.dumps(
                 {
                     "ok": False,
-                    "error": (
-                        "drag needs (start_ref,end_ref) or (start_sel,end_sel)"
-                    ),
+                    "error": ("drag needs (start_ref,end_ref) or (start_sel,end_sel)"),
                 },
                 ensure_ascii=False,
                 indent=2,
@@ -3357,10 +3324,7 @@ async def _action_tabs(  # pylint: disable=too-many-return-statements
             if not state["_sync_context"]:
                 ok = await _ensure_browser(state)
                 if not ok:
-                    err = (
-                        state.get("_last_browser_error")
-                        or "Browser not started"
-                    )
+                    err = state.get("_last_browser_error") or "Browser not started"
                     return _tool_response(
                         json.dumps(
                             {"ok": False, "error": err},
@@ -3372,10 +3336,7 @@ async def _action_tabs(  # pylint: disable=too-many-return-statements
             if not state["context"]:
                 ok = await _ensure_browser(state)
                 if not ok:
-                    err = (
-                        state.get("_last_browser_error")
-                        or "Browser not started"
-                    )
+                    err = state.get("_last_browser_error") or "Browser not started"
                     return _tool_response(
                         json.dumps(
                             {"ok": False, "error": err},
@@ -3844,9 +3805,7 @@ async def _action_batch(  # pylint: disable=too-many-nested-blocks
                 )
 
             else:
-                step_result[
-                    "error"
-                ] = f"Unknown batch sub-action: {sub_action}"
+                step_result["error"] = f"Unknown batch sub-action: {sub_action}"
 
             # Parse helper response into step_result
             if resp is not None and resp.content:
@@ -3857,9 +3816,7 @@ async def _action_batch(  # pylint: disable=too-many-nested-blocks
                     if isinstance(resp_data, dict):
                         step_result.update(resp_data)
                 except (json.JSONDecodeError, AttributeError, IndexError):
-                    step_result[
-                        "error"
-                    ] = "Failed to parse sub-action response"
+                    step_result["error"] = "Failed to parse sub-action response"
 
         except Exception as e:
             step_result["error"] = str(e)
@@ -4156,6 +4113,7 @@ def _takeover_get_session(
     key = str(tab_id)
     session = sessions.get(key)
     if session is not None and not getattr(session, "_closed", False):
+        _takeover_sync_session_navigation_scope(state, session)
         return session
 
     session = CDPRelaySession(
@@ -4164,7 +4122,29 @@ def _takeover_get_session(
         bridge=bridge,
         request_context=request_context,
     )
+    _takeover_sync_session_navigation_scope(state, session)
     sessions[key] = session
+    return session
+
+
+def _takeover_active_session(
+    state: dict,
+    *,
+    tab_id: int,
+    holder_id: str,
+) -> Any | None:
+    sessions = state.get("takeover_sessions")
+    if not isinstance(sessions, dict):
+        return None
+    session = sessions.get(str(tab_id))
+    if session is None or getattr(session, "_closed", False):
+        return None
+    if str(getattr(session, "holder_id", "") or "") != holder_id:
+        return None
+    takeover_tabs = state.get("takeover_tabs") or {}
+    tab = takeover_tabs.get(str(tab_id))
+    if isinstance(tab, dict) and str(tab.get("holder_id") or "") != holder_id:
+        return None
     return session
 
 
@@ -4206,51 +4186,357 @@ def _takeover_url_key(url: str) -> str:
     return f"{scheme}://{netloc}{path}{query}"
 
 
-def _takeover_matching_claimed_tab(state: dict, url: str) -> int | None:
-    if not url:
+def _takeover_site_domain(domain: str) -> str:
+    domain = domain.lower().strip(".")
+    if not domain or domain == "localhost":
+        return domain
+    parts = [part for part in domain.split(".") if part]
+    if len(parts) <= 2:
+        return domain
+    if (
+        len(parts) >= 3
+        and len(parts[-1]) == 2
+        and parts[-2] in {"ac", "co", "com", "edu", "gov", "net", "org"}
+    ):
+        return ".".join(parts[-3:])
+    return ".".join(parts[-2:])
+
+
+def _takeover_navigation_domains(url: str) -> set[str]:
+    domain = (urlparse(url).hostname or "").lower().strip(".")
+    if not domain:
+        return set()
+    return {domain, _takeover_site_domain(domain)}
+
+
+def _takeover_same_site(url_a: str, url_b: str) -> bool:
+    domains_a = _takeover_navigation_domains(url_a)
+    domains_b = _takeover_navigation_domains(url_b)
+    return bool(domains_a and domains_b and domains_a.intersection(domains_b))
+
+
+def _takeover_remember_approved_navigation(state: dict, url: str) -> None:
+    domains = _takeover_navigation_domains(url)
+    if not domains:
+        return
+    approved = state.setdefault("takeover_approved_domains", set())
+    if not isinstance(approved, set):
+        approved = set(approved or [])
+        state["takeover_approved_domains"] = approved
+    approved.update(domains)
+
+
+def _takeover_sync_session_navigation_scope(
+    state: dict,
+    session: Any,
+) -> None:
+    approved = state.get("takeover_approved_domains") or set()
+    if not approved:
+        return
+    domains = {str(domain) for domain in approved if domain}
+    config = getattr(session, "permissions_config", None)
+    approved_domains = getattr(config, "approved_domains", None)
+    if isinstance(approved_domains, set):
+        approved_domains.update(domains)
+    session_approved_domains = getattr(session, "approved_domains", None)
+    if isinstance(session_approved_domains, set):
+        session_approved_domains.update(domains)
+
+
+def _takeover_int_tab_id(value: Any) -> int | None:
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.isdigit():
+        return int(value)
+    return None
+
+
+def _takeover_tab_url(tab: dict[str, Any]) -> str:
+    return str(tab.get("url") or tab.get("pendingUrl") or "")
+
+
+def _takeover_live_tab_map(
+    tabs: list[dict[str, Any]] | None,
+) -> dict[int, dict[str, Any]] | None:
+    if tabs is None:
         return None
+    live_tabs: dict[int, dict[str, Any]] = {}
+    for tab in tabs:
+        if not isinstance(tab, dict):
+            continue
+        tab_id = _takeover_int_tab_id(tab.get("id") or tab.get("tabId"))
+        if tab_id is not None:
+            live_tabs[tab_id] = tab
+    return live_tabs
+
+
+def _takeover_claimed_tab_candidates(state: dict, url: str) -> list[int]:
+    if not url:
+        return []
     target_key = _takeover_url_key(url)
     current = str(state.get("current_page_id") or "")
     takeover_tabs = state.get("takeover_tabs") or {}
-    candidates = []
+    candidate_tabs = []
     if current:
-        candidates.append(takeover_tabs.get(current))
-    candidates.extend(takeover_tabs.values())
-    for tab in candidates:
+        candidate_tabs.append(takeover_tabs.get(current))
+    candidate_tabs.extend(takeover_tabs.values())
+    tab_ids: list[int] = []
+    for tab in candidate_tabs:
         if not isinstance(tab, dict):
             continue
         if tab.get("url_key") == target_key:
-            tab_id = tab.get("tab_id")
-            if isinstance(tab_id, int):
-                return tab_id
-    return None
+            tab_id = _takeover_int_tab_id(tab.get("tab_id"))
+            if tab_id is not None and tab_id not in tab_ids:
+                tab_ids.append(tab_id)
+    return tab_ids
+
+
+def _takeover_current_same_site_candidate(
+    state: dict,
+    url: str,
+    holder_id: str,
+) -> int | None:
+    if not url:
+        return None
+    current = str(state.get("current_page_id") or "")
+    tab = (state.get("takeover_tabs") or {}).get(current)
+    if not isinstance(tab, dict):
+        return None
+    if str(tab.get("holder_id") or "") != holder_id:
+        return None
+    tab_url = str(tab.get("url") or "")
+    if not tab_url or not _takeover_same_site(tab_url, url):
+        return None
+    return _takeover_int_tab_id(tab.get("tab_id"))
+
+
+def _takeover_refresh_tab_url(
+    state: dict,
+    tab_id: int,
+    url: str,
+) -> None:
+    if not url:
+        return
+    takeover_tabs = state.get("takeover_tabs") or {}
+    tab = takeover_tabs.get(str(tab_id))
+    if not isinstance(tab, dict):
+        return
+    tab["url"] = url
+    tab["url_key"] = _takeover_url_key(url)
+
+
+async def _takeover_forget_tab_state(state: dict, tab_id: int) -> None:
+    key = str(tab_id)
+    takeover_tabs = state.get("takeover_tabs")
+    if isinstance(takeover_tabs, dict):
+        takeover_tabs.pop(key, None)
+    sessions = state.get("takeover_sessions")
+    session = None
+    if isinstance(sessions, dict):
+        session = sessions.pop(key, None)
+        if not sessions:
+            state.pop("takeover_sessions", None)
+    if state.get("current_page_id") == key:
+        remaining = list((state.get("takeover_tabs") or {}).keys())
+        state["current_page_id"] = remaining[-1] if remaining else None
+    if session is not None:
+        try:
+            await session.close()
+        except Exception:
+            logger.debug(
+                "Failed to close stale takeover session for tab %s",
+                tab_id,
+                exc_info=True,
+            )
+
+
+async def _takeover_activate_tab(bridge: Any, tab_id: int) -> None:
+    try:
+        await bridge.request("tab.activate", {"tabId": tab_id})
+    except Exception:
+        logger.debug("Failed to activate takeover tab %s", tab_id, exc_info=True)
+
+
+async def _takeover_close_owned_tab(
+    state: dict,
+    *,
+    bridge: Any,
+    tab_id: int,
+    holder_id: str,
+) -> None:
+    tab = (state.get("takeover_tabs") or {}).get(str(tab_id)) or {}
+    if not isinstance(tab, dict) or not tab.get("created_by_takeover"):
+        return
+
+    with contextlib.suppress(Exception):
+        await bridge.request("banner.hide", {"tabId": tab_id})
+    with contextlib.suppress(Exception):
+        await bridge.request(
+            "tab.detach",
+            {"tabId": tab_id, "holderId": holder_id},
+        )
+    with contextlib.suppress(Exception):
+        await bridge.request("tab.close", {"tabId": tab_id})
+    await _takeover_forget_tab_state(state, tab_id)
+
+
+async def _takeover_close_other_owned_tabs(
+    state: dict,
+    *,
+    bridge: Any,
+    keep_tab_id: int,
+    holder_id: str,
+) -> None:
+    takeover_tabs = state.get("takeover_tabs") or {}
+    for raw_tab_id, tab in list(takeover_tabs.items()):
+        tab_id = _takeover_int_tab_id(raw_tab_id)
+        if tab_id is None or tab_id == keep_tab_id:
+            continue
+        if not isinstance(tab, dict):
+            continue
+        if str(tab.get("holder_id") or "") != holder_id:
+            continue
+        await _takeover_close_owned_tab(
+            state,
+            bridge=bridge,
+            tab_id=tab_id,
+            holder_id=holder_id,
+        )
+
+
+def _takeover_matching_browser_tab_from_tabs(
+    tabs: list[dict[str, Any]],
+    url: str,
+    *,
+    allow_same_site: bool = False,
+    managed_first: bool = False,
+    same_site_requires_active_or_managed: bool = False,
+) -> tuple[int, str] | None:
+    if not url:
+        return None
+    target_key = _takeover_url_key(url)
+    matches: list[tuple[int, int, int, int, int, str]] = []
+    for index, tab in enumerate(tabs):
+        if not isinstance(tab, dict):
+            continue
+        tab_url = _takeover_tab_url(tab)
+        if not tab_url:
+            continue
+        exact_match = _takeover_url_key(tab_url) == target_key
+        same_site_match = allow_same_site and _takeover_same_site(tab_url, url)
+        if not exact_match and not same_site_match:
+            continue
+        if (
+            same_site_match
+            and not exact_match
+            and same_site_requires_active_or_managed
+            and not tab.get("active")
+            and not tab.get("managed")
+        ):
+            continue
+        tab_id = _takeover_int_tab_id(tab.get("id") or tab.get("tabId"))
+        if tab_id is not None:
+            matches.append(
+                (
+                    0 if exact_match else 1,
+                    0 if managed_first and tab.get("managed") else 1,
+                    0 if tab.get("active") else 1,
+                    index,
+                    tab_id,
+                    tab_url,
+                ),
+            )
+    if not matches:
+        return None
+    _match_type, _managed_rank, _active_rank, _index, tab_id, tab_url = sorted(
+        matches,
+    )[0]
+    return tab_id, tab_url
+
+
+async def _takeover_discover_tabs_safe(
+    bridge: Any,
+) -> list[dict[str, Any]] | None:
+    if not hasattr(bridge, "discover_tabs"):
+        return None
+    try:
+        return await bridge.discover_tabs()
+    except Exception:
+        logger.debug("Failed to discover existing takeover tabs", exc_info=True)
+        return None
+
+
+async def _takeover_matching_takeover_or_browser_tab(
+    state: dict,
+    bridge: Any,
+    url: str,
+    holder_id: str,
+) -> tuple[int, str] | None:
+    tabs = await _takeover_discover_tabs_safe(bridge)
+    live_tabs = _takeover_live_tab_map(tabs)
+    target_key = _takeover_url_key(url) if url else ""
+
+    for tab_id in _takeover_claimed_tab_candidates(state, url):
+        if live_tabs is None:
+            return tab_id, ""
+        live_tab = live_tabs.get(tab_id)
+        if live_tab is None:
+            await _takeover_forget_tab_state(state, tab_id)
+            continue
+        live_url = _takeover_tab_url(live_tab)
+        if live_url and _takeover_url_key(live_url) != target_key:
+            _takeover_refresh_tab_url(state, tab_id, live_url)
+            continue
+        return tab_id, live_url
+
+    current_same_site = _takeover_current_same_site_candidate(
+        state,
+        url,
+        holder_id,
+    )
+    if current_same_site is not None:
+        if live_tabs is None:
+            return current_same_site, ""
+        live_tab = live_tabs.get(current_same_site)
+        if live_tab is None:
+            await _takeover_forget_tab_state(state, current_same_site)
+        else:
+            live_url = _takeover_tab_url(live_tab)
+            if live_url and _takeover_same_site(live_url, url):
+                _takeover_refresh_tab_url(state, current_same_site, live_url)
+                return current_same_site, live_url
+
+    if tabs is None:
+        return None
+    return _takeover_matching_browser_tab_from_tabs(
+        tabs,
+        url,
+        allow_same_site=True,
+        managed_first=True,
+        same_site_requires_active_or_managed=True,
+    )
 
 
 async def _takeover_matching_browser_tab(
     bridge: Any,
     url: str,
 ) -> tuple[int, str] | None:
-    if not url or not hasattr(bridge, "discover_tabs"):
+    if not url:
         return None
-    target_key = _takeover_url_key(url)
-    try:
-        tabs = await bridge.discover_tabs()
-    except Exception:
-        logger.debug("Failed to discover existing takeover tabs", exc_info=True)
+    tabs = await _takeover_discover_tabs_safe(bridge)
+    if tabs is None:
         return None
+    return _takeover_matching_browser_tab_from_tabs(tabs, url)
 
-    for tab in tabs:
-        if not isinstance(tab, dict):
-            continue
-        tab_url = str(tab.get("url") or "")
-        if not tab_url or _takeover_url_key(tab_url) != target_key:
-            continue
-        tab_id = tab.get("id") or tab.get("tabId")
-        if isinstance(tab_id, int):
-            return tab_id, tab_url
-        if isinstance(tab_id, str) and tab_id.isdigit():
-            return int(tab_id), tab_url
-    return None
+
+def _takeover_missing_tab_error(error: str) -> bool:
+    lower = error.lower()
+    return (
+        "no tab with given id" in lower
+        or "target_closed" in lower
+        or "target closed" in lower
+        or "cannot access a closed" in lower
+    )
 
 
 def _takeover_page_id(state: dict, page_id: str) -> str:
@@ -4293,6 +4579,26 @@ def _takeover_created_tab_id(response: Any) -> int:
     if isinstance(value, str) and value.isdigit():
         return int(value)
     raise ValueError("tab.create did not return a tab id")
+
+
+def _takeover_claim_success_payload(
+    tab_id: int,
+    tab_url: str = "",
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "ok": True,
+        "mode": "takeover",
+        "tab_id": tab_id,
+        "ready_for_observation": True,
+        "next_action": "snapshot",
+        "next_instruction": (
+            "The tab is already opened and claimed. Do not repeat "
+            "claim_tab/open for the same URL; observe it with snapshot next."
+        ),
+    }
+    if tab_url:
+        payload["url"] = tab_url
+    return payload
 
 
 async def _takeover_request_domain_approval(
@@ -4378,6 +4684,50 @@ async def _takeover_tab_create_denial_reason(
     return f"Domain '{domain}' not approved by user"
 
 
+async def _takeover_select_or_create_url_tab(
+    state: dict,
+    bridge: Any,
+    url: str,
+    request_context: dict[str, Any],
+    holder_id: str,
+    *,
+    user_initiated: bool = False,
+) -> tuple[int | None, str, str | None, bool]:
+    existing = await _takeover_matching_takeover_or_browser_tab(
+        state,
+        bridge,
+        url,
+        holder_id,
+    )
+    if existing is not None:
+        tab_id, discovered_tab_url = existing
+        if user_initiated:
+            _takeover_remember_approved_navigation(state, url)
+        return tab_id, discovered_tab_url, None, False
+
+    denial_reason = await _takeover_tab_create_denial_reason(
+        url,
+        request_context,
+        user_initiated=user_initiated,
+    )
+    if denial_reason:
+        return None, "", denial_reason, False
+
+    _takeover_remember_approved_navigation(state, url)
+    response = await bridge.request(
+        "tab.create",
+        {"url": url, "active": True},
+    )
+    tab_id = _takeover_created_tab_id(response)
+    await _takeover_close_other_owned_tabs(
+        state,
+        bridge=bridge,
+        keep_tab_id=tab_id,
+        holder_id=holder_id,
+    )
+    return tab_id, "", None, True
+
+
 def _takeover_node_params(target: dict[str, Any]) -> dict[str, int] | None:
     value = target.get("backendNodeId") or target.get("backendDOMNodeId")
     if isinstance(value, int):
@@ -4403,6 +4753,10 @@ def _takeover_quad_center(quads: Any) -> tuple[float, float] | None:
     return (sum(xs) / len(xs), sum(ys) / len(ys))
 
 
+async def _takeover_enable_dom(session: Any) -> None:
+    await session.send("DOM.enable")
+
+
 async def _takeover_resolve_point(
     session: Any,
     target: dict[str, Any],
@@ -4413,6 +4767,7 @@ async def _takeover_resolve_point(
 ) -> tuple[float, float]:
     node_params = _takeover_node_params(target)
     if node_params is not None:
+        await _takeover_enable_dom(session)
         params = dict(node_params)
         await session.send("DOM.scrollIntoViewIfNeeded", params)
         quads = await session.send("DOM.getContentQuads", params)
@@ -4434,6 +4789,7 @@ async def _takeover_selector_target(
     session: Any,
     selector: str,
 ) -> dict[str, Any]:
+    await _takeover_enable_dom(session)
     document = await session.send(
         "DOM.getDocument",
         {"depth": -1, "pierce": True},
@@ -4456,12 +4812,257 @@ async def _takeover_selector_target(
         {"nodeId": matched_node_id},
     )
     node = description.get("node") if isinstance(description, dict) else {}
-    backend_node_id = (
-        node.get("backendNodeId") if isinstance(node, dict) else None
-    )
+    backend_node_id = node.get("backendNodeId") if isinstance(node, dict) else None
     if isinstance(backend_node_id, int):
         return {"backendNodeId": backend_node_id}
     return {"nodeId": matched_node_id}
+
+
+async def _takeover_node_click_targets(
+    session: Any,
+    node_id: int,
+    *,
+    max_depth: int = 5,
+) -> list[dict[str, Any]]:
+    targets: list[dict[str, Any]] = []
+    seen: set[int] = set()
+    current_node_id = node_id
+
+    for _ in range(max_depth):
+        if current_node_id <= 0 or current_node_id in seen:
+            break
+        seen.add(current_node_id)
+
+        description = await session.send(
+            "DOM.describeNode",
+            {"nodeId": current_node_id},
+        )
+        node = description.get("node") if isinstance(description, dict) else {}
+        if not isinstance(node, dict):
+            break
+
+        node_type = node.get("nodeType")
+        backend_node_id = node.get("backendNodeId")
+        parent_id = node.get("parentId")
+
+        if node_type != 3:
+            if isinstance(backend_node_id, int):
+                targets.append({"backendNodeId": backend_node_id})
+            else:
+                targets.append({"nodeId": current_node_id})
+
+        if not isinstance(parent_id, int) or parent_id <= 0:
+            break
+        current_node_id = parent_id
+
+    if not targets:
+        targets.append({"nodeId": node_id})
+    return targets
+
+
+def _takeover_visible_text_locator_script(text: str) -> str:
+    query = json.dumps(text, ensure_ascii=False)
+    return f"""
+(() => {{
+  const needle = {query};
+  const normalize = (value) => String(value || "")
+    .replace(/\\s+/g, " ")
+    .trim();
+  const wanted = normalize(needle);
+  if (!wanted) return null;
+
+  const interactiveSelector = [
+    "a[href]",
+    "button",
+    "input",
+    "textarea",
+    "select",
+    "summary",
+    "[role='button']",
+    "[role='link']",
+    "[role='menuitem']",
+    "[role='tab']",
+    "[tabindex]:not([tabindex='-1'])",
+    "[onclick]"
+  ].join(",");
+
+  const visibleRect = (element) => {{
+    if (!element || element.nodeType !== Node.ELEMENT_NODE) return null;
+    const style = window.getComputedStyle(element);
+    if (
+      style.display === "none" ||
+      style.visibility === "hidden" ||
+      Number(style.opacity || "1") === 0
+    ) {{
+      return null;
+    }}
+    const rect = element.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return null;
+    if (
+      rect.bottom < 0 ||
+      rect.right < 0 ||
+      rect.top > window.innerHeight ||
+      rect.left > window.innerWidth
+    ) {{
+      return null;
+    }}
+    return rect;
+  }};
+
+  const elementText = (element) => normalize([
+    element.getAttribute("aria-label"),
+    element.getAttribute("title"),
+    element.getAttribute("alt"),
+    "value" in element ? element.value : "",
+    element.textContent
+  ].filter(Boolean).join(" ")).slice(0, 500);
+
+  const roots = [document];
+  for (const element of document.querySelectorAll("*")) {{
+    if (roots.length >= 25) break;
+    if (element.shadowRoot) roots.push(element.shadowRoot);
+  }};
+
+  const candidates = [];
+  const addCandidate = (target, text, interactivePenalty) => {{
+    const rect = visibleRect(target);
+    if (!rect) return;
+    const targetText = elementText(target) || text;
+    const exact = targetText === wanted || text === wanted ? 0 : 1;
+    const area = Math.max(1, rect.width * rect.height);
+    const depth = (() => {{
+      let value = 0;
+      let current = target;
+      while (current && current.parentElement) {{
+        value += 1;
+        current = current.parentElement;
+      }}
+      return value;
+    }})();
+
+    candidates.push({{
+      score: exact * 100000000 + interactivePenalty * 10000000 + area - depth,
+      x: rect.left + rect.width / 2,
+      y: rect.top + rect.height / 2,
+      text: targetText || text,
+      tagName: target.tagName,
+    }});
+  }};
+
+  let inspectedInteractive = 0;
+  for (const root of roots) {{
+    for (const element of root.querySelectorAll(interactiveSelector)) {{
+      if (++inspectedInteractive > 2500) break;
+      const text = elementText(element);
+      if (text && text.includes(wanted)) addCandidate(element, text, 0);
+    }}
+    if (candidates.length || inspectedInteractive > 2500) break;
+  }}
+
+  if (!candidates.length) {{
+    let inspectedTextNodes = 0;
+    for (const root of roots) {{
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      let node = walker.nextNode();
+      while (node) {{
+        if (++inspectedTextNodes > 5000) break;
+        const text = normalize(node.nodeValue);
+        if (text && text.includes(wanted)) {{
+          const parent = node.parentElement;
+          const interactive = parent ? parent.closest(interactiveSelector) : null;
+          const target = interactive || parent;
+          if (target) addCandidate(target, text, interactive ? 0 : 2);
+        }}
+        if (candidates.length) break;
+        node = walker.nextNode();
+      }}
+      if (candidates.length || inspectedTextNodes > 5000) break;
+    }}
+  }}
+
+  if (!candidates.length) {{
+    let inspectedElements = 0;
+    for (const root of roots) {{
+      for (const element of root.querySelectorAll("*")) {{
+        if (++inspectedElements > 2000) break;
+        const text = elementText(element);
+        if (!text || !text.includes(wanted)) continue;
+        const interactive = element.closest(interactiveSelector);
+        const target = interactive || element;
+        if (!visibleRect(target) && !visibleRect(element)) continue;
+        addCandidate(target, text, interactive ? 0 : 2);
+        if (candidates.length) break;
+      }}
+      if (candidates.length || inspectedElements > 2000) break;
+    }}
+  }}
+
+  candidates.sort((a, b) => a.score - b.score);
+  const best = candidates[0];
+  if (!best) return null;
+  return {{
+    x: best.x,
+    y: best.y,
+    text: String(best.text || "").slice(0, 200),
+    tagName: best.tagName,
+  }};
+}})()
+""".strip()
+
+
+async def _takeover_runtime_visible_text_target(
+    session: Any,
+    text: str,
+) -> dict[str, Any] | None:
+    try:
+        response = await asyncio.wait_for(
+            session.bridge.request(
+                "cdp.send",
+                {
+                    "tabId": session.tab_id,
+                    "holderId": session.holder_id,
+                    "method": "Runtime.evaluate",
+                    "params": {
+                        "expression": _takeover_visible_text_locator_script(
+                            text,
+                        ),
+                        "returnByValue": True,
+                        "awaitPromise": False,
+                        "timeout": 3000,
+                    },
+                },
+            ),
+            timeout=4.0,
+        )
+    except asyncio.TimeoutError:
+        logger.debug("takeover visible-text runtime locator timed out")
+        return None
+    except Exception:
+        logger.debug(
+            "takeover visible-text runtime locator failed",
+            exc_info=True,
+        )
+        return None
+    if isinstance(response, dict) and "error" in response:
+        return None
+    result = response.get("result") if isinstance(response, dict) else None
+    if isinstance(result, dict) and response.get("jsonrpc") == "2.0":
+        remote_object = result.get("result")
+    else:
+        remote_object = result
+    value = remote_object.get("value") if isinstance(remote_object, dict) else None
+    if not isinstance(value, dict):
+        return None
+    x = value.get("x")
+    y = value.get("y")
+    if not isinstance(x, (int, float)) or not isinstance(y, (int, float)):
+        return None
+    return {
+        "x": float(x),
+        "y": float(y),
+        "text": value.get("text") or text,
+        "tagName": value.get("tagName") or "",
+    }
 
 
 async def _takeover_text_target(
@@ -4472,6 +5073,7 @@ async def _takeover_text_target(
     if not query:
         raise ValueError("text required for visible-text click")
 
+    await _takeover_enable_dom(session)
     search = await session.send(
         "DOM.performSearch",
         {"query": query, "includeUserAgentShadowDOM": True},
@@ -4494,28 +5096,21 @@ async def _takeover_text_target(
         for raw_node_id in node_ids:
             if not isinstance(raw_node_id, int) or raw_node_id <= 0:
                 continue
-            description = await session.send(
-                "DOM.describeNode",
-                {"nodeId": raw_node_id},
-            )
-            node = (
-                description.get("node")
-                if isinstance(description, dict)
-                else {}
-            )
-            backend_node_id = (
-                node.get("backendNodeId") if isinstance(node, dict) else None
-            )
-            target = (
-                {"backendNodeId": backend_node_id}
-                if isinstance(backend_node_id, int)
-                else {"nodeId": raw_node_id}
-            )
-            try:
-                await _takeover_resolve_point(session, target, ref=query)
-            except Exception:
-                continue
-            return target
+            for target in await _takeover_node_click_targets(
+                session,
+                raw_node_id,
+            ):
+                try:
+                    await _takeover_resolve_point(session, target, ref=query)
+                except Exception:
+                    continue
+                return target
+        runtime_target = await _takeover_runtime_visible_text_target(
+            session,
+            query,
+        )
+        if runtime_target is not None:
+            return runtime_target
     finally:
         await session.send("DOM.discardSearchResults", {"searchId": search_id})
 
@@ -4528,7 +5123,19 @@ async def _takeover_click_at(
     y: float,
     status_text: str,
 ) -> None:
-    await session.send_after_banner(
+    try:
+        await asyncio.wait_for(
+            session.show_banner(
+                {"cursor": {"x": x, "y": y}, "status_text": status_text},
+            ),
+            timeout=_TAKEOVER_BANNER_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        logger.debug("takeover banner.show timed out before click")
+    except Exception:
+        logger.debug("takeover banner.show failed before click", exc_info=True)
+
+    await session.send(
         "Input.dispatchMouseEvent",
         {
             "type": "mousePressed",
@@ -4537,7 +5144,6 @@ async def _takeover_click_at(
             "button": "left",
             "clickCount": 1,
         },
-        {"cursor": {"x": x, "y": y}, "status_text": status_text},
     )
     await session.send(
         "Input.dispatchMouseEvent",
@@ -4548,6 +5154,132 @@ async def _takeover_click_at(
             "button": "left",
             "clickCount": 1,
         },
+    )
+
+
+async def _takeover_align_tab_to_requested_url(
+    session: Any,
+    requested_url: str,
+    current_url: str,
+) -> str:
+    requested_url = str(requested_url or "").strip()
+    current_url = str(current_url or "").strip()
+    if not requested_url:
+        return current_url
+    if not current_url or _takeover_url_key(current_url) == _takeover_url_key(
+        requested_url,
+    ):
+        return requested_url
+    if not _takeover_same_site(current_url, requested_url):
+        return current_url
+    await session.send_after_banner(
+        "Page.navigate",
+        {"url": requested_url},
+        {"status_text": "Open"},
+    )
+    return requested_url
+
+
+_TAKEOVER_SPECIAL_KEYS: dict[str, tuple[str, str, int]] = {
+    "enter": ("Enter", "Enter", 13),
+    "return": ("Enter", "Enter", 13),
+    "escape": ("Escape", "Escape", 27),
+    "esc": ("Escape", "Escape", 27),
+    "tab": ("Tab", "Tab", 9),
+    "backspace": ("Backspace", "Backspace", 8),
+    "delete": ("Delete", "Delete", 46),
+    "arrowleft": ("ArrowLeft", "ArrowLeft", 37),
+    "arrowright": ("ArrowRight", "ArrowRight", 39),
+    "arrowup": ("ArrowUp", "ArrowUp", 38),
+    "arrowdown": ("ArrowDown", "ArrowDown", 40),
+}
+
+_TAKEOVER_MODIFIER_BITS = {
+    "alt": 1,
+    "option": 1,
+    "ctrl": 2,
+    "control": 2,
+    "meta": 4,
+    "cmd": 4,
+    "command": 4,
+    "shift": 8,
+}
+
+
+def _takeover_key_params(key: str, event_type: str) -> dict[str, Any]:
+    raw_parts = [part for part in re.split(r"\s*\+\s*", key.strip()) if part]
+    if not raw_parts:
+        raise ValueError("key required for press_key")
+
+    modifiers = 0
+    key_name = raw_parts[-1]
+    for part in raw_parts[:-1]:
+        modifiers |= _TAKEOVER_MODIFIER_BITS.get(part.lower(), 0)
+
+    normalized = key_name.lower()
+    key_value, code, virtual_key = _TAKEOVER_SPECIAL_KEYS.get(
+        normalized,
+        (key_name, f"Key{key_name.upper()}", ord(key_name.upper()[0])),
+    )
+    if len(key_name) == 1:
+        key_value = key_name.upper() if modifiers & 8 else key_name
+        code = f"Key{key_name.upper()}" if key_name.isalpha() else key_name
+        virtual_key = ord(key_name.upper())
+
+    return {
+        "type": event_type,
+        "key": key_value,
+        "code": code,
+        "windowsVirtualKeyCode": virtual_key,
+        "nativeVirtualKeyCode": virtual_key,
+        "modifiers": modifiers,
+    }
+
+
+async def _takeover_show_keyboard(
+    session: Any,
+    *,
+    text: str = "",
+    key: str = "",
+    status_text: str = "Input",
+) -> None:
+    keyboard: dict[str, Any] = {}
+    if text:
+        keyboard["text"] = text
+    if key:
+        keyboard["key"] = key
+    try:
+        await asyncio.wait_for(
+            session.show_banner(
+                {
+                    "status_text": status_text,
+                    "keyboard": keyboard,
+                },
+            ),
+            timeout=_TAKEOVER_BANNER_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        logger.debug("takeover keyboard banner timed out")
+    except Exception:
+        logger.debug("takeover keyboard banner failed", exc_info=True)
+
+
+async def _takeover_press_key(session: Any, key: str) -> None:
+    normalized_key = str(key or "").strip()
+    if not normalized_key:
+        raise ValueError("key required for press_key")
+    await _takeover_show_keyboard(
+        session,
+        key=normalized_key,
+        status_text="Key",
+    )
+    await session.send(
+        "Input.dispatchKeyEvent",
+        _takeover_key_params(normalized_key, "rawKeyDown"),
+    )
+    await session.send(
+        "Input.dispatchKeyEvent",
+        _takeover_key_params(normalized_key, "keyUp"),
     )
 
 
@@ -4613,9 +5345,7 @@ async def _action_takeover(  # pylint: disable=too-many-return-statements
                     {
                         "ok": False,
                         "mode": "takeover",
-                        "error": (
-                            "takeover tabs only supports tab_action=list"
-                        ),
+                        "error": ("takeover tabs only supports tab_action=list"),
                     },
                     ensure_ascii=False,
                     indent=2,
@@ -4644,76 +5374,155 @@ async def _action_takeover(  # pylint: disable=too-many-return-statements
                 ),
             )
         raw_page_id = str(kwargs.get("page_id") or "").strip()
-        has_explicit_target = (
-            (raw_page_id and raw_page_id != "default")
-            or kwargs.get("index", -1) >= 0
-        )
+        has_explicit_target = (raw_page_id and raw_page_id != "default") or kwargs.get(
+            "index", -1
+        ) >= 0
         action = "navigate" if has_explicit_target else "claim_tab"
 
     if action == "claim_tab":
         raw_page_id = str(kwargs.get("page_id", "")).strip() or "default"
         discovered_tab_url = ""
-        if url and raw_page_id == "default" and kwargs.get("index", -1) < 0:
-            tab_id = _takeover_matching_claimed_tab(state, url)
-            if tab_id is None:
-                existing = await _takeover_matching_browser_tab(bridge, url)
-                if existing is not None:
-                    tab_id, discovered_tab_url = existing
-                else:
-                    denial_reason = await _takeover_tab_create_denial_reason(
-                        url,
-                        request_context,
-                        user_initiated=user_initiated,
-                    )
-                    if denial_reason:
-                        return _tool_response(
-                            json.dumps(
-                                {
-                                    "ok": False,
-                                    "mode": "takeover",
-                                    "error": denial_reason,
-                                },
-                                ensure_ascii=False,
-                                indent=2,
-                            ),
-                        )
-                    response = await bridge.request(
-                        "tab.create",
-                        {"url": url, "active": True},
-                    )
-                    tab_id = _takeover_created_tab_id(response)
+        selected_by_url = (
+            bool(url) and raw_page_id == "default" and kwargs.get("index", -1) < 0
+        )
+        tab_created_by_takeover = False
+        if selected_by_url:
+            (
+                tab_id,
+                discovered_tab_url,
+                selection_error,
+                tab_created_by_takeover,
+            ) = await _takeover_select_or_create_url_tab(
+                state,
+                bridge,
+                url,
+                request_context,
+                holder_id,
+                user_initiated=user_initiated,
+            )
+            if selection_error or tab_id is None:
+                return _tool_response(
+                    json.dumps(
+                        {
+                            "ok": False,
+                            "mode": "takeover",
+                            "error": selection_error or "No tab selected",
+                        },
+                        ensure_ascii=False,
+                        indent=2,
+                    ),
+                )
         else:
             page_id = _takeover_page_id(state, raw_page_id)
             tab_id = _takeover_tab_id(page_id, kwargs.get("index", -1))
-        await bridge.claim_tab(tab_id, holder_id)
-        try:
-            attach_response = await bridge.request(
-                "tab.attach",
-                {"tabId": tab_id, "holderId": holder_id},
+        if (
+            _takeover_active_session(
+                state,
+                tab_id=tab_id,
+                holder_id=holder_id,
             )
-            attach_error = _takeover_jsonrpc_error(attach_response)
-            if attach_error:
-                raise RuntimeError(attach_error)
-        except Exception as exc:
-            try:
-                await bridge.release(tab_id, holder_id)
-            except Exception:
-                logger.debug(
-                    "Failed to release takeover lease after attach failure",
-                    exc_info=True,
-                )
+            is not None
+        ):
+            await _takeover_activate_tab(bridge, tab_id)
+            takeover_tabs = state.setdefault("takeover_tabs", {})
+            previous_tab = takeover_tabs.get(str(tab_id)) or {}
+            session = _takeover_get_session(
+                state,
+                tab_id=tab_id,
+                holder_id=holder_id,
+                bridge=bridge,
+                request_context=request_context,
+            )
+            current_tab_url = discovered_tab_url or previous_tab.get("url") or ""
+            tab_url = await _takeover_align_tab_to_requested_url(
+                session,
+                url,
+                current_tab_url,
+            )
+            if not tab_url:
+                tab_url = current_tab_url or url
+            takeover_tabs[str(tab_id)] = {
+                "tab_id": tab_id,
+                "holder_id": holder_id,
+                "url": tab_url,
+                "url_key": _takeover_url_key(tab_url) if tab_url else "",
+                "created_by_takeover": bool(
+                    previous_tab.get("created_by_takeover"),
+                ),
+            }
+            state["current_page_id"] = str(tab_id)
             return _tool_response(
                 json.dumps(
-                    {
-                        "ok": False,
-                        "mode": "takeover",
-                        "error": f"Failed to attach tab {tab_id}: {exc!s}",
-                    },
+                    _takeover_claim_success_payload(tab_id, tab_url),
                     ensure_ascii=False,
                     indent=2,
                 ),
             )
-        _takeover_get_session(
+        attach_attempt = 0
+        while True:
+            try:
+                await bridge.claim_tab(tab_id, holder_id)
+                attach_response = await bridge.request(
+                    "tab.attach",
+                    {"tabId": tab_id, "holderId": holder_id},
+                )
+                attach_error = _takeover_jsonrpc_error(attach_response)
+                if attach_error:
+                    raise RuntimeError(attach_error)
+                break
+            except Exception as exc:
+                try:
+                    await bridge.release(tab_id, holder_id)
+                except Exception:
+                    logger.debug(
+                        "Failed to release takeover lease after attach failure",
+                        exc_info=True,
+                    )
+                if (
+                    not selected_by_url
+                    or attach_attempt > 0
+                    or not _takeover_missing_tab_error(str(exc))
+                ):
+                    return _tool_response(
+                        json.dumps(
+                            {
+                                "ok": False,
+                                "mode": "takeover",
+                                "error": (f"Failed to attach tab {tab_id}: {exc!s}"),
+                            },
+                            ensure_ascii=False,
+                            indent=2,
+                        ),
+                    )
+                await _takeover_forget_tab_state(state, tab_id)
+                attach_attempt += 1
+                (
+                    tab_id,
+                    discovered_tab_url,
+                    selection_error,
+                    tab_created_by_takeover,
+                ) = await _takeover_select_or_create_url_tab(
+                    state,
+                    bridge,
+                    url,
+                    request_context,
+                    holder_id,
+                    user_initiated=user_initiated,
+                )
+                if selection_error or tab_id is None:
+                    return _tool_response(
+                        json.dumps(
+                            {
+                                "ok": False,
+                                "mode": "takeover",
+                                "error": selection_error or "No tab selected",
+                            },
+                            ensure_ascii=False,
+                            indent=2,
+                        ),
+                    )
+        await _takeover_activate_tab(bridge, tab_id)
+        session = _takeover_get_session(
             state,
             tab_id=tab_id,
             holder_id=holder_id,
@@ -4737,17 +5546,27 @@ async def _action_takeover(  # pylint: disable=too-many-return-statements
             logger.debug("takeover banner.show failed", exc_info=True)
         takeover_tabs = state.setdefault("takeover_tabs", {})
         previous_tab = takeover_tabs.get(str(tab_id)) or {}
-        tab_url = url or discovered_tab_url or previous_tab.get("url") or ""
+        current_tab_url = discovered_tab_url or previous_tab.get("url") or ""
+        tab_url = await _takeover_align_tab_to_requested_url(
+            session,
+            url,
+            current_tab_url,
+        )
+        if not tab_url:
+            tab_url = current_tab_url or url
         takeover_tabs[str(tab_id)] = {
             "tab_id": tab_id,
             "holder_id": holder_id,
             "url": tab_url,
             "url_key": _takeover_url_key(tab_url) if tab_url else "",
+            "created_by_takeover": bool(
+                tab_created_by_takeover or previous_tab.get("created_by_takeover"),
+            ),
         }
         state["current_page_id"] = str(tab_id)
         return _tool_response(
             json.dumps(
-                {"ok": True, "mode": "takeover", "tab_id": tab_id},
+                _takeover_claim_success_payload(tab_id, tab_url),
                 ensure_ascii=False,
                 indent=2,
             ),
@@ -4770,6 +5589,7 @@ async def _action_takeover(  # pylint: disable=too-many-return-statements
             _takeover_page_id(state, str(kwargs.get("page_id", ""))),
             kwargs.get("index", -1),
         )
+        await _takeover_activate_tab(bridge, tab_id)
         session = _takeover_get_session(
             state,
             tab_id=tab_id,
@@ -4790,6 +5610,9 @@ async def _action_takeover(  # pylint: disable=too-many-return-statements
             "holder_id": previous_tab.get("holder_id") or holder_id,
             "url": url,
             "url_key": _takeover_url_key(url),
+            "created_by_takeover": bool(
+                previous_tab.get("created_by_takeover"),
+            ),
         }
         return _tool_response(
             json.dumps(
@@ -4834,6 +5657,7 @@ async def _action_takeover(  # pylint: disable=too-many-return-statements
             _takeover_page_id(state, str(kwargs.get("page_id", ""))),
             kwargs.get("index", -1),
         )
+        await _takeover_activate_tab(bridge, tab_id)
         session = _takeover_get_session(
             state,
             tab_id=tab_id,
@@ -4891,6 +5715,7 @@ async def _action_takeover(  # pylint: disable=too-many-return-statements
             _takeover_page_id(state, str(kwargs.get("page_id", ""))),
             kwargs.get("index", -1),
         )
+        await _takeover_activate_tab(bridge, tab_id)
         ref = kwargs.get("ref") or ""
         selector = str(kwargs.get("selector") or "").strip()
         text = str(kwargs.get("text") or "").strip()
@@ -4928,6 +5753,7 @@ async def _action_takeover(  # pylint: disable=too-many-return-statements
             _takeover_page_id(state, str(kwargs.get("page_id", ""))),
             kwargs.get("index", -1),
         )
+        await _takeover_activate_tab(bridge, tab_id)
         ref = kwargs.get("ref") or ""
         selector = str(kwargs.get("selector") or "").strip()
         refs = state.get("refs", {}).get(str(tab_id), {})
@@ -4948,10 +5774,53 @@ async def _action_takeover(  # pylint: disable=too-many-return-statements
                 ref=ref or selector,
             )
             await _takeover_click_at(session, x, y, "Focus")
+        text_to_type = str(kwargs.get("text", ""))
+        await _takeover_show_keyboard(
+            session,
+            text=text_to_type,
+            status_text="Type",
+        )
         await session.send(
             "Input.insertText",
-            {"text": kwargs.get("text", "")},
+            {"text": text_to_type},
         )
+        if bool(kwargs.get("submit", False)):
+            await _takeover_press_key(session, "Enter")
+        return _tool_response(
+            json.dumps(
+                {"ok": True, "mode": "takeover"},
+                ensure_ascii=False,
+                indent=2,
+            ),
+        )
+
+    if action == "press_key":
+        tab_id = _takeover_tab_id(
+            _takeover_page_id(state, str(kwargs.get("page_id", ""))),
+            kwargs.get("index", -1),
+        )
+        await _takeover_activate_tab(bridge, tab_id)
+        session = _takeover_get_session(
+            state,
+            tab_id=tab_id,
+            holder_id=holder_id,
+            bridge=bridge,
+            request_context=request_context,
+        )
+        try:
+            await _takeover_press_key(session, str(kwargs.get("key") or ""))
+        except ValueError as exc:
+            return _tool_response(
+                json.dumps(
+                    {
+                        "ok": False,
+                        "mode": "takeover",
+                        "error": str(exc),
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+            )
         return _tool_response(
             json.dumps(
                 {"ok": True, "mode": "takeover"},
@@ -4965,6 +5834,7 @@ async def _action_takeover(  # pylint: disable=too-many-return-statements
             _takeover_page_id(state, str(kwargs.get("page_id", ""))),
             kwargs.get("index", -1),
         )
+        await _takeover_activate_tab(bridge, tab_id)
         session = _takeover_get_session(
             state,
             tab_id=tab_id,
@@ -5001,7 +5871,8 @@ async def _action_takeover(  # pylint: disable=too-many-return-statements
         output_path = Path(path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_bytes(base64.b64decode(data))
-        return _tool_response(
+        media_type = "image/jpeg" if screenshot_type == "jpeg" else "image/png"
+        return _tool_response_with_blocks(
             json.dumps(
                 {
                     "ok": True,
@@ -5012,6 +5883,15 @@ async def _action_takeover(  # pylint: disable=too-many-return-statements
                 ensure_ascii=False,
                 indent=2,
             ),
+            [
+                DataBlock(
+                    source=URLSource(
+                        url=output_path.resolve().as_uri(),
+                        media_type=media_type,
+                    ),
+                    name=output_path.name,
+                ),
+            ],
         )
 
     if action == "wait_for":
@@ -5056,12 +5936,30 @@ async def _action_takeover(  # pylint: disable=too-many-return-statements
             ),
         )
 
+    unsupported_guidance = (
+        "JavaScript evaluation is not available in takeover mode. "
+        'Use browser_use(action="tabs", mode="takeover") to inspect '
+        "current tab URLs, and use snapshot or screenshot to observe page "
+        "state before choosing the next browser action."
+    )
+    unsupported_actions = {
+        "eval",
+        "evaluate",
+        "run_code",
+        "runtime.evaluate",
+    }
     return _tool_response(
         json.dumps(
             {
                 "ok": False,
                 "mode": "takeover",
-                "error": f"Unknown action: {action}",
+                "error": (
+                    f"Unsupported takeover action: {action}"
+                    if action in unsupported_actions
+                    else f"Unknown action: {action}"
+                ),
+                "use_instead": ["tabs", "snapshot", "screenshot"],
+                "guidance": unsupported_guidance,
             },
             ensure_ascii=False,
             indent=2,
@@ -5116,8 +6014,7 @@ async def stop_browsers_for_workspace_dirs(
                 await _action_stop(state)
             except Exception as e:
                 logger.error(
-                    "Failed to stop browser for workspace %s before "
-                    "restore: %s",
+                    "Failed to stop browser for workspace %s before " "restore: %s",
                     state.get("workspace_id", "unknown"),
                     e,
                 )
@@ -5429,6 +6326,8 @@ async def browser_use(  # pylint: disable=R0911,R0912
                 wait=wait,
                 tab_action=tab_action,
                 wait_time=wait_time,
+                key=key,
+                submit=submit,
                 user_initiated=user_initiated,
             )
         if action == "start":

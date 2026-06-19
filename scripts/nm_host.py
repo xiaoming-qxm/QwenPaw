@@ -8,6 +8,7 @@ import asyncio
 import json
 import struct
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Any, BinaryIO, Callable
@@ -16,6 +17,7 @@ DEFAULT_CONFIG_PATH = Path.home() / ".qwenpaw" / "nm-bridge.json"
 DEFAULT_CONNECT_RETRY_SECONDS = 120.0
 INITIAL_CONNECT_RETRY_DELAY_SECONDS = 0.5
 MAX_CONNECT_RETRY_DELAY_SECONDS = 5.0
+_EOF_SENTINEL = object()
 
 
 class InvalidTokenError(ValueError):
@@ -114,10 +116,37 @@ async def connect_websocket_with_retry(
 
 
 async def pump_stdin_to_ws(reader: BinaryIO, ws: Any) -> None:
+    loop = asyncio.get_running_loop()
+    queue: asyncio.Queue[Any] = asyncio.Queue()
+
+    def read_loop() -> None:
+        while True:
+            try:
+                message = read_nm_message(reader)
+            except BaseException as exc:  # noqa: BLE001
+                item: Any = exc
+            else:
+                item = _EOF_SENTINEL if message is None else message
+
+            try:
+                loop.call_soon_threadsafe(queue.put_nowait, item)
+            except RuntimeError:
+                return
+            if item is _EOF_SENTINEL or isinstance(item, BaseException):
+                return
+
+    threading.Thread(
+        target=read_loop,
+        name="qwenpaw-nm-stdin-reader",
+        daemon=True,
+    ).start()
+
     while True:
-        message = await asyncio.to_thread(read_nm_message, reader)
-        if message is None:
+        message = await queue.get()
+        if message is _EOF_SENTINEL:
             return
+        if isinstance(message, BaseException):
+            raise message
         await ws.send(_dumps(message))
 
 
@@ -126,9 +155,7 @@ async def pump_ws_to_stdout(ws: Any, writer: BinaryIO) -> None:
         if isinstance(raw_message, bytes):
             raw_message = raw_message.decode("utf-8")
         message = (
-            json.loads(raw_message)
-            if isinstance(raw_message, str)
-            else raw_message
+            json.loads(raw_message) if isinstance(raw_message, str) else raw_message
         )
         await asyncio.to_thread(write_nm_message, writer, message)
 
