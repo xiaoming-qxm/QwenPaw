@@ -4853,6 +4853,56 @@ def _control_page_id(state: dict, page_id: str) -> str:
     return raw
 
 
+_CONTROL_IMPLICIT_MODE_ACTIONS = {
+    "claim_tab",
+    "open",
+    "navigate",
+    "tabs",
+    "snapshot",
+    "screenshot",
+    "click",
+    "type",
+    "press_key",
+    "wait_for",
+    "release_tab",
+    "stop",
+}
+
+
+def _should_infer_control_mode(
+    state: dict,
+    action: str,
+    request_context: dict[str, Any] | None = None,
+) -> bool:
+    if action not in _CONTROL_IMPLICIT_MODE_ACTIONS:
+        return False
+
+    holder_id = _control_holder_id(state, request_context)
+    control_tabs = state.get("control_tabs") or {}
+    if not isinstance(control_tabs, dict) or not control_tabs:
+        return False
+
+    current = str(state.get("current_page_id") or "")
+    if current:
+        current_tab = control_tabs.get(current)
+        if (
+            isinstance(current_tab, dict)
+            and str(current_tab.get("holder_id") or "") == holder_id
+        ):
+            return True
+
+    matching_tabs = [
+        str(tab_id)
+        for tab_id, tab in control_tabs.items()
+        if isinstance(tab, dict) and str(tab.get("holder_id") or "") == holder_id
+    ]
+    if len(matching_tabs) == 1:
+        state["current_page_id"] = matching_tabs[0]
+        return True
+
+    return False
+
+
 def _control_jsonrpc_result(response: Any) -> Any:
     if isinstance(response, dict) and response.get("jsonrpc") == "2.0":
         return response.get("result", {})
@@ -6629,7 +6679,15 @@ async def browser_use(  # pylint: disable=R0911,R0912
         page_id = current
 
     try:
-        if (mode or "").strip().lower() == "control":
+        mode_value = (mode or "").strip().lower()
+        if not mode_value and _should_infer_control_mode(
+            state,
+            action,
+            _control_request_context(),
+        ):
+            mode_value = "control"
+
+        if mode_value == "control":
             return await _action_control(
                 state,
                 action,
