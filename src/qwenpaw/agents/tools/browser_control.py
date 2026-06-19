@@ -4868,6 +4868,9 @@ _CONTROL_IMPLICIT_MODE_ACTIONS = {
     "stop",
 }
 
+_CONTROL_CLICK_TAB_TRANSITION_MAX_POLLS = 4
+_CONTROL_CLICK_TAB_TRANSITION_POLL_SECONDS = 0.1
+
 
 def _should_infer_control_mode(
     state: dict,
@@ -5079,6 +5082,199 @@ async def _control_select_or_create_url_tab(
         holder_id=holder_id,
     )
     return tab_id, "", None, True
+
+
+def _control_tab_ids(tabs: list[dict[str, Any]] | None) -> set[int]:
+    if not tabs:
+        return set()
+    tab_ids: set[int] = set()
+    for tab in tabs:
+        if not isinstance(tab, dict):
+            continue
+        tab_id = _control_int_tab_id(tab.get("id") or tab.get("tabId"))
+        if tab_id is not None:
+            tab_ids.add(tab_id)
+    return tab_ids
+
+
+def _control_new_tab_opened_from_action(
+    before_tabs: list[dict[str, Any]],
+    after_tabs: list[dict[str, Any]],
+    source_tab_id: int,
+) -> dict[str, Any] | None:
+    before_ids = _control_tab_ids(before_tabs)
+    candidates: list[tuple[int, int, int, dict[str, Any]]] = []
+    for index, tab in enumerate(after_tabs):
+        if not isinstance(tab, dict):
+            continue
+        tab_id = _control_int_tab_id(tab.get("id") or tab.get("tabId"))
+        if tab_id is None or tab_id in before_ids:
+            continue
+        opener_tab_id = _control_int_tab_id(tab.get("openerTabId"))
+        candidates.append(
+            (
+                0 if opener_tab_id == source_tab_id else 1,
+                0 if tab.get("active") else 1,
+                index,
+                tab,
+            ),
+        )
+    if not candidates:
+        return None
+    return sorted(candidates)[0][3]
+
+
+def _control_refresh_current_tab_from_live_tabs(
+    state: dict,
+    tab_id: int,
+    tabs: list[dict[str, Any]] | None,
+) -> None:
+    live_tabs = _control_live_tab_map(tabs)
+    if not live_tabs:
+        return
+    live_tab = live_tabs.get(tab_id)
+    if not isinstance(live_tab, dict):
+        return
+    live_url = _control_tab_url(live_tab)
+    if live_url:
+        _control_refresh_tab_url(state, tab_id, live_url)
+
+
+async def _control_attach_new_current_tab(
+    state: dict,
+    *,
+    bridge: Any,
+    tab: dict[str, Any],
+    previous_tab_id: int,
+    holder_id: str,
+    request_context: dict[str, Any],
+) -> dict[str, Any] | None:
+    tab_id = _control_int_tab_id(tab.get("id") or tab.get("tabId"))
+    if tab_id is None or tab_id == previous_tab_id:
+        return None
+
+    try:
+        await bridge.claim_tab(tab_id, holder_id)
+        attach_response = await bridge.request(
+            "tab.attach",
+            {"tabId": tab_id, "holderId": holder_id},
+        )
+        attach_error = _control_jsonrpc_error(attach_response)
+        if attach_error:
+            raise RuntimeError(attach_error)
+    except Exception:
+        logger.debug(
+            "Failed to attach newly opened control tab %s",
+            tab_id,
+            exc_info=True,
+        )
+        return None
+
+    await _control_activate_tab(bridge, tab_id)
+    session = _control_get_session(
+        state,
+        tab_id=tab_id,
+        holder_id=holder_id,
+        bridge=bridge,
+        request_context=request_context,
+    )
+    try:
+        await asyncio.wait_for(
+            bridge.request(
+                "banner.show",
+                {
+                    "tabId": tab_id,
+                    "status_text": "QwenPaw control active",
+                },
+            ),
+            timeout=_CONTROL_BANNER_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        logger.debug("control banner.show timed out for new tab")
+    except Exception:
+        logger.debug("control banner.show failed for new tab", exc_info=True)
+
+    tab_url = _control_tab_url(tab)
+    state.setdefault("control_tabs", {})[str(tab_id)] = _control_tab_record(
+        tab_id=tab_id,
+        holder_id=holder_id,
+        url=tab_url,
+        created_by_control=True,
+        request_context=request_context,
+    )
+    state["current_page_id"] = str(tab_id)
+    _control_sync_session_navigation_scope(state, session)
+
+    closed_tabs = 0
+    released_tabs = 0
+    previous_tab = (state.get("control_tabs") or {}).get(str(previous_tab_id))
+    if isinstance(previous_tab, dict):
+        cleanup_result = await _control_cleanup_tab_record(
+            state,
+            bridge=bridge,
+            tab=previous_tab,
+        )
+        closed_tabs = cleanup_result["closed_tabs"]
+        released_tabs = cleanup_result["released_tabs"]
+
+    payload: dict[str, Any] = {
+        "ok": True,
+        "mode": "control",
+        "tab_id": tab_id,
+        "opened_new_tab": True,
+        "ready_for_observation": True,
+        "next_action": "snapshot",
+        "next_instruction": (
+            "The click opened a new tab and it is now the current controlled "
+            "tab. Do not click the same opener again; observe it with snapshot."
+        ),
+    }
+    if tab_url:
+        payload["url"] = tab_url
+    if closed_tabs:
+        payload["closed_previous_tabs"] = closed_tabs
+    if released_tabs:
+        payload["released_previous_tabs"] = released_tabs
+    return payload
+
+
+async def _control_claim_tab_opened_by_action(
+    state: dict,
+    *,
+    bridge: Any,
+    before_tabs: list[dict[str, Any]] | None,
+    source_tab_id: int,
+    holder_id: str,
+    request_context: dict[str, Any],
+) -> dict[str, Any] | None:
+    if before_tabs is None:
+        return None
+
+    last_tabs: list[dict[str, Any]] | None = None
+    for attempt in range(_CONTROL_CLICK_TAB_TRANSITION_MAX_POLLS):
+        after_tabs = await _control_discover_tabs_safe(bridge)
+        if after_tabs is None:
+            return None
+        last_tabs = after_tabs
+        new_tab = _control_new_tab_opened_from_action(
+            before_tabs,
+            after_tabs,
+            source_tab_id,
+        )
+        if new_tab is not None:
+            return await _control_attach_new_current_tab(
+                state,
+                bridge=bridge,
+                tab=new_tab,
+                previous_tab_id=source_tab_id,
+                holder_id=holder_id,
+                request_context=request_context,
+            )
+        if attempt < _CONTROL_CLICK_TAB_TRANSITION_MAX_POLLS - 1:
+            await asyncio.sleep(_CONTROL_CLICK_TAB_TRANSITION_POLL_SECONDS)
+
+    _control_refresh_current_tab_from_live_tabs(state, source_tab_id, last_tabs)
+    return None
 
 
 def _control_node_params(target: dict[str, Any]) -> dict[str, int] | None:
@@ -6095,7 +6291,24 @@ async def _action_control(  # pylint: disable=too-many-return-statements
             fallback_x=kwargs.get("x"),
             fallback_y=kwargs.get("y"),
         )
+        before_tabs = await _control_discover_tabs_safe(bridge)
         await _control_click_at(session, x, y, "Click")
+        transition_payload = await _control_claim_tab_opened_by_action(
+            state,
+            bridge=bridge,
+            before_tabs=before_tabs,
+            source_tab_id=tab_id,
+            holder_id=holder_id,
+            request_context=request_context,
+        )
+        if transition_payload is not None:
+            return _tool_response(
+                json.dumps(
+                    transition_payload,
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+            )
         return _tool_response(
             json.dumps(
                 {"ok": True, "mode": "control"},
