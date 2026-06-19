@@ -305,9 +305,9 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
             _api_action_command_specs.extend(collect_builtin_command_specs())
             # pylint: disable-next=protected-access
-            workspace_registry._bootstrap_kwargs["builtin_fallback_handler"] = (
-                get_skill_fallback_handler()
-            )
+            bootstrap_kwargs = workspace_registry._bootstrap_kwargs
+            fallback_handler = get_skill_fallback_handler()
+            bootstrap_kwargs["builtin_fallback_handler"] = fallback_handler
             logger.debug("Built-in slash commands collected")
         except Exception:
             logger.debug(
@@ -318,6 +318,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
         # --- Built-in lifecycle hooks ---
         try:
             from ..hooks.session.session_hook import (
+                BrowserControlContinuationHook,
                 SessionLoadHook,
                 SessionSaveHook,
             )
@@ -340,6 +341,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             workspace_registry._bootstrap_kwargs["builtin_hook_clses"] = [
                 CronContextHook,
                 SessionLoadHook,
+                BrowserControlContinuationHook,
                 SessionSaveHook,
                 BootstrapHook,
                 SkillEnvHook,
@@ -361,9 +363,8 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             from ..runtime.prompt_contributors import _ALL_CONTRIBUTORS
 
             # pylint: disable-next=protected-access
-            workspace_registry._bootstrap_kwargs["builtin_contributor_clses"] = (
-                _ALL_CONTRIBUTORS
-            )
+            bootstrap_kwargs = workspace_registry._bootstrap_kwargs
+            bootstrap_kwargs["builtin_contributor_clses"] = _ALL_CONTRIBUTORS
             logger.debug("Built-in prompt contributors collected")
         except Exception:
             logger.debug(
@@ -433,7 +434,8 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
     fast_elapsed = time.time() - startup_start_time
     logger.info(
-        f"Server ready in {fast_elapsed:.3f}s " f"(agents loading in background)",
+        "Server ready in %.3fs (agents loading in background)",
+        fast_elapsed,
     )
 
     # ================================================================
@@ -473,7 +475,10 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             plugin_loader.registry.set_plugin_http_app(app)
 
             config = load_config(get_config_path())
-            plugin_configs = config.plugins if hasattr(config, "plugins") else {}
+            if hasattr(config, "plugins"):
+                plugin_configs = config.plugins
+            else:
+                plugin_configs = {}
             logger.debug(
                 f"Loading plugins with {len(plugin_configs)} config(s)",
             )
@@ -483,7 +488,10 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             )
             if bundled_browser_control_dir.is_dir():
                 try:
-                    if plugin_loader.get_loaded_plugin("browser-control") is None:
+                    loaded_browser_control = plugin_loader.get_loaded_plugin(
+                        "browser-control",
+                    )
+                    if loaded_browser_control is None:
                         await plugin_loader.load_plugin_from_path(
                             source_path=bundled_browser_control_dir,
                             install_dir=bundled_browser_control_dir.parent,
@@ -596,7 +604,8 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
             startup_elapsed = time.time() - startup_start_time
             logger.info(
-                "Background startup completed in " f"{startup_elapsed:.3f} seconds",
+                "Background startup completed in %.3f seconds",
+                startup_elapsed,
             )
 
             # Print server URL again so it's visible after background logs

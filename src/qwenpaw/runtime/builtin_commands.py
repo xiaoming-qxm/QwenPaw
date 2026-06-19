@@ -211,7 +211,10 @@ def _make_control_adapter(
             except Exception:
                 pass
 
-        full_query = f"/{command_name} {args}".strip() if args else f"/{command_name}"
+        if args:
+            full_query = f"/{command_name} {args}".strip()
+        else:
+            full_query = f"/{command_name}"
         parsed_args = parse_args(
             full_query,
             f"/{command_name}",
@@ -394,7 +397,10 @@ def _make_conversation_adapter(name: str) -> CommandSpec:
 
 
 def _collect_conversation_specs() -> list[CommandSpec]:
-    return [_make_conversation_adapter(n) for n in sorted(_CONVERSATION_COMMANDS)]
+    specs: list[CommandSpec] = []
+    for name in sorted(_CONVERSATION_COMMANDS):
+        specs.append(_make_conversation_adapter(name))
+    return specs
 
 
 # ======================================================================
@@ -402,12 +408,39 @@ def _collect_conversation_specs() -> list[CommandSpec]:
 # ======================================================================
 
 
-def _browser_control_prompt(user_input: str) -> str:
+def _browser_control_prompt(
+    user_input: str,
+    *,
+    continuation: bool = False,
+) -> str:
     task = user_input.strip() or "Open a new browser control session."
+    intro = (
+        "The user is continuing an active /browser-control session in this "
+        "chat. This request must continue in the same real Chrome browser "
+        "through QwenPaw Browser Control."
+        if continuation
+        else (
+            "The user invoked /browser-control. This request must use the "
+            "user's real Chrome browser through QwenPaw Browser Control."
+        )
+    )
+    continuation_rules = (
+        "- A plain follow-up in this chat can refer to the prior page, tab, "
+        "login state, or browsing goal even when it does not repeat Chrome "
+        "or browser wording.\n"
+        '- For continuation turns, call browser_use(action="tabs", '
+        'mode="control") first, claim/reuse the most relevant existing tab '
+        "with page_id, and observe it before opening or navigating "
+        "elsewhere.\n"
+        "- Continue inside the same real Chrome browser and preserve the "
+        "user's visible control surface.\n"
+        if continuation
+        else ""
+    )
     return (
-        "The user invoked /browser-control. This request must use the user's "
-        "real Chrome browser through QwenPaw Browser Control.\n\n"
+        f"{intro}\n\n"
         "Required behavior:\n"
+        f"{continuation_rules}"
         '- Use browser_use with mode="control" for browser actions.\n'
         "- Turn the user's real-world browser goal into an observe-act-verify "
         "loop: observe the page, choose the next browser action, then verify "
@@ -416,8 +449,8 @@ def _browser_control_prompt(user_input: str) -> str:
         'mode="control", url=...). If the user names a site without a URL, '
         "resolve a concrete URL from general knowledge or search; ask only "
         "when the target is genuinely ambiguous.\n"
-        "- For the first URL or site the user explicitly requested in this "
-        "/browser-control command, pass user_initiated=True.\n"
+        "- For the first URL or site the user explicitly requested when "
+        "starting this /browser-control session, pass user_initiated=True.\n"
         "- A successful claim_tab/open response with ok=true and tab_id means "
         "the tab is already opened and claimed. Treat that step as complete. "
         "Your next browser tool call after a successful claim_tab/open MUST "
@@ -427,9 +460,9 @@ def _browser_control_prompt(user_input: str) -> str:
         "If you are unsure whether the page loaded, observe with snapshot "
         "or wait_for then snapshot; never repeat open/claim to check.\n"
         "- Do not use shell commands, HTTP clients, local files, or other "
-        "non-browser tools as substitutes for waiting, observing, or verifying "
-        "the real Chrome page. Use browser_use wait_for, snapshot, and "
-        "screenshot for browser state.\n"
+        "non-browser tools as substitutes for waiting, observing, or "
+        "verifying the real Chrome page. Use browser_use wait_for, "
+        "snapshot, and screenshot for browser state.\n"
         "- The user must be able to watch, assist, pause, or stop the work. "
         "Keep the active control tab visible and use browser_use click, type, "
         "press_key, wait_for, snapshot, and screenshot so mouse and keyboard "
@@ -438,8 +471,9 @@ def _browser_control_prompt(user_input: str) -> str:
         'browser_use(action="tabs", mode="control") first, then select it '
         'with browser_use(action="claim_tab", mode="control", page_id=...).\n'
         "- Keep a single active claimed tab for one browsing target unless "
-        "the user's task explicitly needs multiple tabs. Do not open duplicate "
-        "tabs for the same target; navigate or click within the claimed tab.\n"
+        "the user's task explicitly needs multiple tabs. Do not open "
+        "duplicate tabs for the same target; navigate or click within the "
+        "claimed tab.\n"
         "- To change the current control tab URL, use "
         'browser_use(action="navigate", mode="control", page_id=..., '
         'url=...). You may also use action="open" with page_id to navigate '
@@ -450,16 +484,16 @@ def _browser_control_prompt(user_input: str) -> str:
         'browser_use(action="wait_for", mode="control", wait_time=...) '
         "before snapshot when the page is loading or changing.\n"
         "- Observation ladder: first use snapshot as structured page evidence "
-        "(accessibility/DOM text, refs, roles, names). Use refs/selectors from "
-        "that structured evidence for clicks and typing when possible.\n"
+        "(accessibility/DOM text, refs, roles, names). Use refs/selectors "
+        "from that structured evidence for clicks and typing when possible.\n"
         '- Visual fallback: call browser_use(action="screenshot", '
         'mode="control", page_id=...) when snapshot is empty, only shows a '
         "generic RootWebArea, misses key visual state, the page is mostly "
-        "image/canvas based, layout/position matters, or structured evidence "
-        "does not explain what to do next. The screenshot tool output already "
-        "includes the image as visual evidence; inspect that image directly "
-        "from the tool result to decide the next browser action or verify "
-        "completion.\n"
+        "image/canvas based, layout/position matters, or structured "
+        "evidence does not explain what to do next. The screenshot tool "
+        "output already includes the image as visual evidence; inspect "
+        "that image directly from the tool result to decide the next "
+        "browser action or verify completion.\n"
         '- Do not call browser_use(action="eval"), action="evaluate", '
         "run_code, JavaScript snippets, arbitrary CDP Runtime calls, or "
         "local shell/code tools to inspect the page. To check URLs or tabs, "
@@ -480,13 +514,20 @@ def _browser_control_prompt(user_input: str) -> str:
         "contents.\n"
         "- Browser Control is an explicit user delegation to use their local "
         "Chrome for the requested task. Do not refuse solely because the page "
-        "is signed in, personal, or private when the user explicitly asked you "
-        "to inspect it. For read-only observation, use the existing approval "
-        "and HITL mechanisms, continue the browser observe-act-verify loop "
-        "after approval, and report only the information the user asked for.\n"
+        "is signed in, personal, or private when the user explicitly asked "
+        "you to inspect it. For read-only observation, use the existing "
+        "approval and HITL mechanisms, continue the browser observe-act-"
+        "verify loop after approval, and report only the information the "
+        "user asked for.\n"
+        "- When the user explicitly asks to add, save, bookmark, favorite, "
+        "update a shopping cart, wishlist, saved list, or form draft, treat "
+        "that as authorized for that task. Use approvals or HITL if policy "
+        "requires, but do not refuse solely because it changes a signed-in "
+        "account.\n"
         "- Stop and ask for user help only when authentication, CAPTCHA, risk "
-        "checks, denied approval, payment, purchases, account changes, "
-        "destructive actions, or unrelated sensitive data would be involved.\n"
+        "checks, denied approval, payment, checkout, final purchase, "
+        "irreversible account or security changes, destructive actions, or "
+        "unrelated sensitive data would be involved.\n"
         "- For control click, prefer ref or selector. If only visible text "
         'is available, browser_use(action="click", mode="control", '
         "text=...) is supported.\n"
@@ -587,7 +628,7 @@ def _parse_skill_query(query: str) -> tuple[str, str] | None:
         if close < 0:
             return None
         name = rest[1:close].strip().lower()
-        user_input = rest[close + 1 :].strip()
+        user_input = rest[close + 1 :].strip()  # noqa: E203
         return (name, user_input) if name else None
     parts = rest.split(None, 1)
     if not parts:
@@ -639,10 +680,11 @@ async def _skill_fallback_handler(
         return None
 
     skills_dir = get_workspace_skills_dir(Path(workspace_dir))
-    skill_dir = next(
-        (skills_dir / sn for sn in effective_skills if sn.lower() == skill_name),
-        None,
-    )
+    skill_dir = None
+    for skill in effective_skills:
+        if skill.lower() == skill_name:
+            skill_dir = skills_dir / skill
+            break
     if skill_dir is None or not skill_dir.exists():
         return None
 

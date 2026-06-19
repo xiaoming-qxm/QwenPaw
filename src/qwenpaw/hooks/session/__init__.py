@@ -1,4 +1,12 @@
 # -*- coding: utf-8 -*-
-from .session_hook import SessionLoadHook, SessionSaveHook
+from .session_hook import (
+    BrowserControlContinuationHook,
+    SessionLoadHook,
+    SessionSaveHook,
+)
 
-__all__ = ["SessionLoadHook", "SessionSaveHook"]
+__all__ = [
+    "BrowserControlContinuationHook",
+    "SessionLoadHook",
+    "SessionSaveHook",
+]
