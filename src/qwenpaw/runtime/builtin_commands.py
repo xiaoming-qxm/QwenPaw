@@ -501,19 +501,12 @@ def _browser_control_prompt(user_input: str) -> str:
     )
 
 
-def _inject_internal_browser_control_prompt(ctx: Any, text: str) -> bool:
-    from agentscope.message import Msg, TextBlock
-
-    msgs = getattr(ctx, "input_msgs", None)
-    if not msgs:
-        return False
-
-    guidance = Msg(
-        name="system",
-        role="system",
-        content=[TextBlock(type="text", text=text)],
-    )
-    msgs.insert(max(len(msgs) - 1, 0), guidance)
+def _set_internal_browser_control_prompt(ctx: Any, text: str) -> bool:
+    extras = getattr(ctx, "extras", None)
+    if extras is None:
+        extras = {}
+        setattr(ctx, "extras", extras)
+    extras["browser_control_prompt"] = text
     return True
 
 
@@ -537,7 +530,7 @@ def _make_browser_control_adapter() -> CommandSpec:
                 ],
             )
 
-        _inject_internal_browser_control_prompt(
+        _set_internal_browser_control_prompt(
             ctx,
             _browser_control_prompt(args),
         )

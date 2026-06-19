@@ -3,7 +3,7 @@
 
 Each contributor is responsible for one fragment of the system prompt.
 ``build_default_prompt_manager`` assembles a :class:`PromptManager`
-pre-loaded with all 7 contributors, ready for ``build_sync(ctx)``.
+pre-loaded with all built-in contributors, ready for ``build_sync(ctx)``.
 
 Contributors read configuration from ``ctx.extras``:
 
@@ -15,6 +15,7 @@ Contributors read configuration from ``ctx.extras``:
 * ``env_context``       — ``ctx.extras.get("env_context")``
 * ``agent_config``      — ``ctx.extras.get("agent_config")``
 * ``driver_prompt_hints`` — ``ctx.extras.get("driver_prompt_hints", [])``
+* ``browser_control_prompt`` — request-time Browser Control guidance
 """
 
 from __future__ import annotations
@@ -268,6 +269,18 @@ class DriverPolicyHintContributor(SyncPromptContributor):
         return rendered or None
 
 
+class BrowserControlContributor(SyncPromptContributor):
+    """Append request-time Browser Control guidance for slash invocations."""
+
+    name = "browser_control"
+    priority = 89
+
+    def contribute_sync(self, ctx: "HookContext") -> str | None:
+        extras = getattr(ctx, "extras", {}) or {}
+        prompt = extras.get("browser_control_prompt")
+        return str(prompt).strip() if prompt else None
+
+
 # ---------------------------------------------------------------------------
 # Factory
 # ---------------------------------------------------------------------------
@@ -280,6 +293,7 @@ _ALL_CONTRIBUTORS = (
     MultimodalHintContributor,
     CodingModeContributor,
     DriverPolicyHintContributor,
+    BrowserControlContributor,
     EnvContextContributor,
 )
 
@@ -300,6 +314,7 @@ __all__ = [
     "MultimodalHintContributor",
     "CodingModeContributor",
     "DriverPolicyHintContributor",
+    "BrowserControlContributor",
     "EnvContextContributor",
     "build_default_prompt_manager",
 ]
