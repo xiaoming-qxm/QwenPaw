@@ -159,9 +159,9 @@ class CDPRelaySession:
     def on(self, event: str, handler: Callable[..., Any]) -> None:
         self.event_handlers[event].append(handler)
 
-    async def close(self) -> None:
+    async def _close_local(self) -> bool:
         if self._closed:
-            return
+            return False
         self._closed = True
         current_task = asyncio.current_task()
         for task in (self._heartbeat_task, self._watchdog_task):
@@ -174,6 +174,20 @@ class CDPRelaySession:
                 with contextlib.suppress(ValueError):
                     self.bridge.remove_event_listener(method, handler)
         self._registered_bridge_handlers.clear()
+        return True
+
+    async def abandon(self) -> None:
+        """Drop this local session without touching the Chrome debugger.
+
+        Used when Python-side cache contains a stale holder for a tab that is
+        being reclaimed by a newer request. Detaching here would affect the
+        current holder because Chrome's debugger attachment is tab-scoped.
+        """
+        await self._close_local()
+
+    async def close(self) -> None:
+        if not await self._close_local():
+            return
         with contextlib.suppress(Exception):
             await self.bridge.request(
                 "tab.detach",
@@ -181,7 +195,8 @@ class CDPRelaySession:
             )
         with contextlib.suppress(Exception):
             await self.bridge.request("banner.hide", {"tabId": self.tab_id})
-        await self.bridge.release(self.tab_id, self.holder_id)
+        with contextlib.suppress(Exception):
+            await self.bridge.release(self.tab_id, self.holder_id)
 
     def _event_matches(self, params: dict[str, Any]) -> bool:
         tab_id = params.get("tabId")

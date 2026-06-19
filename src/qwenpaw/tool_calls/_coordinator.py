@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """ToolCoordinator — single owner of all in-flight tool calls."""
+
 from __future__ import annotations
 
 import asyncio
@@ -71,6 +72,7 @@ class ToolCoordinator:
         session_id: str,
         agent_id: str,
         root_session_id: str,
+        request_context: dict[str, Any] | None = None,
         deadline_override: float | None = None,
     ) -> AsyncGenerator[Any, None]:
         entry = self._create_entry(
@@ -78,6 +80,7 @@ class ToolCoordinator:
             session_id,
             agent_id,
             root_session_id,
+            request_context,
             deadline_override,
         )
         ctx = entry.ctx
@@ -131,6 +134,7 @@ class ToolCoordinator:
         session_id: str,
         agent_id: str,
         root_session_id: str,
+        request_context: dict[str, Any] | None,
         deadline_override: float | None,
     ) -> ToolCallEntry:
         loop = asyncio.get_running_loop()
@@ -150,6 +154,12 @@ class ToolCoordinator:
             deadline=now + timeout if timeout is not None else None,
             cancel_event=asyncio.Event(),
         )
+        if request_context:
+            ctx.extra["request_context"] = {
+                key: value
+                for key, value in request_context.items()
+                if isinstance(value, (str, int, float, bool)) or value is None
+            }
         return ToolCallEntry(
             ctx=ctx,
             stream=ToolStream(
@@ -182,9 +192,7 @@ class ToolCoordinator:
                     exc_info=True,
                 )
 
-        bg_task_name = (
-            entry.background_task.get_name() if entry.background_task else ""
-        )
+        bg_task_name = entry.background_task.get_name() if entry.background_task else ""
         reason = ctx.offload_reason.value if ctx.offload_reason else "unknown"
         return ToolResponse(
             content=[
@@ -398,9 +406,7 @@ class ToolCoordinator:
     ) -> _NextEvent:
         loop = asyncio.get_running_loop()
         remaining = (
-            entry.ctx.deadline - loop.time()
-            if entry.ctx.deadline is not None
-            else None
+            entry.ctx.deadline - loop.time() if entry.ctx.deadline is not None else None
         )
 
         if remaining is not None and remaining <= 0:

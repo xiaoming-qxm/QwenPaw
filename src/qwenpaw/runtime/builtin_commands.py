@@ -503,6 +503,10 @@ def _browser_control_prompt(user_input: str) -> str:
         "- Supported control actions include: claim_tab, tabs, open, "
         "navigate, snapshot, screenshot, click, type, press_key, wait_for, "
         "release_tab, and stop.\n"
+        '- Do not call browser_use(action="list_cdp_targets"), '
+        'browser_use(action="connect_cdp"), or browser_use(action="start") '
+        'without mode="control". Browser Control uses the QwenPaw Chrome '
+        "extension bridge, not Chrome remote debugging.\n"
         "- If the user asks to stop, cancel, end, or release Chrome control, "
         'call browser_use(action="stop", mode="control") immediately and '
         "then report that control has been released.\n"
@@ -521,6 +525,15 @@ def _set_internal_browser_control_prompt(ctx: Any, text: str) -> bool:
         extras = {}
         setattr(ctx, "extras", extras)
     extras["browser_control_prompt"] = text
+    extras["browser_control_invocation"] = True
+
+    request = getattr(ctx, "request", None)
+    if request is not None:
+        request_context = getattr(request, "request_context", None)
+        if not isinstance(request_context, dict):
+            request_context = {}
+            setattr(request, "request_context", request_context)
+        request_context["browser_control_invocation"] = True
     return True
 
 

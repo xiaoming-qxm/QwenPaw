@@ -208,8 +208,7 @@ class AgentBuilder:
             agent.load_state_dict(ctx.session_state)
 
         _logger.info(
-            "builder: built agent for session=%s agent=%s"
-            " model=%s/%s tools=%d",
+            "builder: built agent for session=%s agent=%s" " model=%s/%s tools=%d",
             getattr(ctx, "session_id", ""),
             agent_id,
             active.provider_id,
@@ -321,12 +320,8 @@ class AgentBuilder:
         rc: dict[str, Any] = {
             "session_id": getattr(ctx, "session_id", "") or "",
             "agent_id": getattr(ctx, "agent_id", "") or "",
-            "channel": (
-                (getattr(request, "channel", None) or "") if request else ""
-            ),
-            "user_id": (
-                (getattr(request, "user_id", None) or "") if request else ""
-            ),
+            "channel": ((getattr(request, "channel", None) or "") if request else ""),
+            "user_id": ((getattr(request, "user_id", None) or "") if request else ""),
             "root_session_id": getattr(ctx, "root_session_id", "") or "",
             "root_agent_id": getattr(ctx, "root_agent_id", "") or "",
         }
@@ -342,18 +337,17 @@ class AgentBuilder:
                 "tool_coordinator",
                 None,
             )
-        _channel_meta = (
-            getattr(request, "channel_meta", None) if request else None
-        )
+        _channel_meta = getattr(request, "channel_meta", None) if request else None
         if isinstance(_channel_meta, dict):
             user_name = _channel_meta.get("user_name")
             if user_name:
                 rc["user_name"] = user_name
-        _payload_ctx = (
-            getattr(request, "request_context", None) if request else None
-        )
+        _payload_ctx = getattr(request, "request_context", None) if request else None
         if isinstance(_payload_ctx, dict):
             rc.update(_payload_ctx)
+        extras = getattr(ctx, "extras", {}) or {}
+        if extras.get("browser_control_invocation"):
+            rc["browser_control_invocation"] = True
         return rc
 
     @staticmethod
@@ -368,9 +362,7 @@ class AgentBuilder:
 
         _cm = getattr(agent_config, "coding_mode", None)
         _project_dir = (
-            _cm.project_dir
-            if _cm and getattr(_cm, "project_dir", None)
-            else None
+            _cm.project_dir if _cm and getattr(_cm, "project_dir", None) else None
         )
         _configured_shell = getattr(
             getattr(agent_config, "running", None),

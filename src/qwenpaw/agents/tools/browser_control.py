@@ -4058,6 +4058,27 @@ def _control_sessions(state: dict) -> dict[str, Any]:
     return sessions
 
 
+async def _control_abandon_session(session: Any) -> None:
+    abandon = getattr(session, "abandon", None)
+    if callable(abandon):
+        await abandon()
+    else:
+        setattr(session, "_closed", True)
+
+
+def _control_validate_session_lease(
+    bridge: Any,
+    *,
+    tab_id: int,
+    holder_id: str,
+    lease_version: int | None = None,
+) -> None:
+    validate_lease = getattr(bridge, "validate_lease", None)
+    if not callable(validate_lease):
+        return
+    validate_lease(tab_id, holder_id, lease_version)
+
+
 def _control_request_context() -> dict[str, Any]:
     context: dict[str, Any] = {}
 
@@ -4077,6 +4098,10 @@ def _control_request_context() -> dict[str, Any]:
                 "agent_id": call_context.agent_id,
             },
         )
+        request_context = call_context.extra.get("request_context")
+        if isinstance(request_context, dict):
+            for key, value in request_context.items():
+                context.setdefault(key, value)
 
     try:
         from ...app.agent_context import (
@@ -4110,7 +4135,7 @@ def _control_request_context() -> dict[str, Any]:
     return context
 
 
-def _control_get_session(
+async def _control_get_session(
     state: dict,
     *,
     tab_id: int,
@@ -4124,8 +4149,29 @@ def _control_get_session(
     key = str(tab_id)
     session = sessions.get(key)
     if session is not None and not getattr(session, "_closed", False):
-        _control_sync_session_navigation_scope(state, session)
-        return session
+        if str(getattr(session, "holder_id", "") or "") == holder_id:
+            try:
+                _control_validate_session_lease(
+                    bridge,
+                    tab_id=tab_id,
+                    holder_id=holder_id,
+                    lease_version=getattr(session, "lease_version", None),
+                )
+            except Exception:
+                sessions.pop(key, None)
+                await _control_abandon_session(session)
+            else:
+                _control_sync_session_navigation_scope(state, session)
+                return session
+        else:
+            sessions.pop(key, None)
+            await _control_abandon_session(session)
+
+    _control_validate_session_lease(
+        bridge,
+        tab_id=tab_id,
+        holder_id=holder_id,
+    )
 
     session = CDPRelaySession(
         tab_id=tab_id,
@@ -4144,6 +4190,41 @@ def _control_get_session(
     _control_sync_session_navigation_scope(state, session)
     sessions[key] = session
     return session
+
+
+async def _control_get_existing_session(
+    state: dict,
+    *,
+    tab_id: int,
+    holder_id: str,
+    bridge: Any,
+    request_context: dict[str, Any] | None = None,
+) -> Any | None:
+    if (
+        _control_active_session(
+            state,
+            tab_id=tab_id,
+            holder_id=holder_id,
+        )
+        is None
+    ):
+        return None
+    try:
+        return await _control_get_session(
+            state,
+            tab_id=tab_id,
+            holder_id=holder_id,
+            bridge=bridge,
+            request_context=request_context,
+        )
+    except Exception:
+        logger.debug(
+            "Discarded stale browser-control session tab=%s holder=%s",
+            tab_id,
+            holder_id,
+            exc_info=True,
+        )
+        return None
 
 
 def _control_active_session(
@@ -4194,6 +4275,15 @@ def _control_tab_id(page_id: str, index: int = -1) -> int:
     if raw.isdigit():
         return int(raw)
     raise ValueError("control actions require page_id/tab id or index")
+
+
+def _control_page_id_is_tab_id(page_id: str) -> bool:
+    raw = (page_id or "").strip()
+    if not raw or raw == "default":
+        return False
+    if raw.startswith("tab_"):
+        raw = raw[4:]
+    return raw.isdigit()
 
 
 def _control_url_key(url: str) -> str:
@@ -4493,6 +4583,36 @@ async def _control_cleanup_tab_record(
     return {"closed_tabs": 0, "released_tabs": 1}
 
 
+async def _control_release_tab_record(
+    state: dict,
+    *,
+    bridge: Any,
+    tab: dict[str, Any],
+) -> dict[str, int]:
+    tab_id = _control_int_tab_id(tab.get("tab_id"))
+    if tab_id is None:
+        return {"closed_tabs": 0, "released_tabs": 0}
+    holder_id = str(tab.get("holder_id") or _control_holder_id(state))
+
+    with contextlib.suppress(Exception):
+        await _control_close_session(
+            state,
+            tab_id=tab_id,
+            holder_id=holder_id,
+            bridge=bridge,
+        )
+    with contextlib.suppress(Exception):
+        await bridge.request("banner.hide", {"tabId": tab_id})
+    with contextlib.suppress(Exception):
+        await bridge.request(
+            "tab.detach",
+            {"tabId": tab_id, "holderId": holder_id},
+        )
+
+    await _control_forget_tab_state(state, tab_id)
+    return {"closed_tabs": 0, "released_tabs": 1}
+
+
 async def _control_cleanup_matching_tabs(
     state: dict,
     *,
@@ -4515,6 +4635,34 @@ async def _control_cleanup_matching_tabs(
         )
         result["closed_tabs"] += cleanup_result["closed_tabs"]
         result["released_tabs"] += cleanup_result["released_tabs"]
+
+    if not state.get("control_tabs"):
+        state.pop("control_tabs", None)
+    return result
+
+
+async def _control_release_matching_tabs(
+    state: dict,
+    *,
+    bridge: Any,
+    predicate: Callable[[dict[str, Any]], bool],
+) -> dict[str, int]:
+    result = {"matched_tabs": 0, "closed_tabs": 0, "released_tabs": 0}
+    control_tabs = state.get("control_tabs")
+    if not isinstance(control_tabs, dict):
+        return result
+
+    for tab in list(control_tabs.values()):
+        if not isinstance(tab, dict) or not predicate(tab):
+            continue
+        result["matched_tabs"] += 1
+        release_result = await _control_release_tab_record(
+            state,
+            bridge=bridge,
+            tab=tab,
+        )
+        result["closed_tabs"] += release_result["closed_tabs"]
+        result["released_tabs"] += release_result["released_tabs"]
 
     if not state.get("control_tabs"):
         state.pop("control_tabs", None)
@@ -4687,6 +4835,51 @@ async def cleanup_control_sessions_for_request(
     return result
 
 
+async def release_control_sessions_for_request(
+    *,
+    session_id: str,
+    root_session_id: str = "",
+    workspace_id: str = "",
+) -> dict[str, int]:
+    """Release browser control leases for one completed request.
+
+    Normal completion should leave the user's visible tabs open, but the
+    debugger/lease must be released so the next request can claim the tab.
+    """
+    from qwenpaw.browser.connection_manager import (
+        get_bridge_connection_manager,
+    )
+
+    result = {"matched_tabs": 0, "closed_tabs": 0, "released_tabs": 0}
+    session_id = str(session_id or "")
+    root_session_id = str(root_session_id or session_id or "")
+    if not session_id and not root_session_id:
+        return result
+
+    manager = get_bridge_connection_manager()
+    if manager is None or not manager.is_connected():
+        return result
+    bridge = manager.get_connection()
+
+    for state in list(_workspace_states.values()):
+        if workspace_id and str(state.get("workspace_id") or "") != workspace_id:
+            continue
+        release_result = await _control_release_matching_tabs(
+            state,
+            bridge=bridge,
+            predicate=lambda tab: _control_tab_matches_request(
+                tab,
+                session_id=session_id,
+                root_session_id=root_session_id,
+            ),
+        )
+        result["matched_tabs"] += release_result["matched_tabs"]
+        result["closed_tabs"] += release_result["closed_tabs"]
+        result["released_tabs"] += release_result["released_tabs"]
+
+    return result
+
+
 async def _control_close_other_owned_tabs(
     state: dict,
     *,
@@ -4849,12 +5042,34 @@ def _control_missing_tab_error(error: str) -> bool:
 def _control_page_id(state: dict, page_id: str) -> str:
     raw = (page_id or "").strip() or "default"
     if raw != "default":
+        aliases = state.get("control_page_aliases") or {}
+        alias = aliases.get(raw) if isinstance(aliases, dict) else None
+        if alias:
+            return str(alias)
+        if not _control_page_id_is_tab_id(raw):
+            current = state.get("current_page_id")
+            control_tabs = state.get("control_tabs") or {}
+            if current and str(current) in control_tabs:
+                return str(current)
         return raw
     current = state.get("current_page_id")
     control_tabs = state.get("control_tabs") or {}
     if current and str(current) in control_tabs:
         return str(current)
     return raw
+
+
+def _control_remember_page_alias(
+    state: dict,
+    page_id: str,
+    tab_id: int,
+) -> None:
+    raw = (page_id or "").strip()
+    if not raw or raw == "default" or _control_page_id_is_tab_id(raw):
+        return
+    aliases = state.setdefault("control_page_aliases", {})
+    if isinstance(aliases, dict):
+        aliases[raw] = str(tab_id)
 
 
 _CONTROL_IMPLICIT_MODE_ACTIONS = {
@@ -4877,6 +5092,39 @@ _CONTROL_CLICK_TAB_TRANSITION_POLL_SECONDS = 0.1
 _CONTROL_PENDING_ACTION_TRANSITION_TTL_SECONDS = 10.0
 
 
+def _browser_control_non_control_action_response(action: str) -> ToolChunk:
+    return _tool_response(
+        json.dumps(
+            {
+                "ok": False,
+                "mode": "control",
+                "error": (
+                    "/browser-control uses the user's real Chrome through "
+                    "QwenPaw Browser Control. Do not use the default, "
+                    "managed-CDP, or remote-debugging browser path for this "
+                    f"request. Unsupported action: {action}"
+                ),
+                "use_instead": [
+                    "tabs",
+                    "claim_tab",
+                    "open",
+                    "snapshot",
+                ],
+                "next_instruction": (
+                    'Call browser_use(action="tabs", mode="control") to '
+                    "inspect existing Chrome tabs, or call "
+                    'browser_use(action="claim_tab", mode="control", url=...) '
+                    'or browser_use(action="open", mode="control", url=...) '
+                    "for the user-requested site. Then observe with "
+                    'browser_use(action="snapshot", mode="control").'
+                ),
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+    )
+
+
 def _should_infer_control_mode(
     state: dict,
     action: str,
@@ -4884,6 +5132,10 @@ def _should_infer_control_mode(
 ) -> bool:
     if action not in _CONTROL_IMPLICIT_MODE_ACTIONS:
         return False
+
+    request_context = request_context or {}
+    if request_context.get("browser_control_invocation"):
+        return True
 
     holder_id = _control_holder_id(state, request_context)
     control_tabs = state.get("control_tabs") or {}
@@ -4909,6 +5161,34 @@ def _should_infer_control_mode(
         return True
 
     return False
+
+
+def _control_holder_has_claimed_tab(state: dict, holder_id: str) -> bool:
+    control_tabs = state.get("control_tabs") or {}
+    if not isinstance(control_tabs, dict):
+        return False
+    return any(
+        isinstance(tab, dict) and str(tab.get("holder_id") or "") == holder_id
+        for tab in control_tabs.values()
+    )
+
+
+def _control_should_infer_user_initiated(
+    *,
+    state: dict,
+    action: str,
+    url: str,
+    holder_id: str,
+    request_context: dict[str, Any],
+    user_initiated: bool,
+) -> bool:
+    if user_initiated:
+        return True
+    if action not in {"claim_tab", "open"} or not url:
+        return False
+    if not request_context.get("browser_control_invocation"):
+        return False
+    return not _control_holder_has_claimed_tab(state, holder_id)
 
 
 def _control_jsonrpc_result(response: Any) -> Any:
@@ -5399,7 +5679,7 @@ async def _control_attach_new_current_tab(
         return None
 
     await _control_activate_tab(bridge, tab_id)
-    session = _control_get_session(
+    session = await _control_get_session(
         state,
         tab_id=tab_id,
         holder_id=holder_id,
@@ -5453,8 +5733,8 @@ async def _control_attach_new_current_tab(
         "ready_for_observation": True,
         "next_action": "snapshot",
         "next_instruction": (
-            "The click opened a new tab and it is now the current controlled "
-            "tab. Do not click the same opener again; observe it with snapshot."
+            "The action opened a new tab and it is now the current controlled "
+            "tab. Do not repeat the same action; observe it with snapshot."
         ),
     }
     if tab_url:
@@ -5505,8 +5785,8 @@ async def _control_apply_action_transition(
         "ready_for_observation": True,
         "next_action": "snapshot",
         "next_instruction": (
-            "The click changed the current tab. Do not repeat the same "
-            "click; observe it with snapshot."
+            "The action changed the current tab. Do not repeat the same "
+            "action; observe it with snapshot."
         ),
     }
     if url:
@@ -5550,6 +5830,51 @@ async def _control_claim_tab_opened_by_action(
             await asyncio.sleep(_CONTROL_CLICK_TAB_TRANSITION_POLL_SECONDS)
 
     _control_refresh_current_tab_from_live_tabs(state, source_tab_id, last_tabs)
+    return None
+
+
+async def _control_resolve_action_transition(
+    state: dict,
+    *,
+    bridge: Any,
+    before_tabs: list[dict[str, Any]] | None,
+    transition_waiter: Callable[..., Any] | None,
+    source_tab_id: int,
+    holder_id: str,
+    request_context: dict[str, Any],
+) -> dict[str, Any] | None:
+    event_transition = (
+        await transition_waiter() if transition_waiter is not None else None
+    )
+    if event_transition is not None:
+        transition_payload = await _control_apply_action_transition(
+            state,
+            bridge=bridge,
+            transition=event_transition,
+            source_tab_id=source_tab_id,
+            holder_id=holder_id,
+            request_context=request_context,
+        )
+        if transition_payload is not None:
+            return transition_payload
+
+    transition_payload = await _control_claim_tab_opened_by_action(
+        state,
+        bridge=bridge,
+        before_tabs=before_tabs,
+        source_tab_id=source_tab_id,
+        holder_id=holder_id,
+        request_context=request_context,
+    )
+    if transition_payload is not None:
+        return transition_payload
+
+    _control_store_pending_action_transition(
+        state,
+        before_tabs=before_tabs,
+        source_tab_id=source_tab_id,
+        holder_id=holder_id,
+    )
     return None
 
 
@@ -6131,6 +6456,14 @@ async def _action_control(  # pylint: disable=too-many-return-statements
 
     if action == "start" and url:
         action = "claim_tab"
+    user_initiated = _control_should_infer_user_initiated(
+        state=state,
+        action=action,
+        url=url,
+        holder_id=holder_id,
+        request_context=request_context,
+        user_initiated=user_initiated,
+    )
 
     if action == "start":
         return _tool_response(
@@ -6215,16 +6548,21 @@ async def _action_control(  # pylint: disable=too-many-return-statements
                 ),
             )
         raw_page_id = str(kwargs.get("page_id") or "").strip()
-        has_explicit_target = (raw_page_id and raw_page_id != "default") or kwargs.get(
-            "index", -1
-        ) >= 0
+        has_explicit_target = (
+            _control_page_id_is_tab_id(
+                raw_page_id,
+            )
+            or kwargs.get("index", -1) >= 0
+        )
         action = "navigate" if has_explicit_target else "claim_tab"
 
     if action == "claim_tab":
         raw_page_id = str(kwargs.get("page_id", "")).strip() or "default"
         discovered_tab_url = ""
         selected_by_url = (
-            bool(url) and raw_page_id == "default" and kwargs.get("index", -1) < 0
+            bool(url)
+            and not _control_page_id_is_tab_id(raw_page_id)
+            and kwargs.get("index", -1) < 0
         )
         tab_created_by_control = False
         if selected_by_url:
@@ -6256,27 +6594,20 @@ async def _action_control(  # pylint: disable=too-many-return-statements
         else:
             page_id = _control_page_id(state, raw_page_id)
             tab_id = _control_tab_id(page_id, kwargs.get("index", -1))
-        if (
-            _control_active_session(
-                state,
-                tab_id=tab_id,
-                holder_id=holder_id,
-            )
-            is not None
-        ):
+        existing_session = await _control_get_existing_session(
+            state,
+            tab_id=tab_id,
+            holder_id=holder_id,
+            bridge=bridge,
+            request_context=request_context,
+        )
+        if existing_session is not None:
             await _control_activate_tab(bridge, tab_id)
             control_tabs = state.setdefault("control_tabs", {})
             previous_tab = control_tabs.get(str(tab_id)) or {}
-            session = _control_get_session(
-                state,
-                tab_id=tab_id,
-                holder_id=holder_id,
-                bridge=bridge,
-                request_context=request_context,
-            )
             current_tab_url = discovered_tab_url or previous_tab.get("url") or ""
             tab_url = await _control_align_tab_to_requested_url(
-                session,
+                existing_session,
                 url,
                 current_tab_url,
             )
@@ -6293,6 +6624,7 @@ async def _action_control(  # pylint: disable=too-many-return-statements
                 previous_tab=previous_tab,
             )
             state["current_page_id"] = str(tab_id)
+            _control_remember_page_alias(state, raw_page_id, tab_id)
             return _tool_response(
                 json.dumps(
                     _control_claim_success_payload(tab_id, tab_url),
@@ -6364,7 +6696,7 @@ async def _action_control(  # pylint: disable=too-many-return-statements
                         ),
                     )
         await _control_activate_tab(bridge, tab_id)
-        session = _control_get_session(
+        session = await _control_get_session(
             state,
             tab_id=tab_id,
             holder_id=holder_id,
@@ -6407,6 +6739,7 @@ async def _action_control(  # pylint: disable=too-many-return-statements
             previous_tab=previous_tab,
         )
         state["current_page_id"] = str(tab_id)
+        _control_remember_page_alias(state, raw_page_id, tab_id)
         return _tool_response(
             json.dumps(
                 _control_claim_success_payload(tab_id, tab_url),
@@ -6433,7 +6766,7 @@ async def _action_control(  # pylint: disable=too-many-return-statements
             kwargs.get("index", -1),
         )
         await _control_activate_tab(bridge, tab_id)
-        session = _control_get_session(
+        session = await _control_get_session(
             state,
             tab_id=tab_id,
             holder_id=holder_id,
@@ -6502,7 +6835,7 @@ async def _action_control(  # pylint: disable=too-many-return-statements
             kwargs.get("index", -1),
         )
         await _control_activate_tab(bridge, tab_id)
-        session = _control_get_session(
+        session = await _control_get_session(
             state,
             tab_id=tab_id,
             holder_id=holder_id,
@@ -6564,7 +6897,7 @@ async def _action_control(  # pylint: disable=too-many-return-statements
         selector = str(kwargs.get("selector") or "").strip()
         text = str(kwargs.get("text") or "").strip()
         refs = state.get("refs", {}).get(str(tab_id), {})
-        session = _control_get_session(
+        session = await _control_get_session(
             state,
             tab_id=tab_id,
             holder_id=holder_id,
@@ -6590,30 +6923,11 @@ async def _action_control(  # pylint: disable=too-many-return-statements
             source_tab_id=tab_id,
         )
         await _control_click_at(session, x, y, "Click")
-        event_transition = (
-            await transition_waiter() if transition_waiter is not None else None
-        )
-        if event_transition is not None:
-            transition_payload = await _control_apply_action_transition(
-                state,
-                bridge=bridge,
-                transition=event_transition,
-                source_tab_id=tab_id,
-                holder_id=holder_id,
-                request_context=request_context,
-            )
-            if transition_payload is not None:
-                return _tool_response(
-                    json.dumps(
-                        transition_payload,
-                        ensure_ascii=False,
-                        indent=2,
-                    ),
-                )
-        transition_payload = await _control_claim_tab_opened_by_action(
+        transition_payload = await _control_resolve_action_transition(
             state,
             bridge=bridge,
             before_tabs=before_tabs,
+            transition_waiter=transition_waiter,
             source_tab_id=tab_id,
             holder_id=holder_id,
             request_context=request_context,
@@ -6626,12 +6940,6 @@ async def _action_control(  # pylint: disable=too-many-return-statements
                     indent=2,
                 ),
             )
-        _control_store_pending_action_transition(
-            state,
-            before_tabs=before_tabs,
-            source_tab_id=tab_id,
-            holder_id=holder_id,
-        )
         return _tool_response(
             json.dumps(
                 {
@@ -6641,9 +6949,9 @@ async def _action_control(  # pylint: disable=too-many-return-statements
                     "ready_for_observation": True,
                     "next_action": "snapshot",
                     "next_instruction": (
-                        "Observe the page before another click. If this click "
+                        "Observe the page before another action. If this action "
                         "opens a tab asynchronously, the next observation will "
-                        "claim it instead of repeating the opener click."
+                        "claim it instead of repeating the opener action."
                     ),
                 },
                 ensure_ascii=False,
@@ -6660,12 +6968,18 @@ async def _action_control(  # pylint: disable=too-many-return-statements
         ref = kwargs.get("ref") or ""
         selector = str(kwargs.get("selector") or "").strip()
         refs = state.get("refs", {}).get(str(tab_id), {})
-        session = _control_get_session(
+        session = await _control_get_session(
             state,
             tab_id=tab_id,
             holder_id=holder_id,
             bridge=bridge,
             request_context=request_context,
+        )
+        before_tabs = await _control_discover_tabs_safe(bridge)
+        transition_waiter = _control_create_action_transition_waiter(
+            bridge,
+            before_tabs=before_tabs,
+            source_tab_id=tab_id,
         )
         target = refs.get(ref, {}) if ref else {}
         if not target and selector:
@@ -6689,9 +7003,37 @@ async def _action_control(  # pylint: disable=too-many-return-statements
         )
         if bool(kwargs.get("submit", False)):
             await _control_press_key(session, "Enter")
+        transition_payload = await _control_resolve_action_transition(
+            state,
+            bridge=bridge,
+            before_tabs=before_tabs,
+            transition_waiter=transition_waiter,
+            source_tab_id=tab_id,
+            holder_id=holder_id,
+            request_context=request_context,
+        )
+        if transition_payload is not None:
+            return _tool_response(
+                json.dumps(
+                    transition_payload,
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+            )
         return _tool_response(
             json.dumps(
-                {"ok": True, "mode": "control"},
+                {
+                    "ok": True,
+                    "mode": "control",
+                    "tab_id": tab_id,
+                    "ready_for_observation": True,
+                    "next_action": "snapshot",
+                    "next_instruction": (
+                        "Text was entered. Observe the page before deciding "
+                        "whether to press Enter, click a submit button, or "
+                        "take another action."
+                    ),
+                },
                 ensure_ascii=False,
                 indent=2,
             ),
@@ -6703,12 +7045,18 @@ async def _action_control(  # pylint: disable=too-many-return-statements
             kwargs.get("index", -1),
         )
         await _control_activate_tab(bridge, tab_id)
-        session = _control_get_session(
+        session = await _control_get_session(
             state,
             tab_id=tab_id,
             holder_id=holder_id,
             bridge=bridge,
             request_context=request_context,
+        )
+        before_tabs = await _control_discover_tabs_safe(bridge)
+        transition_waiter = _control_create_action_transition_waiter(
+            bridge,
+            before_tabs=before_tabs,
+            source_tab_id=tab_id,
         )
         try:
             await _control_press_key(session, str(kwargs.get("key") or ""))
@@ -6724,9 +7072,36 @@ async def _action_control(  # pylint: disable=too-many-return-statements
                     indent=2,
                 ),
             )
+        transition_payload = await _control_resolve_action_transition(
+            state,
+            bridge=bridge,
+            before_tabs=before_tabs,
+            transition_waiter=transition_waiter,
+            source_tab_id=tab_id,
+            holder_id=holder_id,
+            request_context=request_context,
+        )
+        if transition_payload is not None:
+            return _tool_response(
+                json.dumps(
+                    transition_payload,
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+            )
         return _tool_response(
             json.dumps(
-                {"ok": True, "mode": "control"},
+                {
+                    "ok": True,
+                    "mode": "control",
+                    "tab_id": tab_id,
+                    "ready_for_observation": True,
+                    "next_action": "snapshot",
+                    "next_instruction": (
+                        "The key press completed. Observe the page before "
+                        "taking another action."
+                    ),
+                },
                 ensure_ascii=False,
                 indent=2,
             ),
@@ -6738,7 +7113,7 @@ async def _action_control(  # pylint: disable=too-many-return-statements
             kwargs.get("index", -1),
         )
         await _control_activate_tab(bridge, tab_id)
-        session = _control_get_session(
+        session = await _control_get_session(
             state,
             tab_id=tab_id,
             holder_id=holder_id,
@@ -6835,6 +7210,19 @@ async def _action_control(  # pylint: disable=too-many-return-statements
                 state,
                 bridge=bridge,
                 predicate=lambda tab: str(tab.get("holder_id") or "") == holder_id,
+            )
+        if cleanup_result["matched_tabs"] == 0 and request_context.get(
+            "browser_control_invocation"
+        ):
+            workspace_holder_prefix = (
+                f"browser_use:{state.get('workspace_id') or 'default'}"
+            )
+            cleanup_result = await _control_cleanup_matching_tabs(
+                state,
+                bridge=bridge,
+                predicate=lambda tab: str(
+                    tab.get("holder_id") or "",
+                ).startswith(workspace_holder_prefix),
             )
         if cleanup_result["matched_tabs"] == 0 and not had_local_control_state:
             cleanup_result = await _control_cleanup_extension_created_tabs(
@@ -7223,12 +7611,18 @@ async def browser_use(  # pylint: disable=R0911,R0912
 
     try:
         mode_value = (mode or "").strip().lower()
+        request_context = _control_request_context()
+        browser_control_invocation = bool(
+            request_context.get("browser_control_invocation")
+        )
         if not mode_value and _should_infer_control_mode(
             state,
             action,
-            _control_request_context(),
+            request_context,
         ):
             mode_value = "control"
+        elif browser_control_invocation and not mode_value:
+            return _browser_control_non_control_action_response(action)
 
         if mode_value == "control":
             return await _action_control(

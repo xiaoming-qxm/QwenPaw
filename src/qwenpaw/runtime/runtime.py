@@ -166,7 +166,7 @@ class Runtime:
                         getattr(ctx, "session_id", ""),
                         exc_info=True,
                     )
-            await self._cleanup_browser_control_on_error(ctx)
+            await self._finalize_browser_control(ctx)
             await hooks.run(Phase.FINALLY, ctx)
 
     # ----------------------------------------------------------------- helpers
@@ -203,26 +203,37 @@ class Runtime:
         )
 
     @staticmethod
-    async def _cleanup_browser_control_on_error(ctx: HookContext) -> None:
-        if ctx.error is None:
-            return
+    async def _finalize_browser_control(ctx: HookContext) -> None:
         try:
             from pathlib import Path
 
-            from ..agents.tools.browser_control import (
-                cleanup_control_sessions_for_request,
-            )
-
             workspace_dir = getattr(ctx, "workspace_dir", None)
             workspace_id = Path(workspace_dir).name if workspace_dir else ""
-            await cleanup_control_sessions_for_request(
-                session_id=getattr(ctx, "session_id", "") or "",
-                root_session_id=getattr(ctx, "root_session_id", "") or "",
-                workspace_id=workspace_id,
-            )
+            session_id = getattr(ctx, "session_id", "") or ""
+            root_session_id = getattr(ctx, "root_session_id", "") or ""
+            if ctx.error is None:
+                from ..agents.tools.browser_control import (
+                    release_control_sessions_for_request,
+                )
+
+                await release_control_sessions_for_request(
+                    session_id=session_id,
+                    root_session_id=root_session_id,
+                    workspace_id=workspace_id,
+                )
+            else:
+                from ..agents.tools.browser_control import (
+                    cleanup_control_sessions_for_request,
+                )
+
+                await cleanup_control_sessions_for_request(
+                    session_id=session_id,
+                    root_session_id=root_session_id,
+                    workspace_id=workspace_id,
+                )
         except Exception:  # pylint: disable=broad-except
             logger.warning(
-                "runtime: browser control cleanup failed session=%s",
+                "runtime: browser control finalization failed session=%s",
                 getattr(ctx, "session_id", ""),
                 exc_info=True,
             )

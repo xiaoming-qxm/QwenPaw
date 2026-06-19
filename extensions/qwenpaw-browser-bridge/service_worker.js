@@ -291,6 +291,14 @@ async function activateTab(params) {
     throw new Error("tabId required");
   }
   const tab = await chrome.tabs.update(tabId, { active: true });
+  if (
+    tab &&
+    tab.windowId !== undefined &&
+    chrome.windows &&
+    chrome.windows.update
+  ) {
+    await chrome.windows.update(tab.windowId, { focused: true });
+  }
   return { tabId, active: true, windowId: tab && tab.windowId };
 }
 
