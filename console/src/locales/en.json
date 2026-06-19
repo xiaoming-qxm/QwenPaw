@@ -70,10 +70,10 @@
     "pluginManager": "Plugin Manager"
   },
   "browserExtension": {
-    "title": "Browser Takeover",
+    "title": "Browser Control",
     "desc": "Prepare the Chrome extension and Native Messaging bridge, then load the unpacked extension in Chrome developer mode.",
     "hero": {
-      "title": "Browser Takeover",
+      "title": "Browser Control",
       "subtitle": "Let QwenPaw read pages, click controls, and operate Chrome when a task needs the browser.",
       "installCws": "Install from Chrome Web Store",
       "devMode": "I'm a developer — use local loading"
@@ -197,8 +197,8 @@
       "type": "Type",
       "unknown": "Unknown"
     },
-    "browserTakeover": {
-      "name": "Browser Takeover",
+    "browserControl": {
+      "name": "Browser Control",
       "description": "Connect QwenPaw to Chrome so it can understand and operate the current page when you ask.",
       "status": {
         "disabled": "Disabled",
@@ -2141,8 +2141,8 @@
       "compact": {
         "description": "Compact the conversation context; optional instruction supported"
       },
-      "takeover": {
-        "description": "Use your real Chrome for this browser task"
+      "browserControl": {
+        "description": "Use your Chrome for this browser task"
       },
       "approve": {
         "description": "Approve the pending tool action and continue execution"

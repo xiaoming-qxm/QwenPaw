@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "QwenPaw Browser Bridge",
+  "name": "QwenPaw",
   "version": "0.1.0",
-  "description": "Local-only Chrome bridge for QwenPaw browser takeover mode.",
+  "description": "Browser Bridge for using your local Chrome with QwenPaw.",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAtfrrReREyZU2GsWs55nzHlNhI9fQWTmyytFrGxLYSl9buVhPNIRqIggeJrVY1y3e4+UI8QAvItuPO7XdcT3zHW5XKVT+ZtnLjWmAFFKUBA3MlsAu5rBtNJeiJc15XpAJokuJHq+vb7bPi6sW6wmieexAa3I6pxn4C0bZEegrQ9g3sunqDM/ihd5mi3Im3G9IYnmsKioMsOP6tj08d4znDCavjazgpI9ImoX/D3JBxR5pEBYC7Ia+nv8ipY/H/ZqDWZ+X3qn5fsQoClYTZGUUFbQ8ckif1svMnHe6LoNuNyAy4hVSOTV3k707N5+9inLgK01o3E7XgkULpwiEW+ny+QIDAQAB",
   "permissions": [
     "nativeMessaging",
@@ -21,8 +21,20 @@
   "background": {
     "service_worker": "service_worker.js"
   },
+  "icons": {
+    "16": "icons/logo-16.png",
+    "32": "icons/logo-32.png",
+    "48": "icons/logo-48.png",
+    "128": "icons/logo-128.png"
+  },
   "action": {
-    "default_title": "QwenPaw Browser Bridge",
-    "default_popup": "popup/popup.html"
+    "default_title": "QwenPaw",
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "icons/logo-16.png",
+      "32": "icons/logo-32.png",
+      "48": "icons/logo-48.png",
+      "128": "icons/logo-128.png"
+    }
   }
 }

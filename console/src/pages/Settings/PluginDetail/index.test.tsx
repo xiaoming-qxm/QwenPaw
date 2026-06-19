@@ -51,9 +51,9 @@ const runtimeStatus = {
   connected_since: null,
 };
 
-const browserTakeoverDetail = {
-  id: "browser-takeover",
-  name: "Browser Takeover",
+const browserControlDetail = {
+  id: "browser-control",
+  name: "Browser Control",
   version: "0.1.0",
   description:
     "Let QwenPaw inspect and operate your active Chrome tab through a local extension.",
@@ -78,8 +78,8 @@ const browserTakeoverDetail = {
   },
   meta: { builtin: true },
   manifest: {
-    id: "browser-takeover",
-    name: "Browser Takeover",
+    id: "browser-control",
+    name: "Browser Control",
     version: "0.1.0",
     description:
       "Let QwenPaw inspect and operate your active Chrome tab through a local extension.",
@@ -110,15 +110,15 @@ function renderPluginDetail() {
     <Routes>
       <Route path="/plugin-manager/:pluginId" element={<PluginDetailPage />} />
     </Routes>,
-    { initialEntries: ["/plugin-manager/browser-takeover"] },
+    { initialEntries: ["/plugin-manager/browser-control"] },
   );
 }
 
-describe("PluginDetailPage browser takeover setup", () => {
+describe("PluginDetailPage browser control setup", () => {
   beforeEach(() => {
-    mockFetchPluginDetail.mockResolvedValue(browserTakeoverDetail);
+    mockFetchPluginDetail.mockResolvedValue(browserControlDetail);
     mockUpdatePluginEnabled.mockResolvedValue({
-      ...browserTakeoverDetail,
+      ...browserControlDetail,
       enabled: true,
     });
     mockSetup.mockResolvedValue({
@@ -143,7 +143,7 @@ describe("PluginDetailPage browser takeover setup", () => {
 
     renderPluginDetail();
 
-    expect(await screen.findAllByText("浏览器接管")).toHaveLength(2);
+    expect(await screen.findAllByText("浏览器控制")).toHaveLength(2);
     expect(screen.getByText("等待 Chrome")).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "打开 Chrome" }),

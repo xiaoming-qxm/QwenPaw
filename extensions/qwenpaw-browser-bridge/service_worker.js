@@ -3,8 +3,8 @@ const JSONRPC_VERSION = "2.0";
 const RECONNECT_ALARM = "qwenpaw-native-reconnect";
 const PRODUCTION_INITIAL_RECONNECT_BACKOFF_SECONDS = 30;
 const PRODUCTION_MAX_RECONNECT_BACKOFF_SECONDS = 300;
-const TAKEOVER_TAB_GROUP_TITLE = "QwenPaw";
-const TAKEOVER_TAB_GROUP_COLOR = "blue";
+const CONTROL_TAB_GROUP_TITLE = "QwenPaw";
+const CONTROL_TAB_GROUP_COLOR = "blue";
 
 if (typeof importScripts === "function") {
   try {
@@ -211,7 +211,7 @@ async function listTabs(queryInfo) {
   );
 }
 
-async function groupTakeoverTab(tab) {
+async function groupControlTab(tab) {
   if (!tab || tab.id === undefined) {
     return tab;
   }
@@ -222,11 +222,11 @@ async function groupTakeoverTab(tab) {
   try {
     const groupId = await chrome.tabs.group({ tabIds: tab.id });
     await chrome.tabGroups.update(groupId, {
-      title: TAKEOVER_TAB_GROUP_TITLE,
-      color: TAKEOVER_TAB_GROUP_COLOR,
+      title: CONTROL_TAB_GROUP_TITLE,
+      color: CONTROL_TAB_GROUP_COLOR,
     });
   } catch (error) {
-    console.warn("Failed to group takeover tab", error);
+    console.warn("Failed to group control tab", error);
   }
 
   return tab;
@@ -238,12 +238,12 @@ async function createTab(params) {
     active:
       params && params.active !== undefined ? Boolean(params.active) : true,
   });
-  const takeoverTab = await groupTakeoverTab(tab);
-  if (takeoverTab && takeoverTab.id !== undefined) {
-    createdTabs.add(takeoverTab.id);
+  const controlTab = await groupControlTab(tab);
+  if (controlTab && controlTab.id !== undefined) {
+    createdTabs.add(controlTab.id);
     await persistManagedTabs();
   }
-  return { ...takeoverTab, createdByQwenPaw: true };
+  return { ...controlTab, createdByQwenPaw: true };
 }
 
 async function activateTab(params) {

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""CDP relay session for Chrome takeover mode."""
+"""CDP relay session for Chrome browser control mode."""
 
 from __future__ import annotations
 
@@ -289,12 +289,12 @@ class CDPRelaySession:
             channel=str(self.request_context.get("channel") or ""),
             agent_id=str(self.request_context.get("agent_id") or "unknown"),
             summary=ApprovalRequestSummary(
-                source_type="browser_takeover_cdp",
-                name="browser_use.takeover",
+                source_type="browser_control_cdp",
+                name="browser_use.control",
                 severity="medium",
                 findings_count=1,
                 result_summary=(
-                    "Chrome takeover wants to navigate to new domain "
+                    "Chrome browser control wants to navigate to new domain "
                     f"{request['domain']}."
                 ),
                 payload=request,

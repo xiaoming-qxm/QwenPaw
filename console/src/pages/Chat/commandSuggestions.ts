@@ -20,9 +20,9 @@ export function buildCommandSuggestions(
       description: t("chat.commands.compact.description"),
     },
     {
-      command: "/takeover",
-      value: "takeover ",
-      description: t("chat.commands.takeover.description"),
+      command: "/browser-control",
+      value: "browser-control ",
+      description: t("chat.commands.browserControl.description"),
     },
     {
       command: "/mission",

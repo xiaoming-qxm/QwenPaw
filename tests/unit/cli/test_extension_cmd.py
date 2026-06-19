@@ -5,9 +5,9 @@ from __future__ import annotations
 
 import json
 
-from qwenpaw.browser.takeover_plugin import load_browser_takeover_submodule
+from qwenpaw.browser.control_plugin import load_browser_control_submodule
 
-extension_cmd = load_browser_takeover_submodule("extension_setup")
+extension_cmd = load_browser_control_submodule("extension_setup")
 
 
 def test_setup_extension_files_registers_native_host(
@@ -15,9 +15,7 @@ def test_setup_extension_files_registers_native_host(
     tmp_path,
 ) -> None:
     qwenpaw_home = tmp_path / ".qwenpaw"
-    native_manifest = (
-        tmp_path / "NativeMessagingHosts" / "com.qwenpaw.browser.json"
-    )
+    native_manifest = tmp_path / "NativeMessagingHosts" / "com.qwenpaw.browser.json"
 
     monkeypatch.setattr(extension_cmd, "_qwenpaw_home", lambda: qwenpaw_home)
     monkeypatch.setattr(
@@ -47,10 +45,7 @@ def test_setup_extension_files_registers_native_host(
     ]
     assert (qwenpaw_home / "bin" / "qwenpaw-nm-host").exists()
     assert (
-        qwenpaw_home
-        / "chrome-extension"
-        / "qwenpaw-browser-bridge"
-        / "manifest.json"
+        qwenpaw_home / "chrome-extension" / "qwenpaw-browser-bridge" / "manifest.json"
     ).exists()
     assert config == {
         "ws_url": "ws://127.0.0.1:8088/ws/nm-bridge",
@@ -59,14 +54,11 @@ def test_setup_extension_files_registers_native_host(
 
 
 def test_native_manifest_paths_are_platform_specific(tmp_path) -> None:
-    assert (
-        "Library/Application Support/Google/Chrome/NativeMessagingHosts"
-        in str(
-            extension_cmd.native_manifest_path(
-                home=tmp_path,
-                platform="darwin",
-            ),
-        )
+    assert "Library/Application Support/Google/Chrome/NativeMessagingHosts" in str(
+        extension_cmd.native_manifest_path(
+            home=tmp_path,
+            platform="darwin",
+        ),
     )
     assert ".config/google-chrome/NativeMessagingHosts" in str(
         extension_cmd.native_manifest_path(home=tmp_path, platform="linux"),

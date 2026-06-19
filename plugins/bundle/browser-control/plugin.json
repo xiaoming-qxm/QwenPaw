@@ -1,6 +1,6 @@
 {
-  "id": "browser-takeover",
-  "name": "Browser Takeover",
+  "id": "browser-control",
+  "name": "Browser Control",
   "version": "0.1.0",
   "type": "general",
   "description": "Connect QwenPaw to Chrome through the local browser bridge for live browser control.",
@@ -18,8 +18,8 @@
       "description": "Connects the Chrome extension to QwenPaw through Native Messaging."
     },
     {
-      "id": "browser-takeover",
-      "title": "Browser takeover",
+      "id": "browser-control",
+      "title": "Browser control",
       "description": "Lets approved agent actions inspect pages and control selected tabs."
     },
     {

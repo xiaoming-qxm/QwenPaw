@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Tests for loading the bundled browser-takeover plugin."""
+"""Tests for loading the bundled browser-control plugin."""
 
 from __future__ import annotations
 
@@ -19,9 +19,9 @@ def _repo_root() -> Path:
 
 
 @pytest.mark.asyncio
-async def test_browser_takeover_bundle_plugin_loads() -> None:
+async def test_browser_control_bundle_plugin_loads() -> None:
     bundle_root = _repo_root() / "plugins" / "bundle"
-    plugin_dir = bundle_root / "browser-takeover"
+    plugin_dir = bundle_root / "browser-control"
     loader = PluginLoader([bundle_root])
     loader.registry.set_plugin_http_app(FastAPI())
 
@@ -30,25 +30,25 @@ async def test_browser_takeover_bundle_plugin_loads() -> None:
         install_dir=bundle_root,
     )
 
-    assert record.manifest.id == "browser-takeover"
+    assert record.manifest.id == "browser-control"
     assert record.manifest.plugin_type is PluginType.GENERAL
     assert record.manifest.meta["builtin"] is True
     assert record.manifest.icon
     assert record.manifest.capabilities
     assert record.manifest.setup
-    assert loader.get_loaded_plugin("browser-takeover") is record
+    assert loader.get_loaded_plugin("browser-control") is record
 
 
-def test_browser_takeover_manifest_is_discoverable() -> None:
+def test_browser_control_manifest_is_discoverable() -> None:
     bundle_root = _repo_root() / "plugins" / "bundle"
     loader = PluginLoader([bundle_root])
 
     discovered = {manifest.id for manifest, _path in loader.discover_plugins()}
 
-    assert "browser-takeover" in discovered
+    assert "browser-control" in discovered
 
 
-def test_browser_takeover_listed_before_loader_ready() -> None:
+def test_browser_control_listed_before_loader_ready() -> None:
     app = FastAPI()
     app.include_router(plugins_router, prefix="/api")
     client = TestClient(app)
@@ -56,4 +56,4 @@ def test_browser_takeover_listed_before_loader_ready() -> None:
     response = client.get("/api/plugins")
 
     assert response.status_code == 200
-    assert "browser-takeover" in {plugin["id"] for plugin in response.json()}
+    assert "browser-control" in {plugin["id"] for plugin in response.json()}

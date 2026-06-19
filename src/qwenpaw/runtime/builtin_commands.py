@@ -398,26 +398,26 @@ def _collect_conversation_specs() -> list[CommandSpec]:
 
 
 # ======================================================================
-# Browser takeover command adapter
+# Browser control command adapter
 # ======================================================================
 
 
-def _takeover_prompt(user_input: str) -> str:
-    task = user_input.strip() or "Open a new browser takeover session."
+def _browser_control_prompt(user_input: str) -> str:
+    task = user_input.strip() or "Open a new browser control session."
     return (
-        "The user invoked /takeover. This request must use the user's real "
-        "Chrome browser through QwenPaw Browser Takeover.\n\n"
+        "The user invoked /browser-control. This request must use the user's "
+        "real Chrome browser through QwenPaw Browser Control.\n\n"
         "Required behavior:\n"
-        '- Use browser_use with mode="takeover" for browser actions.\n'
+        '- Use browser_use with mode="control" for browser actions.\n'
         "- Turn the user's real-world browser goal into an observe-act-verify "
         "loop: observe the page, choose the next browser action, then verify "
         "the visible result before continuing or answering.\n"
         '- When opening a website, start with browser_use(action="claim_tab", '
-        'mode="takeover", url=...). If the user names a site without a URL, '
+        'mode="control", url=...). If the user names a site without a URL, '
         "resolve a concrete URL from general knowledge or search; ask only "
         "when the target is genuinely ambiguous.\n"
         "- For the first URL or site the user explicitly requested in this "
-        "/takeover command, pass user_initiated=True.\n"
+        "/browser-control command, pass user_initiated=True.\n"
         "- A successful claim_tab/open response with ok=true and tab_id means "
         "the tab is already opened and claimed. Treat that step as complete. "
         "Your next browser tool call after a successful claim_tab/open MUST "
@@ -431,29 +431,29 @@ def _takeover_prompt(user_input: str) -> str:
         "the real Chrome page. Use browser_use wait_for, snapshot, and "
         "screenshot for browser state.\n"
         "- The user must be able to watch, assist, pause, or stop the work. "
-        "Keep the active takeover tab visible and use browser_use click, type, "
+        "Keep the active control tab visible and use browser_use click, type, "
         "press_key, wait_for, snapshot, and screenshot so mouse and keyboard "
         "actions remain visible in the user's Chrome window.\n"
         "- When the user refers to an existing or current tab, call "
-        'browser_use(action="tabs", mode="takeover") first, then select it '
-        'with browser_use(action="claim_tab", mode="takeover", page_id=...).\n'
+        'browser_use(action="tabs", mode="control") first, then select it '
+        'with browser_use(action="claim_tab", mode="control", page_id=...).\n'
         "- Keep a single active claimed tab for one browsing target unless "
         "the user's task explicitly needs multiple tabs. Do not open duplicate "
         "tabs for the same target; navigate or click within the claimed tab.\n"
-        "- To change the current takeover tab URL, use "
-        'browser_use(action="navigate", mode="takeover", page_id=..., '
+        "- To change the current control tab URL, use "
+        'browser_use(action="navigate", mode="control", page_id=..., '
         'url=...). You may also use action="open" with page_id to navigate '
         "an already claimed tab.\n"
         "- After every material navigation, click, type, or wait, call "
-        'browser_use(action="snapshot", mode="takeover", ...) before '
+        'browser_use(action="snapshot", mode="control", ...) before '
         "deciding the next step or reporting results. Use "
-        'browser_use(action="wait_for", mode="takeover", wait_time=...) '
+        'browser_use(action="wait_for", mode="control", wait_time=...) '
         "before snapshot when the page is loading or changing.\n"
         "- Observation ladder: first use snapshot as structured page evidence "
         "(accessibility/DOM text, refs, roles, names). Use refs/selectors from "
         "that structured evidence for clicks and typing when possible.\n"
         '- Visual fallback: call browser_use(action="screenshot", '
-        'mode="takeover", page_id=...) when snapshot is empty, only shows a '
+        'mode="control", page_id=...) when snapshot is empty, only shows a '
         "generic RootWebArea, misses key visual state, the page is mostly "
         "image/canvas based, layout/position matters, or structured evidence "
         "does not explain what to do next. The screenshot tool output already "
@@ -463,10 +463,10 @@ def _takeover_prompt(user_input: str) -> str:
         '- Do not call browser_use(action="eval"), action="evaluate", '
         "run_code, JavaScript snippets, arbitrary CDP Runtime calls, or "
         "local shell/code tools to inspect the page. To check URLs or tabs, "
-        'use browser_use(action="tabs", mode="takeover").\n'
+        'use browser_use(action="tabs", mode="control").\n'
         "- Do not call view_image, view_video, read_file, desktop_screenshot, "
         "or send_file_to_user to inspect a browser screenshot. The visual "
-        "fallback must remain inside the browser_use takeover observe-act-"
+        "fallback must remain inside the browser_use control observe-act-"
         "verify loop.\n"
         "- If structured and visual evidence disagree, trust the more recent "
         "observation and gather another snapshot/screenshot after the next "
@@ -478,62 +478,46 @@ def _takeover_prompt(user_input: str) -> str:
         "or risk check appears, or the site blocks automation, report that "
         "specific blocker and what user action is needed. Do not invent page "
         "contents.\n"
-        "- For takeover click, prefer ref or selector. If only visible text "
-        'is available, browser_use(action="click", mode="takeover", '
+        "- For control click, prefer ref or selector. If only visible text "
+        'is available, browser_use(action="click", mode="control", '
         "text=...) is supported.\n"
         "- Prefer snapshot for reading page text and reporting results. "
         "Only use screenshot when the user explicitly asks for a screenshot "
         "or text snapshot is not enough to determine the page state.\n"
         "- Do not call send_file_to_user unless a tool returned a real local "
         "file path.\n"
-        "- Supported takeover actions include: claim_tab, tabs, open, "
+        "- Supported control actions include: claim_tab, tabs, open, "
         "navigate, snapshot, screenshot, click, type, press_key, wait_for, "
         "release_tab, and stop.\n"
         "- If the user asks to stop, cancel, end, or release Chrome control, "
-        'call browser_use(action="stop", mode="takeover") immediately and '
+        'call browser_use(action="stop", mode="control") immediately and '
         "then report that control has been released.\n"
         "- Do not use the default/headless/managed-CDP browser for this "
         "request.\n"
         "- If the Chrome bridge is disconnected or setup is missing, explain "
-        "that to the user and ask them to enable the QwenPaw Browser Bridge "
+        "that to the user and ask them to enable the QwenPaw Chrome "
         "extension.\n\n"
         f"User task: {task}"
     )
 
 
-def _rewrite_last_input_text(ctx: Any, text: str) -> bool:
-    from agentscope.message._block import TextBlock
+def _inject_internal_browser_control_prompt(ctx: Any, text: str) -> bool:
+    from agentscope.message import Msg, TextBlock
 
     msgs = getattr(ctx, "input_msgs", None)
     if not msgs:
         return False
 
-    last = msgs[-1]
-    content = getattr(last, "content", None)
-    if isinstance(content, list):
-        for idx, block in enumerate(content):
-            btype = (
-                block.get("type")
-                if isinstance(block, dict)
-                else getattr(block, "type", None)
-            )
-            if btype == "text":
-                if isinstance(block, dict):
-                    block["text"] = text
-                else:
-                    content[idx] = TextBlock(type="text", text=text)
-                return True
-        content.insert(0, TextBlock(type="text", text=text))
-        return True
-
-    if isinstance(content, str):
-        last.content = text
-        return True
-
-    return False
+    guidance = Msg(
+        name="system",
+        role="system",
+        content=[TextBlock(type="text", text=text)],
+    )
+    msgs.insert(max(len(msgs) - 1, 0), guidance)
+    return True
 
 
-def _make_takeover_adapter() -> CommandSpec:
+def _make_browser_control_adapter() -> CommandSpec:
     async def _handler(ctx: Any, args: str) -> "Msg | None":
         from agentscope.message import Msg, TextBlock
 
@@ -545,19 +529,22 @@ def _make_takeover_adapter() -> CommandSpec:
                     TextBlock(
                         type="text",
                         text=(
-                            "Usage: `/takeover <task>`\n\n"
-                            "Example: `/takeover open xiaohongshu in my "
-                            "Chrome browser`"
+                            "Usage: `/browser-control <task>`\n\n"
+                            "Example: `/browser-control open xiaohongshu "
+                            "in my Chrome browser`"
                         ),
                     ),
                 ],
             )
 
-        _rewrite_last_input_text(ctx, _takeover_prompt(args))
+        _inject_internal_browser_control_prompt(
+            ctx,
+            _browser_control_prompt(args),
+        )
         return None
 
     return CommandSpec(
-        name="takeover",
+        name="browser-control",
         handler=_handler,
         category="browser",
         help_text="Use the user's real Chrome browser for this request.",
@@ -714,7 +701,7 @@ def collect_builtin_command_specs() -> list[CommandSpec]:
     specs.extend(_collect_daemon_specs())
     specs.extend(_collect_control_specs())
     specs.extend(_collect_conversation_specs())
-    specs.append(_make_takeover_adapter())
+    specs.append(_make_browser_control_adapter())
     return specs
 
 

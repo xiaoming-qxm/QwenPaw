@@ -21,7 +21,7 @@ def _repo_root() -> Path:
 async def test_plugin_detail_includes_manifest_and_runtime_status() -> None:
     app = FastAPI()
     app.include_router(plugins_router, prefix="/api")
-    plugin_dir = _repo_root() / "plugins" / "bundle" / "browser-takeover"
+    plugin_dir = _repo_root() / "plugins" / "bundle" / "browser-control"
     loader = PluginLoader([plugin_dir.parent])
     loader.registry.set_plugin_http_app(app)
     await loader.load_plugin_from_path(
@@ -31,11 +31,11 @@ async def test_plugin_detail_includes_manifest_and_runtime_status() -> None:
     app.state.plugin_loader = loader
     client = TestClient(app)
 
-    response = client.get("/api/plugins/browser-takeover/detail")
+    response = client.get("/api/plugins/browser-control/detail")
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["id"] == "browser-takeover"
+    assert payload["id"] == "browser-control"
     assert payload["manifest"]["icon"] == "Chrome"
     assert payload["manifest"]["capabilities"]
     assert payload["manifest"]["setup"]["kind"] == "native-messaging"

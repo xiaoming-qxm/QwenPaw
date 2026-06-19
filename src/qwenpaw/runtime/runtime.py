@@ -166,7 +166,7 @@ class Runtime:
                         getattr(ctx, "session_id", ""),
                         exc_info=True,
                     )
-            await self._cleanup_browser_takeover_on_error(ctx)
+            await self._cleanup_browser_control_on_error(ctx)
             await hooks.run(Phase.FINALLY, ctx)
 
     # ----------------------------------------------------------------- helpers
@@ -203,26 +203,26 @@ class Runtime:
         )
 
     @staticmethod
-    async def _cleanup_browser_takeover_on_error(ctx: HookContext) -> None:
+    async def _cleanup_browser_control_on_error(ctx: HookContext) -> None:
         if ctx.error is None:
             return
         try:
             from pathlib import Path
 
             from ..agents.tools.browser_control import (
-                cleanup_takeover_sessions_for_request,
+                cleanup_control_sessions_for_request,
             )
 
             workspace_dir = getattr(ctx, "workspace_dir", None)
             workspace_id = Path(workspace_dir).name if workspace_dir else ""
-            await cleanup_takeover_sessions_for_request(
+            await cleanup_control_sessions_for_request(
                 session_id=getattr(ctx, "session_id", "") or "",
                 root_session_id=getattr(ctx, "root_session_id", "") or "",
                 workspace_id=workspace_id,
             )
         except Exception:  # pylint: disable=broad-except
             logger.warning(
-                "runtime: browser takeover cleanup failed session=%s",
+                "runtime: browser control cleanup failed session=%s",
                 getattr(ctx, "session_id", ""),
                 exc_info=True,
             )

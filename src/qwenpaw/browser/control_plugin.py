@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Helpers for loading the bundled Browser Takeover plugin modules."""
+"""Helpers for loading the bundled Browser Control plugin modules."""
 
 from __future__ import annotations
 
@@ -9,22 +9,19 @@ import types
 from pathlib import Path
 from types import ModuleType
 
-_PACKAGE_NAME = "plugin_browser_takeover"
+_PACKAGE_NAME = "plugin_browser_control"
 
 
-def get_browser_takeover_plugin_dir() -> Path:
-    """Return the bundled Browser Takeover plugin directory."""
+def get_browser_control_plugin_dir() -> Path:
+    """Return the bundled Browser Control plugin directory."""
     return (
-        Path(__file__).resolve().parents[3]
-        / "plugins"
-        / "bundle"
-        / "browser-takeover"
+        Path(__file__).resolve().parents[3] / "plugins" / "bundle" / "browser-control"
     )
 
 
-def load_browser_takeover_submodule(name: str) -> ModuleType:
-    """Load a Browser Takeover plugin submodule by file name."""
-    plugin_dir = get_browser_takeover_plugin_dir()
+def load_browser_control_submodule(name: str) -> ModuleType:
+    """Load a Browser Control plugin submodule by file name."""
+    plugin_dir = get_browser_control_plugin_dir()
     module_name = f"{_PACKAGE_NAME}.{name}"
     cached = sys.modules.get(module_name)
     if cached is not None:
@@ -40,7 +37,7 @@ def load_browser_takeover_submodule(name: str) -> ModuleType:
     module_path = plugin_dir / f"{name}.py"
     spec = importlib.util.spec_from_file_location(module_name, module_path)
     if spec is None or spec.loader is None:
-        raise ImportError(f"Could not load browser takeover module: {name}")
+        raise ImportError(f"Could not load browser control module: {name}")
 
     module = importlib.util.module_from_spec(spec)
     module.__package__ = _PACKAGE_NAME

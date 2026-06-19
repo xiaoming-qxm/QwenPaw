@@ -1,5 +1,5 @@
-// Deprecated: Browser Takeover is now managed by
-// /plugin-manager/browser-takeover. This component is retained only for
+// Deprecated: Browser Control is now managed by
+// /plugin-manager/browser-control. This component is retained only for
 // compatibility tests while the old route redirects to the plugin detail page.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -124,7 +124,7 @@ function NotInstalledView({
         <Puzzle size={32} />
       </div>
       <Title level={2}>
-        {t("browserExtension.hero.title", "Browser Takeover")}
+        {t("browserExtension.hero.title", "Browser Control")}
       </Title>
       <Paragraph className={styles.heroSubtitle}>
         {t(
@@ -653,7 +653,7 @@ export default function BrowserExtensionPage() {
     <div className={styles.browserExtensionPage}>
       <PageHeader
         parent={t("nav.settings")}
-        current={t("browserExtension.title", "Browser Takeover")}
+        current={t("browserExtension.title", "Browser Control")}
       />
 
       <div className={styles.content}>

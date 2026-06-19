@@ -70,10 +70,10 @@
     "pluginManager": "插件管理"
   },
   "browserExtension": {
-    "title": "浏览器接管",
+    "title": "浏览器控制",
     "desc": "准备 Chrome 扩展和 Native Messaging 桥接文件，然后在 Chrome 开发者模式中加载未打包扩展。",
     "hero": {
-      "title": "浏览器接管",
+      "title": "浏览器控制",
       "subtitle": "让 QwenPaw 在任务需要浏览器时读取页面、点击控件并操作 Chrome。",
       "installCws": "从 Chrome 商店安装",
       "devMode": "我是开发者，使用本地加载"
@@ -197,8 +197,8 @@
       "type": "类型",
       "unknown": "未知"
     },
-    "browserTakeover": {
-      "name": "浏览器接管",
+    "browserControl": {
+      "name": "浏览器控制",
       "description": "把 QwenPaw 连接到 Chrome，让它在你需要时理解并操作当前页面。",
       "status": {
         "disabled": "已停用",
@@ -1989,8 +1989,8 @@
       "compact": {
         "description": "压缩对话上下文并生成摘要，支持附带说明"
       },
-      "takeover": {
-        "description": "用你的真实 Chrome 执行本次浏览器操作"
+      "browserControl": {
+        "description": "用你的 Chrome 完成浏览器任务"
       },
       "approve": {
         "description": "批准待执行的工具操作并继续执行"

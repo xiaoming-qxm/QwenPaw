@@ -180,7 +180,7 @@ export default function MainLayout() {
                   <Route
                     path="/browser-extension"
                     element={
-                      <Navigate to="/plugin-manager/browser-takeover" replace />
+                      <Navigate to="/plugin-manager/browser-control" replace />
                     }
                   />
 

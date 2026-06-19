@@ -57,7 +57,7 @@ describe("BrowserExtensionPage", () => {
     });
 
     expect(
-      await screen.findByRole("heading", { name: "Browser Takeover" }),
+      await screen.findByRole("heading", { name: "Browser Control" }),
     ).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Install from Chrome Web Store" }),

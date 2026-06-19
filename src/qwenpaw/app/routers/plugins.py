@@ -45,13 +45,13 @@ def _list_plugins_from_disk() -> list[dict]:
     if plugins_dir.exists():
         candidates.extend(sorted(item for item in plugins_dir.iterdir()))
     try:
-        from ...browser.takeover_plugin import get_browser_takeover_plugin_dir
+        from ...browser.control_plugin import get_browser_control_plugin_dir
 
-        browser_takeover_dir = get_browser_takeover_plugin_dir()
-        if browser_takeover_dir.exists():
-            candidates.append(browser_takeover_dir)
+        browser_control_dir = get_browser_control_plugin_dir()
+        if browser_control_dir.exists():
+            candidates.append(browser_control_dir)
     except Exception:
-        logger.debug("Bundled browser-takeover fallback scan skipped")
+        logger.debug("Bundled browser-control fallback scan skipped")
 
     seen: set[str] = set()
     for item in candidates:
@@ -273,9 +273,7 @@ def _sync_plugin_tools_to_agents(loader, plugin_id: str) -> None:
                 for tool_name in tool_names:
                     if tool_name in agent_cfg.tools.builtin_tools:
                         continue
-                    agent_cfg.tools.builtin_tools[
-                        tool_name
-                    ] = BuiltinToolConfig(
+                    agent_cfg.tools.builtin_tools[tool_name] = BuiltinToolConfig(
                         name=tool_name,
                         enabled=False,
                         config={},
@@ -412,8 +410,7 @@ def _post_unload_cleanup(
                     command_registry.unregister_command(f"/{cmd_name}")
                 except Exception as exc:
                     logger.warning(
-                        f"Could not unregister priority for"
-                        f" '/{cmd_name}': {exc}",
+                        f"Could not unregister priority for" f" '/{cmd_name}': {exc}",
                     )
         except Exception as exc:
             logger.warning(
@@ -687,10 +684,7 @@ async def install_plugin(
                     manifest_path.read_text(encoding="utf-8"),
                 )
                 existing_id = raw.get("id")
-                if (
-                    existing_id
-                    and loader.get_loaded_plugin(existing_id) is not None
-                ):
+                if existing_id and loader.get_loaded_plugin(existing_id) is not None:
                     logger.info(
                         f"Force-reinstall: unloading '{existing_id}'"
                         " before re-installing",
@@ -739,9 +733,7 @@ async def install_plugin(
         "description": record.manifest.description,
         "author": record.manifest.author,
         "loaded": True,
-        "message": (
-            f"Plugin '{record.manifest.name}' installed successfully."
-        ),
+        "message": (f"Plugin '{record.manifest.name}' installed successfully."),
     }
 
 
@@ -796,10 +788,7 @@ async def upload_plugin(
                     manifest_path.read_text(encoding="utf-8"),
                 )
                 existing_id = raw.get("id")
-                if (
-                    existing_id
-                    and loader.get_loaded_plugin(existing_id) is not None
-                ):
+                if existing_id and loader.get_loaded_plugin(existing_id) is not None:
                     logger.info(
                         f"Force-reinstall: unloading '{existing_id}'"
                         " before re-installing",
@@ -848,9 +837,7 @@ async def upload_plugin(
         "description": record.manifest.description,
         "author": record.manifest.author,
         "loaded": True,
-        "message": (
-            f"Plugin '{record.manifest.name}' installed successfully."
-        ),
+        "message": (f"Plugin '{record.manifest.name}' installed successfully."),
     }
 
 

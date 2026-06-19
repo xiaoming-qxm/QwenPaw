@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""CDP permission classification for Chrome takeover mode."""
+"""CDP permission classification for Chrome browser control mode."""
 
 from __future__ import annotations
 
@@ -183,10 +183,10 @@ def load_permissions(
         return PermissionsConfig()
 
     raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    takeover = raw.get("takeover") or raw
-    capabilities = takeover.get("capabilities") or {}
-    domains = takeover.get("domain_rules") or takeover.get("domains") or []
-    approved_domains = takeover.get("approved_domains") or []
+    control = raw.get("control") or raw
+    capabilities = control.get("capabilities") or {}
+    domains = control.get("domain_rules") or control.get("domains") or []
+    approved_domains = control.get("approved_domains") or []
 
     return PermissionsConfig(
         capability_rules={

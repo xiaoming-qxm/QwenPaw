@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Native Messaging bridge router for Chrome takeover mode."""
+"""Native Messaging bridge router for Chrome browser control mode."""
 
 from __future__ import annotations
 

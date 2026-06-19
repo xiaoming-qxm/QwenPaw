@@ -27,6 +27,7 @@ const {
   mockSelectedAgent,
   mockSetSelectedAgent,
   mockGetTranscriptionProviderType,
+  mockSetLastUserMessage,
 } = vi.hoisted(() => ({
   mockListProviders: vi.fn(),
   mockGetActiveModels: vi.fn(),
@@ -36,6 +37,7 @@ const {
   mockSelectedAgent: vi.fn(() => "default"),
   mockSetSelectedAgent: vi.fn(),
   mockGetTranscriptionProviderType: vi.fn(),
+  mockSetLastUserMessage: vi.fn(),
 }));
 
 vi.mock("../../hooks/useAppMessage", () => ({
@@ -147,7 +149,7 @@ vi.mock("./sessionApi", () => ({
     onSessionSelected: null,
     onSessionCreated: null,
     getRealIdForSession: vi.fn(() => null),
-    setLastUserMessage: vi.fn(),
+    setLastUserMessage: mockSetLastUserMessage,
   },
 }));
 
@@ -302,6 +304,42 @@ describe("ChatPage", () => {
     expect(fetch).toHaveBeenCalledWith(
       "/api/console/chat",
       expect.objectContaining({ method: "POST" }),
+    );
+  });
+
+  it("stores browser-control user text exactly as entered", async () => {
+    global.fetch = vi
+      .fn()
+      .mockResolvedValue({ ok: true, status: 200 } as Response);
+    renderWithProviders(<ChatPage />, { initialEntries: ["/chat"] });
+    await screen.findByTestId("chat-ui");
+
+    await capturedOptions.api.fetch({
+      input: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: "/browser-control 请用我的chrome浏览器打开淘宝",
+            },
+          ],
+          session: {
+            session_id: "chat-1",
+            user_id: "user-1",
+            channel: "console",
+          },
+        },
+      ],
+      signal: undefined,
+    });
+
+    expect(mockSetLastUserMessage).toHaveBeenCalledWith(
+      "chat-1",
+      "/browser-control 请用我的chrome浏览器打开淘宝",
+    );
+    expect(mockSetLastUserMessage.mock.calls[0][1]).not.toContain(
+      "The user invoked",
     );
   });
 

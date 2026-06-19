@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Focused coverage for Chrome takeover browser plumbing."""
+"""Focused coverage for Chrome browser control browser plumbing."""
 
 # pylint: disable=protected-access
 
@@ -32,9 +32,9 @@ from qwenpaw.browser.connection_manager import (
     clear_bridge_connection_manager,
     set_bridge_connection_manager,
 )
-from qwenpaw.browser.takeover_plugin import load_browser_takeover_submodule
+from qwenpaw.browser.control_plugin import load_browser_control_submodule
 
-_nm_bridge = load_browser_takeover_submodule("nm_bridge")
+_nm_bridge = load_browser_control_submodule("nm_bridge")
 LEASE_TTL_SECONDS = _nm_bridge.LEASE_TTL_SECONDS
 NMBridge = _nm_bridge.NMBridge
 NMBridgeDisconnectedError = _nm_bridge.NMBridgeDisconnectedError
@@ -280,7 +280,7 @@ async def test_cdp_relay_approval_callback_tracks_new_domain() -> None:
 
 
 @pytest.mark.asyncio
-async def test_takeover_session_uses_request_context_for_approval(
+async def test_control_session_uses_request_context_for_approval(
     monkeypatch,
 ) -> None:
     class Bridge(_FakeRelayBridge):
@@ -321,13 +321,13 @@ async def test_takeover_session_uses_request_context_for_approval(
     agent_context.set_current_root_session_id("root-session-1")
 
     state: dict[str, Any] = {"workspace_id": "workspace-1"}
-    await browser_control._action_takeover(
+    await browser_control._action_control(
         state,
         "claim_tab",
         page_id="tab_3",
         index=-1,
     )
-    session = state["takeover_sessions"]["3"]
+    session = state["control_sessions"]["3"]
 
     await session.send("Page.navigate", {"url": "https://example.com/a"})
 
@@ -447,12 +447,12 @@ def test_cdp_default_policies_deny_storage_and_browser_control() -> None:
     assert DEFAULT_POLICIES["browser_control"] == "deny"
 
 
-def test_load_permissions_accepts_takeover_nested_schema(tmp_path) -> None:
+def test_load_permissions_accepts_control_nested_schema(tmp_path) -> None:
     config_path = tmp_path / "browser-permissions.yaml"
     config_path.write_text(
         "\n".join(
             [
-                "takeover:",
+                "control:",
                 "  capabilities:",
                 "    storage: ask",
                 "  domain_rules:",
@@ -513,7 +513,7 @@ async def test_claim_tab_denied_domain_does_not_create_tab(
         ),
     )
 
-    response = await browser_control._action_takeover(
+    response = await browser_control._action_control(
         {"workspace_id": "workspace-1"},
         "claim_tab",
         url="https://denied.example.com/path",
@@ -559,7 +559,7 @@ async def test_claim_tab_attach_rollback_releases_lease() -> None:
     bridge = Bridge()
     _set_test_bridge(bridge)
 
-    response = await browser_control._action_takeover(
+    response = await browser_control._action_control(
         {"workspace_id": "workspace-1"},
         "claim_tab",
         page_id="tab_7",
@@ -612,15 +612,15 @@ def test_from_cdp_ax_tree_builds_refs_and_prunes_ignored_nodes() -> None:
 
 
 @pytest.mark.asyncio
-async def test_browser_use_routes_takeover_start() -> None:
+async def test_browser_use_routes_control_start() -> None:
     class Bridge:
         connected = True
 
     _set_test_bridge(Bridge())
 
-    response = await browser_use(action="start", mode="takeover")
+    response = await browser_use(action="start", mode="control")
     payload = json.loads(response.content[0].text)
 
     assert payload["ok"] is True
-    assert payload["mode"] == "takeover"
+    assert payload["mode"] == "control"
     assert "connected" in payload["message"]

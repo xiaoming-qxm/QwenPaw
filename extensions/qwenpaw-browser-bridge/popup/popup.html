@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>QwenPaw Browser Bridge</title>
+    <title>QwenPaw</title>
     <style>
       body {
         box-sizing: border-box;
@@ -16,10 +16,29 @@
       }
 
       h1 {
-        margin: 0 0 12px;
+        margin: 0;
         font-size: 15px;
         font-weight: 650;
         letter-spacing: 0;
+      }
+
+      .header {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin: 0 0 12px;
+      }
+
+      .logo {
+        width: 32px;
+        height: 32px;
+        border-radius: 8px;
+      }
+
+      .subtitle {
+        margin: 2px 0 0;
+        color: #64748b;
+        font-size: 12px;
       }
 
       dl {
@@ -58,7 +77,13 @@
     </style>
   </head>
   <body>
-    <h1>QwenPaw Bridge</h1>
+    <div class="header">
+      <img class="logo" src="../icons/logo-48.png" alt="">
+      <div>
+        <h1>QwenPaw</h1>
+        <p class="subtitle">Browser Bridge</p>
+      </div>
+    </div>
     <dl>
       <dt>Status</dt>
       <dd class="status"><span id="dot" class="dot"></span><span id="status">Checking</span></dd>

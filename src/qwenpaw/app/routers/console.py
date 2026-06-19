@@ -113,12 +113,12 @@ def _extract_session_and_payload(request_data: Union[AgentRequest, dict]):
     return native_payload
 
 
-async def _cleanup_browser_takeover_for_chat(
+async def _cleanup_browser_control_for_chat(
     workspace,
     chat_or_session_id: str,
 ) -> dict[str, int]:
     from ...agents.tools.browser_control import (
-        cleanup_takeover_sessions_for_request,
+        cleanup_control_sessions_for_request,
     )
 
     session_id = chat_or_session_id
@@ -130,7 +130,7 @@ async def _cleanup_browser_takeover_for_chat(
 
     workspace_dir = getattr(workspace, "workspace_dir", None)
     workspace_id = Path(workspace_dir).name if workspace_dir else ""
-    return await cleanup_takeover_sessions_for_request(
+    return await cleanup_control_sessions_for_request(
         session_id=session_id,
         root_session_id=session_id,
         workspace_id=workspace_id,
@@ -268,7 +268,7 @@ async def post_console_chat_stop(
     """Stop the running chat. Only stops when called."""
     logger.debug("[STOP API] Received stop request for chat_id=%s", chat_id)
     workspace = await get_agent_for_request(request)
-    takeover_cleanup_session_id = chat_id
+    control_cleanup_session_id = chat_id
 
     # Try to stop with the provided chat_id first
     logger.debug(
@@ -298,19 +298,19 @@ async def post_console_chat_stop(
                 stopped = await workspace.task_tracker.request_stop(
                     resolved_chat_id,
                 )
-                takeover_cleanup_session_id = resolved_chat_id
+                control_cleanup_session_id = resolved_chat_id
 
-    takeover_cleanup = await _cleanup_browser_takeover_for_chat(
+    control_cleanup = await _cleanup_browser_control_for_chat(
         workspace,
-        takeover_cleanup_session_id,
+        control_cleanup_session_id,
     )
     logger.debug(
         "[STOP API] task_tracker.request_stop returned: stopped=%s "
-        "takeover_cleanup=%s",
+        "control_cleanup=%s",
         stopped,
-        takeover_cleanup,
+        control_cleanup,
     )
-    return {"stopped": stopped, "takeover_cleanup": takeover_cleanup}
+    return {"stopped": stopped, "control_cleanup": control_cleanup}
 
 
 @router.post("/upload", response_model=dict, summary="Upload file for chat")

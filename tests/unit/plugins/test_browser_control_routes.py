@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Tests for Browser Takeover plugin route registration."""
+"""Tests for Browser Control plugin route registration."""
 
 from __future__ import annotations
 
@@ -16,9 +16,9 @@ def _repo_root() -> Path:
 
 
 @pytest.mark.asyncio
-async def test_browser_takeover_plugin_registers_bridge_routes() -> None:
+async def test_browser_control_plugin_registers_bridge_routes() -> None:
     app = FastAPI()
-    plugin_dir = _repo_root() / "plugins" / "bundle" / "browser-takeover"
+    plugin_dir = _repo_root() / "plugins" / "bundle" / "browser-control"
     loader = PluginLoader([plugin_dir.parent])
     loader.registry.set_plugin_http_app(app)
 

@@ -11,9 +11,9 @@ import pytest
 
 from qwenpaw.app import auth as auth_module
 from qwenpaw.app.auth import AuthMiddleware
-from qwenpaw.browser.takeover_plugin import load_browser_takeover_submodule
+from qwenpaw.browser.control_plugin import load_browser_control_submodule
 
-nm_bridge_router = load_browser_takeover_submodule("routes")
+nm_bridge_router = load_browser_control_submodule("routes")
 
 
 class _Bridge:

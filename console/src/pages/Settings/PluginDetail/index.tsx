@@ -109,31 +109,31 @@ export default function PluginDetailPage() {
   const enabled = detail?.enabled ?? false;
   const connected = Boolean(enabled && runtime.connected);
   const installed = Boolean(runtime.installed);
-  const isBrowserTakeover = detail?.id === "browser-takeover";
+  const isBrowserControl = detail?.id === "browser-control";
 
   const browserSteps: PluginSetupStep[] = useMemo(
     () => [
       {
         id: "prepare",
-        title: t("pluginDetail.browserTakeover.steps.prepare.title", "Prepare"),
+        title: t("pluginDetail.browserControl.steps.prepare.title", "Prepare"),
         description: t(
-          "pluginDetail.browserTakeover.steps.prepare.desc",
+          "pluginDetail.browserControl.steps.prepare.desc",
           "QwenPaw prepares the local files Chrome needs.",
         ),
       },
       {
         id: "load",
-        title: t("pluginDetail.browserTakeover.steps.load.title", "Load"),
+        title: t("pluginDetail.browserControl.steps.load.title", "Load"),
         description: t(
-          "pluginDetail.browserTakeover.steps.load.desc",
+          "pluginDetail.browserControl.steps.load.desc",
           "Load the QwenPaw extension in Chrome.",
         ),
       },
       {
         id: "connect",
-        title: t("pluginDetail.browserTakeover.steps.connect.title", "Connect"),
+        title: t("pluginDetail.browserControl.steps.connect.title", "Connect"),
         description: t(
-          "pluginDetail.browserTakeover.steps.connect.desc",
+          "pluginDetail.browserControl.steps.connect.desc",
           "Return here and confirm Chrome is connected.",
         ),
       },
@@ -141,44 +141,44 @@ export default function PluginDetailPage() {
     [t],
   );
 
-  const displayName = isBrowserTakeover
-    ? t("pluginDetail.browserTakeover.name", "Browser Takeover")
+  const displayName = isBrowserControl
+    ? t("pluginDetail.browserControl.name", "Browser Control")
     : detail?.name ?? "";
-  const displayDescription = isBrowserTakeover
+  const displayDescription = isBrowserControl
     ? t(
-        "pluginDetail.browserTakeover.description",
+        "pluginDetail.browserControl.description",
         "Connect QwenPaw to Chrome so it can help with the page you choose.",
       )
     : detail?.description ?? "";
   const setupSteps = useMemo(
     () =>
-      isBrowserTakeover
+      isBrowserControl
         ? browserSteps
         : detail?.setup?.steps ?? detail?.manifest.setup?.steps ?? [],
-    [browserSteps, detail, isBrowserTakeover],
+    [browserSteps, detail, isBrowserControl],
   );
   const capabilities: PluginCapability[] = useMemo(() => {
-    if (isBrowserTakeover) {
+    if (isBrowserControl) {
       return [
         {
           id: "read-page",
           title: t(
-            "pluginDetail.browserTakeover.capabilities.read.title",
+            "pluginDetail.browserControl.capabilities.read.title",
             "Read pages",
           ),
           description: t(
-            "pluginDetail.browserTakeover.capabilities.read.desc",
+            "pluginDetail.browserControl.capabilities.read.desc",
             "Summarize and extract information from the current tab.",
           ),
         },
         {
           id: "act-page",
           title: t(
-            "pluginDetail.browserTakeover.capabilities.act.title",
+            "pluginDetail.browserControl.capabilities.act.title",
             "Act for you",
           ),
           description: t(
-            "pluginDetail.browserTakeover.capabilities.act.desc",
+            "pluginDetail.browserControl.capabilities.act.desc",
             "Click, type, and navigate after you ask QwenPaw to help.",
           ),
         },
@@ -187,7 +187,7 @@ export default function PluginDetailPage() {
     return detail?.capabilities?.length
       ? detail.capabilities
       : detail?.manifest.capabilities ?? [];
-  }, [detail, isBrowserTakeover, t]);
+  }, [detail, isBrowserControl, t]);
 
   const statusKey = !enabled
     ? "disabled"
@@ -197,18 +197,18 @@ export default function PluginDetailPage() {
     ? "waiting"
     : "notStarted";
   const statusText = t(
-    `pluginDetail.browserTakeover.status.${statusKey}`,
+    `pluginDetail.browserControl.status.${statusKey}`,
     statusKey,
   );
   const statusDescription = t(
-    `pluginDetail.browserTakeover.statusDesc.${statusKey}`,
+    `pluginDetail.browserControl.statusDesc.${statusKey}`,
     "",
   );
   const primaryActionLabel = !installed
-    ? t("pluginDetail.browserTakeover.actions.start", "Start")
+    ? t("pluginDetail.browserControl.actions.start", "Start")
     : connected
-    ? t("pluginDetail.browserTakeover.actions.connected", "Connected")
-    : t("pluginDetail.browserTakeover.actions.openChrome", "Open Chrome");
+    ? t("pluginDetail.browserControl.actions.connected", "Connected")
+    : t("pluginDetail.browserControl.actions.openChrome", "Open Chrome");
 
   const handleToggle = async (checked: boolean) => {
     if (!detail) return;
@@ -261,9 +261,7 @@ export default function PluginDetailPage() {
             : undefined,
         reset,
       });
-      message.success(
-        t("pluginDetail.browserTakeover.messages.ready", "Ready"),
-      );
+      message.success(t("pluginDetail.browserControl.messages.ready", "Ready"));
       await loadDetail(false);
     } catch (err) {
       message.error(
@@ -284,11 +282,11 @@ export default function PluginDetailPage() {
       message.info(
         nextRuntime.connected
           ? t(
-              "pluginDetail.browserTakeover.messages.connected",
+              "pluginDetail.browserControl.messages.connected",
               "Chrome is connected.",
             )
           : t(
-              "pluginDetail.browserTakeover.messages.waiting",
+              "pluginDetail.browserControl.messages.waiting",
               "Still waiting for Chrome.",
             ),
       );
@@ -304,7 +302,7 @@ export default function PluginDetailPage() {
       if (result.opened) {
         message.success(
           t(
-            "pluginDetail.browserTakeover.messages.openedChrome",
+            "pluginDetail.browserControl.messages.openedChrome",
             "Chrome opened.",
           ),
         );
@@ -314,7 +312,7 @@ export default function PluginDetailPage() {
       if (copied) {
         message.warning(
           t(
-            "pluginDetail.browserTakeover.messages.chromeUrlCopied",
+            "pluginDetail.browserControl.messages.chromeUrlCopied",
             "Could not open Chrome. The address was copied.",
           ),
         );
@@ -330,7 +328,7 @@ export default function PluginDetailPage() {
           err instanceof Error
             ? err.message
             : t(
-                "pluginDetail.browserTakeover.messages.openChromeFailed",
+                "pluginDetail.browserControl.messages.openChromeFailed",
                 "Could not open Chrome.",
               ),
         );
@@ -464,7 +462,7 @@ export default function PluginDetailPage() {
                 </div>
               ) : null}
             </div>
-            {isBrowserTakeover ? (
+            {isBrowserControl ? (
               <Button
                 type={connected ? "default" : "primary"}
                 loading={setupBusy || openChromeBusy}
@@ -503,14 +501,14 @@ export default function PluginDetailPage() {
           </div>
 
           <div className={styles.setupActions}>
-            {isBrowserTakeover ? (
+            {isBrowserControl ? (
               <Button
                 size="small"
                 icon={<RefreshCw size={14} />}
                 loading={refreshing}
                 onClick={handleRefreshStatus}
               >
-                {t("pluginDetail.browserTakeover.actions.check", "Check")}
+                {t("pluginDetail.browserControl.actions.check", "Check")}
               </Button>
             ) : (
               <>

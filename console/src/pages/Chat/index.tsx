@@ -1115,7 +1115,7 @@ export default function ChatPage() {
         chatIdRef.current ??
         requestBody.session_id;
       if (backendChatId) {
-        const userText = rewrittenInput
+        const userText = lastInput
           .filter((m: any) => m.role === "user")
           .map(extractUserMessageText)
           .join("\n")

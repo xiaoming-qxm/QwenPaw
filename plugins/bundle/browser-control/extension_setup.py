@@ -82,9 +82,7 @@ def _copy_extension(qwenpaw_home: Path) -> Path:
 def _write_local_extension_config(extension_dir: Path) -> Path:
     config_path = extension_dir / LOCAL_BRIDGE_CONFIG_JS
     config = {
-        "initialReconnectBackoffSeconds": (
-            LOCAL_INITIAL_RECONNECT_BACKOFF_SECONDS
-        ),
+        "initialReconnectBackoffSeconds": (LOCAL_INITIAL_RECONNECT_BACKOFF_SECONDS),
         "maxReconnectBackoffSeconds": LOCAL_MAX_RECONNECT_BACKOFF_SECONDS,
     }
     config_path.write_text(
@@ -193,9 +191,7 @@ def setup_extension_files(
         "installed": True,
         "install_mode": install_mode,
         "extension_id": extension_id,
-        "extension_dir": str(extension_dir)
-        if extension_dir is not None
-        else "",
+        "extension_dir": str(extension_dir) if extension_dir is not None else "",
         "native_manifest_path": str(manifest_path),
         "native_host_path": str(host_path),
         "config_path": str(config_path),
@@ -210,9 +206,7 @@ def setup_extension_files(
 def extension_install_status() -> dict[str, str | bool | None]:
     """Return install paths and whether the local registration exists."""
     qwenpaw_home = _qwenpaw_home()
-    extension_dir = (
-        qwenpaw_home / "chrome-extension" / "qwenpaw-browser-bridge"
-    )
+    extension_dir = qwenpaw_home / "chrome-extension" / "qwenpaw-browser-bridge"
     manifest_path = native_manifest_path()
     host_path = qwenpaw_home / "bin" / "qwenpaw-nm-host"
     config_path = qwenpaw_home / "nm-bridge.json"

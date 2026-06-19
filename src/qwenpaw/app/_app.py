@@ -286,9 +286,9 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             from ..agents.tools import discover_builtin_tool_funcs
 
             # pylint: disable-next=protected-access
-            workspace_registry._bootstrap_kwargs[
-                "builtin_tool_funcs"
-            ] = discover_builtin_tool_funcs()
+            workspace_registry._bootstrap_kwargs["builtin_tool_funcs"] = (
+                discover_builtin_tool_funcs()
+            )
             logger.debug("Built-in tool funcs collected")
         except Exception:
             logger.debug(
@@ -305,9 +305,9 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
             _api_action_command_specs.extend(collect_builtin_command_specs())
             # pylint: disable-next=protected-access
-            workspace_registry._bootstrap_kwargs[
-                "builtin_fallback_handler"
-            ] = get_skill_fallback_handler()
+            workspace_registry._bootstrap_kwargs["builtin_fallback_handler"] = (
+                get_skill_fallback_handler()
+            )
             logger.debug("Built-in slash commands collected")
         except Exception:
             logger.debug(
@@ -361,9 +361,9 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             from ..runtime.prompt_contributors import _ALL_CONTRIBUTORS
 
             # pylint: disable-next=protected-access
-            workspace_registry._bootstrap_kwargs[
-                "builtin_contributor_clses"
-            ] = _ALL_CONTRIBUTORS
+            workspace_registry._bootstrap_kwargs["builtin_contributor_clses"] = (
+                _ALL_CONTRIBUTORS
+            )
             logger.debug("Built-in prompt contributors collected")
         except Exception:
             logger.debug(
@@ -390,9 +390,9 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
         if _api_action_command_specs:
             # pylint: disable-next=protected-access
-            workspace_registry._bootstrap_kwargs[
-                "builtin_command_specs"
-            ] = _api_action_command_specs
+            workspace_registry._bootstrap_kwargs["builtin_command_specs"] = (
+                _api_action_command_specs
+            )
 
     except Exception:
         logger.debug(
@@ -433,8 +433,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
     fast_elapsed = time.time() - startup_start_time
     logger.info(
-        f"Server ready in {fast_elapsed:.3f}s "
-        f"(agents loading in background)",
+        f"Server ready in {fast_elapsed:.3f}s " f"(agents loading in background)",
     )
 
     # ================================================================
@@ -462,11 +461,11 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             plugin_dirs = [
                 get_plugins_dir(),
             ]
-            bundled_browser_takeover_dir = (
+            bundled_browser_control_dir = (
                 Path(__file__).resolve().parents[3]
                 / "plugins"
                 / "bundle"
-                / "browser-takeover"
+                / "browser-control"
             )
 
             plugin_loader = PluginLoader(plugin_dirs)
@@ -474,9 +473,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             plugin_loader.registry.set_plugin_http_app(app)
 
             config = load_config(get_config_path())
-            plugin_configs = (
-                config.plugins if hasattr(config, "plugins") else {}
-            )
+            plugin_configs = config.plugins if hasattr(config, "plugins") else {}
             logger.debug(
                 f"Loading plugins with {len(plugin_configs)} config(s)",
             )
@@ -484,20 +481,17 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             loaded_plugins = await plugin_loader.load_all_plugins(
                 configs=plugin_configs,
             )
-            if bundled_browser_takeover_dir.is_dir():
+            if bundled_browser_control_dir.is_dir():
                 try:
-                    if (
-                        plugin_loader.get_loaded_plugin("browser-takeover")
-                        is None
-                    ):
+                    if plugin_loader.get_loaded_plugin("browser-control") is None:
                         await plugin_loader.load_plugin_from_path(
-                            source_path=bundled_browser_takeover_dir,
-                            install_dir=bundled_browser_takeover_dir.parent,
-                            config=plugin_configs.get("browser-takeover"),
+                            source_path=bundled_browser_control_dir,
+                            install_dir=bundled_browser_control_dir.parent,
+                            config=plugin_configs.get("browser-control"),
                         )
                 except Exception as exc:
                     logger.error(
-                        "Failed to load bundled browser-takeover plugin: %s",
+                        "Failed to load bundled browser-control plugin: %s",
                         exc,
                         exc_info=True,
                     )
@@ -602,8 +596,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
             startup_elapsed = time.time() - startup_start_time
             logger.info(
-                "Background startup completed in "
-                f"{startup_elapsed:.3f} seconds",
+                "Background startup completed in " f"{startup_elapsed:.3f} seconds",
             )
 
             # Print server URL again so it's visible after background logs
