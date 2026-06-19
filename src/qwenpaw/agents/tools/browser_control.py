@@ -4304,6 +4304,10 @@ def _control_tab_url(tab: dict[str, Any]) -> str:
     return str(tab.get("url") or tab.get("pendingUrl") or "")
 
 
+def _control_is_http_url(url: str) -> bool:
+    return url.startswith(("http://", "https://"))
+
+
 def _control_live_tab_map(
     tabs: list[dict[str, Any]] | None,
 ) -> dict[int, dict[str, Any]] | None:
@@ -4870,6 +4874,7 @@ _CONTROL_IMPLICIT_MODE_ACTIONS = {
 
 _CONTROL_CLICK_TAB_TRANSITION_MAX_POLLS = 4
 _CONTROL_CLICK_TAB_TRANSITION_POLL_SECONDS = 0.1
+_CONTROL_PENDING_ACTION_TRANSITION_TTL_SECONDS = 10.0
 
 
 def _should_infer_control_mode(
@@ -5124,6 +5129,229 @@ def _control_new_tab_opened_from_action(
     return sorted(candidates)[0][3]
 
 
+def _control_event_tab(params: dict[str, Any]) -> dict[str, Any]:
+    tab = params.get("tab")
+    if isinstance(tab, dict):
+        merged = dict(tab)
+        for key in ("tabId", "sourceTabId", "openerTabId"):
+            if key in params and key not in merged:
+                merged[key] = params[key]
+    else:
+        merged = dict(params)
+
+    tab_id = _control_int_tab_id(merged.get("id") or merged.get("tabId"))
+    if tab_id is not None:
+        merged.setdefault("id", tab_id)
+        merged.setdefault("tabId", tab_id)
+
+    change_info = params.get("changeInfo")
+    if isinstance(change_info, dict):
+        for key in ("url", "pendingUrl", "status"):
+            value = change_info.get(key)
+            if value and not merged.get(key):
+                merged[key] = value
+    return merged
+
+
+def _control_transition_from_tab_event(
+    params: dict[str, Any],
+    *,
+    before_tabs: list[dict[str, Any]],
+    source_tab_id: int,
+    source_url: str,
+) -> dict[str, Any] | None:
+    tab = _control_event_tab(params)
+    tab_id = _control_int_tab_id(tab.get("id") or tab.get("tabId"))
+    if tab_id is None:
+        return None
+
+    url = _control_tab_url(tab)
+    before_ids = _control_tab_ids(before_tabs)
+    source_event_id = _control_int_tab_id(tab.get("sourceTabId"))
+    opener_tab_id = _control_int_tab_id(tab.get("openerTabId"))
+
+    if tab_id not in before_ids:
+        source_matches = (
+            source_event_id == source_tab_id or opener_tab_id == source_tab_id
+        )
+        if not source_matches and not tab.get("active"):
+            return None
+        if not _control_is_http_url(url):
+            return None
+        return {"kind": "new_tab", "tab": tab}
+
+    if tab_id != source_tab_id or not _control_is_http_url(url):
+        return None
+    if source_url and _control_url_key(url) == _control_url_key(source_url):
+        return None
+    return {"kind": "current_tab_navigation", "tab": tab}
+
+
+def _control_transition_from_cdp_event(
+    params: dict[str, Any],
+    *,
+    source_tab_id: int,
+    source_url: str,
+) -> dict[str, Any] | None:
+    tab_id = _control_int_tab_id(params.get("tabId"))
+    if tab_id != source_tab_id:
+        return None
+
+    method = str(params.get("method") or "")
+    event_params = params.get("params")
+    if not isinstance(event_params, dict):
+        event_params = {}
+
+    url = ""
+    frame = event_params.get("frame")
+    if isinstance(frame, dict):
+        url = str(frame.get("url") or "")
+    if not url:
+        url = str(event_params.get("url") or "")
+
+    if method not in {
+        "Page.frameNavigated",
+        "Page.navigatedWithinDocument",
+        "Page.loadEventFired",
+    }:
+        return None
+    if not _control_is_http_url(url):
+        return None
+    if source_url and _control_url_key(url) == _control_url_key(source_url):
+        return None
+    return {
+        "kind": "current_tab_navigation",
+        "tab": {"id": source_tab_id, "tabId": source_tab_id, "url": url},
+    }
+
+
+def _control_create_action_transition_waiter(
+    bridge: Any,
+    *,
+    before_tabs: list[dict[str, Any]] | None,
+    source_tab_id: int,
+) -> Callable[..., Any] | None:
+    if before_tabs is None or not hasattr(bridge, "add_event_listener"):
+        return None
+
+    source_tab = (_control_live_tab_map(before_tabs) or {}).get(source_tab_id) or {}
+    source_url = _control_tab_url(source_tab)
+    loop = asyncio.get_running_loop()
+    future: asyncio.Future[dict[str, Any]] = loop.create_future()
+    handlers: list[tuple[str, Callable[[dict[str, Any]], None]]] = []
+
+    def accept(transition: dict[str, Any] | None) -> None:
+        if transition is not None and not future.done():
+            future.set_result(transition)
+
+    def on_tab_event(params: dict[str, Any]) -> None:
+        accept(
+            _control_transition_from_tab_event(
+                params,
+                before_tabs=before_tabs,
+                source_tab_id=source_tab_id,
+                source_url=source_url,
+            ),
+        )
+
+    def on_cdp_event(params: dict[str, Any]) -> None:
+        accept(
+            _control_transition_from_cdp_event(
+                params,
+                source_tab_id=source_tab_id,
+                source_url=source_url,
+            ),
+        )
+
+    for event_name, handler in (
+        ("webNavigation.createdNavigationTarget", on_tab_event),
+        ("tabs.created", on_tab_event),
+        ("tabs.updated", on_tab_event),
+        ("cdp.event", on_cdp_event),
+    ):
+        bridge.add_event_listener(event_name, handler)
+        handlers.append((event_name, handler))
+
+    async def wait(timeout: float = 0.0) -> dict[str, Any] | None:
+        try:
+            if future.done():
+                return future.result()
+            if timeout <= 0:
+                return None
+            return await asyncio.wait_for(
+                future,
+                timeout=timeout,
+            )
+        except asyncio.TimeoutError:
+            return None
+        finally:
+            if hasattr(bridge, "remove_event_listener"):
+                for event_name, handler in handlers:
+                    with contextlib.suppress(ValueError):
+                        bridge.remove_event_listener(event_name, handler)
+
+    return wait
+
+
+def _control_store_pending_action_transition(
+    state: dict,
+    *,
+    before_tabs: list[dict[str, Any]] | None,
+    source_tab_id: int,
+    holder_id: str,
+) -> None:
+    if before_tabs is None:
+        return
+    state["control_pending_action_transition"] = {
+        "before_tabs": before_tabs,
+        "source_tab_id": source_tab_id,
+        "holder_id": holder_id,
+        "created_at": time.monotonic(),
+    }
+
+
+async def _control_consume_pending_action_transition(
+    state: dict,
+    *,
+    bridge: Any,
+    holder_id: str,
+    request_context: dict[str, Any],
+) -> dict[str, Any] | None:
+    pending = state.get("control_pending_action_transition")
+    if not isinstance(pending, dict):
+        return None
+    if str(pending.get("holder_id") or "") != holder_id:
+        return None
+
+    created_at = pending.get("created_at")
+    if not isinstance(created_at, (int, float)):
+        state.pop("control_pending_action_transition", None)
+        return None
+    if time.monotonic() - created_at > _CONTROL_PENDING_ACTION_TRANSITION_TTL_SECONDS:
+        state.pop("control_pending_action_transition", None)
+        return None
+
+    source_tab_id = _control_int_tab_id(pending.get("source_tab_id"))
+    before_tabs = pending.get("before_tabs")
+    if source_tab_id is None or not isinstance(before_tabs, list):
+        state.pop("control_pending_action_transition", None)
+        return None
+
+    payload = await _control_claim_tab_opened_by_action(
+        state,
+        bridge=bridge,
+        before_tabs=before_tabs,
+        source_tab_id=source_tab_id,
+        holder_id=holder_id,
+        request_context=request_context,
+    )
+    if payload is not None:
+        state.pop("control_pending_action_transition", None)
+        payload["claimed_delayed_transition"] = True
+        return payload
+    return None
+
+
 def _control_refresh_current_tab_from_live_tabs(
     state: dict,
     tab_id: int,
@@ -5235,6 +5463,54 @@ async def _control_attach_new_current_tab(
         payload["closed_previous_tabs"] = closed_tabs
     if released_tabs:
         payload["released_previous_tabs"] = released_tabs
+    return payload
+
+
+async def _control_apply_action_transition(
+    state: dict,
+    *,
+    bridge: Any,
+    transition: dict[str, Any],
+    source_tab_id: int,
+    holder_id: str,
+    request_context: dict[str, Any],
+) -> dict[str, Any] | None:
+    kind = transition.get("kind")
+    tab = transition.get("tab")
+    if not isinstance(tab, dict):
+        return None
+
+    if kind == "new_tab":
+        return await _control_attach_new_current_tab(
+            state,
+            bridge=bridge,
+            tab=tab,
+            previous_tab_id=source_tab_id,
+            holder_id=holder_id,
+            request_context=request_context,
+        )
+
+    if kind != "current_tab_navigation":
+        return None
+
+    url = _control_tab_url(tab)
+    if url:
+        _control_refresh_tab_url(state, source_tab_id, url)
+    state["current_page_id"] = str(source_tab_id)
+    payload: dict[str, Any] = {
+        "ok": True,
+        "mode": "control",
+        "tab_id": source_tab_id,
+        "navigated": True,
+        "ready_for_observation": True,
+        "next_action": "snapshot",
+        "next_instruction": (
+            "The click changed the current tab. Do not repeat the same "
+            "click; observe it with snapshot."
+        ),
+    }
+    if url:
+        payload["url"] = url
     return payload
 
 
@@ -5909,6 +6185,22 @@ async def _action_control(  # pylint: disable=too-many-return-statements
             ),
         )
 
+    if action in {"snapshot", "screenshot", "click", "type", "press_key", "wait_for"}:
+        pending_payload = await _control_consume_pending_action_transition(
+            state,
+            bridge=bridge,
+            holder_id=holder_id,
+            request_context=request_context,
+        )
+        if pending_payload is not None:
+            return _tool_response(
+                json.dumps(
+                    pending_payload,
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+            )
+
     if action == "open":
         if not url:
             return _tool_response(
@@ -6292,7 +6584,32 @@ async def _action_control(  # pylint: disable=too-many-return-statements
             fallback_y=kwargs.get("y"),
         )
         before_tabs = await _control_discover_tabs_safe(bridge)
+        transition_waiter = _control_create_action_transition_waiter(
+            bridge,
+            before_tabs=before_tabs,
+            source_tab_id=tab_id,
+        )
         await _control_click_at(session, x, y, "Click")
+        event_transition = (
+            await transition_waiter() if transition_waiter is not None else None
+        )
+        if event_transition is not None:
+            transition_payload = await _control_apply_action_transition(
+                state,
+                bridge=bridge,
+                transition=event_transition,
+                source_tab_id=tab_id,
+                holder_id=holder_id,
+                request_context=request_context,
+            )
+            if transition_payload is not None:
+                return _tool_response(
+                    json.dumps(
+                        transition_payload,
+                        ensure_ascii=False,
+                        indent=2,
+                    ),
+                )
         transition_payload = await _control_claim_tab_opened_by_action(
             state,
             bridge=bridge,
@@ -6309,9 +6626,26 @@ async def _action_control(  # pylint: disable=too-many-return-statements
                     indent=2,
                 ),
             )
+        _control_store_pending_action_transition(
+            state,
+            before_tabs=before_tabs,
+            source_tab_id=tab_id,
+            holder_id=holder_id,
+        )
         return _tool_response(
             json.dumps(
-                {"ok": True, "mode": "control"},
+                {
+                    "ok": True,
+                    "mode": "control",
+                    "tab_id": tab_id,
+                    "ready_for_observation": True,
+                    "next_action": "snapshot",
+                    "next_instruction": (
+                        "Observe the page before another click. If this click "
+                        "opens a tab asynchronously, the next observation will "
+                        "claim it instead of repeating the opener click."
+                    ),
+                },
                 ensure_ascii=False,
                 indent=2,
             ),

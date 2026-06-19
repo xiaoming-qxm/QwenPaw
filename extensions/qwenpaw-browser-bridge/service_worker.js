@@ -86,6 +86,45 @@ function sendEvent(method, params) {
   });
 }
 
+function hasControlInterest() {
+  return managedTabs.size > 0 || createdTabs.size > 0;
+}
+
+function tabLifecycleEventParams(tab, extra) {
+  const params = { ...(extra || {}) };
+  const tabId =
+    tab && tab.id !== undefined
+      ? tab.id
+      : params.tabId !== undefined
+        ? params.tabId
+        : params.id;
+
+  if (tabId !== undefined) {
+    params.id = tabId;
+    params.tabId = tabId;
+    params.managed = managedTabs.has(tabId);
+    params.createdByQwenPaw = createdTabs.has(tabId);
+  }
+
+  for (const key of [
+    "url",
+    "pendingUrl",
+    "title",
+    "active",
+    "windowId",
+    "index",
+    "openerTabId",
+    "status",
+    "groupId",
+  ]) {
+    if (tab && tab[key] !== undefined) {
+      params[key] = tab[key];
+    }
+  }
+
+  return params;
+}
+
 function debuggerTarget(tabId) {
   return { tabId };
 }
@@ -514,10 +553,66 @@ chrome.debugger.onDetach.addListener(async (source, reason) => {
   });
 });
 
-chrome.tabs.onRemoved.addListener((tabId) => {
-  if (!managedTabs.has(tabId) && !createdTabs.has(tabId)) {
+chrome.webNavigation.onCreatedNavigationTarget.addListener((details) => {
+  if (!details || !managedTabs.has(details.sourceTabId)) {
     return;
   }
+
+  sendEvent("webNavigation.createdNavigationTarget", {
+    tabId: details.tabId,
+    sourceTabId: details.sourceTabId,
+    url: details.url || "",
+    frameId: details.frameId,
+    timeStamp: details.timeStamp,
+  });
+});
+
+chrome.tabs.onCreated.addListener((tab) => {
+  if (!hasControlInterest()) {
+    return;
+  }
+
+  sendEvent("tabs.created", tabLifecycleEventParams(tab));
+});
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (
+    !hasControlInterest() &&
+    !managedTabs.has(tabId) &&
+    !createdTabs.has(tabId)
+  ) {
+    return;
+  }
+
+  sendEvent(
+    "tabs.updated",
+    tabLifecycleEventParams(tab, {
+      tabId,
+      changeInfo: changeInfo || {},
+    }),
+  );
+});
+
+chrome.tabs.onActivated.addListener((activeInfo) => {
+  if (!hasControlInterest()) {
+    return;
+  }
+
+  sendEvent("tabs.activated", activeInfo || {});
+});
+
+chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {
+  const wasManaged = managedTabs.has(tabId);
+  const wasCreated = createdTabs.has(tabId);
+  if (!wasManaged && !wasCreated) {
+    return;
+  }
+  sendEvent("tabs.removed", {
+    tabId,
+    ...(removeInfo || {}),
+    managed: wasManaged,
+    createdByQwenPaw: wasCreated,
+  });
   managedTabs.delete(tabId);
   createdTabs.delete(tabId);
   void persistManagedTabs();

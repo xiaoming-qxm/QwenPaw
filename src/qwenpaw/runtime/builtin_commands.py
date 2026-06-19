@@ -490,6 +490,11 @@ def _browser_control_prompt(user_input: str) -> str:
         "- For control click, prefer ref or selector. If only visible text "
         'is available, browser_use(action="click", mode="control", '
         "text=...) is supported.\n"
+        "- If a visible-text click fails, or if a click returns ok but the "
+        "same snapshot still shows the old page: Do not repeat the same "
+        "visible-text click. Re-observe, use a ref/selector from the latest "
+        "snapshot, or use screenshot for visual targeting before trying a "
+        "different action.\n"
         "- Prefer snapshot for reading page text and reporting results. "
         "Only use screenshot when the user explicitly asks for a screenshot "
         "or text snapshot is not enough to determine the page state.\n"

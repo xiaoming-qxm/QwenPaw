@@ -294,9 +294,7 @@ def _normalize_dom_text(text: str) -> str:
 
 def _is_private_use_only(text: str) -> bool:
     compact = "".join(ch for ch in text if not ch.isspace())
-    return bool(compact) and all(
-        "\ue000" <= ch <= "\uf8ff" for ch in compact
-    )
+    return bool(compact) and all("\ue000" <= ch <= "\uf8ff" for ch in compact)
 
 
 def _looks_like_encoded_blob(text: str) -> bool:
@@ -314,29 +312,46 @@ def _looks_like_encoded_blob(text: str) -> bool:
     if len(compact) < 120:
         return False
 
-    base64_chars = sum(
-        1 for ch in compact if ch.isalnum() or ch in {"+", "/", "="}
-    )
+    base64_chars = sum(1 for ch in compact if ch.isalnum() or ch in {"+", "/", "="})
     symbol_hint = any(ch in compact for ch in {"+", "/", "="})
     digit_count = sum(1 for ch in compact if ch.isdigit())
-    return (
-        base64_chars / len(compact) > 0.96
-        and (symbol_hint or digit_count / len(compact) > 0.12)
+    return base64_chars / len(compact) > 0.96 and (
+        symbol_hint or digit_count / len(compact) > 0.12
     )
 
 
-def _append_unique_dom_line(
-    lines: list[str],
+def _dom_snapshot_backend_node_id(nodes: dict[str, Any], node_index: int) -> int | None:
+    backend_ids = nodes.get("backendNodeId")
+    value = _dom_snapshot_value_at(backend_ids, node_index)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.isdigit():
+        return int(value)
+    return None
+
+
+def _dom_snapshot_bounds_center(bounds: Any) -> tuple[float, float] | None:
+    if not isinstance(bounds, list) or len(bounds) < 4:
+        return None
+    x, y, width, height = bounds[:4]
+    if not all(isinstance(value, (int, float)) for value in (x, y, width, height)):
+        return None
+    if width <= 0 or height <= 0:
+        return None
+    return (float(x) + float(width) / 2, float(y) + float(height) / 2)
+
+
+def _unique_dom_text(
     seen: set[str],
     text: str,
-) -> None:
+) -> str | None:
     if _is_private_use_only(text) or _looks_like_encoded_blob(text):
-        return
+        return None
     text = _normalize_dom_text(text)
     if not text or text in seen:
-        return
+        return None
     seen.add(text)
-    lines.append(text)
+    return text
 
 
 def from_cdp_dom_snapshot(
@@ -348,8 +363,26 @@ def from_cdp_dom_snapshot(
     if not isinstance(documents, list):
         return "(empty)", {}
 
-    lines: list[str] = []
+    lines: list[tuple[str, str | None]] = []
     seen: set[str] = set()
+    refs: dict[str, dict] = {}
+    ref_counter = 0
+
+    def append_line(text: str, ref_data: dict[str, Any] | None = None) -> None:
+        nonlocal ref_counter
+        normalized = _unique_dom_text(seen, text)
+        if normalized is None:
+            return
+        ref: str | None = None
+        if ref_data is not None:
+            ref_counter += 1
+            ref = f"e{ref_counter}"
+            refs[ref] = {
+                "role": "text",
+                "name": normalized,
+                **ref_data,
+            }
+        lines.append((normalized, ref))
 
     for document in documents:
         if not isinstance(document, dict):
@@ -362,17 +395,28 @@ def from_cdp_dom_snapshot(
         input_values = nodes.get("inputValue") or {}
         layout_node_indexes = layout.get("nodeIndex") or []
         layout_texts = layout.get("text") or []
+        layout_bounds = layout.get("bounds") or []
 
         for index, raw_text in enumerate(layout_texts):
             text = _dom_snapshot_string(strings, raw_text)
+            node_index = _dom_snapshot_value_at(layout_node_indexes, index)
             if not text:
-                node_index = _dom_snapshot_value_at(layout_node_indexes, index)
                 if isinstance(node_index, int):
                     text = _dom_snapshot_string(
                         strings,
                         _dom_snapshot_value_at(node_values, node_index),
                     )
-            _append_unique_dom_line(lines, seen, text)
+            ref_data = None
+            if isinstance(node_index, int):
+                center = _dom_snapshot_bounds_center(
+                    _dom_snapshot_value_at(layout_bounds, index),
+                )
+                if center is not None:
+                    ref_data = {"x": center[0], "y": center[1]}
+                    backend_id = _dom_snapshot_backend_node_id(nodes, node_index)
+                    if backend_id is not None:
+                        ref_data["backendNodeId"] = backend_id
+            append_line(text, ref_data)
             if len(lines) >= _DOM_SNAPSHOT_MAX_LINES:
                 break
 
@@ -387,7 +431,7 @@ def from_cdp_dom_snapshot(
             for pos, _node_index in enumerate(value_indexes):
                 raw_value = _dom_snapshot_value_at(raw_values, pos)
                 text = _dom_snapshot_string(strings, raw_value)
-                _append_unique_dom_line(lines, seen, text)
+                append_line(text)
                 if len(lines) >= _DOM_SNAPSHOT_MAX_LINES:
                     break
             if len(lines) >= _DOM_SNAPSHOT_MAX_LINES:
@@ -404,17 +448,18 @@ def from_cdp_dom_snapshot(
                 strings,
                 _dom_snapshot_value_at(node_values, node_index),
             )
-            _append_unique_dom_line(lines, seen, text)
+            append_line(text)
             if len(lines) >= _DOM_SNAPSHOT_MAX_LINES:
                 break
 
     if not lines:
         return "(empty)", {}
     rendered_lines = []
-    for line in lines:
+    for line, ref in lines:
         escaped = line.replace('"', '\\"')
-        rendered_lines.append(f'- text "{escaped}"')
-    return "\n".join(rendered_lines), {}
+        suffix = f" [ref={ref}]" if ref else ""
+        rendered_lines.append(f'- text "{escaped}"{suffix}')
+    return "\n".join(rendered_lines), refs
 
 
 def from_cdp_ax_tree(
@@ -425,13 +470,9 @@ def from_cdp_ax_tree(
     if not isinstance(nodes, list):
         return "(empty)", {}
 
-    by_id = {
-        str(node.get("nodeId")): node for node in nodes if "nodeId" in node
-    }
+    by_id = {str(node.get("nodeId")): node for node in nodes if "nodeId" in node}
     child_ids = {
-        str(child_id)
-        for node in nodes
-        for child_id in node.get("childIds", []) or []
+        str(child_id) for node in nodes for child_id in node.get("childIds", []) or []
     }
     roots = [
         node for node in nodes if str(node.get("nodeId")) not in child_ids
