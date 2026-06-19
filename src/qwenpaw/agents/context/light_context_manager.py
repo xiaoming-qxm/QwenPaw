@@ -38,10 +38,31 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+_STALE_BROWSER_RESULT_MAX_BYTES = 1000
+_BROWSER_OBSERVATION_TOOLS = {"browser_use"}
+
 
 def _fmt_tokens(n: int) -> str:
     """Format token count as e.g. '82.3k' or '450'."""
     return f"{n / 1000:.1f}k" if n >= 1000 else str(n)
+
+
+def _block_get(block: Any, key: str, default: Any = None) -> Any:
+    if isinstance(block, dict):
+        return block.get(key, default)
+    return getattr(block, key, default)
+
+
+def _block_set(block: Any, key: str, value: Any) -> None:
+    if isinstance(block, dict):
+        block[key] = value
+        return
+    setattr(block, key, value)
+
+
+def _block_type(block: Any) -> str:
+    value = _block_get(block, "type", "")
+    return str(value or "")
 
 
 @context_registry.register("light")
@@ -150,21 +171,31 @@ class LightContextManager(BaseContextManager):
         if not content:
             return content
 
-        # Already truncated content - retruncate with new limit
-        if TRUNCATION_NOTICE_MARKER in content:
-            return truncate_text_output(
-                content,
-                max_bytes=max_bytes,
-                encoding=encoding,
-            )
-
-        # Check if content fits within limit (with small slack)
         try:
             content_bytes = len(content.encode(encoding))
         except UnicodeEncodeError as e:
             logger.warning("Failed to encode content: %s", e)
             return content
 
+        # Already truncated content - retruncate with new limit
+        if TRUNCATION_NOTICE_MARKER in content:
+            truncated = truncate_text_output(
+                content,
+                max_bytes=max_bytes,
+                encoding=encoding,
+            )
+            if len(truncated.encode(encoding)) < content_bytes:
+                return truncated
+            visible = content.split(TRUNCATION_NOTICE_MARKER, 1)[0]
+            return truncate_text_output(
+                visible,
+                start_line=1,
+                total_lines=visible.count("\n") + 1,
+                max_bytes=max_bytes,
+                encoding=encoding,
+            )
+
+        # Check if content fits within limit (with small slack)
         if content_bytes <= max_bytes + 100:
             return content
 
@@ -200,10 +231,10 @@ class LightContextManager(BaseContextManager):
 
     def _prune_output(
         self,
-        output: str | list[dict],
+        output: str | list[Any],
         max_bytes: int,
         encoding: str = "utf-8",
-    ) -> str | list[dict]:
+    ) -> str | list[Any]:
         """Prune output by truncating to max_bytes.
 
         Args:
@@ -218,13 +249,42 @@ class LightContextManager(BaseContextManager):
             return self._truncate_tool_result(output, max_bytes, encoding)
         if isinstance(output, list):
             for block in output:
-                if isinstance(block, dict) and block.get("type") == "text":
-                    block["text"] = self._truncate_tool_result(
-                        block.get("text", ""),
+                if _block_type(block) == "text":
+                    text = self._truncate_tool_result(
+                        _block_get(block, "text", ""),
                         max_bytes,
                         encoding,
                     )
+                    _block_set(block, "text", text)
         return output
+
+    @staticmethod
+    def _is_browser_observation_result(block: Any) -> bool:
+        name = str(_block_get(block, "name", "") or "").lower()
+        if name not in _BROWSER_OBSERVATION_TOOLS:
+            return False
+        output = _block_get(block, "output")
+        if isinstance(output, str):
+            return '"snapshot"' in output or '"screenshot"' in output
+        if isinstance(output, list):
+            for item in output:
+                if _block_type(item) != "text":
+                    continue
+                text = str(_block_get(item, "text", "") or "")
+                if '"snapshot"' in text or '"screenshot"' in text:
+                    return True
+        return False
+
+    @staticmethod
+    def _tool_result_blocks(messages: list[Msg]) -> list[Any]:
+        blocks: list[Any] = []
+        for msg in messages:
+            if not isinstance(msg.content, list):
+                continue
+            for block in msg.content:
+                if _block_type(block) == "tool_result":
+                    blocks.append(block)
+        return blocks
 
     async def _prune_tool_result(
         self,
@@ -250,16 +310,10 @@ class LightContextManager(BaseContextManager):
         if not messages:
             return messages
 
-        # Count recent tool_result messages from the end
-        recent_count = 0
-        for msg in reversed(messages):
-            if not isinstance(msg.content, list) or not any(
-                isinstance(b, dict) and b.get("type") == "tool_result"
-                for b in msg.content
-            ):
-                break
-            recent_count += 1
-        split_index = max(0, len(messages) - max(recent_count, recent_n))
+        tool_result_blocks = self._tool_result_blocks(messages)
+        recent_blocks = set(
+            id(block) for block in tool_result_blocks[-recent_n:]
+        )
 
         # Detect tool_use IDs for exempt file extensions and tool names
         exempt_tool_ids: Set[str] = set()
@@ -278,32 +332,22 @@ class LightContextManager(BaseContextManager):
                     continue
 
                 for block in msg.content:
-                    btype = (
-                        block.get("type")
-                        if isinstance(block, dict)
-                        else getattr(block, "type", None)
-                    )
+                    btype = _block_type(block)
                     if btype in ("tool_use", "tool_call"):
-                        tool_id = (
-                            block.get("id", "")
-                            if isinstance(block, dict)
-                            else getattr(block, "id", "")
-                        )
+                        tool_id = str(_block_get(block, "id", "") or "")
                         if not tool_id:
                             continue
 
                         tool_name = (
-                            block.get("name", "")
-                            if isinstance(block, dict)
-                            else getattr(block, "name", "")
+                            str(_block_get(block, "name", "") or "")
                         ).lower()
-                        raw_input = (
-                            (
-                                block.get("raw_input")
-                                if isinstance(block, dict)
-                                else getattr(block, "raw_input", None)
+                        raw_input = str(
+                            _block_get(
+                                block,
+                                "raw_input",
+                                _block_get(block, "input", ""),
                             )
-                            or ""
+                            or "",
                         ).lower()
 
                         # Check if tool name is in exempt list
@@ -322,34 +366,45 @@ class LightContextManager(BaseContextManager):
             logger.warning("Failed to detect exempt tool ids: %s", e)
 
         # Prune tool_result blocks
-        for idx, msg in enumerate(messages):
-            if not isinstance(msg.content, list):
-                continue
-            is_recent = idx >= split_index
+        for block in tool_result_blocks:
+            is_recent = id(block) in recent_blocks
             max_bytes = recent_max_bytes if is_recent else old_max_bytes
+            tool_id = str(_block_get(block, "id", "") or "")
+            output = _block_get(block, "output")
+            if not output:
+                continue
 
-            for block in msg.content:
-                if (
-                    isinstance(block, dict)
-                    and block.get("type") == "tool_result"
-                ):
-                    tool_id = block.get("id", "")
-                    output = block.get("output")
-                    if not output:
-                        continue
-
-                    # Use recent_max_bytes for exempt tool results
-                    effective_max_bytes = (
-                        recent_max_bytes
-                        if tool_id in exempt_tool_ids
-                        else max_bytes
-                    )
-                    block["output"] = self._prune_output(
-                        output,
-                        effective_max_bytes,
-                    )
+            # Use recent_max_bytes for exempt tool results.
+            effective_max_bytes = (
+                recent_max_bytes if tool_id in exempt_tool_ids else max_bytes
+            )
+            if not is_recent and self._is_browser_observation_result(block):
+                effective_max_bytes = min(
+                    effective_max_bytes,
+                    _STALE_BROWSER_RESULT_MAX_BYTES,
+                )
+            _block_set(
+                block,
+                "output",
+                self._prune_output(output, effective_max_bytes),
+            )
 
         return messages
+
+    async def _prune_agent_tool_results(self, agent: "QwenPawAgent") -> None:
+        agent_config = load_agent_config(self.agent_id)
+        lcc = agent_config.running.light_context_config
+        trc = lcc.tool_result_pruning_config
+        if not trc.enabled:
+            return
+
+        await self._prune_tool_result(
+            messages=list(agent.state.context),
+            recent_n=trc.pruning_recent_n,
+            old_max_bytes=trc.pruning_old_msg_max_bytes,
+            recent_max_bytes=trc.pruning_recent_msg_max_bytes,
+            retention_days=trc.offload_retention_days,
+        )
 
     @staticmethod
     async def _check_context(
@@ -738,14 +793,11 @@ class LightContextManager(BaseContextManager):
         agent: "QwenPawAgent",
         kwargs: dict[str, Any],
     ) -> dict[str, Any] | None:
-        """Check context size and compact memory when threshold is exceeded.
-
-        Mirrors the compaction logic from ``MemoryCompactionHook`` but
-        excludes tool-result pruning, which is handled by
-        ``post_acting``.
-        """
+        """Prune tool results and compact memory when threshold is exceeded."""
 
         try:
+            await self._prune_agent_tool_results(agent)
+
             memory_manager = agent.memory_manager
             if memory_manager is None:
                 return None
@@ -991,20 +1043,7 @@ class LightContextManager(BaseContextManager):
     ) -> Msg | None:
         """Truncate oversized tool-call results after each acting step."""
         try:
-            agent_config = load_agent_config(self.agent_id)
-            lcc = agent_config.running.light_context_config
-            trc = lcc.tool_result_pruning_config
-            if not trc.enabled:
-                return None
-
-            messages = list(agent.state.context)
-            await self._prune_tool_result(
-                messages=messages,
-                recent_n=trc.pruning_recent_n,
-                old_max_bytes=trc.pruning_old_msg_max_bytes,
-                recent_max_bytes=trc.pruning_recent_msg_max_bytes,
-                retention_days=trc.offload_retention_days,
-            )
+            await self._prune_agent_tool_results(agent)
         except Exception as e:
             logger.exception(
                 "Failed to prune tool results in post_acting hook: %s",
