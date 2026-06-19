@@ -6885,11 +6885,7 @@ async def browser_use(  # pylint: disable=R0911,R0912
             ),
         )
 
-    page_id = (page_id or "default").strip() or "default"
-    current = state.get("current_page_id")
-    pages = state.get("pages") or {}
-    if page_id == "default" and current and current in pages:
-        page_id = current
+    requested_page_id = (page_id or "default").strip() or "default"
 
     try:
         mode_value = (mode or "").strip().lower()
@@ -6904,7 +6900,7 @@ async def browser_use(  # pylint: disable=R0911,R0912
             return await _action_control(
                 state,
                 action,
-                page_id=page_id,
+                page_id=requested_page_id,
                 index=index,
                 url=url,
                 ref=ref,
@@ -6920,6 +6916,13 @@ async def browser_use(  # pylint: disable=R0911,R0912
                 submit=submit,
                 user_initiated=user_initiated,
             )
+
+        page_id = requested_page_id
+        current = state.get("current_page_id")
+        pages = state.get("pages") or {}
+        if page_id == "default" and current and current in pages:
+            page_id = current
+
         if action == "start":
             return await _action_start(
                 state,
