@@ -40,6 +40,7 @@ class CDPRelaySession:
         approval_callback: Callable[[dict[str, Any]], Any] | None = None,
         request_context: dict[str, Any] | None = None,
         permissions_config: Any | None = None,
+        stop_callback: Callable[["CDPRelaySession", dict[str, Any]], Any] | None = None,
         heartbeat_interval: float = 10.0,
         watchdog_interval: float = 5.0,
         idle_timeout: float = 300.0,
@@ -48,6 +49,7 @@ class CDPRelaySession:
         self.holder_id = holder_id
         self.bridge = bridge
         self.approval_callback = approval_callback
+        self.stop_callback = stop_callback
         self.request_context = request_context or {}
         if permissions_config is None:
             from .cdp_permissions import load_permissions
@@ -203,6 +205,10 @@ class CDPRelaySession:
             return
         self.paused = True
         await self.close()
+        if self.stop_callback is not None:
+            result = self.stop_callback(self, params)
+            if inspect.isawaitable(result):
+                await result
 
     async def _ensure_approved(
         self,

@@ -13,7 +13,7 @@ import asyncio
 import atexit
 import base64
 import contextlib
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from concurrent import futures
 import json
 import logging
@@ -4033,8 +4033,19 @@ async def _action_connect_cdp(state: dict, cdp_url: str) -> ToolChunk:
         )
 
 
-def _takeover_holder_id(state: dict) -> str:
+def _takeover_holder_id(
+    state: dict,
+    request_context: dict[str, Any] | None = None,
+) -> str:
     workspace_id = state.get("workspace_id") or "default"
+    request_context = request_context or {}
+    session_scope = str(
+        request_context.get("root_session_id")
+        or request_context.get("session_id")
+        or "",
+    ).strip()
+    if session_scope:
+        return f"browser_use:{workspace_id}:{session_scope}"
     return f"browser_use:{workspace_id}"
 
 
@@ -4121,6 +4132,14 @@ def _takeover_get_session(
         holder_id=holder_id,
         bridge=bridge,
         request_context=request_context,
+        stop_callback=lambda stopped_session, params: (
+            _takeover_cleanup_stopped_session(
+                state,
+                bridge,
+                stopped_session,
+                params,
+            )
+        ),
     )
     _takeover_sync_session_navigation_scope(state, session)
     sessions[key] = session
@@ -4241,6 +4260,36 @@ def _takeover_sync_session_navigation_scope(
     session_approved_domains = getattr(session, "approved_domains", None)
     if isinstance(session_approved_domains, set):
         session_approved_domains.update(domains)
+
+
+def _takeover_tab_record(
+    *,
+    tab_id: int,
+    holder_id: str,
+    url: str,
+    created_by_takeover: bool,
+    request_context: dict[str, Any],
+    previous_tab: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    previous_tab = previous_tab or {}
+    record: dict[str, Any] = {
+        "tab_id": tab_id,
+        "holder_id": holder_id,
+        "url": url,
+        "url_key": _takeover_url_key(url) if url else "",
+        "created_by_takeover": created_by_takeover,
+    }
+    for key in (
+        "session_id",
+        "root_session_id",
+        "agent_id",
+        "root_agent_id",
+        "tool_call_id",
+    ):
+        value = str(request_context.get(key) or previous_tab.get(key) or "")
+        if value:
+            record[key] = value
+    return record
 
 
 def _takeover_int_tab_id(value: Any) -> int | None:
@@ -4378,6 +4427,260 @@ async def _takeover_close_owned_tab(
     with contextlib.suppress(Exception):
         await bridge.request("tab.close", {"tabId": tab_id})
     await _takeover_forget_tab_state(state, tab_id)
+
+
+def _takeover_tab_matches_request(
+    tab: dict[str, Any],
+    *,
+    session_id: str,
+    root_session_id: str,
+) -> bool:
+    candidates = {value for value in (session_id, root_session_id) if value}
+    if not candidates:
+        return False
+    if str(tab.get("session_id") or "") in candidates:
+        return True
+    if str(tab.get("root_session_id") or "") in candidates:
+        return True
+    holder_id = str(tab.get("holder_id") or "")
+    return any(holder_id.endswith(f":{candidate}") for candidate in candidates)
+
+
+async def _takeover_cleanup_tab_record(
+    state: dict,
+    *,
+    bridge: Any,
+    tab: dict[str, Any],
+) -> dict[str, int]:
+    tab_id = _takeover_int_tab_id(tab.get("tab_id"))
+    if tab_id is None:
+        return {"closed_tabs": 0, "released_tabs": 0}
+    holder_id = str(tab.get("holder_id") or _takeover_holder_id(state))
+
+    with contextlib.suppress(Exception):
+        await _takeover_close_session(
+            state,
+            tab_id=tab_id,
+            holder_id=holder_id,
+            bridge=bridge,
+        )
+    with contextlib.suppress(Exception):
+        await bridge.request("banner.hide", {"tabId": tab_id})
+    with contextlib.suppress(Exception):
+        await bridge.request(
+            "tab.detach",
+            {"tabId": tab_id, "holderId": holder_id},
+        )
+
+    if bool(tab.get("created_by_takeover")):
+        try:
+            await bridge.request("tab.close", {"tabId": tab_id})
+        except Exception:
+            logger.debug(
+                "takeover cleanup: failed to close created tab %s",
+                tab_id,
+                exc_info=True,
+            )
+            return {"closed_tabs": 0, "released_tabs": 0}
+        await _takeover_forget_tab_state(state, tab_id)
+        return {"closed_tabs": 1, "released_tabs": 0}
+
+    await _takeover_forget_tab_state(state, tab_id)
+    return {"closed_tabs": 0, "released_tabs": 1}
+
+
+async def _takeover_cleanup_matching_tabs(
+    state: dict,
+    *,
+    bridge: Any,
+    predicate: Callable[[dict[str, Any]], bool],
+) -> dict[str, int]:
+    result = {"matched_tabs": 0, "closed_tabs": 0, "released_tabs": 0}
+    takeover_tabs = state.get("takeover_tabs")
+    if not isinstance(takeover_tabs, dict):
+        return result
+
+    for tab in list(takeover_tabs.values()):
+        if not isinstance(tab, dict) or not predicate(tab):
+            continue
+        result["matched_tabs"] += 1
+        cleanup_result = await _takeover_cleanup_tab_record(
+            state,
+            bridge=bridge,
+            tab=tab,
+        )
+        result["closed_tabs"] += cleanup_result["closed_tabs"]
+        result["released_tabs"] += cleanup_result["released_tabs"]
+
+    if not state.get("takeover_tabs"):
+        state.pop("takeover_tabs", None)
+    return result
+
+
+def _takeover_states_have_tabs(
+    states: list[dict],
+    *,
+    workspace_id: str = "",
+) -> bool:
+    for state in states:
+        if workspace_id and str(state.get("workspace_id") or "") != workspace_id:
+            continue
+        takeover_tabs = state.get("takeover_tabs")
+        if isinstance(takeover_tabs, dict) and takeover_tabs:
+            return True
+    return False
+
+
+def _takeover_tab_created_by_extension(tab: dict[str, Any]) -> bool:
+    return bool(
+        tab.get("createdByQwenPaw")
+        or tab.get("created_by_qwenpaw")
+        or tab.get("qwenpawCreated"),
+    )
+
+
+async def _takeover_cleanup_extension_created_tabs(
+    state: dict,
+    *,
+    bridge: Any,
+    request_context: dict[str, Any],
+    holder_id: str | None = None,
+    seen_tab_ids: set[int] | None = None,
+) -> dict[str, int]:
+    result = {"matched_tabs": 0, "closed_tabs": 0, "released_tabs": 0}
+    seen_tab_ids = seen_tab_ids if seen_tab_ids is not None else set()
+    tabs = await _takeover_discover_tabs_safe(bridge)
+
+    for live_tab in tabs:
+        if not isinstance(live_tab, dict):
+            continue
+        if not _takeover_tab_created_by_extension(live_tab):
+            continue
+        tab_id = _takeover_int_tab_id(live_tab.get("id", live_tab.get("tab_id")))
+        if tab_id is None or tab_id in seen_tab_ids:
+            continue
+
+        seen_tab_ids.add(tab_id)
+        result["matched_tabs"] += 1
+        record = _takeover_tab_record(
+            tab_id=tab_id,
+            holder_id=holder_id or _takeover_holder_id(state, request_context),
+            url=str(live_tab.get("url") or ""),
+            created_by_takeover=True,
+            request_context=request_context,
+        )
+        state.setdefault("takeover_tabs", {})[str(tab_id)] = record
+        cleanup_result = await _takeover_cleanup_tab_record(
+            state,
+            bridge=bridge,
+            tab=record,
+        )
+        result["closed_tabs"] += cleanup_result["closed_tabs"]
+        result["released_tabs"] += cleanup_result["released_tabs"]
+
+    if not state.get("takeover_tabs"):
+        state.pop("takeover_tabs", None)
+    return result
+
+
+async def _takeover_cleanup_stopped_session(
+    state: dict,
+    bridge: Any,
+    session: Any,
+    _params: dict[str, Any],
+) -> None:
+    request_context = getattr(session, "request_context", {}) or {}
+    session_id = str(request_context.get("session_id") or "")
+    root_session_id = str(request_context.get("root_session_id") or session_id)
+    tab_id = _takeover_int_tab_id(getattr(session, "tab_id", None))
+
+    if session_id or root_session_id:
+        await _takeover_cleanup_matching_tabs(
+            state,
+            bridge=bridge,
+            predicate=lambda tab: _takeover_tab_matches_request(
+                tab,
+                session_id=session_id,
+                root_session_id=root_session_id,
+            ),
+        )
+        return
+
+    if tab_id is None:
+        return
+    await _takeover_cleanup_matching_tabs(
+        state,
+        bridge=bridge,
+        predicate=lambda tab: _takeover_int_tab_id(tab.get("tab_id")) == tab_id,
+    )
+
+
+async def cleanup_takeover_sessions_for_request(
+    *,
+    session_id: str,
+    root_session_id: str = "",
+    workspace_id: str = "",
+) -> dict[str, int]:
+    """Release browser takeover resources owned by one request session."""
+    from qwenpaw.browser.connection_manager import (
+        get_bridge_connection_manager,
+    )
+
+    result = {"matched_tabs": 0, "closed_tabs": 0, "released_tabs": 0}
+    session_id = str(session_id or "")
+    root_session_id = str(root_session_id or session_id or "")
+    if not session_id and not root_session_id:
+        return result
+
+    manager = get_bridge_connection_manager()
+    if manager is None or not manager.is_connected():
+        return result
+    bridge = manager.get_connection()
+
+    states = list(_workspace_states.values())
+    if not states:
+        states = [_get_workspace_state(workspace_id or "default")]
+    request_context = {
+        "session_id": session_id,
+        "root_session_id": root_session_id,
+    }
+    had_local_takeover_state = _takeover_states_have_tabs(
+        states,
+        workspace_id=workspace_id,
+    )
+
+    for state in states:
+        if workspace_id and str(state.get("workspace_id") or "") != workspace_id:
+            continue
+        cleanup_result = await _takeover_cleanup_matching_tabs(
+            state,
+            bridge=bridge,
+            predicate=lambda tab: _takeover_tab_matches_request(
+                tab,
+                session_id=session_id,
+                root_session_id=root_session_id,
+            ),
+        )
+        result["matched_tabs"] += cleanup_result["matched_tabs"]
+        result["closed_tabs"] += cleanup_result["closed_tabs"]
+        result["released_tabs"] += cleanup_result["released_tabs"]
+
+    if result["matched_tabs"] == 0 and not had_local_takeover_state:
+        seen_tab_ids: set[int] = set()
+        for state in states:
+            if workspace_id and str(state.get("workspace_id") or "") != workspace_id:
+                continue
+            cleanup_result = await _takeover_cleanup_extension_created_tabs(
+                state,
+                bridge=bridge,
+                request_context=request_context,
+                seen_tab_ids=seen_tab_ids,
+            )
+            result["matched_tabs"] += cleanup_result["matched_tabs"]
+            result["closed_tabs"] += cleanup_result["closed_tabs"]
+            result["released_tabs"] += cleanup_result["released_tabs"]
+
+    return result
 
 
 async def _takeover_close_other_owned_tabs(
@@ -5298,8 +5601,8 @@ async def _action_takeover(  # pylint: disable=too-many-return-statements
         bridge = manager.get_connection()
     else:
         bridge = None
-    holder_id = _takeover_holder_id(state)
     request_context = _takeover_request_context()
+    holder_id = _takeover_holder_id(state, request_context)
     action = (action or "").strip().lower()
     url = str(kwargs.get("url") or "").strip()
     user_initiated = bool(kwargs.get("user_initiated", False))
@@ -5441,15 +5744,16 @@ async def _action_takeover(  # pylint: disable=too-many-return-statements
             )
             if not tab_url:
                 tab_url = current_tab_url or url
-            takeover_tabs[str(tab_id)] = {
-                "tab_id": tab_id,
-                "holder_id": holder_id,
-                "url": tab_url,
-                "url_key": _takeover_url_key(tab_url) if tab_url else "",
-                "created_by_takeover": bool(
+            takeover_tabs[str(tab_id)] = _takeover_tab_record(
+                tab_id=tab_id,
+                holder_id=holder_id,
+                url=tab_url,
+                created_by_takeover=bool(
                     previous_tab.get("created_by_takeover"),
                 ),
-            }
+                request_context=request_context,
+                previous_tab=previous_tab,
+            )
             state["current_page_id"] = str(tab_id)
             return _tool_response(
                 json.dumps(
@@ -5554,15 +5858,16 @@ async def _action_takeover(  # pylint: disable=too-many-return-statements
         )
         if not tab_url:
             tab_url = current_tab_url or url
-        takeover_tabs[str(tab_id)] = {
-            "tab_id": tab_id,
-            "holder_id": holder_id,
-            "url": tab_url,
-            "url_key": _takeover_url_key(tab_url) if tab_url else "",
-            "created_by_takeover": bool(
+        takeover_tabs[str(tab_id)] = _takeover_tab_record(
+            tab_id=tab_id,
+            holder_id=holder_id,
+            url=tab_url,
+            created_by_takeover=bool(
                 tab_created_by_takeover or previous_tab.get("created_by_takeover"),
             ),
-        }
+            request_context=request_context,
+            previous_tab=previous_tab,
+        )
         state["current_page_id"] = str(tab_id)
         return _tool_response(
             json.dumps(
@@ -5605,15 +5910,16 @@ async def _action_takeover(  # pylint: disable=too-many-return-statements
         state["current_page_id"] = str(tab_id)
         takeover_tabs = state.setdefault("takeover_tabs", {})
         previous_tab = takeover_tabs.get(str(tab_id)) or {}
-        takeover_tabs[str(tab_id)] = {
-            "tab_id": tab_id,
-            "holder_id": previous_tab.get("holder_id") or holder_id,
-            "url": url,
-            "url_key": _takeover_url_key(url),
-            "created_by_takeover": bool(
+        takeover_tabs[str(tab_id)] = _takeover_tab_record(
+            tab_id=tab_id,
+            holder_id=str(previous_tab.get("holder_id") or holder_id),
+            url=url,
+            created_by_takeover=bool(
                 previous_tab.get("created_by_takeover"),
             ),
-        }
+            request_context=request_context,
+            previous_tab=previous_tab,
+        )
         return _tool_response(
             json.dumps(
                 {
@@ -5912,25 +6218,38 @@ async def _action_takeover(  # pylint: disable=too-many-return-statements
         )
 
     if action == "stop":
-        for tab in list((state.get("takeover_tabs") or {}).values()):
-            tab_id = int(tab["tab_id"])
-            tab_holder_id = str(tab.get("holder_id") or holder_id)
-            await bridge.request("banner.hide", {"tabId": tab_id})
-            await bridge.request(
-                "tab.detach",
-                {"tabId": tab_id, "holderId": tab_holder_id},
-            )
-            await _takeover_close_session(
+        had_local_takeover_state = bool(state.get("takeover_tabs"))
+        session_id = str(request_context.get("session_id") or "")
+        root_session_id = str(
+            request_context.get("root_session_id") or session_id,
+        )
+        if session_id or root_session_id:
+            cleanup_result = await _takeover_cleanup_matching_tabs(
                 state,
-                tab_id=tab_id,
-                holder_id=tab_holder_id,
                 bridge=bridge,
+                predicate=lambda tab: _takeover_tab_matches_request(
+                    tab,
+                    session_id=session_id,
+                    root_session_id=root_session_id,
+                ),
+            )
+        else:
+            cleanup_result = await _takeover_cleanup_matching_tabs(
+                state,
+                bridge=bridge,
+                predicate=lambda tab: str(tab.get("holder_id") or "") == holder_id,
+            )
+        if cleanup_result["matched_tabs"] == 0 and not had_local_takeover_state:
+            cleanup_result = await _takeover_cleanup_extension_created_tabs(
+                state,
+                bridge=bridge,
+                request_context=request_context,
+                holder_id=holder_id,
             )
         await bridge.release_all(holder_id)
-        state.pop("takeover_tabs", None)
         return _tool_response(
             json.dumps(
-                {"ok": True, "mode": "takeover"},
+                {"ok": True, "mode": "takeover", **cleanup_result},
                 ensure_ascii=False,
                 indent=2,
             ),

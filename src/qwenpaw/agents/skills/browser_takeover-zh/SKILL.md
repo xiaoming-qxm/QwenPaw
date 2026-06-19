@@ -39,6 +39,10 @@ metadata:
 
 如果用户点击暂停，立即停止发送 CDP 命令。恢复后重新 snapshot，并基于新状态继续。
 
+如果用户要求“停止控制 Chrome / 结束接管 / 释放浏览器”，立即调用
+`browser_use(action="stop", mode="takeover")`。停止后不要继续发送点击、输入、导航或
+snapshot 命令，只需要告知用户浏览器控制已释放。
+
 ## 模式触发
 
 使用 takeover 的条件：

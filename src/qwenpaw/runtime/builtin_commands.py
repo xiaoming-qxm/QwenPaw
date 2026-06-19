@@ -489,6 +489,9 @@ def _takeover_prompt(user_input: str) -> str:
         "- Supported takeover actions include: claim_tab, tabs, open, "
         "navigate, snapshot, screenshot, click, type, press_key, wait_for, "
         "release_tab, and stop.\n"
+        "- If the user asks to stop, cancel, end, or release Chrome control, "
+        'call browser_use(action="stop", mode="takeover") immediately and '
+        "then report that control has been released.\n"
         "- Do not use the default/headless/managed-CDP browser for this "
         "request.\n"
         "- If the Chrome bridge is disconnected or setup is missing, explain "

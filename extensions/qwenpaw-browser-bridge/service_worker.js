@@ -28,16 +28,26 @@ let cleanupEpoch = 0;
 let reconnectAttempts = 0;
 let lastDisconnectReason = "";
 const managedTabs = new Set();
+const createdTabs = new Set();
 
 async function persistManagedTabs() {
-  await chrome.storage.session.set({ managedTabs: Array.from(managedTabs) });
+  await chrome.storage.session.set({
+    managedTabs: Array.from(managedTabs),
+    createdTabs: Array.from(createdTabs),
+  });
 }
 
 async function restoreManagedTabs() {
-  const data = await chrome.storage.session.get("managedTabs");
+  const data = await chrome.storage.session.get(["managedTabs", "createdTabs"]);
   const tabIds = Array.isArray(data.managedTabs) ? data.managedTabs : [];
   for (const tabId of tabIds) {
     managedTabs.add(tabId);
+  }
+  const createdTabIds = Array.isArray(data.createdTabs)
+    ? data.createdTabs
+    : [];
+  for (const tabId of createdTabIds) {
+    createdTabs.add(tabId);
   }
 }
 
@@ -144,10 +154,61 @@ function isAttachableTab(tab) {
 
 async function listTabs(queryInfo) {
   const tabs = await chrome.tabs.query(queryInfo || {});
-  return tabs.filter(isAttachableTab).map((tab) => ({
-    ...tab,
-    managed: tab && tab.id !== undefined ? managedTabs.has(tab.id) : false,
-  }));
+  const liveTabIds = new Set(
+    tabs
+      .filter((tab) => tab && tab.id !== undefined)
+      .map((tab) => tab.id),
+  );
+  let prunedCreatedTabs = false;
+  for (const tabId of Array.from(createdTabs)) {
+    if (!liveTabIds.has(tabId)) {
+      createdTabs.delete(tabId);
+      prunedCreatedTabs = true;
+    }
+  }
+  if (prunedCreatedTabs) {
+    await persistManagedTabs();
+  }
+
+  const groupCache = new Map();
+  const attachGroupInfo = async (tab) => {
+    if (
+      !tab ||
+      !Number.isInteger(tab.groupId) ||
+      tab.groupId < 0 ||
+      !chrome.tabGroups ||
+      !chrome.tabGroups.get
+    ) {
+      return {};
+    }
+    if (!groupCache.has(tab.groupId)) {
+      try {
+        groupCache.set(tab.groupId, await chrome.tabGroups.get(tab.groupId));
+      } catch (error) {
+        groupCache.set(tab.groupId, null);
+      }
+    }
+    const group = groupCache.get(tab.groupId);
+    if (!group) {
+      return {};
+    }
+    return {
+      tabGroupId: group.id,
+      tabGroupTitle: group.title || "",
+      tabGroupColor: group.color || "",
+    };
+  };
+
+  const visibleTabs = tabs.filter(isAttachableTab);
+  return Promise.all(
+    visibleTabs.map(async (tab) => ({
+      ...tab,
+      ...(await attachGroupInfo(tab)),
+      managed: tab && tab.id !== undefined ? managedTabs.has(tab.id) : false,
+      createdByQwenPaw:
+        tab && tab.id !== undefined ? createdTabs.has(tab.id) : false,
+    })),
+  );
 }
 
 async function groupTakeoverTab(tab) {
@@ -177,7 +238,12 @@ async function createTab(params) {
     active:
       params && params.active !== undefined ? Boolean(params.active) : true,
   });
-  return groupTakeoverTab(tab);
+  const takeoverTab = await groupTakeoverTab(tab);
+  if (takeoverTab && takeoverTab.id !== undefined) {
+    createdTabs.add(takeoverTab.id);
+    await persistManagedTabs();
+  }
+  return { ...takeoverTab, createdByQwenPaw: true };
 }
 
 async function activateTab(params) {
@@ -217,6 +283,7 @@ async function closeTab(params) {
 
   await chrome.tabs.remove(tabId);
   managedTabs.delete(tabId);
+  createdTabs.delete(tabId);
   await persistManagedTabs();
   return { tabId, closed: true };
 }
@@ -445,6 +512,15 @@ chrome.debugger.onDetach.addListener(async (source, reason) => {
     tabId: source.tabId,
     reason,
   });
+});
+
+chrome.tabs.onRemoved.addListener((tabId) => {
+  if (!managedTabs.has(tabId) && !createdTabs.has(tabId)) {
+    return;
+  }
+  managedTabs.delete(tabId);
+  createdTabs.delete(tabId);
+  void persistManagedTabs();
 });
 
 chrome.webNavigation.onCompleted.addListener(async (details) => {
