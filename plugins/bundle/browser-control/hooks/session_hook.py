@@ -239,6 +239,7 @@ class BrowserControlMissionHook(LifecycleHook):
                 if _is_browser_mission_message(item):
                     for event in _browser_mission_text_events(item):
                         yield event
+                    yield item
                     continue
                 if not isinstance(item, Msg):
                     yield item
@@ -255,6 +256,21 @@ class BrowserControlFinalizeHook(LifecycleHook):
     priority = 80
 
     async def run(self, ctx: HookContext) -> HookResult:
+        agent = getattr(ctx, "agent", None)
+        if agent is not None and getattr(
+            agent,
+            "_browser_control_mission_wrapped",
+            False,
+        ):
+            original = getattr(
+                agent,
+                "_browser_control_original_reply_stream",
+                None,
+            )
+            if original is not None:
+                setattr(agent, "reply_stream", original)
+            setattr(agent, "_browser_control_mission_wrapped", False)
+
         try:
             workspace_dir = getattr(ctx, "workspace_dir", None)
             workspace_id = Path(workspace_dir).name if workspace_dir else ""

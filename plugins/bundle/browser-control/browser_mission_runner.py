@@ -57,7 +57,17 @@ def _reports_unrecoverable_blocker(message: Msg | None) -> bool:
     if message is None:
         return False
     text = _message_text(message).lower()
-    return "unrecoverable blocker" in text or "explicit blocker" in text
+    blocker_phrases = (
+        "unrecoverable blocker",
+        "explicit blocker",
+        "captcha",
+        "authentication required",
+        "login required",
+        "need user help",
+        "cannot proceed",
+        "requires human",
+    )
+    return any(phrase in text for phrase in blocker_phrases)
 
 
 def _assistant_msg(text: str) -> Msg:

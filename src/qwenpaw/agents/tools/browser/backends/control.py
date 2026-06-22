@@ -27,19 +27,31 @@ def _control_tab_url_from_tabs(
     return _control_tab_url(tab)
 
 
+def _control_cached_tab_url(state: dict, tab_id: int) -> str:
+    """Return the cached URL for a controlled tab."""
+    control_tabs = state.get("control_tabs") or {}
+    if not isinstance(control_tabs, dict):
+        return ""
+    tab = control_tabs.get(str(tab_id))
+    if not isinstance(tab, dict):
+        return ""
+    return str(tab.get("url") or "")
+
+
 def _control_click_navigation_status(
     state: dict,
     *,
     tab_id: int,
     before_tabs: list[dict[str, Any]] | None,
     after_tabs: list[dict[str, Any]] | None,
+    before_url: str = "",
 ) -> tuple[bool, str]:
     """Detect whether a click changed the current tab URL."""
-    before_url = _control_tab_url_from_tabs(before_tabs, tab_id)
-    if not before_url:
-        tab = (state.get("control_tabs") or {}).get(str(tab_id)) or {}
-        if isinstance(tab, dict):
-            before_url = str(tab.get("url") or "")
+    before_url = (
+        before_url
+        or _control_cached_tab_url(state, tab_id)
+        or _control_tab_url_from_tabs(before_tabs, tab_id)
+    )
 
     after_url = _control_tab_url_from_tabs(after_tabs, tab_id)
     if after_url:
@@ -47,7 +59,10 @@ def _control_click_navigation_status(
 
     if not before_url or not after_url:
         return False, after_url or before_url
-    return _control_url_key(before_url) != _control_url_key(after_url), after_url
+    return (
+        _control_url_key(before_url) != _control_url_key(after_url),
+        after_url,
+    )
 
 
 def _control_click_feedback_payload(
@@ -66,8 +81,8 @@ def _control_click_feedback_payload(
     else:
         message = (
             "Click completed, but no navigation was detected. If the target "
-            "destination is known, use browser_use(action=\"navigate\", "
-            f"mode=\"control\", page_id=\"{tab_id}\", url=\"...\") instead "
+            'destination is known, use browser_use(action="navigate", '
+            f'mode="control", page_id="{tab_id}", url="...") instead '
             "of repeating the same click."
         )
         next_instruction = (
@@ -163,7 +178,9 @@ async def _action_control(  # pylint: disable=too-many-return-statements
                     {
                         "ok": False,
                         "mode": "control",
-                        "error": ("control tabs only supports tab_action=list"),
+                        "error": (
+                            "control tabs only supports tab_action=list"
+                        ),
                     },
                     ensure_ascii=False,
                     indent=2,
@@ -178,7 +195,14 @@ async def _action_control(  # pylint: disable=too-many-return-statements
             ),
         )
 
-    if action in {"snapshot", "screenshot", "click", "type", "press_key", "wait_for"}:
+    if action in {
+        "snapshot",
+        "screenshot",
+        "click",
+        "type",
+        "press_key",
+        "wait_for",
+    }:
         pending_payload = await _control_consume_pending_action_transition(
             state,
             bridge=bridge,
@@ -265,7 +289,9 @@ async def _action_control(  # pylint: disable=too-many-return-statements
             await _control_activate_tab(bridge, tab_id)
             control_tabs = state.setdefault("control_tabs", {})
             previous_tab = control_tabs.get(str(tab_id)) or {}
-            current_tab_url = discovered_tab_url or previous_tab.get("url") or ""
+            current_tab_url = (
+                discovered_tab_url or previous_tab.get("url") or ""
+            )
             tab_url = await _control_align_tab_to_requested_url(
                 existing_session,
                 url,
@@ -322,7 +348,9 @@ async def _action_control(  # pylint: disable=too-many-return-statements
                             {
                                 "ok": False,
                                 "mode": "control",
-                                "error": (f"Failed to attach tab {tab_id}: {exc!s}"),
+                                "error": (
+                                    f"Failed to attach tab {tab_id}: {exc!s}"
+                                ),
                             },
                             ensure_ascii=False,
                             indent=2,
@@ -393,7 +421,8 @@ async def _action_control(  # pylint: disable=too-many-return-statements
             holder_id=holder_id,
             url=tab_url,
             created_by_control=bool(
-                tab_created_by_control or previous_tab.get("created_by_control"),
+                tab_created_by_control
+                or previous_tab.get("created_by_control"),
             ),
             request_context=request_context,
             previous_tab=previous_tab,
@@ -521,7 +550,9 @@ async def _action_control(  # pylint: disable=too-many-return-statements
                         "includePaintOrder": True,
                     },
                 )
-                from qwenpaw.agents.tools.browser_snapshot import from_cdp_dom_snapshot
+                from qwenpaw.agents.tools.browser_snapshot import (
+                    from_cdp_dom_snapshot,
+                )
 
                 fallback_snapshot, fallback_refs = from_cdp_dom_snapshot(
                     dom_snapshot,
@@ -586,7 +617,10 @@ async def _action_control(  # pylint: disable=too-many-return-statements
             fallback_x=kwargs.get("x"),
             fallback_y=kwargs.get("y"),
         )
+        before_url = _control_cached_tab_url(state, tab_id)
         before_tabs = await _control_discover_tabs_safe(bridge)
+        if not before_url:
+            before_url = _control_tab_url_from_tabs(before_tabs, tab_id)
         transition_waiter = _control_create_action_transition_waiter(
             bridge,
             before_tabs=before_tabs,
@@ -620,12 +654,15 @@ async def _action_control(  # pylint: disable=too-many-return-statements
                     indent=2,
                 ),
             )
-        after_tabs = await _control_discover_tabs_safe(bridge)
+        after_tabs = (
+            await _control_discover_tabs_safe(bridge) if before_url else None
+        )
         navigation_occurred, current_url = _control_click_navigation_status(
             state,
             tab_id=tab_id,
             before_tabs=before_tabs,
             after_tabs=after_tabs,
+            before_url=before_url,
         )
         _control_mark_observation_required(state, tab_id, action=action)
         return _tool_response(
@@ -923,10 +960,11 @@ async def _action_control(  # pylint: disable=too-many-return-statements
             cleanup_result = await _control_cleanup_matching_tabs(
                 state,
                 bridge=bridge,
-                predicate=lambda tab: str(tab.get("holder_id") or "") == holder_id,
+                predicate=lambda tab: str(tab.get("holder_id") or "")
+                == holder_id,
             )
         if cleanup_result["matched_tabs"] == 0 and request_context.get(
-            "browser_control_invocation"
+            "browser_control_invocation",
         ):
             workspace_holder_prefix = (
                 f"browser_use:{state.get('workspace_id') or 'default'}"
@@ -1014,8 +1052,6 @@ class ControlBackend:
     async def list_tabs(self, **kwargs: Any) -> ToolChunk:
         """List Browser Control tabs."""
         return await _action_control(self.state, "tabs", **kwargs)
-
-
 
 
 __all__ = [name for name in globals() if not name.startswith("__")]

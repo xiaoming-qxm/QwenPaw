@@ -65,19 +65,6 @@ def _control_page_ids_from_payload(
         value = payload.get(key)
         if value not in (None, ""):
             page_ids.add(str(value))
-    tab = payload.get("tab")
-    if isinstance(tab, dict):
-        tab_id = tab.get("id") or tab.get("tab_id")
-        if tab_id not in (None, ""):
-            page_ids.add(str(tab_id))
-    tabs = payload.get("tabs")
-    if isinstance(tabs, list):
-        for item in tabs:
-            if not isinstance(item, dict):
-                continue
-            tab_id = item.get("id") or item.get("tab_id")
-            if tab_id not in (None, ""):
-                page_ids.add(str(tab_id))
     return {page_id for page_id in page_ids if page_id}
 
 
@@ -144,13 +131,18 @@ async def _action_control_with_observe_act(
     if payload.get("ok") is not True:
         return response
 
-    page_ids = _control_page_ids_from_payload(state, requested_page_id, payload)
+    page_ids = _control_page_ids_from_payload(
+        state,
+        requested_page_id,
+        payload,
+    )
     if _control_payload_contains_observation(action, payload):
         guard.mark_observed_many(page_ids, source=action)
     elif action in _CONTROL_GUARDED_ACTIONS:
         for page_id in page_ids:
             guard.clear(page_id)
     return response
+
 
 async def stop_all_browsers() -> None:
     """Gracefully stop all active browser instances across all workspaces.
@@ -199,7 +191,8 @@ async def stop_browsers_for_workspace_dirs(
                 await _action_stop(state)
             except Exception as e:
                 logger.error(
-                    "Failed to stop browser for workspace %s before " "restore: %s",
+                    "Failed to stop browser for workspace %s before "
+                    "restore: %s",
                     state.get("workspace_id", "unknown"),
                     e,
                 )
@@ -494,7 +487,7 @@ async def browser_use(  # pylint: disable=R0911,R0912
         mode_value = (mode or "").strip().lower()
         request_context = _control_request_context()
         browser_control_invocation = bool(
-            request_context.get("browser_control_invocation")
+            request_context.get("browser_control_invocation"),
         )
         if not mode_value and _should_infer_control_mode(
             state,
