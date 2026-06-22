@@ -11,7 +11,6 @@ from .backends.playwright_batch_cdp import *
 from .backends.control import *
 from .observe_act import ObservationRequired, ObserveActGuard
 
-
 _CONTROL_OBSERVE_ACT_STATE_KEY = "_control_observe_act_guard"
 _CONTROL_GUARDED_ACTIONS = frozenset(
     {

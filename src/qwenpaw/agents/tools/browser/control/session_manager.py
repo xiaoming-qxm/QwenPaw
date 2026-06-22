@@ -5,6 +5,7 @@
 
 from ..runtime import *
 
+
 def _control_holder_id(
     state: dict,
     request_context: dict[str, Any] | None = None,
@@ -119,7 +120,9 @@ def _control_request_context() -> dict[str, Any]:
         pass
 
     try:
-        from qwenpaw.config.context import get_current_session_id as get_config_sid
+        from qwenpaw.config.context import (
+            get_current_session_id as get_config_sid,
+        )
 
         session_id = get_config_sid()
         if session_id:
@@ -292,8 +295,6 @@ async def _control_close_session(
 
     if not sessions:
         state.pop("control_sessions", None)
-
-
 
 
 __all__ = [name for name in globals() if not name.startswith("__")]

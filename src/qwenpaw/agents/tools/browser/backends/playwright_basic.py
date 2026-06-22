@@ -5,6 +5,7 @@
 
 from ..runtime import *
 
+
 async def _action_start(
     state: dict,
     headed: bool = False,
@@ -17,11 +18,14 @@ async def _action_start(
     # Check browser state based on mode
     if _USE_SYNC_PLAYWRIGHT:
         browser_exists = (
-            state["_sync_browser"] is not None or state["_sync_context"] is not None
+            state["_sync_browser"] is not None
+            or state["_sync_context"] is not None
         )
         current_headless = bool(state.get("_sync_headless", True))
     else:
-        browser_exists = state["browser"] is not None or state["context"] is not None
+        browser_exists = (
+            state["browser"] is not None or state["context"] is not None
+        )
         current_headless = bool(state["headless"])
 
     # If user asks for visible window (headed=True)
@@ -138,7 +142,9 @@ async def _action_start(
                     # launch_persistent_context returns context directly; no separate browser object
                     _attach_context_listeners(state, context)
                     state["playwright"] = pw
-                    state["browser"] = None  # not needed for persistent context
+                    state[
+                        "browser"
+                    ] = None  # not needed for persistent context
                     state["context"] = context
                 else:
                     launch_kwargs = {"headless": state["headless"]}
@@ -206,7 +212,9 @@ async def _action_start(
         )
         if cdp_url:
             result["cdp_url"] = cdp_url
-            result["message"] = msg + f" with CDP port {cdp_url.rsplit(':', 1)[-1]}"
+            result["message"] = (
+                msg + f" with CDP port {cdp_url.rsplit(':', 1)[-1]}"
+            )
         return _tool_response(
             json.dumps(result, ensure_ascii=False, indent=2),
         )
@@ -505,12 +513,16 @@ async def _action_screenshot(
                 await _run_sync(
                     locator.screenshot,
                     path=path,
-                    type=(screenshot_type if screenshot_type == "jpeg" else "png"),
+                    type=(
+                        screenshot_type if screenshot_type == "jpeg" else "png"
+                    ),
                 )
             else:
                 await locator.screenshot(
                     path=path,
-                    type=(screenshot_type if screenshot_type == "jpeg" else "png"),
+                    type=(
+                        screenshot_type if screenshot_type == "jpeg" else "png"
+                    ),
                 )
         else:
             if frame_selector and frame_selector.strip():
@@ -520,12 +532,20 @@ async def _action_screenshot(
                     await _run_sync(
                         locator.screenshot,
                         path=path,
-                        type=(screenshot_type if screenshot_type == "jpeg" else "png"),
+                        type=(
+                            screenshot_type
+                            if screenshot_type == "jpeg"
+                            else "png"
+                        ),
                     )
                 else:
                     await locator.screenshot(
                         path=path,
-                        type=(screenshot_type if screenshot_type == "jpeg" else "png"),
+                        type=(
+                            screenshot_type
+                            if screenshot_type == "jpeg"
+                            else "png"
+                        ),
                     )
             else:
                 if _USE_SYNC_PLAYWRIGHT:
@@ -533,13 +553,21 @@ async def _action_screenshot(
                         page.screenshot,
                         path=path,
                         full_page=full_page,
-                        type=(screenshot_type if screenshot_type == "jpeg" else "png"),
+                        type=(
+                            screenshot_type
+                            if screenshot_type == "jpeg"
+                            else "png"
+                        ),
                     )
                 else:
                     await page.screenshot(
                         path=path,
                         full_page=full_page,
-                        type=(screenshot_type if screenshot_type == "jpeg" else "png"),
+                        type=(
+                            screenshot_type
+                            if screenshot_type == "jpeg"
+                            else "png"
+                        ),
                     )
         return _tool_response(
             json.dumps(
@@ -600,7 +628,9 @@ async def _action_click(  # pylint: disable=too-many-branches
         if not isinstance(mods, list):
             mods = []
         kwargs: dict[str, Any] = {
-            "button": (button if button in ("left", "right", "middle") else "left"),
+            "button": (
+                button if button in ("left", "right", "middle") else "left"
+            ),
         }
         if mods:
             kwargs["modifiers"] = [
@@ -984,7 +1014,9 @@ async def _action_snapshot(
             compact=False,
         )
         state["refs"][page_id] = refs
-        state["refs_frame"][page_id] = frame_selector.strip() if frame_selector else ""
+        state["refs_frame"][page_id] = (
+            frame_selector.strip() if frame_selector else ""
+        )
         out = {
             "ok": True,
             "snapshot": snapshot,
@@ -1039,8 +1071,6 @@ async def _action_navigate_back(state: dict, page_id: str) -> ToolChunk:
                 indent=2,
             ),
         )
-
-
 
 
 __all__ = [name for name in globals() if not name.startswith("__")]

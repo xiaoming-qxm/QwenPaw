@@ -11,6 +11,7 @@ from .observation import *
 from .inference import *
 from .transitions import *
 
+
 def _control_node_params(target: dict[str, Any]) -> dict[str, int] | None:
     value = target.get("backendNodeId") or target.get("backendDOMNodeId")
     if isinstance(value, int):
@@ -95,7 +96,9 @@ async def _control_selector_target(
         {"nodeId": matched_node_id},
     )
     node = description.get("node") if isinstance(description, dict) else {}
-    backend_node_id = node.get("backendNodeId") if isinstance(node, dict) else None
+    backend_node_id = (
+        node.get("backendNodeId") if isinstance(node, dict) else None
+    )
     if isinstance(backend_node_id, int):
         return {"backendNodeId": backend_node_id}
     return {"nodeId": matched_node_id}
@@ -333,7 +336,9 @@ async def _control_runtime_visible_text_target(
         remote_object = result.get("result")
     else:
         remote_object = result
-    value = remote_object.get("value") if isinstance(remote_object, dict) else None
+    value = (
+        remote_object.get("value") if isinstance(remote_object, dict) else None
+    )
     if not isinstance(value, dict):
         return None
     x = value.get("x")
@@ -564,8 +569,6 @@ async def _control_press_key(session: Any, key: str) -> None:
         "Input.dispatchKeyEvent",
         _control_key_params(normalized_key, "keyUp"),
     )
-
-
 
 
 __all__ = [name for name in globals() if not name.startswith("__")]

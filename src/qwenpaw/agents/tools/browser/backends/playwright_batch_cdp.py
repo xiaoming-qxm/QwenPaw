@@ -8,6 +8,7 @@ from .playwright_basic import *
 from .playwright_advanced import *
 from .playwright_interactions import *
 
+
 async def _action_batch(  # pylint: disable=too-many-nested-blocks
     state: dict,
     page_id: str,
@@ -219,7 +220,9 @@ async def _action_batch(  # pylint: disable=too-many-nested-blocks
                 )
 
             else:
-                step_result["error"] = f"Unknown batch sub-action: {sub_action}"
+                step_result[
+                    "error"
+                ] = f"Unknown batch sub-action: {sub_action}"
 
             # Parse helper response into step_result
             if resp is not None and resp.content:
@@ -230,7 +233,9 @@ async def _action_batch(  # pylint: disable=too-many-nested-blocks
                     if isinstance(resp_data, dict):
                         step_result.update(resp_data)
                 except (json.JSONDecodeError, AttributeError, IndexError):
-                    step_result["error"] = "Failed to parse sub-action response"
+                    step_result[
+                        "error"
+                    ] = "Failed to parse sub-action response"
 
         except Exception as e:
             step_result["error"] = str(e)
@@ -445,8 +450,6 @@ async def _action_connect_cdp(state: dict, cdp_url: str) -> ToolChunk:
                 indent=2,
             ),
         )
-
-
 
 
 __all__ = [name for name in globals() if not name.startswith("__")]

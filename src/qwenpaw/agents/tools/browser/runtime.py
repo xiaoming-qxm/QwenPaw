@@ -194,7 +194,9 @@ _workspace_states: dict[str, dict[str, Any]] = {}
 def _make_fresh_state(workspace_id: str, workspace_dir: str) -> dict[str, Any]:
     """Create a fresh browser state dict for a workspace."""
     user_data_dir = (
-        str(Path(workspace_dir) / "browser" / "user_data") if workspace_dir else ""
+        str(Path(workspace_dir) / "browser" / "user_data")
+        if workspace_dir
+        else ""
     )
     return {
         "playwright": None,

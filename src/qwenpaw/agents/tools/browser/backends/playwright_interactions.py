@@ -7,6 +7,7 @@ from ..runtime import *
 from .playwright_basic import *
 from .playwright_advanced import *
 
+
 async def _action_press_key(
     state: dict,
     page_id: str,
@@ -183,7 +184,9 @@ async def _action_drag(
             json.dumps(
                 {
                     "ok": False,
-                    "error": ("drag needs (start_ref,end_ref) or (start_sel,end_sel)"),
+                    "error": (
+                        "drag needs (start_ref,end_ref) or (start_sel,end_sel)"
+                    ),
                 },
                 ensure_ascii=False,
                 indent=2,
@@ -430,7 +433,10 @@ async def _action_tabs(  # pylint: disable=too-many-return-statements
             if not state["_sync_context"]:
                 ok = await _ensure_browser(state)
                 if not ok:
-                    err = state.get("_last_browser_error") or "Browser not started"
+                    err = (
+                        state.get("_last_browser_error")
+                        or "Browser not started"
+                    )
                     return _tool_response(
                         json.dumps(
                             {"ok": False, "error": err},
@@ -442,7 +448,10 @@ async def _action_tabs(  # pylint: disable=too-many-return-statements
             if not state["context"]:
                 ok = await _ensure_browser(state)
                 if not ok:
-                    err = state.get("_last_browser_error") or "Browser not started"
+                    err = (
+                        state.get("_last_browser_error")
+                        or "Browser not started"
+                    )
                     return _tool_response(
                         json.dumps(
                             {"ok": False, "error": err},
@@ -698,8 +707,6 @@ async def _action_clear_browser_cache(state: dict) -> ToolChunk:
             indent=2,
         ),
     )
-
-
 
 
 __all__ = [name for name in globals() if not name.startswith("__")]

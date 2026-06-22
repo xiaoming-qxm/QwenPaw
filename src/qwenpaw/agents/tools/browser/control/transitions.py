@@ -10,6 +10,7 @@ from .tab_manager import *
 from .observation import *
 from .inference import *
 
+
 def _control_tab_ids(tabs: list[dict[str, Any]] | None) -> set[int]:
     if not tabs:
         return set()
@@ -155,7 +156,9 @@ def _control_create_action_transition_waiter(
     if before_tabs is None or not hasattr(bridge, "add_event_listener"):
         return None
 
-    source_tab = (_control_live_tab_map(before_tabs) or {}).get(source_tab_id) or {}
+    source_tab = (_control_live_tab_map(before_tabs) or {}).get(
+        source_tab_id,
+    ) or {}
     source_url = _control_tab_url(source_tab)
     loop = asyncio.get_running_loop()
     future: asyncio.Future[dict[str, Any]] = loop.create_future()
@@ -248,7 +251,10 @@ async def _control_consume_pending_action_transition(
     if not isinstance(created_at, (int, float)):
         state.pop("control_pending_action_transition", None)
         return None
-    if time.monotonic() - created_at > _CONTROL_PENDING_ACTION_TRANSITION_TTL_SECONDS:
+    if (
+        time.monotonic() - created_at
+        > _CONTROL_PENDING_ACTION_TRANSITION_TTL_SECONDS
+    ):
         state.pop("control_pending_action_transition", None)
         return None
 
@@ -470,7 +476,11 @@ async def _control_claim_tab_opened_by_action(
         if attempt < _CONTROL_CLICK_TAB_TRANSITION_MAX_POLLS - 1:
             await asyncio.sleep(_CONTROL_CLICK_TAB_TRANSITION_POLL_SECONDS)
 
-    _control_refresh_current_tab_from_live_tabs(state, source_tab_id, last_tabs)
+    _control_refresh_current_tab_from_live_tabs(
+        state,
+        source_tab_id,
+        last_tabs,
+    )
     return None
 
 
@@ -517,8 +527,6 @@ async def _control_resolve_action_transition(
         holder_id=holder_id,
     )
     return None
-
-
 
 
 __all__ = [name for name in globals() if not name.startswith("__")]

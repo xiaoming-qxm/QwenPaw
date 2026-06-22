@@ -9,6 +9,7 @@ from .navigation import *
 from .tab_manager import *
 from .observation import *
 
+
 def _browser_control_non_control_action_response(action: str) -> ToolChunk:
     return _tool_response(
         json.dumps(
@@ -71,7 +72,8 @@ def _should_infer_control_mode(
     matching_tabs = [
         str(tab_id)
         for tab_id, tab in control_tabs.items()
-        if isinstance(tab, dict) and str(tab.get("holder_id") or "") == holder_id
+        if isinstance(tab, dict)
+        and str(tab.get("holder_id") or "") == holder_id
     ]
     if len(matching_tabs) == 1:
         state["current_page_id"] = matching_tabs[0]
@@ -215,7 +217,10 @@ async def _control_tab_create_denial_reason(
     *,
     user_initiated: bool = False,
 ) -> str | None:
-    from qwenpaw.agents.tools.cdp_permissions import check_permission, load_permissions
+    from qwenpaw.agents.tools.cdp_permissions import (
+        check_permission,
+        load_permissions,
+    )
 
     permissions = load_permissions()
     result = check_permission("Page.navigate", url, permissions)
@@ -284,8 +289,6 @@ async def _control_select_or_create_url_tab(
         holder_id=holder_id,
     )
     return tab_id, "", None, True
-
-
 
 
 __all__ = [name for name in globals() if not name.startswith("__")]

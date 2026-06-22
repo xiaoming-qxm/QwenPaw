@@ -6,6 +6,7 @@
 from ..runtime import *
 from .session_manager import *
 
+
 def _control_tab_id(page_id: str, index: int = -1) -> int:
     if index >= 0:
         return index
@@ -90,8 +91,6 @@ def _control_sync_session_navigation_scope(
     session_approved_domains = getattr(session, "approved_domains", None)
     if isinstance(session_approved_domains, set):
         session_approved_domains.update(domains)
-
-
 
 
 __all__ = [name for name in globals() if not name.startswith("__")]

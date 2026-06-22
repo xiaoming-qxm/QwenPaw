@@ -8,6 +8,7 @@ from .session_manager import *
 from .navigation import *
 from .tab_manager import *
 
+
 def _control_pending_observations(state: dict) -> dict[str, Any]:
     pending = state.setdefault("control_pending_observations", {})
     if isinstance(pending, dict):
@@ -84,8 +85,6 @@ def _control_require_observation_before_action(
     if not isinstance(value, dict):
         return None
     return _control_observation_required_response(tab_id, value)
-
-
 
 
 __all__ = [name for name in globals() if not name.startswith("__")]

@@ -6,6 +6,7 @@
 from ..runtime import *
 from .playwright_basic import *
 
+
 async def _action_evaluate(
     state: dict,
     page_id: str,
@@ -162,7 +163,9 @@ async def _action_console_messages(
         )
     logs = state["console_logs"].get(page_id, [])
     filtered = (
-        [m for m in logs if order.index(m["level"]) <= idx] if level in order else logs
+        [m for m in logs if order.index(m["level"]) <= idx]
+        if level in order
+        else logs
     )
     lines = [f"[{m['level']}] {m['text']}" for m in filtered]
     text = "\n".join(lines)
@@ -334,7 +337,9 @@ async def _download_context_url(
         )
     head_headers = head_response.headers
     raw_content_length = (
-        head_headers.get("content-length") or head_headers.get("Content-Length") or ""
+        head_headers.get("content-length")
+        or head_headers.get("Content-Length")
+        or ""
     )
     if not raw_content_length:
         raise DirectUrlDownloadRejectedError(
@@ -366,7 +371,9 @@ async def _download_context_url(
     if not response.ok:
         return status, ""
     headers = response.headers
-    content_type = headers.get("content-type") or headers.get("Content-Type") or ""
+    content_type = (
+        headers.get("content-type") or headers.get("Content-Type") or ""
+    )
     if _USE_SYNC_PLAYWRIGHT:
         body = await _run_sync(response.body)
     else:
@@ -663,7 +670,9 @@ async def _file_download_click_fallback(
                 "url": current_url,
                 "status": status,
                 "content_type": content_type,
-                "download_method": ("browser_context_request_after_inline_navigation"),
+                "download_method": (
+                    "browser_context_request_after_inline_navigation"
+                ),
                 "note": (
                     "The click navigated to an inline resource instead of "
                     "firing a browser download event."
@@ -861,8 +870,6 @@ async def _action_install() -> ToolChunk:
                 indent=2,
             ),
         )
-
-
 
 
 __all__ = [name for name in globals() if not name.startswith("__")]
