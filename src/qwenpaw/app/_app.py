@@ -286,9 +286,9 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             from ..agents.tools import discover_builtin_tool_funcs
 
             # pylint: disable-next=protected-access
-            workspace_registry._bootstrap_kwargs["builtin_tool_funcs"] = (
-                discover_builtin_tool_funcs()
-            )
+            workspace_registry._bootstrap_kwargs[
+                "builtin_tool_funcs"
+            ] = discover_builtin_tool_funcs()
             logger.debug("Built-in tool funcs collected")
         except Exception:
             logger.debug(
@@ -318,7 +318,6 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
         # --- Built-in lifecycle hooks ---
         try:
             from ..hooks.session.session_hook import (
-                BrowserControlContinuationHook,
                 SessionLoadHook,
                 SessionSaveHook,
             )
@@ -341,7 +340,6 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             workspace_registry._bootstrap_kwargs["builtin_hook_clses"] = [
                 CronContextHook,
                 SessionLoadHook,
-                BrowserControlContinuationHook,
                 SessionSaveHook,
                 BootstrapHook,
                 SkillEnvHook,
@@ -391,9 +389,9 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
         if _api_action_command_specs:
             # pylint: disable-next=protected-access
-            workspace_registry._bootstrap_kwargs["builtin_command_specs"] = (
-                _api_action_command_specs
-            )
+            workspace_registry._bootstrap_kwargs[
+                "builtin_command_specs"
+            ] = _api_action_command_specs
 
     except Exception:
         logger.debug(
@@ -504,6 +502,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                         exc_info=True,
                     )
             logger.debug(f"Loaded {len(loaded_plugins)} plugin(s)")
+            workspace_registry.apply_plugin_registry(plugin_loader.registry)
 
             runtime_helpers = RuntimeHelpers(
                 provider_manager=provider_manager,

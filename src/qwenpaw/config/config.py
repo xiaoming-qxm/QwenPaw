@@ -210,7 +210,9 @@ class IMessageChannelConfig(BaseChannelConfig):
     db_path: str = "~/Library/Messages/chat.db"
     poll_sec: float = 1.0
     media_dir: Optional[str] = None
-    max_decoded_size: int = 10 * 1024 * 1024  # 10MB default limit for Base64 data
+    max_decoded_size: int = (
+        10 * 1024 * 1024
+    )  # 10MB default limit for Base64 data
 
 
 class DiscordConfig(BaseChannelConfig):
@@ -519,7 +521,8 @@ class AutoMemorySearchConfig(BaseModel):
         default=2,
         ge=1,
         description=(
-            "Maximum number of results to return when auto memory" " search is enabled"
+            "Maximum number of results to return when auto memory"
+            " search is enabled"
         ),
     )
 
@@ -528,7 +531,8 @@ class AutoMemorySearchConfig(BaseModel):
         ge=0.0,
         le=1.0,
         description=(
-            "Minimum relevance score for results when auto memory" " search is enabled"
+            "Minimum relevance score for results when auto memory"
+            " search is enabled"
         ),
     )
 
@@ -723,7 +727,9 @@ class ToolResultPruningConfig(BaseModel):
     pruning_recent_msg_max_bytes: int = Field(
         default=50000,
         ge=1000,
-        description=("Byte threshold for recent messages in tool result pruning"),
+        description=(
+            "Byte threshold for recent messages in tool result pruning"
+        ),
     )
 
     offload_retention_days: int = Field(
@@ -773,7 +779,9 @@ class LightContextConfig(BaseModel):
         default=4,
         ge=2,
         le=5,
-        description=("Divisor for byte-based token estimation (byte_len / divisor)"),
+        description=(
+            "Divisor for byte-based token estimation (byte_len / divisor)"
+        ),
     )
 
     context_compact_config: ContextCompactConfig = Field(
@@ -824,7 +832,9 @@ class AgentsRunningConfig(BaseModel):
     max_iters: int = Field(
         default=100,
         ge=1,
-        description=("Maximum number of reasoning-acting iterations for ReAct agent"),
+        description=(
+            "Maximum number of reasoning-acting iterations for ReAct agent"
+        ),
     )
 
     auto_continue_on_text_only: bool = Field(
@@ -950,7 +960,9 @@ class AgentsRunningConfig(BaseModel):
     max_input_length: int = Field(
         default=128 * 1024,  # 128K = 131072 tokens
         ge=1000,
-        description=("Maximum input length (tokens) for the model context window"),
+        description=(
+            "Maximum input length (tokens) for the model context window"
+        ),
     )
 
     history_max_length: int = Field(
@@ -968,7 +980,8 @@ class AgentsRunningConfig(BaseModel):
     auto_title_config: AutoTitleConfig = Field(
         default_factory=AutoTitleConfig,
         description=(
-            "Async chat-title generation toggle and timeout. See " "AutoTitleConfig."
+            "Async chat-title generation toggle and timeout. See "
+            "AutoTitleConfig."
         ),
     )
 
@@ -1816,12 +1829,18 @@ def build_fallback_agent_profile_config(
         description=f"{agent_id} agent",
         workspace_dir=str(workspace_dir),
         channels=(
-            config.channels if hasattr(config, "channels") and config.channels else None
+            config.channels
+            if hasattr(config, "channels") and config.channels
+            else None
         ),
         mcp=config.mcp if hasattr(config, "mcp") and config.mcp else None,
-        tools=(config.tools if hasattr(config, "tools") and config.tools else None),
+        tools=(
+            config.tools if hasattr(config, "tools") and config.tools else None
+        ),
         security=(
-            config.security if hasattr(config, "security") and config.security else None
+            config.security
+            if hasattr(config, "security") and config.security
+            else None
         ),
         running=(
             config.agents.running
@@ -1830,7 +1849,8 @@ def build_fallback_agent_profile_config(
         ),
         llm_routing=(
             config.agents.llm_routing
-            if hasattr(config.agents, "llm_routing") and config.agents.llm_routing
+            if hasattr(config.agents, "llm_routing")
+            and config.agents.llm_routing
             else AgentsLLMRoutingConfig()
         ),
         system_prompt_files=(
@@ -1867,7 +1887,10 @@ def _migrate_access_control_fields(  # pylint: disable=too-many-branches
         # group_policy → access_control_group or group_disabled
         group_policy = ch_cfg.get("group_policy")
         if group_policy is not None:
-            if group_policy == "allowlist" and "access_control_group" not in ch_cfg:
+            if (
+                group_policy == "allowlist"
+                and "access_control_group" not in ch_cfg
+            ):
                 ch_cfg["access_control_group"] = True
             elif group_policy == "disabled" and "group_disabled" not in ch_cfg:
                 ch_cfg["group_disabled"] = True
@@ -2126,10 +2149,14 @@ def migrate_legacy_config_to_multi_agent() -> bool:
         channels=config.channels if config.channels else None,
         mcp=config.mcp if config.mcp else None,
         heartbeat=(
-            legacy_agents.defaults.heartbeat if legacy_agents.defaults else None
+            legacy_agents.defaults.heartbeat
+            if legacy_agents.defaults
+            else None
         ),
         running=(
-            legacy_agents.running if legacy_agents.running else AgentsRunningConfig()
+            legacy_agents.running
+            if legacy_agents.running
+            else AgentsRunningConfig()
         ),
         llm_routing=(
             legacy_agents.llm_routing

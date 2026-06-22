@@ -166,7 +166,6 @@ class Runtime:
                         getattr(ctx, "session_id", ""),
                         exc_info=True,
                     )
-            await self._finalize_browser_control(ctx)
             await hooks.run(Phase.FINALLY, ctx)
 
     # ----------------------------------------------------------------- helpers
@@ -201,42 +200,6 @@ class Runtime:
             app_services=self.app_services,
             input_msgs=_request_input_to_msgs(request.input),
         )
-
-    @staticmethod
-    async def _finalize_browser_control(ctx: HookContext) -> None:
-        try:
-            from pathlib import Path
-
-            workspace_dir = getattr(ctx, "workspace_dir", None)
-            workspace_id = Path(workspace_dir).name if workspace_dir else ""
-            session_id = getattr(ctx, "session_id", "") or ""
-            root_session_id = getattr(ctx, "root_session_id", "") or ""
-            if ctx.error is None:
-                from ..agents.tools.browser_control import (
-                    release_control_sessions_for_request,
-                )
-
-                await release_control_sessions_for_request(
-                    session_id=session_id,
-                    root_session_id=root_session_id,
-                    workspace_id=workspace_id,
-                )
-            else:
-                from ..agents.tools.browser_control import (
-                    cleanup_control_sessions_for_request,
-                )
-
-                await cleanup_control_sessions_for_request(
-                    session_id=session_id,
-                    root_session_id=root_session_id,
-                    workspace_id=workspace_id,
-                )
-        except Exception:  # pylint: disable=broad-except
-            logger.warning(
-                "runtime: browser control finalization failed session=%s",
-                getattr(ctx, "session_id", ""),
-                exc_info=True,
-            )
 
 
 __all__ = ["Runtime"]

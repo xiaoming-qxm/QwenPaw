@@ -39,7 +39,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _STALE_BROWSER_RESULT_MAX_BYTES = 1000
-_BROWSER_OBSERVATION_TOOLS = {"browser_use"}
 
 
 def _fmt_tokens(n: int) -> str:
@@ -259,20 +258,24 @@ class LightContextManager(BaseContextManager):
         return output
 
     @staticmethod
-    def _is_browser_observation_result(block: Any) -> bool:
+    def _is_plugin_observation_result(block: Any) -> bool:
         name = str(_block_get(block, "name", "") or "").lower()
-        if name not in _BROWSER_OBSERVATION_TOOLS:
+        if not name:
             return False
-        output = _block_get(block, "output")
-        if isinstance(output, str):
-            return '"snapshot"' in output or '"screenshot"' in output
-        if isinstance(output, list):
-            for item in output:
-                if _block_type(item) != "text":
-                    continue
-                text = str(_block_get(item, "text", "") or "")
-                if '"snapshot"' in text or '"screenshot"' in text:
-                    return True
+        try:
+            from ...plugins.registry import PluginRegistry
+
+            registration = PluginRegistry().get_context_handlers().get(name)
+        except Exception:
+            registration = None
+        if registration is None:
+            return False
+        handler = registration.handler
+        is_observation = getattr(handler, "is_observation_result", None)
+        if callable(is_observation):
+            return bool(is_observation(block))
+        if callable(handler):
+            return bool(handler(block))
         return False
 
     @staticmethod
@@ -378,7 +381,7 @@ class LightContextManager(BaseContextManager):
             effective_max_bytes = (
                 recent_max_bytes if tool_id in exempt_tool_ids else max_bytes
             )
-            if not is_recent and self._is_browser_observation_result(block):
+            if not is_recent and self._is_plugin_observation_result(block):
                 effective_max_bytes = min(
                     effective_max_bytes,
                     _STALE_BROWSER_RESULT_MAX_BYTES,

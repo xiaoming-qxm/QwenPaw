@@ -84,6 +84,41 @@ class ControlCommandRegistration:
 
 
 @dataclass
+class SessionHookRegistration:
+    """Runtime session hook contributed by a plugin."""
+
+    plugin_id: str
+    hook: Any
+    priority: int = 100
+
+
+@dataclass
+class PromptContributorRegistration:
+    """Prompt contributor contributed by a plugin."""
+
+    plugin_id: str
+    contributor: Any
+    priority: int = 100
+
+
+@dataclass
+class ContextHandlerRegistration:
+    """Tool-result context handler contributed by a plugin."""
+
+    plugin_id: str
+    tool_name: str
+    handler: Any
+
+
+@dataclass
+class SlashCommandRegistration:
+    """Slash command contributed by a plugin."""
+
+    plugin_id: str
+    spec: Any
+
+
+@dataclass
 class HttpRouterRegistration:
     """HTTP routes contributed by a backend plugin under ``/api``."""
 
@@ -122,6 +157,10 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         self._uninstall_hooks: List[HookRegistration] = []
         self._workspace_created_hooks: List[HookRegistration] = []
         self._control_commands: List[ControlCommandRegistration] = []
+        self._session_hooks: List[SessionHookRegistration] = []
+        self._prompt_contributors: List[PromptContributorRegistration] = []
+        self._context_handlers: Dict[str, ContextHandlerRegistration] = {}
+        self._slash_commands: List[SlashCommandRegistration] = []
         self._runtime_helpers = None
         self._plugin_manifests: Dict[str, Dict[str, Any]] = {}
         self._plugin_http_app: Optional[Any] = None
@@ -553,6 +592,104 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         """
         return self._control_commands.copy()
 
+    def register_session_hook(
+        self,
+        plugin_id: str,
+        hook: Any,
+        priority: int = 100,
+    ) -> None:
+        """Register a runtime session hook contributed by a plugin."""
+        registration = SessionHookRegistration(
+            plugin_id=plugin_id,
+            hook=hook,
+            priority=priority,
+        )
+        self._session_hooks.append(registration)
+        self._session_hooks.sort(key=lambda item: item.priority)
+        logger.info(
+            "Registered session hook from plugin '%s' (priority=%s)",
+            plugin_id,
+            priority,
+        )
+
+    def get_session_hooks(self) -> List[SessionHookRegistration]:
+        """Return plugin session hooks sorted by priority."""
+        return self._session_hooks.copy()
+
+    def register_prompt_contributor(
+        self,
+        plugin_id: str,
+        contributor: Any,
+        priority: int = 100,
+    ) -> None:
+        """Register a prompt contributor contributed by a plugin."""
+        registration = PromptContributorRegistration(
+            plugin_id=plugin_id,
+            contributor=contributor,
+            priority=priority,
+        )
+        self._prompt_contributors.append(registration)
+        self._prompt_contributors.sort(key=lambda item: item.priority)
+        logger.info(
+            "Registered prompt contributor from plugin '%s' (priority=%s)",
+            plugin_id,
+            priority,
+        )
+
+    def get_prompt_contributors(
+        self,
+    ) -> List[PromptContributorRegistration]:
+        """Return plugin prompt contributors sorted by priority."""
+        return self._prompt_contributors.copy()
+
+    def register_context_handler(
+        self,
+        plugin_id: str,
+        tool_name: str,
+        handler: Any,
+    ) -> None:
+        """Register a context handler for tool result pruning."""
+        normalized = str(tool_name or "").strip().lower()
+        if not normalized:
+            raise ValueError("tool_name must be non-empty")
+        existing = self._context_handlers.get(normalized)
+        if existing is not None and existing.plugin_id != plugin_id:
+            raise ValueError(
+                f"Context handler for tool '{normalized}' is already "
+                f"registered by plugin '{existing.plugin_id}'",
+            )
+        self._context_handlers[normalized] = ContextHandlerRegistration(
+            plugin_id=plugin_id,
+            tool_name=normalized,
+            handler=handler,
+        )
+        logger.info(
+            "Registered context handler for tool '%s' from plugin '%s'",
+            normalized,
+            plugin_id,
+        )
+
+    def get_context_handlers(
+        self,
+    ) -> Dict[str, ContextHandlerRegistration]:
+        """Return registered context handlers keyed by tool name."""
+        return self._context_handlers.copy()
+
+    def register_slash_command(self, plugin_id: str, spec: Any) -> None:
+        """Register a slash command contributed by a plugin."""
+        self._slash_commands.append(
+            SlashCommandRegistration(plugin_id=plugin_id, spec=spec),
+        )
+        logger.info(
+            "Registered slash command from plugin '%s': /%s",
+            plugin_id,
+            getattr(spec, "name", ""),
+        )
+
+    def get_slash_commands(self) -> List[SlashCommandRegistration]:
+        """Return plugin slash commands in registration order."""
+        return self._slash_commands.copy()
+
     def register_plugin_manifest(
         self,
         plugin_id: str,
@@ -630,6 +767,20 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         ]
         self._control_commands = [
             c for c in self._control_commands if c.plugin_id != plugin_id
+        ]
+        self._session_hooks = [
+            h for h in self._session_hooks if h.plugin_id != plugin_id
+        ]
+        self._prompt_contributors = [
+            c for c in self._prompt_contributors if c.plugin_id != plugin_id
+        ]
+        self._context_handlers = {
+            name: registration
+            for name, registration in self._context_handlers.items()
+            if registration.plugin_id != plugin_id
+        }
+        self._slash_commands = [
+            c for c in self._slash_commands if c.plugin_id != plugin_id
         ]
         logger.info(
             f"Unregistered all entries for plugin '{plugin_id}'",

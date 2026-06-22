@@ -155,7 +155,9 @@ async def pump_ws_to_stdout(ws: Any, writer: BinaryIO) -> None:
         if isinstance(raw_message, bytes):
             raw_message = raw_message.decode("utf-8")
         message = (
-            json.loads(raw_message) if isinstance(raw_message, str) else raw_message
+            json.loads(raw_message)
+            if isinstance(raw_message, str)
+            else raw_message
         )
         await asyncio.to_thread(write_nm_message, writer, message)
 

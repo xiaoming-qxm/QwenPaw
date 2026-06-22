@@ -11,6 +11,13 @@ from qwenpaw.browser.connection_manager import (
 )
 from qwenpaw.plugins.api import PluginApi
 
+from .hooks import (
+    BrowserControlContextHandler,
+    BrowserControlContinuationHook,
+    BrowserControlFinalizeHook,
+    BrowserControlPromptContributor,
+    create_browser_control_command,
+)
 from .nm_bridge import get_nm_bridge
 from .routes import api_router, get_extension_status, ws_router
 
@@ -40,6 +47,23 @@ class BrowserControlPlugin:
             callback=clear_bridge_connection_manager,
             priority=120,
         )
+        api.register_session_hook(
+            BrowserControlContinuationHook,
+            priority=BrowserControlContinuationHook.priority,
+        )
+        api.register_session_hook(
+            BrowserControlFinalizeHook,
+            priority=BrowserControlFinalizeHook.priority,
+        )
+        api.register_prompt_contributor(
+            BrowserControlPromptContributor,
+            priority=BrowserControlPromptContributor.priority,
+        )
+        api.register_context_handler(
+            "browser_use",
+            BrowserControlContextHandler(),
+        )
+        api.register_slash_command(create_browser_control_command())
         logger.info("Browser Control plugin registered: %s", api.plugin_id)
 
     def get_runtime_status(self) -> dict:

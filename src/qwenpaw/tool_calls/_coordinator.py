@@ -192,7 +192,9 @@ class ToolCoordinator:
                     exc_info=True,
                 )
 
-        bg_task_name = entry.background_task.get_name() if entry.background_task else ""
+        bg_task_name = (
+            entry.background_task.get_name() if entry.background_task else ""
+        )
         reason = ctx.offload_reason.value if ctx.offload_reason else "unknown"
         return ToolResponse(
             content=[
@@ -406,7 +408,9 @@ class ToolCoordinator:
     ) -> _NextEvent:
         loop = asyncio.get_running_loop()
         remaining = (
-            entry.ctx.deadline - loop.time() if entry.ctx.deadline is not None else None
+            entry.ctx.deadline - loop.time()
+            if entry.ctx.deadline is not None
+            else None
         )
 
         if remaining is not None and remaining <= 0:

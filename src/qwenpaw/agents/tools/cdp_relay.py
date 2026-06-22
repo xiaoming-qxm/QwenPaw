@@ -40,7 +40,8 @@ class CDPRelaySession:
         approval_callback: Callable[[dict[str, Any]], Any] | None = None,
         request_context: dict[str, Any] | None = None,
         permissions_config: Any | None = None,
-        stop_callback: Callable[["CDPRelaySession", dict[str, Any]], Any] | None = None,
+        stop_callback: Callable[["CDPRelaySession", dict[str, Any]], Any]
+        | None = None,
         heartbeat_interval: float = 10.0,
         watchdog_interval: float = 5.0,
         idle_timeout: float = 300.0,

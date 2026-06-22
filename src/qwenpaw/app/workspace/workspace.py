@@ -245,6 +245,72 @@ class Workspace:
             len(self.plugins.modes),
         )
 
+    def apply_plugin_registry(  # pylint: disable=too-many-branches
+        self,
+        registry: Any,
+    ) -> None:
+        """Install plugin-contributed runtime pieces into this workspace."""
+
+        def _materialize(component: Any) -> Any:
+            return component() if isinstance(component, type) else component
+
+        applied = self.plugins.applied_plugin_registry_keys
+
+        for reg in registry.get_session_hooks():
+            hook = _materialize(reg.hook)
+            name = getattr(hook, "name", hook.__class__.__name__)
+            key = f"session_hook:{reg.plugin_id}:{name}"
+            if key in applied:
+                continue
+            if reg.priority is not None:
+                setattr(hook, "priority", reg.priority)
+            try:
+                self.plugins.hook_registry.register(hook)
+            except ValueError:
+                logger.debug(
+                    "plugin session hook already registered: %s",
+                    name,
+                )
+            else:
+                applied.add(key)
+
+        for reg in registry.get_prompt_contributors():
+            contributor = _materialize(reg.contributor)
+            name = getattr(
+                contributor,
+                "name",
+                contributor.__class__.__name__,
+            )
+            key = f"prompt_contributor:{reg.plugin_id}:{name}"
+            if key in applied:
+                continue
+            if reg.priority is not None:
+                setattr(contributor, "priority", reg.priority)
+            try:
+                self.plugins.prompt_manager.register(contributor)
+            except ValueError:
+                logger.debug(
+                    "plugin prompt contributor already registered: %s",
+                    name,
+                )
+            else:
+                applied.add(key)
+
+        for reg in registry.get_slash_commands():
+            name = getattr(reg.spec, "name", "")
+            key = f"slash_command:{reg.plugin_id}:{name}"
+            if key in applied:
+                continue
+            try:
+                self.plugins.slash_command_registry.register(reg.spec)
+            except ValueError:
+                logger.debug(
+                    "plugin slash command already registered: %s",
+                    name,
+                )
+            else:
+                applied.add(key)
+
     def set_manager(self, manager) -> None:
         """Set reference to MultiAgentManager for /daemon restart.
 

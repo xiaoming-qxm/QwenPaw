@@ -282,7 +282,11 @@ def _dom_snapshot_string(strings: Any, value: Any) -> str:
 
 
 def _dom_snapshot_value_at(values: Any, index: int) -> Any:
-    return values[index] if isinstance(values, list) and index < len(values) else None
+    return (
+        values[index]
+        if isinstance(values, list) and index < len(values)
+        else None
+    )
 
 
 def _normalize_dom_text(text: str) -> str:
@@ -312,15 +316,20 @@ def _looks_like_encoded_blob(text: str) -> bool:
     if len(compact) < 120:
         return False
 
-    base64_chars = sum(1 for ch in compact if ch.isalnum() or ch in {"+", "/", "="})
-    symbol_hint = any(ch in compact for ch in {"+", "/", "="})
+    base64_chars = sum(
+        1 for ch in compact if ch.isalnum() or ch in {"+", "/", "="}
+    )
+    symbol_hint = any(ch in compact for ch in ("+", "/", "="))
     digit_count = sum(1 for ch in compact if ch.isdigit())
     return base64_chars / len(compact) > 0.96 and (
         symbol_hint or digit_count / len(compact) > 0.12
     )
 
 
-def _dom_snapshot_backend_node_id(nodes: dict[str, Any], node_index: int) -> int | None:
+def _dom_snapshot_backend_node_id(
+    nodes: dict[str, Any],
+    node_index: int,
+) -> int | None:
     backend_ids = nodes.get("backendNodeId")
     value = _dom_snapshot_value_at(backend_ids, node_index)
     if isinstance(value, int):
@@ -334,7 +343,9 @@ def _dom_snapshot_bounds_center(bounds: Any) -> tuple[float, float] | None:
     if not isinstance(bounds, list) or len(bounds) < 4:
         return None
     x, y, width, height = bounds[:4]
-    if not all(isinstance(value, (int, float)) for value in (x, y, width, height)):
+    if not all(
+        isinstance(value, (int, float)) for value in (x, y, width, height)
+    ):
         return None
     if width <= 0 or height <= 0:
         return None
@@ -354,6 +365,7 @@ def _unique_dom_text(
     return text
 
 
+# pylint: disable-next=too-many-branches,too-many-statements
 def from_cdp_dom_snapshot(
     snapshot_json: dict[str, Any],
 ) -> tuple[str, dict[str, dict]]:
@@ -413,7 +425,10 @@ def from_cdp_dom_snapshot(
                 )
                 if center is not None:
                     ref_data = {"x": center[0], "y": center[1]}
-                    backend_id = _dom_snapshot_backend_node_id(nodes, node_index)
+                    backend_id = _dom_snapshot_backend_node_id(
+                        nodes,
+                        node_index,
+                    )
                     if backend_id is not None:
                         ref_data["backendNodeId"] = backend_id
             append_line(text, ref_data)
@@ -470,9 +485,13 @@ def from_cdp_ax_tree(
     if not isinstance(nodes, list):
         return "(empty)", {}
 
-    by_id = {str(node.get("nodeId")): node for node in nodes if "nodeId" in node}
+    by_id = {
+        str(node.get("nodeId")): node for node in nodes if "nodeId" in node
+    }
     child_ids = {
-        str(child_id) for node in nodes for child_id in node.get("childIds", []) or []
+        str(child_id)
+        for node in nodes
+        for child_id in node.get("childIds", []) or []
     }
     roots = [
         node for node in nodes if str(node.get("nodeId")) not in child_ids

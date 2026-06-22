@@ -33,6 +33,7 @@ class WorkspaceRegistry(MultiAgentManager):
         super().__init__()
         self.app_services = app_services
         self._bootstrap_kwargs = bootstrap_plugins_kwargs or {}
+        self._plugin_registry = None
 
     def _create_workspace(self, agent_id: str, workspace_dir: str) -> Any:
         """Override to run bootstrap_plugins after creation."""
@@ -41,9 +42,17 @@ class WorkspaceRegistry(MultiAgentManager):
         workspace = Workspace(agent_id=agent_id, workspace_dir=workspace_dir)
         if self._bootstrap_kwargs:
             workspace.bootstrap_plugins(**self._bootstrap_kwargs)
+        if self._plugin_registry is not None:
+            workspace.apply_plugin_registry(self._plugin_registry)
         if self.app_services is not None:
             workspace.set_app_services(self.app_services)
         return workspace
+
+    def apply_plugin_registry(self, registry: Any) -> None:
+        """Apply plugin contributions to existing and future workspaces."""
+        self._plugin_registry = registry
+        for workspace in list(self.agents.values()):
+            workspace.apply_plugin_registry(registry)
 
 
 __all__ = ["WorkspaceRegistry"]

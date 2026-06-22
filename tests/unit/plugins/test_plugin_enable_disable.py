@@ -60,7 +60,9 @@ async def test_patch_plugin_disable_persists_and_unloads(
     assert record.enabled is False
     assert record.instance is None
     assert PluginStateStore().is_enabled("browser-control") is False
-    listed = {plugin["id"]: plugin for plugin in client.get("/api/plugins").json()}
+    listed = {
+        plugin["id"]: plugin for plugin in client.get("/api/plugins").json()
+    }
     assert listed["browser-control"]["enabled"] is False
     assert listed["browser-control"]["loaded"] is False
 

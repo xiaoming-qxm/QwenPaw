@@ -97,7 +97,9 @@ class PermissionsConfig:
     approved_domains: set[str] = field(default_factory=set)
 
 
-DEFAULT_PERMISSIONS_PATH = Path.home() / ".qwenpaw" / "browser-permissions.yaml"
+DEFAULT_PERMISSIONS_PATH = (
+    Path.home() / ".qwenpaw" / "browser-permissions.yaml"
+)
 
 
 def _domain_from_url(url: str | None) -> str | None:
