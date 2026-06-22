@@ -30,6 +30,8 @@ class ActionResult:
     message: str = ""
     data: dict[str, Any] = field(default_factory=dict)
     next_action: str | None = None
+    navigation_occurred: bool = False
+    needs_observation: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serializable representation."""

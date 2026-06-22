@@ -9,6 +9,148 @@ from .backends.playwright_advanced import *
 from .backends.playwright_interactions import *
 from .backends.playwright_batch_cdp import *
 from .backends.control import *
+from .observe_act import ObservationRequired, ObserveActGuard
+
+
+_CONTROL_OBSERVE_ACT_STATE_KEY = "_control_observe_act_guard"
+_CONTROL_GUARDED_ACTIONS = frozenset(
+    {
+        "click",
+        "type",
+        "press_key",
+        "navigate",
+    },
+)
+
+
+def _control_observe_act_guard(state) -> ObserveActGuard:
+    """Return the per-workspace observe-before-act guard."""
+    guard = state.get(_CONTROL_OBSERVE_ACT_STATE_KEY)
+    if not isinstance(guard, ObserveActGuard):
+        guard = ObserveActGuard()
+        state[_CONTROL_OBSERVE_ACT_STATE_KEY] = guard
+    return guard
+
+
+def _control_tool_payload(chunk) -> dict:
+    """Best-effort JSON payload extraction from a browser tool response."""
+    try:
+        return json.loads(chunk.content[0].text)
+    except Exception:  # pragma: no cover - defensive for malformed chunks
+        return {}
+
+
+def _control_guard_page_id(state, requested_page_id: str) -> str:
+    """Resolve a control page id to the key used by the backend."""
+    try:
+        return str(_control_page_id(state, requested_page_id))
+    except Exception:  # pragma: no cover - fallback for malformed state
+        return str(requested_page_id or "default")
+
+
+def _control_page_ids_from_payload(
+    state,
+    requested_page_id: str,
+    payload: dict,
+) -> set[str]:
+    """Collect stable page ids that may refer to the same control tab."""
+    page_ids = {
+        str(requested_page_id or "default"),
+        _control_guard_page_id(state, requested_page_id),
+    }
+    current_page_id = state.get("current_page_id")
+    if current_page_id not in (None, ""):
+        page_ids.add(str(current_page_id))
+    for key in ("page_id", "tab_id"):
+        value = payload.get(key)
+        if value not in (None, ""):
+            page_ids.add(str(value))
+    tab = payload.get("tab")
+    if isinstance(tab, dict):
+        tab_id = tab.get("id") or tab.get("tab_id")
+        if tab_id not in (None, ""):
+            page_ids.add(str(tab_id))
+    tabs = payload.get("tabs")
+    if isinstance(tabs, list):
+        for item in tabs:
+            if not isinstance(item, dict):
+                continue
+            tab_id = item.get("id") or item.get("tab_id")
+            if tab_id not in (None, ""):
+                page_ids.add(str(tab_id))
+    return {page_id for page_id in page_ids if page_id}
+
+
+def _control_payload_contains_observation(action: str, payload: dict) -> bool:
+    """Return whether a control response contains fresh page evidence."""
+    if action == "snapshot":
+        return isinstance(payload.get("snapshot"), str)
+    if action == "screenshot":
+        return bool(payload.get("path") or payload.get("filename"))
+    if action == "tabs":
+        return isinstance(payload.get("tabs"), list)
+    return False
+
+
+def _control_observation_required_response(
+    requested_page_id: str,
+    exc: ObservationRequired,
+) -> ToolChunk:
+    """Return a structured error when a control mutation lacks evidence."""
+    return _tool_response(
+        json.dumps(
+            {
+                "ok": False,
+                "mode": "control",
+                "error": f"Fresh observation required. {exc}",
+                "next_action": "snapshot",
+                "needs_observation": True,
+                "next_instruction": (
+                    'Call browser_use(action="snapshot", mode="control", '
+                    f'page_id="{requested_page_id}") before mutating this page.'
+                ),
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+    )
+
+
+async def _action_control_with_observe_act(
+    state,
+    action: str,
+    requested_page_id: str,
+    **kwargs,
+) -> ToolChunk:
+    """Apply observe-before-act semantics around the control backend."""
+    guard = _control_observe_act_guard(state)
+    guard_page_id = _control_guard_page_id(state, requested_page_id)
+    if action in _CONTROL_GUARDED_ACTIONS:
+        try:
+            guard.check_before_action(action, guard_page_id)
+        except ObservationRequired as exc:
+            return _control_observation_required_response(
+                guard_page_id,
+                exc,
+            )
+
+    response = await _action_control(
+        state,
+        action,
+        page_id=requested_page_id,
+        **kwargs,
+    )
+    payload = _control_tool_payload(response)
+    if payload.get("ok") is not True:
+        return response
+
+    page_ids = _control_page_ids_from_payload(state, requested_page_id, payload)
+    if _control_payload_contains_observation(action, payload):
+        guard.mark_observed_many(page_ids, source=action)
+    elif action in _CONTROL_GUARDED_ACTIONS:
+        for page_id in page_ids:
+            guard.clear(page_id)
+    return response
 
 async def stop_all_browsers() -> None:
     """Gracefully stop all active browser instances across all workspaces.
@@ -364,10 +506,10 @@ async def browser_use(  # pylint: disable=R0911,R0912
             return _browser_control_non_control_action_response(action)
 
         if mode_value == "control":
-            return await _action_control(
+            return await _action_control_with_observe_act(
                 state,
                 action,
-                page_id=requested_page_id,
+                requested_page_id=requested_page_id,
                 index=index,
                 url=url,
                 ref=ref,

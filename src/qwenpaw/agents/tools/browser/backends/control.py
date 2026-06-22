@@ -12,6 +12,87 @@ from ..control.inference import *
 from ..control.transitions import *
 from ..control.targets import *
 
+
+def _control_tab_url_from_tabs(
+    tabs: list[dict[str, Any]] | None,
+    tab_id: int,
+) -> str:
+    """Return the live URL for a tab from a discovered tab list."""
+    live_tabs = _control_live_tab_map(tabs)
+    if not live_tabs:
+        return ""
+    tab = live_tabs.get(tab_id)
+    if not isinstance(tab, dict):
+        return ""
+    return _control_tab_url(tab)
+
+
+def _control_click_navigation_status(
+    state: dict,
+    *,
+    tab_id: int,
+    before_tabs: list[dict[str, Any]] | None,
+    after_tabs: list[dict[str, Any]] | None,
+) -> tuple[bool, str]:
+    """Detect whether a click changed the current tab URL."""
+    before_url = _control_tab_url_from_tabs(before_tabs, tab_id)
+    if not before_url:
+        tab = (state.get("control_tabs") or {}).get(str(tab_id)) or {}
+        if isinstance(tab, dict):
+            before_url = str(tab.get("url") or "")
+
+    after_url = _control_tab_url_from_tabs(after_tabs, tab_id)
+    if after_url:
+        _control_refresh_tab_url(state, tab_id, after_url)
+
+    if not before_url or not after_url:
+        return False, after_url or before_url
+    return _control_url_key(before_url) != _control_url_key(after_url), after_url
+
+
+def _control_click_feedback_payload(
+    *,
+    tab_id: int,
+    navigation_occurred: bool,
+    url: str,
+) -> dict[str, Any]:
+    """Build the post-click response used when no transition payload exists."""
+    if navigation_occurred:
+        message = "Click completed and navigation was detected."
+        next_instruction = (
+            "The click changed the current tab. Observe it with snapshot "
+            "before taking another action."
+        )
+    else:
+        message = (
+            "Click completed, but no navigation was detected. If the target "
+            "destination is known, use browser_use(action=\"navigate\", "
+            f"mode=\"control\", page_id=\"{tab_id}\", url=\"...\") instead "
+            "of repeating the same click."
+        )
+        next_instruction = (
+            "Observe the page before another action. If this action should "
+            "have opened a known URL, navigate directly with that URL; if it "
+            "opened a tab asynchronously, the next observation will claim it "
+            "instead of repeating the opener action."
+        )
+
+    payload: dict[str, Any] = {
+        "ok": True,
+        "mode": "control",
+        "tab_id": tab_id,
+        "message": message,
+        "navigation_occurred": navigation_occurred,
+        "needs_observation": True,
+        "ready_for_observation": True,
+        "next_action": "snapshot",
+        "next_instruction": next_instruction,
+    }
+    if url:
+        payload["url"] = url
+    return payload
+
+
 async def _action_control(  # pylint: disable=too-many-return-statements
     state: dict,
     action: str,
@@ -530,6 +611,8 @@ async def _action_control(  # pylint: disable=too-many-return-statements
                 transition_tab_id if transition_tab_id is not None else tab_id,
                 action=action,
             )
+            transition_payload.setdefault("navigation_occurred", True)
+            transition_payload.setdefault("needs_observation", True)
             return _tool_response(
                 json.dumps(
                     transition_payload,
@@ -537,21 +620,21 @@ async def _action_control(  # pylint: disable=too-many-return-statements
                     indent=2,
                 ),
             )
+        after_tabs = await _control_discover_tabs_safe(bridge)
+        navigation_occurred, current_url = _control_click_navigation_status(
+            state,
+            tab_id=tab_id,
+            before_tabs=before_tabs,
+            after_tabs=after_tabs,
+        )
         _control_mark_observation_required(state, tab_id, action=action)
         return _tool_response(
             json.dumps(
-                {
-                    "ok": True,
-                    "mode": "control",
-                    "tab_id": tab_id,
-                    "ready_for_observation": True,
-                    "next_action": "snapshot",
-                    "next_instruction": (
-                        "Observe the page before another action. If this action "
-                        "opens a tab asynchronously, the next observation will "
-                        "claim it instead of repeating the opener action."
-                    ),
-                },
+                _control_click_feedback_payload(
+                    tab_id=tab_id,
+                    navigation_occurred=navigation_occurred,
+                    url=current_url,
+                ),
                 ensure_ascii=False,
                 indent=2,
             ),
