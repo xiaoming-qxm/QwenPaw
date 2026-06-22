@@ -41,6 +41,7 @@ Required behavior:
 - Visual fallback: call browser_use(action="screenshot", mode="control", page_id=...) when snapshot is empty.
 - Also use screenshot when snapshot only shows a generic RootWebArea.
 - Also use screenshot when snapshot misses key visual state, the page is mostly image/canvas based, layout matters, or structured evidence does not explain what to do next.
+- If you click a button or link and the next snapshot shows no observable change compared to the snapshot taken before the click (same URL, same elements, same refs), immediately take a screenshot before any further action. Confirmation dialogs, modals, overlays, toast notifications, and stale checkbox states are often invisible to structured snapshots and only appear in screenshots. Do not repeat the same click without visual verification.
 - The screenshot tool output includes the image as visual evidence.
 - Inspect that image directly from the tool result to decide the next browser action or verify completion.
 - Do not call browser_use(action="eval"), action="evaluate", run_code, JavaScript snippets, arbitrary CDP Runtime calls, or local shell/code tools to inspect the page.
