@@ -5,14 +5,25 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid
 from pathlib import Path
 from typing import Any
 
+from agentscope.event import (
+    TextBlockDeltaEvent,
+    TextBlockEndEvent,
+    TextBlockStartEvent,
+)
+from agentscope.message import Msg
 from qwenpaw.hooks.base import LifecycleHook
 from qwenpaw.runtime.hooks import HookContext, HookResult
 from qwenpaw.runtime.message_convert import _get_last_user_text
 from qwenpaw.runtime.phases import Phase
 
+from ..browser_mission_runner import (
+    DEFAULT_BROWSER_MISSION_MAX_ITERATIONS,
+    run_browser_mission,
+)
 from .prompt import (
     build_browser_control_prompt,
     set_internal_browser_control_prompt,
@@ -129,6 +140,113 @@ class BrowserControlContinuationHook(LifecycleHook):
         return HookResult()
 
 
+def _input_list(inputs: Any) -> list[Any]:
+    if inputs is None:
+        return []
+    return inputs if isinstance(inputs, list) else [inputs]
+
+
+def _is_browser_mission_message(item: Any) -> bool:
+    if not isinstance(item, Msg):
+        return False
+    metadata = getattr(item, "metadata", None)
+    return (
+        isinstance(metadata, dict) and metadata.get("browser_mission") is True
+    )
+
+
+def _browser_mission_message_text(item: Msg) -> str:
+    return "\n".join(
+        _block_text(block)
+        for block in _message_content(item)
+        if _block_text(block)
+    )
+
+
+def _browser_mission_text_events(item: Msg) -> list[Any]:
+    text = _browser_mission_message_text(item)
+    if not text:
+        return []
+    reply_id = uuid.uuid4().hex
+    block_id = uuid.uuid4().hex
+    return [
+        TextBlockStartEvent(reply_id=reply_id, block_id=block_id),
+        TextBlockDeltaEvent(
+            reply_id=reply_id,
+            block_id=block_id,
+            delta=text,
+        ),
+        TextBlockEndEvent(reply_id=reply_id, block_id=block_id),
+    ]
+
+
+def _browser_mission_prd_path(ctx: HookContext) -> str:
+    extras = getattr(ctx, "extras", {}) or {}
+    value = str(extras.get("browser_control_mission_prd_path") or "")
+    if value:
+        return value
+    request = getattr(ctx, "request", None)
+    request_context = getattr(request, "request_context", None)
+    if isinstance(request_context, dict):
+        return str(
+            request_context.get("browser_control_mission_prd_path") or "",
+        )
+    return ""
+
+
+class BrowserControlMissionHook(LifecycleHook):
+    """Run /browser-control requests inside a mission-style loop."""
+
+    phase = Phase.POST_AGENT_BUILD
+    name = "browser_control_mission"
+    priority = 70
+
+    async def run(self, ctx: HookContext) -> HookResult:
+        extras = getattr(ctx, "extras", {}) or {}
+        if not extras.get("browser_control_invocation"):
+            return HookResult()
+
+        prd_path = _browser_mission_prd_path(ctx)
+        agent = getattr(ctx, "agent", None)
+        if not prd_path or agent is None:
+            return HookResult()
+        if getattr(agent, "_browser_control_mission_wrapped", False):
+            return HookResult()
+
+        try:
+            max_iterations = int(
+                extras.get("browser_control_mission_max_iterations")
+                or DEFAULT_BROWSER_MISSION_MAX_ITERATIONS,
+            )
+        except (TypeError, ValueError):
+            max_iterations = DEFAULT_BROWSER_MISSION_MAX_ITERATIONS
+
+        original_reply_stream = getattr(agent, "reply_stream", None)
+        setattr(
+            agent,
+            "_browser_control_original_reply_stream",
+            original_reply_stream,
+        )
+        setattr(agent, "_browser_control_mission_wrapped", True)
+
+        async def mission_reply_stream(*, inputs=None, **_kwargs):
+            async for item in run_browser_mission(
+                agent,
+                _input_list(inputs),
+                prd_path,
+                max_iterations=max_iterations,
+            ):
+                if _is_browser_mission_message(item):
+                    for event in _browser_mission_text_events(item):
+                        yield event
+                    continue
+                if not isinstance(item, Msg):
+                    yield item
+
+        setattr(agent, "reply_stream", mission_reply_stream)
+        return HookResult()
+
+
 class BrowserControlFinalizeHook(LifecycleHook):
     """Release Browser Control resources at the end of each request."""
 
@@ -174,4 +292,5 @@ class BrowserControlFinalizeHook(LifecycleHook):
 __all__ = [
     "BrowserControlContinuationHook",
     "BrowserControlFinalizeHook",
+    "BrowserControlMissionHook",
 ]

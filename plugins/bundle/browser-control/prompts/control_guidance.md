@@ -2,6 +2,11 @@
 
 Required behavior:
 {{ continuation_rules }}
+- Browser Mission progress file: {{ mission_prd_path }}
+- The progress file contains stories with `passes` fields.
+- When a story goal is visibly complete, use edit_file to set that story's `passes` field to true in prd.json.
+- You may add new stories if required browser steps are discovered, but do not delete existing stories.
+- After all stories pass, give the final answer to the user.
 - Use browser_use with mode="control" for browser actions.
 - Turn the user's real-world browser goal into an observe-act-verify loop.
 - Observe the page, choose the next browser action, then verify the visible result before continuing or answering.

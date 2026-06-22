@@ -11,12 +11,14 @@ from .prompt import (
 from .session_hook import (
     BrowserControlContinuationHook,
     BrowserControlFinalizeHook,
+    BrowserControlMissionHook,
 )
 
 __all__ = [
     "BrowserControlContextHandler",
     "BrowserControlContinuationHook",
     "BrowserControlFinalizeHook",
+    "BrowserControlMissionHook",
     "BrowserControlPromptContributor",
     "build_browser_control_prompt",
     "create_browser_control_command",

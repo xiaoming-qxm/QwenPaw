@@ -15,6 +15,7 @@ from .hooks import (
     BrowserControlContextHandler,
     BrowserControlContinuationHook,
     BrowserControlFinalizeHook,
+    BrowserControlMissionHook,
     BrowserControlPromptContributor,
     create_browser_control_command,
 )
@@ -54,6 +55,10 @@ class BrowserControlPlugin:
         api.register_session_hook(
             BrowserControlFinalizeHook,
             priority=BrowserControlFinalizeHook.priority,
+        )
+        api.register_session_hook(
+            BrowserControlMissionHook,
+            priority=BrowserControlMissionHook.priority,
         )
         api.register_prompt_contributor(
             BrowserControlPromptContributor,
