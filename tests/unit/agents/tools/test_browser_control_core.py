@@ -25,7 +25,6 @@ from qwenpaw.agents.tools.cdp_permissions import (
 from qwenpaw.agents.tools.cdp_relay import (
     CDPPermissionDenied,
     CDPRelayError,
-    CDPRelayPaused,
     CDPRelaySession,
 )
 from qwenpaw.browser.connection_manager import (
@@ -338,7 +337,7 @@ async def test_control_session_uses_request_context_for_approval(
 
 
 @pytest.mark.asyncio
-async def test_cdp_relay_pause_resume_and_watchdog_release() -> None:
+async def test_cdp_relay_does_not_register_hitl_pause_controls() -> None:
     bridge = _EventBridge()
     session = CDPRelaySession(
         3,
@@ -348,14 +347,16 @@ async def test_cdp_relay_pause_resume_and_watchdog_release() -> None:
         watchdog_interval=0,
     )
 
+    assert "hitl.paused" not in bridge.handlers
+    assert "hitl.resumed" not in bridge.handlers
+    assert "hitl.stopped" not in bridge.handlers
+
     await bridge.emit("hitl.paused", {"tabId": 3})
-    with pytest.raises(CDPRelayPaused):
-        await session.send("Accessibility.getFullAXTree")
-
     await bridge.emit("hitl.resumed", {"tabId": 3})
+    result = await session.send("Accessibility.getFullAXTree")
 
-    assert session.paused is False
-    assert session.last_snapshot == {"nodes": []}
+    assert result == {"nodes": []}
+    assert session.last_snapshot is None
 
 
 @pytest.mark.asyncio

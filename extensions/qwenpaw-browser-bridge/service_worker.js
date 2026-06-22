@@ -394,26 +394,6 @@ async function cleanupOrphans() {
   }
 }
 
-async function stopManagedTab(tabId) {
-  if (tabId === undefined || tabId === null) {
-    return;
-  }
-
-  try {
-    await detachDebugger(tabId);
-  } catch (error) {
-    console.warn("Failed to detach tab after stop request", tabId, error);
-    managedTabs.delete(tabId);
-    await persistManagedTabs();
-  }
-
-  try {
-    await sendBannerMessage(tabId, "banner.hide", {});
-  } catch (error) {
-    console.debug("Failed to hide banner after stop request", tabId, error);
-  }
-}
-
 function reconnectBackoffSeconds() {
   if (reconnectAttempts <= 0) {
     return INITIAL_RECONNECT_BACKOFF_SECONDS;
@@ -673,9 +653,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     ...(message.params || {}),
     tabId,
   });
-  if (message.method === "hitl.stopped") {
-    void stopManagedTab(tabId);
-  }
   sendResponse({ ok: true });
   return false;
 });

@@ -191,14 +191,6 @@ async def _control_get_session(
         holder_id=holder_id,
         bridge=bridge,
         request_context=request_context,
-        stop_callback=lambda stopped_session, params: (
-            _control_cleanup_stopped_session(
-                state,
-                bridge,
-                stopped_session,
-                params,
-            )
-        ),
     )
     _control_sync_session_navigation_scope(state, session)
     sessions[key] = session

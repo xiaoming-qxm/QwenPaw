@@ -40,8 +40,6 @@ class CDPRelaySession:
         approval_callback: Callable[[dict[str, Any]], Any] | None = None,
         request_context: dict[str, Any] | None = None,
         permissions_config: Any | None = None,
-        stop_callback: Callable[["CDPRelaySession", dict[str, Any]], Any]
-        | None = None,
         heartbeat_interval: float = 10.0,
         watchdog_interval: float = 5.0,
         idle_timeout: float = 300.0,
@@ -50,7 +48,6 @@ class CDPRelaySession:
         self.holder_id = holder_id
         self.bridge = bridge
         self.approval_callback = approval_callback
-        self.stop_callback = stop_callback
         self.request_context = request_context or {}
         if permissions_config is None:
             from .cdp_permissions import load_permissions
@@ -72,19 +69,7 @@ class CDPRelaySession:
         self._watchdog_task: asyncio.Task[None] | None = None
         self._last_activity = self._now()
         self.closed_by_watchdog = False
-        self.paused = False
         self.last_snapshot: dict[str, Any] | None = None
-        self._registered_bridge_handlers: list[
-            tuple[str, Callable[[dict[str, Any]], Any]]
-        ] = []
-        if hasattr(self.bridge, "add_event_listener"):
-            for method, handler in (
-                ("hitl.paused", self._on_hitl_paused),
-                ("hitl.resumed", self._on_hitl_resumed),
-                ("hitl.stopped", self._on_hitl_stopped),
-            ):
-                self.bridge.add_event_listener(method, handler)
-                self._registered_bridge_handlers.append((method, handler))
         self._start_heartbeat()
         self._start_watchdog()
 
@@ -92,12 +77,7 @@ class CDPRelaySession:
         self,
         method: str,
         params: dict[str, Any] | None = None,
-        *,
-        ignore_paused: bool = False,
     ) -> dict[str, Any]:
-        if self.paused and not ignore_paused:
-            raise CDPRelayPaused("CDP relay is paused for user control")
-
         await self._ensure_approved(method, params or {})
         if hasattr(self.bridge, "validate_lease"):
             self.bridge.validate_lease(
@@ -170,11 +150,6 @@ class CDPRelaySession:
                 task.cancel()
                 with contextlib.suppress(asyncio.CancelledError, Exception):
                     await task
-        if hasattr(self.bridge, "remove_event_listener"):
-            for method, handler in self._registered_bridge_handlers:
-                with contextlib.suppress(ValueError):
-                    self.bridge.remove_event_listener(method, handler)
-        self._registered_bridge_handlers.clear()
         return True
 
     async def abandon(self) -> None:
@@ -198,33 +173,6 @@ class CDPRelaySession:
             await self.bridge.request("banner.hide", {"tabId": self.tab_id})
         with contextlib.suppress(Exception):
             await self.bridge.release(self.tab_id, self.holder_id)
-
-    def _event_matches(self, params: dict[str, Any]) -> bool:
-        tab_id = params.get("tabId")
-        return tab_id is None or int(tab_id) == self.tab_id
-
-    async def _on_hitl_paused(self, params: dict[str, Any]) -> None:
-        if self._event_matches(params):
-            self.paused = True
-
-    async def _on_hitl_resumed(self, params: dict[str, Any]) -> None:
-        if not self._event_matches(params):
-            return
-        self.paused = False
-        self.last_snapshot = await self.send(
-            "Accessibility.getFullAXTree",
-            ignore_paused=True,
-        )
-
-    async def _on_hitl_stopped(self, params: dict[str, Any]) -> None:
-        if not self._event_matches(params):
-            return
-        self.paused = True
-        await self.close()
-        if self.stop_callback is not None:
-            result = self.stop_callback(self, params)
-            if inspect.isawaitable(result):
-                await result
 
     async def _ensure_approved(
         self,

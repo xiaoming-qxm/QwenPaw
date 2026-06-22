@@ -24,6 +24,7 @@ from ..browser_mission_runner import (
     DEFAULT_BROWSER_MISSION_MAX_ITERATIONS,
     run_browser_mission,
 )
+from ..nm_bridge import get_nm_bridge
 from .prompt import (
     build_browser_control_prompt,
     set_internal_browser_control_prompt,
@@ -194,6 +195,45 @@ def _browser_mission_prd_path(ctx: HookContext) -> str:
     return ""
 
 
+def _active_control_tab_id(bridge: Any) -> int | None:
+    leases = getattr(bridge, "_leases", None)
+    if not isinstance(leases, dict):
+        return None
+
+    get_lease = getattr(bridge, "get_lease", None)
+    for raw_tab_id, raw_lease in reversed(list(leases.items())):
+        tab_id = getattr(raw_lease, "tab_id", raw_tab_id)
+        try:
+            tab_id = int(tab_id)
+        except (TypeError, ValueError):
+            continue
+        lease = get_lease(tab_id) if callable(get_lease) else raw_lease
+        if lease is not None:
+            return tab_id
+    return None
+
+
+async def _send_banner_status(status_text: str, phase: str) -> None:
+    try:
+        bridge = get_nm_bridge()
+        tab_id = _active_control_tab_id(bridge)
+        if tab_id is None:
+            return
+        await bridge.request(
+            "banner.show",
+            {
+                "tabId": tab_id,
+                "status_text": status_text,
+                "phase": phase,
+            },
+        )
+    except Exception:
+        logger.debug(
+            "browser control banner status update failed",
+            exc_info=True,
+        )
+
+
 class BrowserControlMissionHook(LifecycleHook):
     """Run /browser-control requests inside a mission-style loop."""
 
@@ -235,6 +275,7 @@ class BrowserControlMissionHook(LifecycleHook):
                 _input_list(inputs),
                 prd_path,
                 max_iterations=max_iterations,
+                banner_callback=_send_banner_status,
             ):
                 if _is_browser_mission_message(item):
                     for event in _browser_mission_text_events(item):

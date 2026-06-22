@@ -4,9 +4,12 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
+from inspect import isawaitable
 from pathlib import Path
 from typing import Any, AsyncGenerator
 
+from agentscope.event import TextBlockDeltaEvent
 from agentscope.message import Msg, TextBlock
 
 
@@ -79,6 +82,25 @@ def _assistant_msg(text: str) -> Msg:
     )
 
 
+async def _call_banner_callback(
+    banner_callback: Callable[[str, str], Any] | None,
+    status_text: str,
+    phase: str,
+) -> None:
+    if banner_callback is None:
+        return
+    result = banner_callback(status_text, phase)
+    if isawaitable(result):
+        await result
+
+
+def _first_meaningful_delta(item: Any) -> str:
+    if not isinstance(item, TextBlockDeltaEvent):
+        return ""
+    text = str(getattr(item, "delta", "") or "").strip()
+    return text if len(text) >= 5 else ""
+
+
 def _user_msg(text: str) -> Msg:
     return Msg(
         name="user",
@@ -127,16 +149,32 @@ async def run_browser_mission(
     msgs: list[Any],
     prd_path: str | Path,
     max_iterations: int = DEFAULT_BROWSER_MISSION_MAX_ITERATIONS,
+    banner_callback: Callable[[str, str], Any] | None = None,
 ) -> AsyncGenerator[Any, None]:
     """Run a Browser Control task until prd.json stories pass or limit hits."""
     path = Path(prd_path)
     current_msgs = list(msgs or [])
 
     for iteration in range(1, max_iterations + 1):
+        await _call_banner_callback(
+            banner_callback,
+            "正在思考...",
+            "thinking",
+        )
         last_msg: Msg | None = None
+        first_streamed_text_seen = False
         async for item in agent._reply(  # pylint: disable=protected-access
             inputs=current_msgs,
         ):
+            if not first_streamed_text_seen:
+                streamed_text = _first_meaningful_delta(item)
+                if streamed_text:
+                    first_streamed_text_seen = True
+                    await _call_banner_callback(
+                        banner_callback,
+                        streamed_text,
+                        "acting",
+                    )
             if isinstance(item, Msg):
                 last_msg = item
             yield item

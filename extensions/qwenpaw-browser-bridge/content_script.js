@@ -10,16 +10,15 @@
 
   const state = {
     visible: false,
-    paused: false,
-    statusText: "操控中",
+    phase: "thinking",
+    statusText: "正在思考...",
   };
 
   let host = null;
   let shadowRoot = null;
   let banner = null;
+  let pulseDot = null;
   let status = null;
-  let pauseButton = null;
-  let resumeButton = null;
   let cursor = null;
   let keyboard = null;
   let cursorPosition = { x: 24, y: 24 };
@@ -75,25 +74,21 @@
         white-space: nowrap;
       }
 
-      .qwenpaw-actions {
-        display: flex;
-        gap: 6px;
+      .qwenpaw-pulse-dot {
+        width: 9px;
+        height: 9px;
+        border-radius: 999px;
         flex: 0 0 auto;
       }
 
-      button {
-        appearance: none;
-        border: 1px solid rgba(20, 24, 36, 0.18);
-        border-radius: 6px;
-        background: #f8fafc;
-        color: #172033;
-        cursor: pointer;
-        font: inherit;
-        padding: 4px 8px;
+      .qwenpaw-pulse-dot[data-phase="thinking"] {
+        background: #16a34a;
+        animation: qwenpaw-pulse-thinking 1.6s ease-in-out infinite;
       }
 
-      button:hover {
-        background: #eef2f7;
+      .qwenpaw-pulse-dot[data-phase="acting"] {
+        background: #f59e0b;
+        animation: qwenpaw-pulse-acting 0.6s ease-in-out infinite;
       }
 
       .qwenpaw-cursor {
@@ -161,46 +156,41 @@
           transform: translate3d(var(--x), var(--y), 0) scale(1);
         }
       }
+
+      @keyframes qwenpaw-pulse-thinking {
+        0%,
+        100% {
+          box-shadow: 0 0 0 0 rgba(22, 163, 74, 0.34);
+          opacity: 0.72;
+        }
+        50% {
+          box-shadow: 0 0 0 7px rgba(22, 163, 74, 0);
+          opacity: 1;
+        }
+      }
+
+      @keyframes qwenpaw-pulse-acting {
+        0%,
+        100% {
+          box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.38);
+          opacity: 0.8;
+        }
+        50% {
+          box-shadow: 0 0 0 8px rgba(245, 158, 11, 0);
+          opacity: 1;
+        }
+      }
     `;
 
     banner = document.createElement("div");
     banner.className = "qwenpaw-banner";
 
+    pulseDot = document.createElement("div");
+    pulseDot.className = "qwenpaw-pulse-dot";
+
     status = document.createElement("div");
     status.className = "qwenpaw-status";
 
-    const actions = document.createElement("div");
-    actions.className = "qwenpaw-actions";
-
-    pauseButton = document.createElement("button");
-    pauseButton.type = "button";
-    pauseButton.textContent = "⏸ 暂停";
-    pauseButton.addEventListener("click", () => {
-      state.paused = true;
-      render();
-      emit("hitl.paused", {});
-    });
-
-    resumeButton = document.createElement("button");
-    resumeButton.type = "button";
-    resumeButton.textContent = "▶ 恢复";
-    resumeButton.addEventListener("click", () => {
-      state.paused = false;
-      render();
-      emit("hitl.resumed", {});
-    });
-
-    const stop = document.createElement("button");
-    stop.type = "button";
-    stop.textContent = "■ 停止";
-    stop.addEventListener("click", () => {
-      state.paused = false;
-      state.visible = false;
-      render();
-      emit("hitl.stopped", {});
-    });
-
-    actions.append(pauseButton, resumeButton, stop);
     cursor = document.createElement("div");
     cursor.className = "qwenpaw-cursor";
     cursor.innerHTML = `
@@ -219,7 +209,7 @@
     `;
     keyboard = document.createElement("div");
     keyboard.className = "qwenpaw-keyboard";
-    banner.append(status, actions);
+    banner.append(pulseDot, status);
     shadowRoot.append(style, banner, cursor, keyboard);
     render();
   }
@@ -229,13 +219,10 @@
       return;
     }
     banner.dataset.visible = state.visible ? "true" : "false";
-    if (pauseButton && resumeButton) {
-      pauseButton.disabled = state.paused;
-      resumeButton.disabled = !state.paused;
-      resumeButton.hidden = !state.paused;
+    if (pulseDot) {
+      pulseDot.dataset.phase = state.phase;
     }
-    const statusLabel = state.paused ? "已暂停" : "操控中";
-    status.textContent = `🐾 QwenPaw · ${statusLabel} · "${state.statusText}"`;
+    status.textContent = `QwenPaw · ${state.statusText}`;
   }
 
   function emit(method, params) {
@@ -378,7 +365,10 @@
     ensureBanner();
     state.visible = true;
     if (Object.prototype.hasOwnProperty.call(params, "status_text")) {
-      state.statusText = params.status_text || "操控中";
+      state.statusText = params.status_text || "正在思考...";
+    }
+    if (Object.prototype.hasOwnProperty.call(params, "phase")) {
+      state.phase = params.phase === "acting" ? "acting" : "thinking";
     }
     render();
     const animation = await animateCursor(params.cursor);
