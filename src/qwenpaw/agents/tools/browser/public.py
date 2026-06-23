@@ -238,6 +238,8 @@ async def browser_use(  # pylint: disable=R0911,R0912
     prompt_text: str = "",
     ref: str = "",
     element: str = "",
+    x: float | None = None,
+    y: float | None = None,
     paths_json: str = "",
     fields_json: str = "",
     key: str = "",
@@ -349,6 +351,12 @@ async def browser_use(  # pylint: disable=R0911,R0912
             produced by that click.
         element (str):
             Element description for evaluate etc. Prefer ref when available.
+        x (float | None):
+            Viewport x coordinate for control-mode click when no ref,
+            selector, or visible text target is available.
+        y (float | None):
+            Viewport y coordinate for control-mode click when no ref,
+            selector, or visible text target is available.
         paths_json (str):
             JSON array string of file paths. Used with action=file_upload.
         fields_json (str):
@@ -507,6 +515,8 @@ async def browser_use(  # pylint: disable=R0911,R0912
                 ref=ref,
                 selector=selector,
                 text=text,
+                x=x,
+                y=y,
                 path=path or filename,
                 full_page=full_page,
                 screenshot_type=screenshot_type,
