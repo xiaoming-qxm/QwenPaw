@@ -553,3 +553,10 @@ def from_cdp_ax_tree(
 
     _remove_nth_from_non_duplicates(refs, tracker)
     return "\n".join(lines) or "(empty)", refs
+
+
+__all__ = [
+    "INTERACTIVE_ROLES",
+    "from_cdp_ax_tree",
+    "from_cdp_dom_snapshot",
+]

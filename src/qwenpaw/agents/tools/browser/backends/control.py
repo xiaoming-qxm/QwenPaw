@@ -3,6 +3,8 @@
 # flake8: noqa: F401,F403,E501
 """Browser Control backend action dispatcher."""
 
+import hashlib
+
 from ..runtime import *
 from ..control.session_manager import *
 from ..control.navigation import *
@@ -106,6 +108,62 @@ def _control_click_feedback_payload(
     if url:
         payload["url"] = url
     return payload
+
+
+def _control_snapshot_hash(snapshot: str) -> str:
+    return hashlib.md5(snapshot.encode("utf-8")).hexdigest()[:16]
+
+
+def _control_refs_have_interactive_role(refs: dict[str, dict]) -> bool:
+    if not refs:
+        return False
+    from qwenpaw.agents.tools.browser_snapshot import INTERACTIVE_ROLES
+
+    return any(
+        str(ref.get("role") or "").lower() in INTERACTIVE_ROLES
+        for ref in refs.values()
+        if isinstance(ref, dict)
+    )
+
+
+async def _control_visual_context_block(session: Any) -> DataBlock | None:
+    try:
+        result = await session.send(
+            "Page.captureScreenshot",
+            {
+                "format": "jpeg",
+                "quality": 60,
+            },
+        )
+    except Exception:
+        logger.debug(
+            "Failed to capture adaptive visual fallback",
+            exc_info=True,
+        )
+        return None
+
+    data = result.get("data") if isinstance(result, dict) else None
+    if not isinstance(data, str) or not data:
+        return None
+    return DataBlock(
+        source=URLSource(
+            url=f"data:image/jpeg;base64,{data}",
+            media_type="image/jpeg",
+        ),
+        name="browser-control-visual-context.jpg",
+    )
+
+
+def _control_escalation_payload(info: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "failed_ref": str(info.get("failed_ref") or ""),
+        "consecutive_no_effect": int(info.get("consecutive_no_effect") or 0),
+        "hint": (
+            "The same target did not change the structured snapshot. "
+            "Use the attached screenshot to inspect visual state before "
+            "choosing a different target or coordinate click."
+        ),
+    }
 
 
 async def _action_control(  # pylint: disable=too-many-return-statements
@@ -537,10 +595,12 @@ async def _action_control(  # pylint: disable=too-many-return-statements
 
         snapshot, refs = from_cdp_ax_tree(ax_tree)
         snapshot_text = snapshot.strip()
+        degraded_snapshot = False
         if not refs and (
             len(snapshot_text) < 50
             or snapshot_text.startswith("- RootWebArea")
         ):
+            degraded_snapshot = True
             try:
                 dom_snapshot = await session.send(
                     "DOMSnapshot.captureSnapshot",
@@ -565,21 +625,39 @@ async def _action_control(  # pylint: disable=too-many-return-statements
                     "Failed to build control DOMSnapshot fallback",
                     exc_info=True,
                 )
+        if refs and not _control_refs_have_interactive_role(refs):
+            degraded_snapshot = True
+
+        snapshot_hash = _control_snapshot_hash(snapshot)
+        escalated, escalation_info = _click_effect_check(
+            state,
+            tab_id,
+            snapshot_hash,
+        )
+        _click_effect_record_snapshot(state, tab_id, snapshot_hash)
         state.setdefault("refs", {})[str(tab_id)] = refs
         _control_clear_observation_required(state, tab_id)
-        return _tool_response(
-            json.dumps(
-                {
-                    "ok": True,
-                    "mode": "control",
-                    "tab_id": tab_id,
-                    "snapshot": snapshot,
-                    "refs": refs,
-                },
-                ensure_ascii=False,
-                indent=2,
-            ),
-        )
+        payload = {
+            "ok": True,
+            "mode": "control",
+            "tab_id": tab_id,
+            "snapshot": snapshot,
+            "refs": refs,
+        }
+        if escalated:
+            payload["escalation"] = _control_escalation_payload(
+                escalation_info,
+            )
+        blocks = []
+        if degraded_snapshot or escalated:
+            visual_block = await _control_visual_context_block(session)
+            if visual_block is not None:
+                blocks.append(visual_block)
+
+        text = json.dumps(payload, ensure_ascii=False, indent=2)
+        if blocks:
+            return _tool_response_with_blocks(text, blocks)
+        return _tool_response(text)
 
     if action == "click":
         tab_id = _control_tab_id(
@@ -610,13 +688,34 @@ async def _action_control(  # pylint: disable=too-many-return-statements
             target = await _control_selector_target(session, selector)
         if not target and text:
             target = await _control_text_target(session, text)
-        x, y = await _control_resolve_point(
-            session,
-            target,
-            ref=ref or selector or text,
-            fallback_x=kwargs.get("x"),
-            fallback_y=kwargs.get("y"),
-        )
+        x_param = kwargs.get("x")
+        y_param = kwargs.get("y")
+        if (
+            not target
+            and not ref
+            and not selector
+            and not text
+            and x_param is not None
+            and y_param is not None
+        ):
+            viewport_width, viewport_height = await _control_viewport_size(
+                session,
+            )
+            x, y = await _control_snap_to_element(
+                session,
+                float(x_param),
+                float(y_param),
+                viewport_width,
+                viewport_height,
+            )
+        else:
+            x, y = await _control_resolve_point(
+                session,
+                target,
+                ref=ref or selector or text,
+                fallback_x=x_param,
+                fallback_y=y_param,
+            )
         before_url = _control_cached_tab_url(state, tab_id)
         before_tabs = await _control_discover_tabs_safe(bridge)
         if not before_url:
@@ -665,6 +764,14 @@ async def _action_control(  # pylint: disable=too-many-return-statements
             before_url=before_url,
         )
         _control_mark_observation_required(state, tab_id, action=action)
+        tracking_ref = str(ref or selector or text or "").strip()
+        if tracking_ref:
+            _click_effect_record_click(
+                state,
+                tab_id,
+                tracking_ref,
+                _click_effect_last_snapshot_hash(state, tab_id),
+            )
         return _tool_response(
             json.dumps(
                 _control_click_feedback_payload(

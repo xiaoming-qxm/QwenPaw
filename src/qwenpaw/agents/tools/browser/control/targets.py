@@ -37,8 +37,90 @@ def _control_quad_center(quads: Any) -> tuple[float, float] | None:
     return (sum(xs) / len(xs), sum(ys) / len(ys))
 
 
+def _control_quad_area(quad: Any) -> float:
+    if not isinstance(quad, list) or len(quad) < 8:
+        return 0.0
+    points = [
+        (float(quad[index]), float(quad[index + 1]))
+        for index in range(0, 8, 2)
+    ]
+    area = 0.0
+    for index, (x1, y1) in enumerate(points):
+        x2, y2 = points[(index + 1) % len(points)]
+        area += x1 * y2 - x2 * y1
+    return abs(area) / 2
+
+
 async def _control_enable_dom(session: Any) -> None:
     await session.send("DOM.enable")
+
+
+async def _control_viewport_size(session: Any) -> tuple[float, float]:
+    try:
+        metrics = await session.send("Page.getLayoutMetrics")
+    except Exception:
+        return (0.0, 0.0)
+    if not isinstance(metrics, dict):
+        return (0.0, 0.0)
+
+    for key in (
+        "cssVisualViewport",
+        "visualViewport",
+        "cssLayoutViewport",
+        "layoutViewport",
+        "contentSize",
+    ):
+        viewport = metrics.get(key)
+        if not isinstance(viewport, dict):
+            continue
+        width = viewport.get("clientWidth", viewport.get("width"))
+        height = viewport.get("clientHeight", viewport.get("height"))
+        if isinstance(width, (int, float)) and isinstance(
+            height,
+            (int, float),
+        ):
+            if width > 0 and height > 0:
+                return (float(width), float(height))
+    return (0.0, 0.0)
+
+
+async def _control_snap_to_element(
+    session: Any,
+    x: float,
+    y: float,
+    viewport_width: float,
+    viewport_height: float,
+) -> tuple[float, float]:
+    raw_point = (float(x), float(y))
+    try:
+        await _control_enable_dom(session)
+        located = await session.send(
+            "DOM.getNodeForLocation",
+            {
+                "x": int(round(x)),
+                "y": int(round(y)),
+                "includeUserAgentShadowDOM": True,
+                "ignorePointerEventsNone": True,
+            },
+        )
+        node_params = _control_node_params(located)
+        if node_params is None:
+            return raw_point
+        quads = await session.send("DOM.getContentQuads", node_params)
+    except Exception:
+        return raw_point
+
+    raw_quads = quads.get("quads") if isinstance(quads, dict) else None
+    if not isinstance(raw_quads, list) or not raw_quads:
+        return raw_point
+    quad = raw_quads[0]
+    area = _control_quad_area(quad)
+    viewport_area = float(viewport_width) * float(viewport_height)
+    if viewport_area > 0 and area > viewport_area * 0.05:
+        return raw_point
+
+    center = _control_quad_center(raw_quads)
+    return center if center is not None else raw_point
 
 
 async def _control_resolve_point(

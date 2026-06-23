@@ -9,6 +9,106 @@ from .navigation import *
 from .tab_manager import *
 
 
+def _click_effect_records(state: dict) -> dict[str, Any]:
+    records = state.setdefault("control_click_effects", {})
+    if isinstance(records, dict):
+        return records
+    records = {}
+    state["control_click_effects"] = records
+    return records
+
+
+def _click_effect_snapshot_hashes(state: dict) -> dict[str, str]:
+    hashes = state.setdefault("control_snapshot_hashes", {})
+    if isinstance(hashes, dict):
+        return hashes
+    hashes = {}
+    state["control_snapshot_hashes"] = hashes
+    return hashes
+
+
+def _click_effect_record_snapshot(
+    state: dict,
+    tab_id: int,
+    snapshot_hash: str,
+) -> None:
+    if not snapshot_hash:
+        return
+    _click_effect_snapshot_hashes(state)[str(tab_id)] = snapshot_hash
+
+
+def _click_effect_last_snapshot_hash(state: dict, tab_id: int) -> str:
+    hashes = state.get("control_snapshot_hashes")
+    if not isinstance(hashes, dict):
+        return ""
+    return str(hashes.get(str(tab_id)) or "")
+
+
+def _click_effect_record_click(
+    state: dict,
+    tab_id: int,
+    ref: str,
+    snapshot_hash: str,
+) -> None:
+    ref = str(ref or "").strip()
+    if not ref:
+        return
+
+    key = str(tab_id)
+    records = _click_effect_records(state)
+    previous = records.get(key)
+    previous_count = 0
+    if isinstance(previous, dict) and previous.get("ref") == ref:
+        previous_count = int(previous.get("consecutive_no_effect") or 0)
+
+    records[key] = {
+        "ref": ref,
+        "snapshot_hash": str(snapshot_hash or ""),
+        "consecutive_no_effect": previous_count,
+        "pending": True,
+    }
+
+
+def _click_effect_reset(state: dict, tab_id: int) -> None:
+    records = state.get("control_click_effects")
+    if not isinstance(records, dict):
+        return
+    records.pop(str(tab_id), None)
+    if not records:
+        state.pop("control_click_effects", None)
+
+
+def _click_effect_check(
+    state: dict,
+    tab_id: int,
+    current_hash: str,
+) -> tuple[bool, dict[str, Any]]:
+    key = str(tab_id)
+    records = state.get("control_click_effects")
+    if not isinstance(records, dict):
+        return False, {"no_effect": False}
+
+    record = records.get(key)
+    if not isinstance(record, dict) or not record.get("pending"):
+        return False, {"no_effect": False}
+
+    current_hash = str(current_hash or "")
+    previous_hash = str(record.get("snapshot_hash") or "")
+    if current_hash and previous_hash and current_hash == previous_hash:
+        consecutive = int(record.get("consecutive_no_effect") or 0) + 1
+        record["consecutive_no_effect"] = consecutive
+        record["pending"] = False
+        info = {
+            "no_effect": True,
+            "failed_ref": str(record.get("ref") or ""),
+            "consecutive_no_effect": consecutive,
+        }
+        return consecutive >= 2, info
+
+    _click_effect_reset(state, tab_id)
+    return False, {"no_effect": False}
+
+
 def _control_pending_observations(state: dict) -> dict[str, Any]:
     pending = state.setdefault("control_pending_observations", {})
     if isinstance(pending, dict):

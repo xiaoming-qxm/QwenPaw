@@ -24,6 +24,7 @@ CDP_CAPABILITY_MAP: dict[str, str] = {
     "DOM.enable": "perceive",
     "DOM.getDocument": "perceive",
     "DOM.getContentQuads": "perceive",
+    "DOM.getNodeForLocation": "perceive",
     "DOM.describeNode": "perceive",
     "DOM.querySelector": "perceive",
     "DOM.performSearch": "perceive",
