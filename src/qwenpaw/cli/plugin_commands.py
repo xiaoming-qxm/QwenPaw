@@ -3,6 +3,7 @@
 # pylint:disable=too-many-statements
 """Plugin management CLI commands."""
 
+import builtins
 import json
 import logging
 import os
@@ -14,7 +15,7 @@ import urllib.error
 import urllib.request
 import zipfile
 from pathlib import Path
-from typing import Optional
+from typing import Any, Dict, List, Optional
 
 import click
 
@@ -338,20 +339,66 @@ def _safe_extract_zip(zip_ref: zipfile.ZipFile, extract_path: Path):
     zip_ref.extractall(extract_path)
 
 
+def _tool_entries_from_manifest(
+    manifest: dict,
+) -> List[Dict[str, Any]]:
+    """Return tool entries declared by a tool plugin manifest."""
+    meta = manifest.get("meta", {})
+    entries: List[Dict[str, Any]] = []
+    seen: set[str] = set()
+
+    legacy_name = meta.get("tool_name")
+    if isinstance(legacy_name, str) and legacy_name.strip():
+        name = legacy_name.strip()
+        entries.append(
+            {
+                "name": name,
+                "description": meta.get("tool_description", ""),
+                "icon": meta.get("tool_icon", "🔧"),
+            },
+        )
+        seen.add(name)
+
+    tools = meta.get("tools", [])
+    if isinstance(tools, builtins.list):
+        for tool in tools:
+            if not isinstance(tool, dict):
+                continue
+            raw_name = tool.get("name")
+            if not isinstance(raw_name, str) or not raw_name.strip():
+                continue
+            name = raw_name.strip()
+            if name in seen:
+                continue
+            entries.append(
+                {
+                    "name": name,
+                    "description": tool.get(
+                        "description",
+                        meta.get("tool_description", ""),
+                    ),
+                    "icon": tool.get("icon", meta.get("tool_icon", "🔧")),
+                },
+            )
+            seen.add(name)
+
+    return entries
+
+
 def _sync_tool_plugin_to_agents(manifest: dict):
     """Add tool plugin to all existing agents.
 
     Args:
         manifest: Plugin manifest dictionary
     """
-    meta = manifest.get("meta", {})
-    tool_name = meta.get("tool_name")
+    tool_entries = _tool_entries_from_manifest(manifest)
 
     # Only process if this is a tool plugin
-    if not tool_name:
+    if not tool_entries:
         return
 
-    click.echo(f"🔄 Syncing tool '{tool_name}' to all agents...")
+    tool_names = ", ".join(entry["name"] for entry in tool_entries)
+    click.echo(f"🔄 Syncing tool(s) '{tool_names}' to all agents...")
 
     from ..config.utils import load_config
 
@@ -373,16 +420,28 @@ def _sync_tool_plugin_to_agents(manifest: dict):
             # Load agent config using agent_id
             agent_config = load_agent_config(agent_id)
 
-            # Check if tool already exists
-            if tool_name in agent_config.tools.builtin_tools:
-                continue
+            changed = False
+            for tool_entry in tool_entries:
+                tool_name = tool_entry["name"]
 
-            # Add tool config using Pydantic model
-            agent_config.tools.builtin_tools[tool_name] = BuiltinToolConfig(
-                name=tool_name,
-                enabled=False,
-                config={},
-            )
+                # Check if tool already exists
+                if tool_name in agent_config.tools.builtin_tools:
+                    continue
+
+                # Add tool config using Pydantic model
+                agent_config.tools.builtin_tools[
+                    tool_name
+                ] = BuiltinToolConfig(
+                    name=tool_name,
+                    enabled=False,
+                    description=str(tool_entry.get("description") or ""),
+                    icon=str(tool_entry.get("icon") or "🔧"),
+                    config={},
+                )
+                changed = True
+
+            if not changed:
+                continue
 
             # Save using config system
             save_agent_config(agent_id, agent_config)
@@ -395,9 +454,9 @@ def _sync_tool_plugin_to_agents(manifest: dict):
             )
 
     if synced_count > 0:
-        click.echo(f"✓ Synced tool to {synced_count} agent(s)")
+        click.echo(f"✓ Synced tool(s) to {synced_count} agent(s)")
     else:
-        click.echo("   All agents already have this tool")
+        click.echo("   All agents already have these tool(s)")
 
 
 def _remove_tool_plugin_from_agents(manifest: dict):
@@ -406,14 +465,17 @@ def _remove_tool_plugin_from_agents(manifest: dict):
     Args:
         manifest: Plugin manifest dictionary
     """
-    meta = manifest.get("meta", {})
-    tool_name = meta.get("tool_name")
+    tool_entries = _tool_entries_from_manifest(manifest)
 
     # Only process if this is a tool plugin
-    if not tool_name:
+    if not tool_entries:
         return
 
-    click.echo(f"🔄 Removing tool '{tool_name}' from all agents...")
+    tool_names = {entry["name"] for entry in tool_entries}
+    click.echo(
+        "🔄 Removing tool(s) "
+        f"'{', '.join(sorted(tool_names))}' from all agents...",
+    )
 
     from ..config.utils import get_agent_dirs
 
@@ -434,12 +496,18 @@ def _remove_tool_plugin_from_agents(manifest: dict):
             # Load agent config using Pydantic model
             config = load_agent_config(str(agent_dir))
 
-            # Check if tool exists
-            if tool_name not in config.tools.builtin_tools:
-                continue
+            removed = False
+            for tool_name in tool_names:
+                # Check if tool exists
+                if tool_name not in config.tools.builtin_tools:
+                    continue
 
-            # Remove tool
-            del config.tools.builtin_tools[tool_name]
+                # Remove tool
+                del config.tools.builtin_tools[tool_name]
+                removed = True
+
+            if not removed:
+                continue
 
             # Save using config system
             save_agent_config(str(agent_dir), config)
@@ -452,9 +520,9 @@ def _remove_tool_plugin_from_agents(manifest: dict):
             )
 
     if removed_count > 0:
-        click.echo(f"✓ Removed tool from {removed_count} agent(s)")
+        click.echo(f"✓ Removed tool(s) from {removed_count} agent(s)")
     else:
-        click.echo("   No agents had this tool")
+        click.echo("   No agents had these tool(s)")
 
 
 def _download_plugin_from_url(url: str) -> tuple[Path, Path]:

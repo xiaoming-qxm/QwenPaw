@@ -155,6 +155,9 @@ class VisionEngine:
         max_elements: int,
     ) -> list[dict[str, Any]]:
         if os.environ.get("VISION_FAKE_ENGINE") == "1":
+            fake_elements = os.environ.get("VISION_FAKE_ELEMENTS", "")
+            if fake_elements:
+                return _parse_model_json(fake_elements)
             return []
         if self.framework in {"mlx", "local"}:
             return self._infer_elements_mlx(image_path, max_elements)
