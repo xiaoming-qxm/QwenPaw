@@ -1,0 +1,56 @@
+{
+  "id": "local-vision-tool",
+  "name": "Local Vision",
+  "version": "0.1.0",
+  "type": "tool",
+  "description": "Parse UI screenshots into structured elements using a local vision model",
+  "description_i18n": {
+    "zh-CN": "使用本地视觉模型解析 UI 截图为结构化元素",
+    "en-US": "Parse UI screenshots into structured elements using a local vision model"
+  },
+  "author": "QwenPaw Team",
+  "entry": {
+    "backend": "local_vision.py"
+  },
+  "dependencies": ["Pillow>=10.0", "psutil>=5.9", "huggingface-hub>=0.20"],
+  "min_version": "1.2.0",
+  "meta": {
+    "tools": [
+      {
+        "name": "parse_screenshot",
+        "description": "Parse a UI screenshot and detect all interactive/visible elements with bounding boxes",
+        "icon": "👁️",
+        "requires_config": false,
+        "config_fields": [
+          {
+            "name": "model",
+            "label": "Vision Model",
+            "type": "select",
+            "required": false,
+            "default": "auto",
+            "options": ["auto", "7B", "3B"],
+            "help": "auto = select based on available memory (>=12GB -> 7B, <8GB -> 3B)"
+          },
+          {
+            "name": "model_path",
+            "label": "Local Model Path",
+            "type": "text",
+            "required": false,
+            "placeholder": "",
+            "help": "Override auto-download. Point to a local model directory."
+          },
+          {
+            "name": "max_elements",
+            "label": "Max Elements",
+            "type": "number",
+            "required": false,
+            "default": 50,
+            "min": 10,
+            "max": 200,
+            "help": "Maximum number of elements to return per parse"
+          }
+        ]
+      }
+    ]
+  }
+}
