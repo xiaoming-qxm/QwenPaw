@@ -290,15 +290,9 @@ async function activateTab(params) {
   if (tabId === undefined || tabId === null) {
     throw new Error("tabId required");
   }
+  // Only switch the active tab within Chrome; do NOT steal system focus.
+  // CDP commands work on background tabs, so window focus is unnecessary.
   const tab = await chrome.tabs.update(tabId, { active: true });
-  if (
-    tab &&
-    tab.windowId !== undefined &&
-    chrome.windows &&
-    chrome.windows.update
-  ) {
-    await chrome.windows.update(tab.windowId, { focused: true });
-  }
   return { tabId, active: true, windowId: tab && tab.windowId };
 }
 
