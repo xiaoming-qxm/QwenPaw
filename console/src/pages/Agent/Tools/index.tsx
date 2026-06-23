@@ -23,6 +23,7 @@ import { useTools } from "./useTools";
 import { useTranslation } from "react-i18next";
 import type { ToolInfo } from "../../../api/modules/tools";
 import { PageHeader } from "@/components/PageHeader";
+import { isToolConfigurable } from "./toolPresentation";
 import styles from "./index.module.less";
 
 /** Stable background colours for the initial-letter fallback icon. */
@@ -330,7 +331,7 @@ export default function ToolsPage() {
                     </Button>
                   )}
                   {/* Add configure button */}
-                  {tool.requires_config && (
+                  {isToolConfigurable(tool) && (
                     <Button
                       className={styles.toggleButton}
                       onClick={() => handleConfigure(tool)}
