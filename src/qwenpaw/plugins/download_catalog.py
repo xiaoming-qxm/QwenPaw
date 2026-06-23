@@ -8,6 +8,7 @@ import json
 import logging
 import urllib.error
 import urllib.request
+from pathlib import Path
 from typing import Any
 
 from packaging.version import InvalidVersion, Version
@@ -107,6 +108,82 @@ def _installed_plugin_ids() -> dict[str, str]:
     return installed
 
 
+def _source_bundled_plugin_entries(
+    installed: dict[str, str],
+) -> list[dict[str, Any]]:
+    """Return catalog entries for tool plugins shipped in a source checkout."""
+    repo_root = Path(__file__).resolve().parents[3]
+    tool_plugins_dir = repo_root / "plugins" / "tool"
+    if not tool_plugins_dir.is_dir():
+        return []
+
+    entries: list[dict[str, Any]] = []
+    for plugin_dir in sorted(tool_plugins_dir.iterdir()):
+        if not plugin_dir.is_dir():
+            continue
+        manifest_path = plugin_dir / "plugin.json"
+        if not manifest_path.is_file():
+            continue
+        try:
+            with open(manifest_path, encoding="utf-8") as f:
+                manifest = json.load(f)
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.debug("Skip source plugin %s: %s", manifest_path, exc)
+            continue
+
+        plugin_id = str(manifest.get("id") or plugin_dir.name)
+        version = str(manifest.get("version") or "")
+        installed_version = installed.get(plugin_id)
+        raw_desc = manifest.get("description_i18n")
+        description_i18n: dict[str, str] = {}
+        if isinstance(raw_desc, dict):
+            description_i18n = {k: str(v) for k, v in raw_desc.items() if v}
+
+        entries.append(
+            {
+                "id": plugin_id,
+                "plugin_id": plugin_id,
+                "name": _pick_en(manifest.get("name")),
+                "description": _pick_en(
+                    manifest.get("description_i18n")
+                    or manifest.get("description"),
+                ),
+                "description_i18n": description_i18n,
+                "version": version,
+                "author": str(manifest.get("author") or ""),
+                "kind": str(manifest.get("type") or "tool"),
+                "size": "",
+                "sha256": "",
+                "install_url": str(plugin_dir.resolve()),
+                "installed": plugin_id in installed,
+                "installed_version": installed_version,
+                "upgrade_available": _is_upgrade_available(
+                    installed_version or "",
+                    version,
+                ),
+            },
+        )
+
+    return entries
+
+
+def _merge_source_bundled_plugins(
+    result: dict[str, Any],
+    installed: dict[str, str],
+) -> None:
+    """Merge source-bundled plugin entries not present in remote catalog."""
+    existing_ids = {
+        str(plugin.get("plugin_id") or plugin.get("id") or "")
+        for plugin in result.get("plugins", [])
+        if isinstance(plugin, dict)
+    }
+    for entry in _source_bundled_plugin_entries(installed):
+        if entry["plugin_id"] in existing_ids:
+            continue
+        result["plugins"].append(entry)
+        existing_ids.add(entry["plugin_id"])
+
+
 def build_plugin_catalog() -> dict[str, Any]:
     """Download main + plugins index from CDN and normalize for the console.
 
@@ -116,22 +193,35 @@ def build_plugin_catalog() -> dict[str, Any]:
     """
     base = PLUGIN_DOWNLOAD_CDN.rstrip("/")
     result: dict[str, Any] = {"updated_at": None, "plugins": [], "error": None}
+    installed = _installed_plugin_ids()
 
     try:
         main_index = _fetch_json(f"{base}/metadata/index.json")
     except (urllib.error.URLError, json.JSONDecodeError, TimeoutError) as exc:
         logger.warning("Plugin catalog: main index fetch failed: %s", exc)
         result["error"] = "Failed to fetch plugin catalog index"
+        _merge_source_bundled_plugins(result, installed)
+        result["plugins"].sort(
+            key=lambda p: (p.get("kind") or "", p.get("name") or ""),
+        )
         return result
 
     products = main_index.get("products") or {}
     plugins_product = products.get("plugins")
     if not plugins_product:
+        _merge_source_bundled_plugins(result, installed)
+        result["plugins"].sort(
+            key=lambda p: (p.get("kind") or "", p.get("name") or ""),
+        )
         return result
 
     index_path = str(plugins_product.get("index_url") or "")
     if not index_path.startswith("/"):
         result["error"] = "Invalid plugins index_url in main metadata"
+        _merge_source_bundled_plugins(result, installed)
+        result["plugins"].sort(
+            key=lambda p: (p.get("kind") or "", p.get("name") or ""),
+        )
         return result
 
     try:
@@ -139,11 +229,14 @@ def build_plugin_catalog() -> dict[str, Any]:
     except (urllib.error.URLError, json.JSONDecodeError, TimeoutError) as exc:
         logger.warning("Plugin catalog: plugins index fetch failed: %s", exc)
         result["error"] = "Failed to fetch plugins metadata"
+        _merge_source_bundled_plugins(result, installed)
+        result["plugins"].sort(
+            key=lambda p: (p.get("kind") or "", p.get("name") or ""),
+        )
         return result
 
     result["updated_at"] = plugins_index.get("updated_at")
     files = plugins_index.get("files") or {}
-    installed = _installed_plugin_ids()
 
     plugins: list[dict[str, Any]] = []
     for _file_id, entry in files.items():
@@ -183,8 +276,11 @@ def build_plugin_catalog() -> dict[str, Any]:
             },
         )
 
-    plugins.sort(key=lambda p: (p.get("kind") or "", p.get("name") or ""))
     result["plugins"] = plugins
+    _merge_source_bundled_plugins(result, installed)
+    result["plugins"].sort(
+        key=lambda p: (p.get("kind") or "", p.get("name") or ""),
+    )
     return result
 
 
