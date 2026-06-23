@@ -4,7 +4,6 @@
 from qwenpaw.agents.tools.browser.control.observation import (
     _click_effect_check,
     _click_effect_record_click,
-    _click_effect_reset,
 )
 
 

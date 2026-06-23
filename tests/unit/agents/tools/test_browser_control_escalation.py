@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Browser Control click no-effect escalation."""
+# pylint: disable=protected-access
 
 from __future__ import annotations
 
@@ -31,7 +32,7 @@ class _EscalationBridge:
     async def discover_tabs(self) -> list[dict[str, Any]]:
         return list(self.tabs)
 
-    async def request(
+    async def request(  # pylint: disable=too-many-return-statements
         self,
         method: str,
         params: dict[str, Any] | None = None,
@@ -78,7 +79,11 @@ def _payload(response) -> dict[str, Any]:
     return json.loads(response.content[0].text)
 
 
-async def _action(state: dict[str, Any], bridge: _EscalationBridge, action: str):
+async def _action(
+    state: dict[str, Any],
+    bridge: _EscalationBridge,
+    action: str,
+):
     clear_bridge_connection_manager()
     set_bridge_connection_manager(_BridgeManager(bridge))
     try:

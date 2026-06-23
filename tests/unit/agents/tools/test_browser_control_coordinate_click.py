@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Coordinate click fallback for Browser Control."""
+# pylint: disable=protected-access
 
 from __future__ import annotations
 
@@ -34,7 +35,7 @@ class _CoordinateBridge:
     async def discover_tabs(self) -> list[dict[str, Any]]:
         return list(self.tabs)
 
-    async def request(
+    async def request(  # pylint: disable=too-many-return-statements
         self,
         method: str,
         params: dict[str, Any] | None = None,
@@ -59,7 +60,10 @@ class _CoordinateBridge:
             return {
                 "jsonrpc": "2.0",
                 "result": {
-                    "visualViewport": {"clientWidth": 1000, "clientHeight": 1000},
+                    "visualViewport": {
+                        "clientWidth": 1000,
+                        "clientHeight": 1000,
+                    },
                 },
             }
         if cdp_method == "Input.dispatchMouseEvent":
@@ -107,7 +111,10 @@ async def _click(
 def _mouse_points(bridge: _CoordinateBridge) -> list[tuple[float, float]]:
     points = []
     for method, params in bridge.requests:
-        if method != "cdp.send" or params.get("method") != "Input.dispatchMouseEvent":
+        if (
+            method != "cdp.send"
+            or params.get("method") != "Input.dispatchMouseEvent"
+        ):
             continue
         cdp_params = params.get("params") or {}
         points.append((cdp_params["x"], cdp_params["y"]))
@@ -139,7 +146,7 @@ async def test_coordinate_click_skips_snap_for_large_element() -> None:
     assert _mouse_points(bridge)[0] == (123.0, 234.0)
 
 
-async def test_coordinate_click_falls_back_to_raw_when_location_fails() -> None:
+async def test_coordinate_click_uses_raw_when_location_fails() -> None:
     bridge = _CoordinateBridge(fail_location=True)
 
     await _click(_state(), bridge, x=321, y=432)

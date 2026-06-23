@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Adaptive visual fallback for Browser Control snapshots."""
+# pylint: disable=protected-access
 
 from __future__ import annotations
 
@@ -141,7 +142,11 @@ def _dom_snapshot(text: str) -> dict[str, Any]:
         "strings": [text],
         "documents": [
             {
-                "nodes": {"backendNodeId": [77], "nodeName": [], "nodeValue": []},
+                "nodes": {
+                    "backendNodeId": [77],
+                    "nodeName": [],
+                    "nodeValue": [],
+                },
                 "layout": {
                     "nodeIndex": [0],
                     "text": [0],
@@ -183,7 +188,7 @@ async def test_text_only_refs_include_screenshot() -> None:
     assert _image_blocks(response)
 
 
-async def test_healthy_interactive_snapshot_does_not_include_screenshot() -> None:
+async def test_interactive_snapshot_omits_screenshot() -> None:
     bridge = _SnapshotBridge(ax_tree=_interactive_ax_tree())
 
     response = await _snapshot(bridge)
