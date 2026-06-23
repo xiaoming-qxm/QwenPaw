@@ -19,6 +19,7 @@ _MODULE_NAMES = (
     "qwenpaw.agents.tools.browser.control.inference",
     "qwenpaw.agents.tools.browser.control.transitions",
     "qwenpaw.agents.tools.browser.control.targets",
+    "qwenpaw.agents.tools.browser.control.network_settle",
     "qwenpaw.agents.tools.browser.backends.control",
     "qwenpaw.agents.tools.browser.public",
 )

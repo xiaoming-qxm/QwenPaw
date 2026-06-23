@@ -13,6 +13,7 @@ from ..control.observation import *
 from ..control.inference import *
 from ..control.transitions import *
 from ..control.targets import *
+from ..control.network_settle import *
 
 
 def _control_tab_url_from_tabs(
@@ -72,6 +73,7 @@ def _control_click_feedback_payload(
     tab_id: int,
     navigation_occurred: bool,
     url: str,
+    network_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build the post-click response used when no transition payload exists."""
     if navigation_occurred:
@@ -107,6 +109,17 @@ def _control_click_feedback_payload(
     }
     if url:
         payload["url"] = url
+    if (
+        isinstance(network_metadata, dict)
+        and int(network_metadata.get("async_requests_triggered") or 0) > 0
+    ):
+        payload["network"] = {
+            "async_requests_triggered": int(
+                network_metadata.get("async_requests_triggered") or 0,
+            ),
+            "settled": bool(network_metadata.get("settled")),
+            "timed_out": bool(network_metadata.get("timed_out")),
+        }
     return payload
 
 
@@ -764,6 +777,12 @@ async def _action_control(  # pylint: disable=too-many-return-statements
             before_url=before_url,
         )
         _control_mark_observation_required(state, tab_id, action=action)
+        network_metadata = await _network_quiescence_wait(
+            session,
+            bridge,
+            state,
+            tab_id,
+        )
         tracking_ref = str(ref or selector or text or "").strip()
         if tracking_ref:
             _click_effect_record_click(
@@ -778,6 +797,7 @@ async def _action_control(  # pylint: disable=too-many-return-statements
                     tab_id=tab_id,
                     navigation_occurred=navigation_occurred,
                     url=current_url,
+                    network_metadata=network_metadata,
                 ),
                 ensure_ascii=False,
                 indent=2,
