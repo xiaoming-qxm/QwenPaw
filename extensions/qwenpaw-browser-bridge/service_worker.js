@@ -290,10 +290,11 @@ async function activateTab(params) {
   if (tabId === undefined || tabId === null) {
     throw new Error("tabId required");
   }
-  // Only switch the active tab within Chrome; do NOT steal system focus.
-  // CDP commands work on background tabs, so window focus is unnecessary.
-  const tab = await chrome.tabs.update(tabId, { active: true });
-  return { tabId, active: true, windowId: tab && tab.windowId };
+  // Do NOT switch the active tab. CDP commands work via the debugger channel
+  // regardless of tab visibility. Switching tabs disrupts the user's browsing.
+  // Just verify the tab exists and return its current state.
+  const tab = await chrome.tabs.get(tabId);
+  return { tabId, active: tab && tab.active, windowId: tab && tab.windowId };
 }
 
 async function closeTab(params) {
@@ -416,6 +417,37 @@ function runtimeLastErrorMessage() {
   return lastError && lastError.message ? lastError.message : "";
 }
 
+async function captureScreenshotSafe(tabId, cdpParams) {
+  // Background tabs may not have a fresh composited surface.
+  // Briefly activate the target tab so the compositor paints one frame,
+  // capture, then restore the user's previously active tab.
+  let userTabId = null;
+  try {
+    const [userTab] = await chrome.tabs.query({
+      active: true,
+      lastFocusedWindow: true,
+    });
+    if (userTab && userTab.id !== tabId) {
+      userTabId = userTab.id;
+      await chrome.tabs.update(tabId, { active: true });
+      await new Promise((r) => setTimeout(r, 60));
+    }
+  } catch (error) {
+    // Tab query may fail if no focused window; proceed with best-effort.
+  }
+
+  const result = await sendCdp(tabId, "Page.captureScreenshot", cdpParams);
+
+  if (userTabId !== null) {
+    try {
+      await chrome.tabs.update(userTabId, { active: true });
+    } catch (error) {
+      // User tab may have been closed in the meantime; ignore.
+    }
+  }
+  return result;
+}
+
 async function handleMessage(message) {
   const id = message && message.id !== undefined ? message.id : null;
   const params = message && message.params ? message.params : {};
@@ -423,6 +455,15 @@ async function handleMessage(message) {
   try {
     switch (message && message.method) {
       case "cdp.send":
+        if (params.method === "Page.captureScreenshot") {
+          return jsonRpcResult(
+            id,
+            await captureScreenshotSafe(
+              params.tabId,
+              params.params || {},
+            ),
+          );
+        }
         return jsonRpcResult(
           id,
           await sendCdp(params.tabId, params.method, params.params || {}),
