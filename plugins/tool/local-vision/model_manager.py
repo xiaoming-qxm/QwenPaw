@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import platform
 from dataclasses import dataclass
 from pathlib import Path
@@ -116,7 +117,44 @@ def is_model_cached(model_id: str, cache_root: Path | None = None) -> bool:
     if not snapshot_hash:
         return False
     snapshot_dir = cache_dir / "snapshots" / snapshot_hash
-    return snapshot_dir.exists() and any(snapshot_dir.iterdir())
+    return _snapshot_has_model_weights(snapshot_dir)
+
+
+def _snapshot_has_model_weights(snapshot_dir: Path) -> bool:
+    """Return whether a cached snapshot has usable local model weights."""
+    if not snapshot_dir.exists():
+        return False
+    index_path = snapshot_dir / "model.safetensors.index.json"
+    if index_path.exists():
+        return _indexed_weight_files_exist(snapshot_dir, index_path)
+    weight_patterns = ("*.safetensors", "*.bin", "*.gguf")
+    return any(
+        path.is_file() and path.stat().st_size > 0
+        for pattern in weight_patterns
+        for path in snapshot_dir.glob(pattern)
+    )
+
+
+def _indexed_weight_files_exist(
+    snapshot_dir: Path,
+    index_path: Path,
+) -> bool:
+    """Validate all files named by a HuggingFace weight index exist."""
+    try:
+        index = json.loads(index_path.read_text(encoding="utf-8"))
+    except Exception:
+        return False
+    weight_map = index.get("weight_map")
+    if not isinstance(weight_map, dict) or not weight_map:
+        return False
+    filenames = {str(name) for name in weight_map.values() if name}
+    if not filenames:
+        return False
+    return all(
+        (snapshot_dir / filename).is_file()
+        and (snapshot_dir / filename).stat().st_size > 0
+        for filename in filenames
+    )
 
 
 def cached_snapshot_path(
@@ -132,6 +170,9 @@ def cached_snapshot_path(
 
 def ensure_model_available(
     config: dict[str, Any] | None = None,
+    *,
+    cache_root: Path | None = None,
+    allow_download: bool = True,
 ) -> ModelSelection:
     """Resolve or download a model and return local path metadata."""
     tool_config = config or {}
@@ -153,17 +194,32 @@ def ensure_model_available(
     if selection.framework == "unsupported":
         raise RuntimeError(selection.warning)
 
-    if is_model_cached(selection.model_id):
+    if is_model_cached(selection.model_id, cache_root):
         return ModelSelection(
             **{
                 **selection.__dict__,
-                "model_path": cached_snapshot_path(selection.model_id),
+                "model_path": cached_snapshot_path(
+                    selection.model_id,
+                    cache_root,
+                ),
             },
+        )
+
+    if not allow_download:
+        message = (
+            f"Local Vision model '{selection.model_id}' "
+            "is not downloaded yet."
+        )
+        raise RuntimeError(
+            message,
         )
 
     from huggingface_hub import snapshot_download
 
-    downloaded_path = snapshot_download(selection.model_id)
+    downloaded_path = snapshot_download(
+        selection.model_id,
+        cache_dir=str(cache_root) if cache_root is not None else None,
+    )
     return ModelSelection(
         **{**selection.__dict__, "model_path": str(downloaded_path)},
     )

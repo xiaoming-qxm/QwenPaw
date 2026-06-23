@@ -12,7 +12,7 @@ import tempfile
 import urllib.request
 import zipfile
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, Request, UploadFile, File
 from fastapi.responses import FileResponse
@@ -220,13 +220,22 @@ async def _post_load_setup(  # pylint: disable=too-many-branches
             )
 
     # Sync the plugin's tools into every agent's builtin_tools config
-    _sync_plugin_tools_to_agents(loader, plugin_id)
+    _sync_plugin_tools_to_agents(
+        loader,
+        plugin_id,
+        apply_enabled_defaults=True,
+    )
 
     # Schedule a background reload for every configured agent
     _schedule_all_agents_reload(request)
 
 
-def _sync_plugin_tools_to_agents(loader, plugin_id: str) -> None:
+def _sync_plugin_tools_to_agents(
+    loader,
+    plugin_id: str,
+    *,
+    apply_enabled_defaults: bool = False,
+) -> None:
     """Add plugin tool entries to all existing agents.
 
     Supports both old (``meta.tool_name``) and new (``meta.tools[]``)
@@ -235,32 +244,29 @@ def _sync_plugin_tools_to_agents(loader, plugin_id: str) -> None:
     Args:
         loader: PluginLoader instance
         plugin_id: Plugin whose tools should be synced
+        apply_enabled_defaults: Whether explicit manifest defaults may update
+            existing tool enabled flags. Use this for install/reinstall/enable,
+            not for routine startup sync.
     """
     record = loader.get_loaded_plugin(plugin_id)
     if record is None:
         return
 
+    from ...plugins.tool_manifest import (
+        tool_entries_from_meta,
+        tool_entry_enabled_default,
+    )
+
     meta: dict = record.manifest.meta or {}
-    tool_names: list[str] = []
+    tool_entries = tool_entries_from_meta(meta)
 
-    old_name = meta.get("tool_name")
-    if old_name and isinstance(old_name, str):
-        tool_names.append(old_name)
-
-    for tool in meta.get("tools", []):
-        if isinstance(tool, dict) and tool.get("name"):
-            tool_names.append(tool["name"])
-
-    if not tool_names:
+    if not tool_entries:
         return
 
     try:
         from ...config.utils import load_config
-        from ...config.config import (
-            BuiltinToolConfig,
-            load_agent_config,
-            save_agent_config,
-        )
+        from ...config.config import BuiltinToolConfig, load_agent_config
+        from ...config.config import save_agent_config
 
         config = load_config()
         if not config.agents or not config.agents.profiles:
@@ -269,19 +275,13 @@ def _sync_plugin_tools_to_agents(loader, plugin_id: str) -> None:
         for agent_id in config.agents.profiles:
             try:
                 agent_cfg = load_agent_config(agent_id)
-                changed = False
-                for tool_name in tool_names:
-                    if tool_name in agent_cfg.tools.builtin_tools:
-                        continue
-                    agent_cfg.tools.builtin_tools[
-                        tool_name
-                    ] = BuiltinToolConfig(
-                        name=tool_name,
-                        enabled=False,
-                        config={},
-                    )
-                    changed = True
-                if changed:
+                if _sync_tool_entries_to_agent_config(
+                    agent_cfg,
+                    tool_entries,
+                    BuiltinToolConfig,
+                    tool_entry_enabled_default,
+                    apply_enabled_defaults,
+                ):
                     save_agent_config(agent_id, agent_cfg)
             except Exception as exc:
                 logger.warning(
@@ -289,6 +289,72 @@ def _sync_plugin_tools_to_agents(loader, plugin_id: str) -> None:
                 )
     except Exception as exc:
         logger.warning(f"Tool sync skipped: {exc}")
+
+
+def _sync_tool_entries_to_agent_config(
+    agent_cfg: Any,
+    tool_entries: list[dict[str, Any]],
+    builtin_tool_cls: Any,
+    enabled_default_func: Any,
+    apply_enabled_defaults: bool,
+) -> bool:
+    """Sync normalized plugin tool entries into one agent config."""
+    changed = False
+    for tool_entry in tool_entries:
+        tool_name = tool_entry["name"]
+        description = str(tool_entry.get("description") or "")
+        icon = str(tool_entry.get("icon") or "🔧")
+        enabled_default = enabled_default_func(tool_entry)
+
+        existing = agent_cfg.tools.builtin_tools.get(tool_name)
+        if existing is not None:
+            if _refresh_existing_tool_config(
+                existing,
+                tool_entry,
+                description,
+                icon,
+                enabled_default,
+                apply_enabled_defaults,
+            ):
+                changed = True
+            continue
+
+        agent_cfg.tools.builtin_tools[tool_name] = builtin_tool_cls(
+            name=tool_name,
+            enabled=enabled_default,
+            description=description,
+            icon=icon,
+            config={},
+        )
+        changed = True
+    return changed
+
+
+def _refresh_existing_tool_config(
+    existing: Any,
+    tool_entry: dict[str, Any],
+    description: str,
+    icon: str,
+    enabled_default: bool,
+    apply_enabled_defaults: bool,
+) -> bool:
+    """Refresh metadata for a previously synced plugin tool config."""
+    changed = False
+    stale_entry = not existing.description and not existing.icon
+    if description and not existing.description:
+        existing.description = description
+        changed = True
+    if icon and not existing.icon:
+        existing.icon = icon
+        changed = True
+    if (
+        (stale_entry or apply_enabled_defaults)
+        and isinstance(tool_entry.get("enabled"), bool)
+        and existing.enabled != enabled_default
+    ):
+        existing.enabled = enabled_default
+        changed = True
+    return changed
 
 
 def _remove_plugin_tools_from_agents(plugin_id: str, meta: dict) -> None:

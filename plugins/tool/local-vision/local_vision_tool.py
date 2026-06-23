@@ -45,44 +45,112 @@ class LocalVisionWorkerManager:
     def __init__(self, plugin_dir: Path = _PLUGIN_DIR) -> None:
         self.plugin_dir = plugin_dir
         self.process: asyncio.subprocess.Process | None = None
+        self._start_lock = asyncio.Lock()
+        self._start_task: asyncio.Task | None = None
         self._rpc_lock = asyncio.Lock()
         self._stderr_task: asyncio.Task | None = None
+        self._stderr_tail: list[str] = []
+        self._last_error = ""
+        self._model_id = ""
+        self._model_size = ""
+        self._device = ""
 
     def is_running(self) -> bool:
         return self.process is not None and self.process.returncode is None
 
-    async def start(self, config: dict[str, Any] | None = None) -> None:
+    def is_starting(self) -> bool:
+        return self._start_task is not None and not self._start_task.done()
+
+    async def start(
+        self,
+        config: dict[str, Any] | None = None,
+        *,
+        allow_download: bool = True,
+    ) -> None:
         if self.is_running():
             return
+        async with self._start_lock:
+            if self.is_running():
+                return
+            if self._start_task is None or self._start_task.done():
+                self._start_task = asyncio.create_task(
+                    self._start_once(config or {}, allow_download),
+                )
+            task = self._start_task
+        try:
+            await asyncio.shield(task)
+        except Exception:
+            if self._last_error:
+                raise RuntimeError(self._last_error) from None
+            raise
 
+    def start_background(
+        self,
+        config: dict[str, Any] | None = None,
+        *,
+        allow_download: bool = False,
+    ) -> None:
+        """Start the worker asynchronously without blocking plugin setup."""
+        if self.is_running() or self.is_starting():
+            return
+        self._start_task = asyncio.create_task(
+            self._start_once(config or {}, allow_download),
+        )
+        self._start_task.add_done_callback(self._consume_background_start)
+
+    def _consume_background_start(self, task: asyncio.Task) -> None:
+        try:
+            task.result()
+        except asyncio.CancelledError:
+            self._last_error = "Local Vision worker startup was cancelled."
+        except Exception as exc:
+            self._last_error = str(exc)
+            logger.warning("Local Vision worker did not start: %s", exc)
+
+    async def _start_once(
+        self,
+        config: dict[str, Any],
+        allow_download: bool,
+    ) -> None:
+        self._last_error = ""
         model_manager = _load_model_manager()
-        selection = await asyncio.to_thread(
-            model_manager.ensure_model_available,
-            config or {},
-        )
-        env = os.environ.copy()
-        env.update(
-            {
-                "VISION_MODEL_PATH": selection.model_path,
-                "VISION_MODEL_ID": selection.model_id,
-                "VISION_MODEL_SIZE": selection.model_size,
-                "VISION_FRAMEWORK": selection.framework,
-                "VISION_DEVICE": selection.device,
-                "VISION_DEGRADED": "1" if selection.degraded else "0",
-            },
-        )
-        self.process = await asyncio.create_subprocess_exec(
-            sys.executable,
-            "-m",
-            "worker",
-            cwd=str(self.plugin_dir),
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env=env,
-        )
-        self._stderr_task = asyncio.create_task(self._drain_stderr())
-        await self._wait_until_ready()
+        try:
+            selection = await asyncio.to_thread(
+                model_manager.ensure_model_available,
+                config,
+                allow_download=allow_download,
+            )
+            self._model_id = selection.model_id
+            self._model_size = selection.model_size
+            self._device = selection.device
+            env = os.environ.copy()
+            env.update(
+                {
+                    "VISION_MODEL_PATH": selection.model_path,
+                    "VISION_MODEL_ID": selection.model_id,
+                    "VISION_MODEL_SIZE": selection.model_size,
+                    "VISION_FRAMEWORK": selection.framework,
+                    "VISION_DEVICE": selection.device,
+                    "VISION_DEGRADED": "1" if selection.degraded else "0",
+                },
+            )
+            self._stderr_tail.clear()
+            self.process = await asyncio.create_subprocess_exec(
+                sys.executable,
+                "-m",
+                "worker",
+                cwd=str(self.plugin_dir),
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=env,
+            )
+            self._stderr_task = asyncio.create_task(self._drain_stderr())
+            await self._wait_until_ready()
+        except Exception as exc:
+            self._last_error = str(exc)
+            await self._cleanup_failed_process()
+            raise
 
     async def parse(
         self,
@@ -132,6 +200,8 @@ class LocalVisionWorkerManager:
         return response.get("result") or {}
 
     async def stop(self) -> None:
+        if self._start_task is not None and not self._start_task.done():
+            self._start_task.cancel()
         if self.process is None:
             return
         proc = self.process
@@ -149,6 +219,35 @@ class LocalVisionWorkerManager:
             self._stderr_task.cancel()
         self.process = None
 
+    def runtime_status(self) -> dict[str, Any]:
+        """Return a compact status payload for plugin manager UI."""
+        if self.is_running():
+            status = "connected"
+        elif self.is_starting():
+            status = "starting"
+        elif "not downloaded yet" in self._last_error:
+            status = "needs_download"
+        elif self._last_error:
+            status = "error"
+        else:
+            status = "stopped"
+
+        payload: dict[str, Any] = {
+            "connected": self.is_running(),
+            "status": status,
+        }
+        if self._model_id:
+            payload["model"] = self._model_id
+        if self._model_size:
+            payload["model_size"] = self._model_size
+        if self._device:
+            payload["device"] = self._device
+        if self._last_error:
+            payload["error"] = self._last_error
+        if self._stderr_tail:
+            payload["stderr"] = self._stderr_tail[-5:]
+        return payload
+
     async def _wait_until_ready(self) -> None:
         assert self.process is not None
         assert self.process.stdout is not None
@@ -157,10 +256,20 @@ class LocalVisionWorkerManager:
             timeout=_DEFAULT_READY_TIMEOUT,
         )
         if not line:
-            raise RuntimeError("Local Vision worker exited before ready")
+            stderr = "\n".join(self._stderr_tail[-5:])
+            suffix = f": {stderr}" if stderr else ""
+            raise RuntimeError(
+                f"Local Vision worker exited before ready{suffix}",
+            )
         message = json.loads(line.decode("utf-8"))
         if not message.get("ready"):
             raise RuntimeError(f"Local Vision worker failed: {message}")
+
+    async def _cleanup_failed_process(self) -> None:
+        if self.process is not None and self.process.returncode is None:
+            self.process.kill()
+            await self.process.wait()
+        self.process = None
 
     async def _drain_stderr(self) -> None:
         if self.process is None or self.process.stderr is None:
@@ -169,7 +278,10 @@ class LocalVisionWorkerManager:
             line = await self.process.stderr.readline()
             if not line:
                 return
-            logger.info("local-vision worker: %s", line.decode().rstrip())
+            text = line.decode().rstrip()
+            self._stderr_tail.append(text)
+            self._stderr_tail = self._stderr_tail[-20:]
+            logger.info("local-vision worker: %s", text)
 
 
 _WORKER_MANAGER = LocalVisionWorkerManager()
@@ -235,15 +347,20 @@ def _format_parse_result(result: dict[str, Any]) -> str:
 
 async def start_local_vision_worker() -> None:
     """Best-effort startup hook used when the plugin is enabled."""
-    try:
-        await _WORKER_MANAGER.start(get_tool_config("parse_screenshot") or {})
-    except Exception as exc:
-        logger.warning("Local Vision worker did not start: %s", exc)
+    _WORKER_MANAGER.start_background(
+        get_tool_config("parse_screenshot") or {},
+        allow_download=False,
+    )
 
 
 async def stop_local_vision_worker() -> None:
     """Shutdown hook for the worker subprocess."""
     await _WORKER_MANAGER.stop()
+
+
+def get_runtime_status() -> dict[str, Any]:
+    """Return current Local Vision worker state."""
+    return _WORKER_MANAGER.runtime_status()
 
 
 async def parse_screenshot(

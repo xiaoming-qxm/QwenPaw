@@ -502,6 +502,16 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                         exc_info=True,
                     )
             logger.debug(f"Loaded {len(loaded_plugins)} plugin(s)")
+            try:
+                from .routers.plugins import _sync_plugin_tools_to_agents
+
+                for plugin_id in plugin_loader.get_all_loaded_plugins():
+                    _sync_plugin_tools_to_agents(plugin_loader, plugin_id)
+            except Exception as exc:
+                logger.warning(
+                    "Failed to sync plugin tools during startup: %s",
+                    exc,
+                )
             workspace_registry.apply_plugin_registry(plugin_loader.registry)
 
             runtime_helpers = RuntimeHelpers(

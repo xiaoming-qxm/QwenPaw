@@ -20,6 +20,7 @@
         "name": "parse_screenshot",
         "description": "Parse a UI screenshot and detect all interactive/visible elements with bounding boxes",
         "icon": "👁️",
+        "enabled": true,
         "requires_config": false,
         "config_fields": [
           {

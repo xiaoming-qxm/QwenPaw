@@ -33,8 +33,12 @@ def _load_tool_module():
 class LocalVisionToolPlugin:
     """Register the Local Vision screenshot parser tool."""
 
+    def __init__(self) -> None:
+        self._tool = None
+
     def register(self, api: PluginApi) -> None:
         tool = _load_tool_module()
+        self._tool = tool
 
         api.register_tool(
             tool_name="parse_screenshot",
@@ -44,7 +48,7 @@ class LocalVisionToolPlugin:
                 "interactive elements with bounding boxes"
             ),
             icon="👁️",
-            enabled=False,
+            enabled=True,
         )
         api.register_startup_hook(
             hook_name="local_vision_start_worker",
@@ -57,6 +61,11 @@ class LocalVisionToolPlugin:
             priority=110,
         )
         logger.info("Local Vision tool plugin registered")
+
+    def get_runtime_status(self):
+        if self._tool is None:
+            return {"connected": False, "status": "stopped"}
+        return self._tool.get_runtime_status()
 
 
 plugin = LocalVisionToolPlugin()

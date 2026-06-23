@@ -1528,45 +1528,29 @@ def _default_builtin_tools() -> Dict[str, BuiltinToolConfig]:
     # Merge dynamically registered tools from plugins
     try:
         from ..plugins.registry import PluginRegistry
+        from ..plugins.tool_manifest import (
+            tool_entries_from_manifest,
+            tool_entry_enabled_default,
+        )
 
         registry = PluginRegistry()
         # Access manifests via public method
         all_manifests = registry.get_all_plugin_manifests()
         for plugin_id, manifest in all_manifests.items():
-            meta = manifest.get("meta", {})
-            # Support old format: meta.tool_name
-            if meta.get("tool_name"):
-                tool_name = meta["tool_name"]
+            for tool_info in tool_entries_from_manifest(manifest):
+                tool_name = tool_info["name"]
                 if tool_name not in tools:
                     tools[tool_name] = BuiltinToolConfig(
                         name=tool_name,
-                        enabled=False,
-                        description=meta.get(
-                            "tool_description",
+                        enabled=tool_entry_enabled_default(tool_info),
+                        description=tool_info.get(
+                            "description",
                             f"Tool from plugin {plugin_id}",
                         ),
                         display_to_user=True,
                         async_execution=False,
-                        icon=meta.get("tool_icon", "🔧"),
+                        icon=tool_info.get("icon", "🔧"),
                     )
-            # Support new format: meta.tools array
-            tools_list = meta.get("tools", [])
-            if isinstance(tools_list, list):
-                for tool_info in tools_list:
-                    if isinstance(tool_info, dict) and "name" in tool_info:
-                        tool_name = tool_info["name"]
-                        if tool_name not in tools:
-                            tools[tool_name] = BuiltinToolConfig(
-                                name=tool_name,
-                                enabled=False,
-                                description=tool_info.get(
-                                    "description",
-                                    f"Tool from plugin {plugin_id}",
-                                ),
-                                display_to_user=True,
-                                async_execution=False,
-                                icon=tool_info.get("icon", "🔧"),
-                            )
     except Exception:
         # Plugins not loaded yet, return hardcoded tools only
         pass

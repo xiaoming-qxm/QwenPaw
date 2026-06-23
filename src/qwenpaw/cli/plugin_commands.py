@@ -3,7 +3,6 @@
 # pylint:disable=too-many-statements
 """Plugin management CLI commands."""
 
-import builtins
 import json
 import logging
 import os
@@ -21,6 +20,10 @@ import click
 
 from qwenpaw.plugins.validation import (
     validate_plugin_module as _validate_plugin_module,
+)
+from qwenpaw.plugins.tool_manifest import (
+    tool_entries_from_manifest,
+    tool_entry_enabled_default,
 )
 
 logger = logging.getLogger(__name__)
@@ -343,46 +346,7 @@ def _tool_entries_from_manifest(
     manifest: dict,
 ) -> List[Dict[str, Any]]:
     """Return tool entries declared by a tool plugin manifest."""
-    meta = manifest.get("meta", {})
-    entries: List[Dict[str, Any]] = []
-    seen: set[str] = set()
-
-    legacy_name = meta.get("tool_name")
-    if isinstance(legacy_name, str) and legacy_name.strip():
-        name = legacy_name.strip()
-        entries.append(
-            {
-                "name": name,
-                "description": meta.get("tool_description", ""),
-                "icon": meta.get("tool_icon", "🔧"),
-            },
-        )
-        seen.add(name)
-
-    tools = meta.get("tools", [])
-    if isinstance(tools, builtins.list):
-        for tool in tools:
-            if not isinstance(tool, dict):
-                continue
-            raw_name = tool.get("name")
-            if not isinstance(raw_name, str) or not raw_name.strip():
-                continue
-            name = raw_name.strip()
-            if name in seen:
-                continue
-            entries.append(
-                {
-                    "name": name,
-                    "description": tool.get(
-                        "description",
-                        meta.get("tool_description", ""),
-                    ),
-                    "icon": tool.get("icon", meta.get("tool_icon", "🔧")),
-                },
-            )
-            seen.add(name)
-
-    return entries
+    return tool_entries_from_manifest(manifest)
 
 
 def _sync_tool_plugin_to_agents(manifest: dict):
@@ -433,7 +397,7 @@ def _sync_tool_plugin_to_agents(manifest: dict):
                     tool_name
                 ] = BuiltinToolConfig(
                     name=tool_name,
-                    enabled=False,
+                    enabled=tool_entry_enabled_default(tool_entry),
                     description=str(tool_entry.get("description") or ""),
                     icon=str(tool_entry.get("icon") or "🔧"),
                     config={},
