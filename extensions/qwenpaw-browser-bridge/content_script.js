@@ -11,12 +11,14 @@
   const state = {
     visible: false,
     phase: "thinking",
-    statusText: "正在思考...",
+    statusText: "QwenPaw",
   };
 
   let host = null;
   let shadowRoot = null;
   let banner = null;
+  let logo = null;
+  let divider = null;
   let pulseDot = null;
   let status = null;
   let cursor = null;
@@ -51,20 +53,40 @@
         transform: translateX(-50%);
         display: none;
         align-items: center;
-        gap: 10px;
-        min-height: 34px;
-        max-width: min(720px, calc(100vw - 24px));
-        padding: 8px 10px;
-        border: 1px solid rgba(20, 24, 36, 0.14);
-        border-radius: 8px;
-        background: rgba(255, 255, 255, 0.96);
-        color: #172033;
-        box-shadow: 0 8px 24px rgba(15, 23, 42, 0.18);
-        font: 13px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        gap: 0;
+        height: 34px;
+        max-width: min(420px, calc(100vw - 24px));
+        padding: 0 12px 0 8px;
+        border: 1px solid rgba(255, 255, 255, 0.6);
+        border-radius: 16px;
+        background: rgba(255, 255, 255, 0.82);
+        backdrop-filter: blur(16px) saturate(180%);
+        -webkit-backdrop-filter: blur(16px) saturate(180%);
+        color: #334155;
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.07);
+        font: 12px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        opacity: 0;
+        transition: opacity 200ms ease-out;
       }
 
       .qwenpaw-banner[data-visible="true"] {
         display: flex;
+        opacity: 1;
+      }
+
+      .qwenpaw-logo {
+        width: 20px;
+        height: 20px;
+        flex: 0 0 auto;
+        margin-right: 6px;
+      }
+
+      .qwenpaw-divider {
+        width: 1px;
+        height: 12px;
+        background: rgba(0, 0, 0, 0.08);
+        flex: 0 0 auto;
+        margin: 0 8px;
       }
 
       .qwenpaw-status {
@@ -72,23 +94,25 @@
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
+        color: #334155;
       }
 
       .qwenpaw-pulse-dot {
-        width: 9px;
-        height: 9px;
-        border-radius: 999px;
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
         flex: 0 0 auto;
+        margin-right: 7px;
       }
 
       .qwenpaw-pulse-dot[data-phase="thinking"] {
-        background: #16a34a;
+        background: #10b981;
         animation: qwenpaw-pulse-thinking 1.6s ease-in-out infinite;
       }
 
       .qwenpaw-pulse-dot[data-phase="acting"] {
         background: #f59e0b;
-        animation: qwenpaw-pulse-acting 0.6s ease-in-out infinite;
+        animation: qwenpaw-pulse-acting 0.7s ease-in-out infinite;
       }
 
       .qwenpaw-cursor {
@@ -158,32 +182,34 @@
       }
 
       @keyframes qwenpaw-pulse-thinking {
-        0%,
-        100% {
-          box-shadow: 0 0 0 0 rgba(22, 163, 74, 0.34);
-          opacity: 0.72;
-        }
-        50% {
-          box-shadow: 0 0 0 7px rgba(22, 163, 74, 0);
-          opacity: 1;
-        }
+        0%, 100% { opacity: 0.5; transform: scale(0.85); }
+        50% { opacity: 1; transform: scale(1.15); }
       }
 
       @keyframes qwenpaw-pulse-acting {
-        0%,
-        100% {
-          box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.38);
-          opacity: 0.8;
-        }
-        50% {
-          box-shadow: 0 0 0 8px rgba(245, 158, 11, 0);
-          opacity: 1;
-        }
+        0%, 100% { opacity: 0.7; transform: scale(0.9); }
+        50% { opacity: 1; transform: scale(1.25); }
       }
     `;
 
     banner = document.createElement("div");
     banner.className = "qwenpaw-banner";
+
+    logo = document.createElement("div");
+    logo.className = "qwenpaw-logo";
+    logo.innerHTML = `
+      <svg viewBox="0 0 32 32" fill="none" aria-hidden="true">
+        <circle cx="16" cy="16" r="14" fill="rgba(13,148,136,0.08)" stroke="rgba(13,148,136,0.2)" stroke-width="1.2"/>
+        <path d="M12.4 17.3c1.1-1.3 2.1-2.2 3.6-2.2s2.6.9 3.7 2.2c.6.8 1.3 1.4 2.2 1.9 2.2 1.2 2.3 4.2.2 5.5-1.7 1.1-3.8.3-5.2-.5-.6-.3-1.2-.3-1.8 0-1.4.8-3.5 1.6-5.2.5-2.1-1.3-2-4.3.2-5.5.9-.5 1.6-1.1 2.3-1.9Z" fill="#0f766e" opacity="0.9"/>
+        <circle cx="9.8" cy="12" r="2.2" fill="#14b8a6"/>
+        <circle cx="14.6" cy="9.8" r="2.2" fill="#0f766e"/>
+        <circle cx="19.8" cy="11" r="2.2" fill="#14b8a6"/>
+        <circle cx="22.8" cy="14.8" r="2" fill="#0f766e"/>
+      </svg>
+    `;
+
+    divider = document.createElement("div");
+    divider.className = "qwenpaw-divider";
 
     pulseDot = document.createElement("div");
     pulseDot.className = "qwenpaw-pulse-dot";
@@ -209,7 +235,7 @@
     `;
     keyboard = document.createElement("div");
     keyboard.className = "qwenpaw-keyboard";
-    banner.append(pulseDot, status);
+    banner.append(logo, divider, pulseDot, status);
     shadowRoot.append(style, banner, cursor, keyboard);
     render();
   }
@@ -222,7 +248,7 @@
     if (pulseDot) {
       pulseDot.dataset.phase = state.phase;
     }
-    status.textContent = `QwenPaw · ${state.statusText}`;
+    status.textContent = state.statusText;
   }
 
   function emit(method, params) {
@@ -283,11 +309,11 @@
       return "";
     }
     if (input.key) {
-      return `按键 ${String(input.key).slice(0, 32)}`;
+      return `Key ${String(input.key).slice(0, 32)}`;
     }
     if (input.text) {
       const value = String(input.text).replace(/\s+/g, " ").trim();
-      return `输入 ${value.slice(0, 72)}`;
+      return value.slice(0, 72);
     }
     return "";
   }
@@ -365,7 +391,7 @@
     ensureBanner();
     state.visible = true;
     if (Object.prototype.hasOwnProperty.call(params, "status_text")) {
-      state.statusText = params.status_text || "正在思考...";
+      state.statusText = params.status_text || "QwenPaw";
     }
     if (Object.prototype.hasOwnProperty.call(params, "phase")) {
       state.phase = params.phase === "acting" ? "acting" : "thinking";
