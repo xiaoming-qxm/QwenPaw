@@ -417,37 +417,6 @@ function runtimeLastErrorMessage() {
   return lastError && lastError.message ? lastError.message : "";
 }
 
-async function captureScreenshotSafe(tabId, cdpParams) {
-  // Background tabs may not have a fresh composited surface.
-  // Briefly activate the target tab so the compositor paints one frame,
-  // capture, then restore the user's previously active tab.
-  let userTabId = null;
-  try {
-    const [userTab] = await chrome.tabs.query({
-      active: true,
-      lastFocusedWindow: true,
-    });
-    if (userTab && userTab.id !== tabId) {
-      userTabId = userTab.id;
-      await chrome.tabs.update(tabId, { active: true });
-      await new Promise((r) => setTimeout(r, 60));
-    }
-  } catch (error) {
-    // Tab query may fail if no focused window; proceed with best-effort.
-  }
-
-  const result = await sendCdp(tabId, "Page.captureScreenshot", cdpParams);
-
-  if (userTabId !== null) {
-    try {
-      await chrome.tabs.update(userTabId, { active: true });
-    } catch (error) {
-      // User tab may have been closed in the meantime; ignore.
-    }
-  }
-  return result;
-}
-
 async function handleMessage(message) {
   const id = message && message.id !== undefined ? message.id : null;
   const params = message && message.params ? message.params : {};
@@ -455,15 +424,10 @@ async function handleMessage(message) {
   try {
     switch (message && message.method) {
       case "cdp.send":
-        if (params.method === "Page.captureScreenshot") {
-          return jsonRpcResult(
-            id,
-            await captureScreenshotSafe(
-              params.tabId,
-              params.params || {},
-            ),
-          );
-        }
+        // Page.captureScreenshot works on background tabs when a debugger is
+        // attached: chrome.debugger.attach() keeps the renderer alive and CDP
+        // forces a synchronous composite before capture. No tab activation
+        // needed — same mechanism that headless Chrome relies on.
         return jsonRpcResult(
           id,
           await sendCdp(params.tabId, params.method, params.params || {}),
