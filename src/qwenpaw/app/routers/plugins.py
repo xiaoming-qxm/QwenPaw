@@ -226,6 +226,17 @@ async def _post_load_setup(  # pylint: disable=too-many-branches
         apply_enabled_defaults=True,
     )
 
+    workspace_registry = getattr(
+        request.app.state,
+        "multi_agent_manager",
+        None,
+    )
+    if workspace_registry is not None and hasattr(
+        workspace_registry,
+        "apply_plugin_registry",
+    ):
+        workspace_registry.apply_plugin_registry(registry)
+
     # Schedule a background reload for every configured agent
     _schedule_all_agents_reload(request)
 
@@ -259,6 +270,11 @@ def _sync_plugin_tools_to_agents(
 
     meta: dict = record.manifest.meta or {}
     tool_entries = tool_entries_from_meta(meta)
+    tool_entries = _enrich_tool_entries_from_runtime_descriptors(
+        loader,
+        plugin_id,
+        tool_entries,
+    )
 
     if not tool_entries:
         return
@@ -291,6 +307,55 @@ def _sync_plugin_tools_to_agents(
         logger.warning(f"Tool sync skipped: {exc}")
 
 
+def _enrich_tool_entries_from_runtime_descriptors(
+    loader: Any,
+    plugin_id: str,
+    tool_entries: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Overlay manifest tool entries with runtime descriptor metadata."""
+    registry = getattr(loader, "registry", None)
+    if registry is None or not hasattr(registry, "get_tools"):
+        return tool_entries
+
+    descriptors = {}
+    for reg in registry.get_tools():
+        if getattr(reg, "plugin_id", None) != plugin_id:
+            continue
+        descriptor = getattr(reg, "descriptor", None)
+        name = str(getattr(descriptor, "name", "") or "").strip()
+        if name:
+            descriptors[name] = descriptor
+
+    if not descriptors:
+        return tool_entries
+
+    enriched: list[dict[str, Any]] = []
+    for entry in tool_entries:
+        name = entry.get("name")
+        descriptor = descriptors.get(name)
+        if descriptor is None:
+            enriched.append(entry)
+            continue
+
+        next_entry = dict(entry)
+        description = str(getattr(descriptor, "description", "") or "")
+        if description:
+            next_entry["description"] = description
+
+        metadata = getattr(descriptor, "metadata", None)
+        if isinstance(metadata, dict):
+            icon = metadata.get("icon")
+            if icon:
+                next_entry["icon"] = icon
+
+        async_execution = getattr(descriptor, "async_execution", None)
+        if isinstance(async_execution, bool):
+            next_entry["async_execution"] = async_execution
+        enriched.append(next_entry)
+
+    return enriched
+
+
 def _sync_tool_entries_to_agent_config(
     agent_cfg: Any,
     tool_entries: list[dict[str, Any]],
@@ -305,6 +370,7 @@ def _sync_tool_entries_to_agent_config(
         description = str(tool_entry.get("description") or "")
         icon = str(tool_entry.get("icon") or "🔧")
         enabled_default = enabled_default_func(tool_entry)
+        async_execution = tool_entry.get("async_execution")
 
         existing = agent_cfg.tools.builtin_tools.get(tool_name)
         if existing is not None:
@@ -314,6 +380,7 @@ def _sync_tool_entries_to_agent_config(
                 description,
                 icon,
                 enabled_default,
+                async_execution,
                 apply_enabled_defaults,
             ):
                 changed = True
@@ -323,6 +390,9 @@ def _sync_tool_entries_to_agent_config(
             name=tool_name,
             enabled=enabled_default,
             description=description,
+            async_execution=(
+                async_execution if isinstance(async_execution, bool) else False
+            ),
             icon=icon,
             config={},
         )
@@ -336,16 +406,23 @@ def _refresh_existing_tool_config(
     description: str,
     icon: str,
     enabled_default: bool,
+    async_execution: Any,
     apply_enabled_defaults: bool,
 ) -> bool:
     """Refresh metadata for a previously synced plugin tool config."""
     changed = False
     stale_entry = not existing.description and not existing.icon
-    if description and not existing.description:
+    if description and existing.description != description:
         existing.description = description
         changed = True
-    if icon and not existing.icon:
+    if icon and existing.icon != icon:
         existing.icon = icon
+        changed = True
+    if (
+        isinstance(async_execution, bool)
+        and existing.async_execution != async_execution
+    ):
+        existing.async_execution = async_execution
         changed = True
     if (
         (stale_entry or apply_enabled_defaults)

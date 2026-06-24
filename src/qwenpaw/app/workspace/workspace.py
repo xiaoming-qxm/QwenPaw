@@ -311,6 +311,32 @@ class Workspace:
             else:
                 applied.add(key)
 
+        for reg in registry.get_tools():
+            desc = reg.descriptor
+            name = getattr(desc, "name", "")
+            key = f"tool:{reg.plugin_id}:{name}"
+            if key in applied:
+                continue
+
+            existing = self.plugins.tool_registry.get(name)
+            if existing is not None:
+                if getattr(existing, "func", None) is getattr(
+                    desc,
+                    "func",
+                    None,
+                ):
+                    applied.add(key)
+                    continue
+                logger.warning(
+                    "plugin tool name collision skipped: %s from %s",
+                    name,
+                    reg.plugin_id,
+                )
+                continue
+
+            self.plugins.tool_registry.register(desc)
+            applied.add(key)
+
     def set_manager(self, manager) -> None:
         """Set reference to MultiAgentManager for /daemon restart.
 

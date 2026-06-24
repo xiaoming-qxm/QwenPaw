@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Plugin API for plugin developers."""
 
+import inspect
 import logging
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Type
@@ -478,6 +479,25 @@ class PluginApi:
             ...         icon="🔧",
             ...     )
         """
+        is_async = inspect.iscoroutinefunction(tool_func)
+
+        if self._registry:
+            from ..runtime.tool_registry import ToolDescriptor
+
+            self._registry.register_tool(
+                self.plugin_id,
+                ToolDescriptor(
+                    name=tool_name,
+                    func=tool_func,
+                    enabled_by_default=enabled,
+                    async_execution=is_async,
+                    description=description,
+                    metadata={
+                        "icon": icon,
+                        "plugin_id": self.plugin_id,
+                    },
+                ),
+            )
 
         def _startup_register():
             try:
@@ -521,7 +541,7 @@ class PluginApi:
                         enabled=enabled,
                         description=description,
                         display_to_user=True,
-                        async_execution=False,
+                        async_execution=is_async,
                         icon=icon,
                     )
                     logger.info(

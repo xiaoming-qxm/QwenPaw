@@ -119,6 +119,14 @@ class SlashCommandRegistration:
 
 
 @dataclass
+class ToolRegistration:
+    """Tool descriptor contributed by a plugin."""
+
+    plugin_id: str
+    descriptor: Any
+
+
+@dataclass
 class HttpRouterRegistration:
     """HTTP routes contributed by a backend plugin under ``/api``."""
 
@@ -161,6 +169,7 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         self._prompt_contributors: List[PromptContributorRegistration] = []
         self._context_handlers: Dict[str, ContextHandlerRegistration] = {}
         self._slash_commands: List[SlashCommandRegistration] = []
+        self._tools: List[ToolRegistration] = []
         self._runtime_helpers = None
         self._plugin_manifests: Dict[str, Dict[str, Any]] = {}
         self._plugin_http_app: Optional[Any] = None
@@ -690,6 +699,40 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         """Return plugin slash commands in registration order."""
         return self._slash_commands.copy()
 
+    def register_tool(self, plugin_id: str, descriptor: Any) -> None:
+        """Register a runtime tool descriptor contributed by a plugin."""
+        name = str(getattr(descriptor, "name", "") or "").strip()
+        if not name:
+            raise ValueError("plugin tool descriptor must have a name")
+
+        for reg in self._tools:
+            existing_name = getattr(reg.descriptor, "name", None)
+            if existing_name == name and reg.plugin_id != plugin_id:
+                raise ValueError(
+                    f"Tool '{name}' is already registered by plugin "
+                    f"'{reg.plugin_id}'",
+                )
+            if existing_name == name and reg.plugin_id == plugin_id:
+                logger.debug(
+                    "Tool '%s' is already registered by plugin '%s'",
+                    name,
+                    plugin_id,
+                )
+                return
+
+        self._tools.append(
+            ToolRegistration(plugin_id=plugin_id, descriptor=descriptor),
+        )
+        logger.info(
+            "Registered tool '%s' from plugin '%s'",
+            name,
+            plugin_id,
+        )
+
+    def get_tools(self) -> List[ToolRegistration]:
+        """Return plugin runtime tools in registration order."""
+        return self._tools.copy()
+
     def register_plugin_manifest(
         self,
         plugin_id: str,
@@ -781,6 +824,9 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         }
         self._slash_commands = [
             c for c in self._slash_commands if c.plugin_id != plugin_id
+        ]
+        self._tools = [
+            t for t in self._tools if t.plugin_id != plugin_id
         ]
         logger.info(
             f"Unregistered all entries for plugin '{plugin_id}'",
