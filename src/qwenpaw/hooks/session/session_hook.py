@@ -86,4 +86,7 @@ class SessionSaveHook(LifecycleHook):
         return HookResult()
 
 
-__all__ = ["SessionLoadHook", "SessionSaveHook"]
+__all__ = [
+    "SessionLoadHook",
+    "SessionSaveHook",
+]

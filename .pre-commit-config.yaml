@@ -39,6 +39,7 @@ repos:
           | ^docs
           | \.html$
           | .*/skills/.*
+          | ^plugins/bundle/
           | ^e2e/
           )
         args: [
@@ -77,6 +78,7 @@ repos:
           | \.md$
           | \.html$
           | .*/skills/.*
+          | ^src/qwenpaw/agents/tools/browser/
           | ^e2e/
           )
         args: [

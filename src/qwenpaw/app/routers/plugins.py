@@ -18,6 +18,7 @@ from fastapi import APIRouter, HTTPException, Request, UploadFile, File
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
+from ...config.utils import get_bundle_plugins_dir
 from ..utils import schedule_agent_reload
 
 logger = logging.getLogger(__name__)
@@ -27,7 +28,69 @@ router = APIRouter(prefix="/plugins", tags=["plugins"])
 # ── Helpers ──────────────────────────────────────────────────────────────
 
 
-def _list_plugins_from_disk() -> list[dict]:
+def _manifest_payload_from_disk(
+    plugin_dir: Path,
+    *,
+    loaded: bool,
+    installed: bool,
+    bundle_source: Optional[Path] = None,
+) -> Optional[dict]:
+    """Read a plugin manifest and return the list API payload."""
+    manifest_path = plugin_dir / "plugin.json"
+    if not manifest_path.exists():
+        return None
+    try:
+        with open(manifest_path, encoding="utf-8") as f:
+            manifest = json.load(f)
+    except Exception as exc:
+        logger.warning("Failed to read %s: %s", manifest_path, exc)
+        return None
+
+    from ...plugins.architecture import PluginManifest
+
+    disk_manifest = PluginManifest.from_dict(manifest)
+    payload = {
+        "id": disk_manifest.id,
+        "name": disk_manifest.name,
+        "version": disk_manifest.version,
+        "description": disk_manifest.description,
+        "author": disk_manifest.author,
+        "enabled": True,
+        "installed": installed,
+        "loaded": loaded,
+        "plugin_type": disk_manifest.plugin_type,
+        "frontend_entry": disk_manifest.entry.frontend,
+    }
+    if bundle_source is not None:
+        payload["bundle_source"] = str(bundle_source)
+    return payload
+
+
+def _append_uninstalled_bundle_plugins(
+    result: list[dict],
+    seen: set[str],
+) -> None:
+    """Append bundled plugins that are not already installed/loaded."""
+    bundle_dir = get_bundle_plugins_dir()
+    if not bundle_dir.exists():
+        return
+
+    for item in sorted(bundle_dir.iterdir()):
+        if not item.is_dir():
+            continue
+        payload = _manifest_payload_from_disk(
+            item,
+            loaded=False,
+            installed=False,
+            bundle_source=item,
+        )
+        if payload is None or payload["id"] in seen:
+            continue
+        seen.add(payload["id"])
+        result.append(payload)
+
+
+def _list_plugins_from_disk(include_bundle_plugins: bool = True) -> list[dict]:
     """Read plugin manifests directly from the plugins directory on disk.
 
     Used as a fallback when the plugin loader has not finished
@@ -38,43 +101,28 @@ def _list_plugins_from_disk() -> list[dict]:
     from ...config.utils import get_plugins_dir
 
     plugins_dir: Path = get_plugins_dir()
-    if not plugins_dir.exists():
-        return []
-
     result: list[dict] = []
-    for item in sorted(plugins_dir.iterdir()):
+    candidates: list[Path] = []
+    if plugins_dir.exists():
+        candidates.extend(sorted(item for item in plugins_dir.iterdir()))
+
+    seen: set[str] = set()
+    for item in candidates:
         if not item.is_dir():
             continue
-        manifest_path = item / "plugin.json"
-        if not manifest_path.exists():
-            continue
-        try:
-            with open(manifest_path, encoding="utf-8") as f:
-                manifest = json.load(f)
-        except Exception as exc:
-            logger.warning("Failed to read %s: %s", manifest_path, exc)
-            continue
-
-        plugin_id = manifest.get("id", item.name)
-        frontend_entry = manifest.get("entry", {}).get("frontend")
-
-        from ...plugins.architecture import PluginManifest
-
-        disk_manifest = PluginManifest.from_dict(manifest)
-
-        result.append(
-            {
-                "id": plugin_id,
-                "name": manifest.get("name", plugin_id),
-                "version": manifest.get("version", "0.0.0"),
-                "description": manifest.get("description", ""),
-                "author": manifest.get("author", ""),
-                "enabled": True,
-                "loaded": False,
-                "plugin_type": disk_manifest.plugin_type,
-                "frontend_entry": frontend_entry,
-            },
+        payload = _manifest_payload_from_disk(
+            item,
+            loaded=False,
+            installed=True,
         )
+        if payload is None or payload["id"] in seen:
+            continue
+        seen.add(payload["id"])
+        result.append(payload)
+
+    if include_bundle_plugins:
+        _append_uninstalled_bundle_plugins(result, seen)
+
     return result
 
 
@@ -254,13 +302,14 @@ def _sync_plugin_tools_to_agents(loader, plugin_id: str) -> None:
         for agent_id in config.agents.profiles:
             try:
                 agent_cfg = load_agent_config(agent_id)
+                tools = agent_cfg.tools
+                if tools is None:
+                    continue
                 changed = False
                 for tool_name in tool_names:
-                    if tool_name in agent_cfg.tools.builtin_tools:
+                    if tool_name in tools.builtin_tools:
                         continue
-                    agent_cfg.tools.builtin_tools[
-                        tool_name
-                    ] = BuiltinToolConfig(
+                    tools.builtin_tools[tool_name] = BuiltinToolConfig(
                         name=tool_name,
                         enabled=False,
                         config={},
@@ -307,10 +356,13 @@ def _remove_plugin_tools_from_agents(plugin_id: str, meta: dict) -> None:
         for agent_id in config.agents.profiles:
             try:
                 agent_cfg = load_agent_config(agent_id)
+                tools = agent_cfg.tools
+                if tools is None:
+                    continue
                 changed = False
                 for tool_name in tool_names:
-                    if tool_name in agent_cfg.tools.builtin_tools:
-                        del agent_cfg.tools.builtin_tools[tool_name]
+                    if tool_name in tools.builtin_tools:
+                        del tools.builtin_tools[tool_name]
                         changed = True
                 if changed:
                     save_agent_config(agent_id, agent_cfg)
@@ -435,6 +487,34 @@ def _collect_plugin_runtime_ids(
     return provider_ids, command_names
 
 
+def _plugin_record_payload(record) -> dict:
+    manifest = record.manifest
+    return {
+        "id": manifest.id,
+        "name": manifest.name,
+        "version": manifest.version,
+        "description": manifest.description,
+        "author": manifest.author,
+        "enabled": record.enabled,
+        "installed": True,
+        "loaded": record.instance is not None,
+        "plugin_type": manifest.plugin_type,
+        "frontend_entry": manifest.entry.frontend,
+    }
+
+
+async def _plugin_runtime_status(record) -> dict:
+    instance = getattr(record, "instance", None)
+    status_provider = getattr(instance, "get_runtime_status", None)
+    if status_provider is None:
+        return {"connected": False}
+
+    result = status_provider()
+    if inspect.iscoroutine(result) or inspect.isawaitable(result):
+        result = await result
+    return result if isinstance(result, dict) else {"connected": False}
+
+
 # ── Routes ───────────────────────────────────────────────────────────────
 
 
@@ -459,23 +539,45 @@ async def list_plugins(request: Request):
         return _list_plugins_from_disk()
 
     result = []
+    seen = set()
     for _plugin_id, record in loader.get_all_loaded_plugins().items():
-        manifest = record.manifest
-        result.append(
-            {
-                "id": manifest.id,
-                "name": manifest.name,
-                "version": manifest.version,
-                "description": manifest.description,
-                "author": manifest.author,
-                "enabled": record.enabled,
-                "loaded": True,
-                "plugin_type": manifest.plugin_type,
-                "frontend_entry": manifest.entry.frontend,
-            },
+        result.append(_plugin_record_payload(record))
+        seen.add(record.manifest.id)
+
+    _append_uninstalled_bundle_plugins(result, seen)
+    return result
+
+
+@router.get(
+    "/{plugin_id}/detail",
+    summary="Get plugin detail",
+    description="Return manifest metadata and runtime status for a plugin.",
+)
+async def get_plugin_detail(plugin_id: str, request: Request):
+    """Return detail payload for a plugin manager detail page."""
+    loader = getattr(request.app.state, "plugin_loader", None)
+    if loader is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Plugin loader is not ready yet.",
         )
 
-    return result
+    record = loader.get_loaded_plugin(plugin_id)
+    if record is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Plugin '{plugin_id}' not found.",
+        )
+
+    payload = _plugin_record_payload(record)
+    manifest = record.manifest.model_dump(mode="json")
+    payload["manifest"] = manifest
+    payload["icon"] = record.manifest.icon
+    payload["capabilities"] = record.manifest.capabilities
+    payload["setup"] = record.manifest.setup
+    payload["meta"] = record.manifest.meta
+    payload["runtime_status"] = await _plugin_runtime_status(record)
+    return payload
 
 
 @router.get(

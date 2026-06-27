@@ -84,6 +84,41 @@ class ControlCommandRegistration:
 
 
 @dataclass
+class SessionHookRegistration:
+    """Runtime session hook contributed by a plugin."""
+
+    plugin_id: str
+    hook: Any
+    priority: int = 100
+
+
+@dataclass
+class PromptContributorRegistration:
+    """Runtime prompt contributor contributed by a plugin."""
+
+    plugin_id: str
+    contributor: Any
+    priority: int = 100
+
+
+@dataclass
+class ContextHandlerRegistration:
+    """Tool-result context handler contributed by a plugin."""
+
+    plugin_id: str
+    tool_name: str
+    handler: Any
+
+
+@dataclass
+class SlashCommandRegistration:
+    """Slash command spec contributed by a plugin."""
+
+    plugin_id: str
+    spec: Any
+
+
+@dataclass
 class HttpRouterRegistration:
     """HTTP routes contributed by a backend plugin under ``/api``."""
 
@@ -132,6 +167,10 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         self._uninstall_hooks: List[HookRegistration] = []
         self._workspace_created_hooks: List[HookRegistration] = []
         self._control_commands: List[ControlCommandRegistration] = []
+        self._session_hooks: List[SessionHookRegistration] = []
+        self._prompt_contributors: List[PromptContributorRegistration] = []
+        self._context_handlers: List[ContextHandlerRegistration] = []
+        self._slash_commands: List[SlashCommandRegistration] = []
         self._runtime_helpers = None
         self._plugin_manifests: Dict[str, Dict[str, Any]] = {}
         self._plugin_http_app: Optional[Any] = None
@@ -160,6 +199,7 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         *,
         prefix: str,
         tags: Optional[List[Any]] = None,
+        under_api: bool = True,
     ) -> None:
         """Mount a plugin ``APIRouter`` at ``/api`` + *prefix*.
 
@@ -170,6 +210,7 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
                 ``GET /api/pets/...``. Must start with ``/`` and must not
                 end with ``/`` (except the single slash ``/`` is not allowed).
             tags: Optional OpenAPI tags for included routes
+            under_api: When false, mount from the application root.
 
         Raises:
             RuntimeError: If the FastAPI app was not configured.
@@ -192,10 +233,11 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
                 "segment such as '/pets'.",
             )
 
-        if normalized in self._http_prefix_to_plugin:
-            owner = self._http_prefix_to_plugin[normalized]
+        full_prefix = f"/api{normalized}" if under_api else normalized
+        if full_prefix in self._http_prefix_to_plugin:
+            owner = self._http_prefix_to_plugin[full_prefix]
             raise ValueError(
-                f"Plugin HTTP prefix '{normalized}' is already registered "
+                f"Plugin HTTP prefix '{full_prefix}' is already registered "
                 f"by plugin '{owner}'",
             )
 
@@ -205,7 +247,6 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         else:
             effective_tags = [f"plugin:{plugin_id}"]
 
-        full_prefix = f"/api{normalized}"
         added = _mount_plugin_http_on_app(
             http_app,
             router,
@@ -216,15 +257,15 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         self._http_router_registrations.append(
             HttpRouterRegistration(
                 plugin_id=plugin_id,
-                prefix=normalized,
+                prefix=full_prefix,
                 routes=added,
             ),
         )
-        self._http_prefix_to_plugin[normalized] = plugin_id
+        self._http_prefix_to_plugin[full_prefix] = plugin_id
         logger.info(
-            "Registered HTTP routes for plugin '%s' at prefix '/api%s'",
+            "Registered HTTP routes for plugin '%s' at prefix '%s'",
             plugin_id,
-            normalized,
+            full_prefix,
         )
 
     def get_http_router_registrations(self) -> List[HttpRouterRegistration]:
@@ -495,6 +536,93 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         """
         return self._workspace_created_hooks.copy()
 
+    def register_session_hook(
+        self,
+        plugin_id: str,
+        hook: Any,
+        priority: int = 100,
+    ) -> None:
+        """Register a runtime session hook from a plugin."""
+        registration = SessionHookRegistration(
+            plugin_id=plugin_id,
+            hook=hook,
+            priority=priority,
+        )
+        self._session_hooks.append(registration)
+        self._session_hooks.sort(key=lambda h: h.priority)
+        logger.info(
+            "Registered session hook from plugin '%s' (priority=%s)",
+            plugin_id,
+            priority,
+        )
+
+    def get_session_hooks(self) -> List[SessionHookRegistration]:
+        """Return runtime session hooks sorted by priority."""
+        return list(self._session_hooks)
+
+    def register_prompt_contributor(
+        self,
+        plugin_id: str,
+        contributor: Any,
+        priority: int = 100,
+    ) -> None:
+        """Register a runtime prompt contributor from a plugin."""
+        registration = PromptContributorRegistration(
+            plugin_id=plugin_id,
+            contributor=contributor,
+            priority=priority,
+        )
+        self._prompt_contributors.append(registration)
+        self._prompt_contributors.sort(key=lambda c: c.priority)
+        logger.info(
+            "Registered prompt contributor from plugin '%s' (priority=%s)",
+            plugin_id,
+            priority,
+        )
+
+    def get_prompt_contributors(self) -> List[PromptContributorRegistration]:
+        """Return runtime prompt contributors sorted by priority."""
+        return list(self._prompt_contributors)
+
+    def register_context_handler(
+        self,
+        plugin_id: str,
+        tool_name: str,
+        handler: Any,
+    ) -> None:
+        """Register a tool-result context handler from a plugin."""
+        self._context_handlers.append(
+            ContextHandlerRegistration(
+                plugin_id=plugin_id,
+                tool_name=tool_name,
+                handler=handler,
+            ),
+        )
+        logger.info(
+            "Registered context handler for tool '%s' from plugin '%s'",
+            tool_name,
+            plugin_id,
+        )
+
+    def get_context_handlers(self) -> List[ContextHandlerRegistration]:
+        """Return plugin-contributed context handlers."""
+        return list(self._context_handlers)
+
+    def register_slash_command(self, plugin_id: str, spec: Any) -> None:
+        """Register a slash command spec from a plugin."""
+        self._slash_commands.append(
+            SlashCommandRegistration(plugin_id=plugin_id, spec=spec),
+        )
+        logger.info(
+            "Registered slash command '/%s' from plugin '%s'",
+            getattr(spec, "name", ""),
+            plugin_id,
+        )
+
+    def get_slash_commands(self) -> List[SlashCommandRegistration]:
+        """Return plugin-contributed slash commands."""
+        return list(self._slash_commands)
+
     def remove_hooks_by_name(
         self,
         plugin_id: str,
@@ -691,6 +819,18 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         ]
         self._control_commands = [
             c for c in self._control_commands if c.plugin_id != plugin_id
+        ]
+        self._session_hooks = [
+            h for h in self._session_hooks if h.plugin_id != plugin_id
+        ]
+        self._prompt_contributors = [
+            c for c in self._prompt_contributors if c.plugin_id != plugin_id
+        ]
+        self._context_handlers = [
+            h for h in self._context_handlers if h.plugin_id != plugin_id
+        ]
+        self._slash_commands = [
+            c for c in self._slash_commands if c.plugin_id != plugin_id
         ]
         removed_sections = [
             s for s in self._prompt_sections if s.plugin_id == plugin_id

@@ -145,6 +145,11 @@ class LazyGroup(click.Group):
         ),
         "task": ("qwenpaw.cli.task_cmd", "task_cmd", ".task_cmd"),
         "doctor": ("qwenpaw.cli.doctor_cmd", "doctor_cmd", ".doctor_cmd"),
+        "setup-extension": (
+            "qwenpaw.cli.extension_cmd",
+            "setup_extension_cmd",
+            ".extension_cmd",
+        ),
         "auto": ("qwenpaw.cli.auto", "auto_group", ".auto"),
     },
 )

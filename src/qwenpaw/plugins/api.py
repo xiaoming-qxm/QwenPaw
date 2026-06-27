@@ -57,7 +57,7 @@ class PluginApi:
         self,
         plugin_id: str,
         config: Dict[str, Any],
-        manifest: Dict[str, Any] = None,
+        manifest: Optional[Dict[str, Any]] = None,
     ):
         """Initialize plugin API.
 
@@ -274,6 +274,7 @@ class PluginApi:
         *,
         prefix: str,
         tags: Optional[List[str]] = None,
+        under_api: bool = True,
     ) -> None:
         """Expose REST endpoints under ``/api`` + *prefix*.
 
@@ -286,6 +287,7 @@ class PluginApi:
             router: ``fastapi.APIRouter`` instance
             prefix: Path under ``/api``, e.g. ``"/pets"``
             tags: Optional OpenAPI tags for these routes
+            under_api: When false, mount from the application root.
 
         Raises:
             RuntimeError: If the registry has no HTTP parent router.
@@ -297,6 +299,7 @@ class PluginApi:
                 router,
                 prefix=prefix,
                 tags=tags,
+                under_api=under_api,
             )
 
     def register_control_command(
@@ -320,6 +323,76 @@ class PluginApi:
             logger.info(
                 f"Plugin '{self.plugin_id}' registered control command "
                 f"'{handler.command_name}' (priority={priority_level})",
+            )
+
+    def register_session_hook(self, hook: Any, priority: int = 100) -> None:
+        """Register a runtime lifecycle hook from a plugin.
+
+        Args:
+            hook: Hook instance or hook class compatible with
+                ``qwenpaw.runtime.hooks.HookBase``.
+            priority: Ordering priority used before registration into each
+                workspace hook registry.
+        """
+        if self._registry:
+            self._registry.register_session_hook(
+                plugin_id=self.plugin_id,
+                hook=hook,
+                priority=priority,
+            )
+            logger.info(
+                "Plugin '%s' registered session hook (priority=%s)",
+                self.plugin_id,
+                priority,
+            )
+
+    def register_prompt_contributor(
+        self,
+        contributor: Any,
+        priority: int = 100,
+    ) -> None:
+        """Register a prompt contributor from a plugin."""
+        if self._registry:
+            self._registry.register_prompt_contributor(
+                plugin_id=self.plugin_id,
+                contributor=contributor,
+                priority=priority,
+            )
+            logger.info(
+                "Plugin '%s' registered prompt contributor (priority=%s)",
+                self.plugin_id,
+                priority,
+            )
+
+    def register_context_handler(
+        self,
+        tool_name: str,
+        handler: Any,
+    ) -> None:
+        """Register a tool-result context handler from a plugin."""
+        if self._registry:
+            self._registry.register_context_handler(
+                plugin_id=self.plugin_id,
+                tool_name=tool_name,
+                handler=handler,
+            )
+            logger.info(
+                "Plugin '%s' registered context handler for tool '%s'",
+                self.plugin_id,
+                tool_name,
+            )
+
+    def register_slash_command(self, spec: Any) -> None:
+        """Register a slash command spec from a plugin."""
+        if self._registry:
+            self._registry.register_slash_command(
+                plugin_id=self.plugin_id,
+                spec=spec,
+            )
+            logger.info(
+                "Plugin '%s' registered slash command '/%s'",
+                self.plugin_id,
+                getattr(spec, "name", ""),
             )
 
     @property

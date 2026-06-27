@@ -653,6 +653,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
         ):
             return True
 
+        if path.startswith("/extension/"):
+            return False
+
         # Only protect /api/ routes
         if not path.startswith("/api/"):
             return True

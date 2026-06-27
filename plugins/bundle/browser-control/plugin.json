@@ -1,0 +1,14 @@
+{
+  "id": "browser-control",
+  "name": "Browser Control",
+  "version": "0.1.0",
+  "type": "general",
+  "description": "Connect QwenPaw to Chrome through the local browser bridge for live browser control.",
+  "author": "QwenPaw",
+  "entry": {
+    "backend": "main.py",
+    "frontend": "dist/index.js"
+  },
+  "dependencies": [],
+  "min_version": "1.1.7"
+}

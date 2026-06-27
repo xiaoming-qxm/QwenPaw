@@ -39,6 +39,7 @@ class WorkspacePlugins:
     tool_registry: ToolRegistry = field(default_factory=ToolRegistry)
     prompt_manager: PromptManager = field(default_factory=PromptManager)
     modes: list["AgentMode"] = field(default_factory=list)
+    applied_plugin_registry_keys: set[str] = field(default_factory=set)
 
     def register_mode(self, mode: "AgentMode", workspace: object) -> None:
         """Add ``mode`` and immediately run its ``setup(workspace)``.

@@ -118,6 +118,9 @@ class PluginManifest(BaseModel):
     entry: PluginEntryPoints = Field(default_factory=PluginEntryPoints)
     dependencies: List[str] = Field(default_factory=list)
     min_version: str = "0.1.0"
+    icon: str = ""
+    capabilities: List[Dict[str, Any]] = Field(default_factory=list)
+    setup: Dict[str, Any] = Field(default_factory=dict)
     meta: Dict[str, Any] = Field(default_factory=dict)
     plugin_type: PluginType = PluginType.GENERAL
 

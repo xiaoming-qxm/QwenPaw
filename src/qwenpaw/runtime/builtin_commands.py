@@ -201,9 +201,10 @@ def _make_control_adapter(
             except Exception:
                 pass
 
-        full_query = (
-            f"/{command_name} {args}".strip() if args else f"/{command_name}"
-        )
+        if args:
+            full_query = f"/{command_name} {args}".strip()
+        else:
+            full_query = f"/{command_name}"
         parsed_args = parse_args(
             full_query,
             f"/{command_name}",
@@ -410,9 +411,10 @@ def _make_conversation_adapter(name: str) -> CommandSpec:
 
 
 def _collect_conversation_specs() -> list[CommandSpec]:
-    return [
-        _make_conversation_adapter(n) for n in sorted(_CONVERSATION_COMMANDS)
-    ]
+    specs: list[CommandSpec] = []
+    for name in sorted(_CONVERSATION_COMMANDS):
+        specs.append(_make_conversation_adapter(name))
+    return specs
 
 
 # ======================================================================
@@ -431,7 +433,7 @@ def _parse_skill_query(query: str) -> tuple[str, str] | None:
         if close < 0:
             return None
         name = rest[1:close].strip().lower()
-        user_input = rest[close + 1 :].strip()
+        user_input = rest[close + 1 :].strip()  # noqa: E203
         return (name, user_input) if name else None
     parts = rest.split(None, 1)
     if not parts:
@@ -441,7 +443,7 @@ def _parse_skill_query(query: str) -> tuple[str, str] | None:
     return (name, user_input) if name else None
 
 
-# pylint: disable-next=too-many-return-statements
+# pylint: disable-next=too-many-branches,too-many-return-statements
 async def _skill_fallback_handler(
     raw_text: str,
     ctx: Any,
@@ -483,14 +485,11 @@ async def _skill_fallback_handler(
         return None
 
     skills_dir = get_workspace_skills_dir(Path(workspace_dir))
-    skill_dir = next(
-        (
-            skills_dir / sn
-            for sn in effective_skills
-            if sn.lower() == skill_name
-        ),
-        None,
-    )
+    skill_dir = None
+    for skill in effective_skills:
+        if skill.lower() == skill_name:
+            skill_dir = skills_dir / skill
+            break
     if skill_dir is None or not skill_dir.exists():
         return None
 

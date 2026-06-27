@@ -38,7 +38,7 @@ async def list_frontend_plugins(request: Request):
     loader = getattr(request.app.state, "plugin_loader", None)
 
     if loader is None:
-        return _list_plugins_from_disk()
+        return _list_plugins_from_disk(include_bundle_plugins=False)
 
     result = []
     for _plugin_id, record in loader.get_all_loaded_plugins().items():

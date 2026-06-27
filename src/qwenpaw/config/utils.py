@@ -12,7 +12,7 @@ import sys
 import threading
 import uuid
 from pathlib import Path
-from typing import Any, Optional, Tuple
+from typing import Any, Optional, Tuple, cast
 
 from json_repair import repair_json
 
@@ -238,9 +238,10 @@ def _get_win32_default_browser() -> Tuple[Optional[str], Optional[str]]:
     handler.
     """
     try:
-        import winreg
+        import winreg as _winreg
     except ImportError:
         return (None, None)
+    winreg = cast(Any, _winreg)
     subkey = (
         r"Software\Microsoft\Windows\Shell\Associations"
         r"\UrlAssociations\http\UserChoice"
@@ -414,7 +415,7 @@ def _remove_nested_key(data: dict, path: list) -> bool:
 
     Returns True if the key was found and removed.
     """
-    obj = data
+    obj: Any = data
     for segment in path[:-1]:
         if isinstance(segment, str) and isinstance(obj, dict):
             obj = obj.get(segment)
@@ -550,7 +551,7 @@ def _load_and_validate_config(
     data: dict,
 ) -> Config:
     """Load and validate config data, handling validation errors."""
-    data = _normalize_working_dir_bound_paths(data)
+    data = cast(dict, _normalize_working_dir_bound_paths(data))
     # Backward compat: top-level last_api_host / last_api_port -> last_api
     if "last_api_host" in data or "last_api_port" in data:
         la = data.setdefault("last_api", {})
@@ -644,7 +645,7 @@ def strict_validate_config_file(
     if data is None:
         return False, f"unreadable or invalid JSON — {config_path}"
 
-    data = _normalize_working_dir_bound_paths(data)
+    data = cast(dict, _normalize_working_dir_bound_paths(data))
     if "last_api_host" in data or "last_api_port" in data:
         la = data.setdefault("last_api", {})
         if "host" not in la and "last_api_host" in data:
@@ -835,6 +836,12 @@ def get_plugins_dir() -> Path:
     from ..constant import PLUGINS_DIR
 
     return PLUGINS_DIR
+
+
+def get_bundle_plugins_dir() -> Path:
+    """Return bundled plugins directory path."""
+
+    return Path(__file__).resolve().parents[3] / "plugins" / "bundle"
 
 
 def get_agent_dirs() -> list[Path]:

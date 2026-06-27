@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """on_acting middleware delegating tool execution to ToolCoordinator."""
+
 from __future__ import annotations
 
 import logging
@@ -45,5 +46,6 @@ class ToolCoordinatorMiddleware(MiddlewareBase):
             session_id=session_id,
             agent_id=agent_id,
             root_session_id=root_session_id,
+            request_context=request_context,
         ):
             yield item

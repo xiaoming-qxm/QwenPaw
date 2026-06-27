@@ -3,13 +3,14 @@ import { useTranslation } from "react-i18next";
 import { Modal } from "antd";
 import { useRequest } from "ahooks";
 import { useAppMessage } from "@/hooks/useAppMessage";
-import { fetchPlugins, uninstallPlugin } from "@/api/modules/plugin";
+import { fetchPlugins, installPlugin, uninstallPlugin } from "@/api/modules/plugin";
 import type { PluginInfo } from "@/api/modules/plugin";
 
 export function usePluginManager() {
   const { t } = useTranslation();
   const { message } = useAppMessage();
   const [uninstallingId, setUninstallingId] = useState<string | null>(null);
+  const [installingId, setInstallingId] = useState<string | null>(null);
 
   const {
     data: plugins,
@@ -49,11 +50,32 @@ export function usePluginManager() {
     [message, t, refresh],
   );
 
+  const handleInstallBundle = useCallback(
+    async (plugin: PluginInfo) => {
+      if (!plugin.bundle_source) return;
+      setInstallingId(plugin.id);
+      try {
+        await installPlugin(plugin.bundle_source);
+        message.success(t("pluginManager.installSuccess"));
+        refresh();
+      } catch (err) {
+        const msg =
+          err instanceof Error ? err.message : t("pluginManager.installFailed");
+        message.error(msg);
+      } finally {
+        setInstallingId(null);
+      }
+    },
+    [message, t, refresh],
+  );
+
   return {
     plugins,
     loading,
     refresh,
     uninstallingId,
+    installingId,
     handleUninstall,
+    handleInstallBundle,
   };
 }

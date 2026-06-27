@@ -3,7 +3,7 @@
 
 Each contributor is responsible for one fragment of the system prompt.
 ``build_default_prompt_manager`` assembles a :class:`PromptManager`
-pre-loaded with all 7 contributors, ready for ``build_sync(ctx)``.
+pre-loaded with all built-in contributors, ready for ``build_sync(ctx)``.
 
 Contributors read configuration from ``ctx.extras``:
 

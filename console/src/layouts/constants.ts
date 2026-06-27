@@ -61,7 +61,7 @@ export const compareVersions = (a: string, b: string): number => {
       preNum = preMatch[3] ? Number(preMatch[3]) : 0;
     }
 
-    const parts = coreVersion.split(/[.\-]/).map((seg) => Number(seg) || 0);
+    const parts = coreVersion.split(/[.-]/).map((seg) => Number(seg) || 0);
     // Append: preType (0 for stable, negative for pre-release), preNum, postNum
     return [...parts, preType, preNum, postNum];
   };

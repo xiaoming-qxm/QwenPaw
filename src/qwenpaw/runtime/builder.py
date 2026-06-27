@@ -242,16 +242,21 @@ class AgentBuilder:
         if hb is not None:
             heartbeat_enabled = getattr(hb, "enabled", False)
 
-        prompt_ctx = SimpleNamespace(
-            workspace_dir=workspace_dir,
-            agent_id=getattr(ctx, "agent_id", None),
-            extras={
+        prompt_extras = dict(getattr(ctx, "extras", {}) or {})
+        prompt_extras.update(
+            {
                 "language": agent_config.language,
                 "heartbeat_enabled": heartbeat_enabled,
                 "env_context": self._build_env_context(ctx, agent_config),
                 "agent_config": agent_config,
                 "driver_prompt_hints": self._get_driver_prompt_hints(ctx),
             },
+        )
+
+        prompt_ctx = SimpleNamespace(
+            workspace_dir=workspace_dir,
+            agent_id=getattr(ctx, "agent_id", None),
+            extras=prompt_extras,
         )
 
         workspace = getattr(ctx, "workspace", None)

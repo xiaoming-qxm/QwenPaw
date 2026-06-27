@@ -8,6 +8,7 @@ import json
 import logging
 import urllib.error
 import urllib.request
+from pathlib import Path
 from typing import Any
 
 from packaging.version import InvalidVersion, Version
@@ -81,6 +82,13 @@ def _pick_en(value: Any) -> str:
     return str(value) if value is not None else ""
 
 
+def _localized_text_map(value: Any) -> dict[str, str]:
+    """Return a locale-keyed text map from a manifest/catalog value."""
+    if not isinstance(value, dict):
+        return {}
+    return {k: str(v) for k, v in value.items() if v}
+
+
 def _installed_plugin_ids() -> dict[str, str]:
     """Return ``{plugin_id: installed_version}`` from disk manifests."""
     from ..config.utils import get_plugins_dir
@@ -107,6 +115,88 @@ def _installed_plugin_ids() -> dict[str, str]:
     return installed
 
 
+def _iter_source_bundle_manifests() -> list[tuple[Path, dict[str, Any]]]:
+    """Return valid source-bundled plugin manifests shipped with QwenPaw."""
+    from ..config.utils import get_bundle_plugins_dir
+
+    bundle_dir = get_bundle_plugins_dir()
+    if not bundle_dir.is_dir():
+        return []
+
+    manifests: list[tuple[Path, dict[str, Any]]] = []
+    for item in sorted(bundle_dir.iterdir()):
+        if not item.is_dir():
+            continue
+        manifest_path = item / "plugin.json"
+        if not manifest_path.is_file():
+            continue
+        try:
+            with open(manifest_path, encoding="utf-8") as f:
+                manifest = json.load(f)
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.debug("Skip bundled plugin %s: %s", manifest_path, exc)
+            continue
+        if manifest.get("id") and manifest.get("version"):
+            manifests.append((item, manifest))
+    return manifests
+
+
+def _append_source_bundle_plugins(
+    plugins: list[dict[str, Any]],
+    installed: dict[str, str],
+) -> None:
+    """Append source-bundled official plugins missing from CDN metadata."""
+    seen = {str(plugin.get("plugin_id") or "") for plugin in plugins}
+
+    for plugin_dir, manifest in _iter_source_bundle_manifests():
+        plugin_id = str(manifest.get("id") or plugin_dir.name)
+        if plugin_id in seen:
+            continue
+        catalog_version = str(manifest.get("version") or "")
+        installed_version = installed.get(plugin_id)
+        description_i18n = _localized_text_map(
+            manifest.get("description_i18n"),
+        )
+        if not description_i18n:
+            description_i18n = _localized_text_map(manifest.get("description"))
+
+        plugins.append(
+            {
+                "id": f"{plugin_id}-{catalog_version}",
+                "plugin_id": plugin_id,
+                "name": _pick_en(manifest.get("name")) or plugin_id,
+                "description": _pick_en(manifest.get("description")),
+                "description_i18n": description_i18n,
+                "version": catalog_version,
+                "author": str(manifest.get("author") or ""),
+                "kind": "bundle",
+                "size": "",
+                "sha256": "",
+                "install_url": str(plugin_dir),
+                "installed": plugin_id in installed,
+                "installed_version": installed_version,
+                "upgrade_available": _is_upgrade_available(
+                    installed_version or "",
+                    catalog_version,
+                ),
+            },
+        )
+        seen.add(plugin_id)
+
+
+def _finalize_catalog(result: dict[str, Any]) -> dict[str, Any]:
+    """Merge source-bundled official plugins and sort catalog entries."""
+    installed = _installed_plugin_ids()
+    plugins = result.get("plugins")
+    if not isinstance(plugins, list):
+        result["plugins"] = []
+        plugins = result["plugins"]
+
+    _append_source_bundle_plugins(plugins, installed)
+    plugins.sort(key=lambda p: (p.get("kind") or "", p.get("name") or ""))
+    return result
+
+
 def build_plugin_catalog() -> dict[str, Any]:
     """Download main + plugins index from CDN and normalize for the console.
 
@@ -122,24 +212,24 @@ def build_plugin_catalog() -> dict[str, Any]:
     except (urllib.error.URLError, json.JSONDecodeError, TimeoutError) as exc:
         logger.warning("Plugin catalog: main index fetch failed: %s", exc)
         result["error"] = "Failed to fetch plugin catalog index"
-        return result
+        return _finalize_catalog(result)
 
     products = main_index.get("products") or {}
     plugins_product = products.get("plugins")
     if not plugins_product:
-        return result
+        return _finalize_catalog(result)
 
     index_path = str(plugins_product.get("index_url") or "")
     if not index_path.startswith("/"):
         result["error"] = "Invalid plugins index_url in main metadata"
-        return result
+        return _finalize_catalog(result)
 
     try:
         plugins_index = _fetch_json(f"{base}{index_path}")
     except (urllib.error.URLError, json.JSONDecodeError, TimeoutError) as exc:
         logger.warning("Plugin catalog: plugins index fetch failed: %s", exc)
         result["error"] = "Failed to fetch plugins metadata"
-        return result
+        return _finalize_catalog(result)
 
     result["updated_at"] = plugins_index.get("updated_at")
     files = plugins_index.get("files") or {}
@@ -155,11 +245,8 @@ def build_plugin_catalog() -> dict[str, Any]:
         plugin_id = _plugin_id_from_file_entry(entry)
         catalog_version = str(entry.get("version") or "")
         installed_version = installed.get(plugin_id)
-        # Build description_i18n dict from the raw entry
         raw_desc = entry.get("description")
-        description_i18n: dict[str, str] = {}
-        if isinstance(raw_desc, dict):
-            description_i18n = {k: str(v) for k, v in raw_desc.items() if v}
+        description_i18n = _localized_text_map(raw_desc)
 
         plugins.append(
             {
@@ -183,9 +270,8 @@ def build_plugin_catalog() -> dict[str, Any]:
             },
         )
 
-    plugins.sort(key=lambda p: (p.get("kind") or "", p.get("name") or ""))
     result["plugins"] = plugins
-    return result
+    return _finalize_catalog(result)
 
 
 async def fetch_plugin_catalog_async() -> dict[str, Any]:
