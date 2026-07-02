@@ -62,17 +62,31 @@ the first authoritative read-back proves the requested item/category/count is
 present; adding another matching item is incorrect unless the user explicitly
 asked for multiple items or a different item.
 
-LLM-safe call patterns:
+LLM-safe call patterns. Use these as separate python_repl calls.
+Do not paste the full sequence into one cell. Each cell should contain at
+most one state-changing browser action:
 
+    # Cell 1: open and observe
     tab = await browser.tabs.open("https://example.com")
     snap = await tab.snapshot()
     print(snap.text)
+
+    # Cell 2: one action, optional wait, then observe
     await tab.click(ref="r1_e22")
+    await tab.wait_for(2)
+    snap = await tab.snapshot()
+    print(snap.text)
+
+    # Cell 3: another action only after the previous observation is returned
     await tab.scroll(direction="down", amount="page")
     await tab.wait_for(2)
     snap = await tab.snapshot()
-    await tab.scroll(direction="up", amount="top")
-    snap = await tab.snapshot()
+    print(snap.text)
+
+For multi-step write workflows such as select-all, delete, confirm, or
+save-and-confirm, use one python_repl turn per mutating action. If
+ObservationRequired appears, do not retry the same multi-action cell; observe
+once, then issue exactly one next state-changing action in a new cell.
 
 For a new user task, prefer opening a fresh SDK-owned background tab:
 

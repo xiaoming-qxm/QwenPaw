@@ -46,6 +46,10 @@ _BROWSER_CONTROL_GOAL_GUIDANCE = """
   for multiple distinct changes.
 - Keep Browser SDK cells narrow: at most one mutating browser action per
   `python_repl` cell, optionally followed by a wait and a fresh observation.
+- Treat select-all, delete, and confirm as separate browser writes in
+  separate python_repl turns. If `ObservationRequired` appears, do not retry
+  the same multi-action cell; observe once, then issue exactly one next
+  state-changing action in a new python_repl turn.
 - If a plausible action target cannot be activated after one fresh
   observation, choose a different real target or route. Do not loop on the
   same listing, screenshot, coordinate, or product candidate.

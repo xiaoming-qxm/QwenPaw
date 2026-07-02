@@ -86,6 +86,10 @@
 - Keep each `python_repl` browser cell narrow: perform at most one mutating
   browser action, optionally wait for it to settle, then take a fresh
   snapshot. Do not batch click/type/click sequences in one cell.
+- Treat select-all, delete, and confirm as separate browser writes in
+  separate python_repl turns. If `ObservationRequired` appears, do not retry
+  the same multi-action cell; observe once, then issue exactly one next
+  state-changing action in a new python_repl turn.
 - If a click, type, selection, or form-submit action times out or leaves the
   page unchanged, retry that exact action sequence at most once after a fresh
   snapshot. On the next failure, change route: use a direct URL, a canonical
