@@ -15,6 +15,7 @@ from ..runtime import logger
 from .errors import BrowserControlRecoverableError
 
 _DOM_TREE_FALLBACK_DEPTH = 8
+_DOM_TREE_AX_FAILURE_FALLBACK_DEPTH = 18
 
 
 def _url_source(url: str, media_type: str) -> URLSource:
@@ -75,8 +76,32 @@ async def build_control_snapshot(
     session: Any,
 ) -> tuple[str, dict[str, dict], bool]:
     """Build an accessibility snapshot with a bounded DOM fallback."""
-    ax_tree = await session.send("Accessibility.getFullAXTree")
     from qwenpaw.agents.tools.browser_snapshot import from_cdp_ax_tree
+
+    try:
+        ax_tree = await session.send("Accessibility.getFullAXTree")
+    except Exception:
+        logger.debug(
+            "Failed to build control AX snapshot; using bounded DOM fallback",
+            exc_info=True,
+        )
+        try:
+            fallback_snapshot, fallback_refs = await _fallback_dom_snapshot(
+                session,
+                depth=_DOM_TREE_AX_FAILURE_FALLBACK_DEPTH,
+                allow_dom_snapshot=False,
+            )
+        except Exception:
+            logger.debug(
+                "Failed to build deep DOM fallback; using shallow fallback",
+                exc_info=True,
+            )
+            fallback_snapshot, fallback_refs = await _fallback_dom_snapshot(
+                session,
+                depth=_DOM_TREE_FALLBACK_DEPTH,
+                allow_dom_snapshot=False,
+            )
+        return fallback_snapshot, fallback_refs, True
 
     snapshot, refs = from_cdp_ax_tree(ax_tree)
     snapshot_text = snapshot.strip()
@@ -103,15 +128,22 @@ async def build_control_snapshot(
     return snapshot, refs, degraded_snapshot
 
 
-async def _fallback_dom_snapshot(session: Any) -> tuple[str, dict[str, dict]]:
+async def _fallback_dom_snapshot(
+    session: Any,
+    *,
+    depth: int = _DOM_TREE_FALLBACK_DEPTH,
+    allow_dom_snapshot: bool = True,
+) -> tuple[str, dict[str, dict]]:
     dom_tree = await session.send(
         "DOM.getDocument",
-        {"depth": _DOM_TREE_FALLBACK_DEPTH, "pierce": True},
+        {"depth": int(depth), "pierce": True},
     )
     from qwenpaw.agents.tools.browser_snapshot import from_cdp_dom_tree
 
     tree_snapshot, tree_refs = from_cdp_dom_tree(dom_tree)
     if tree_snapshot != "(empty)":
+        return tree_snapshot, tree_refs
+    if not allow_dom_snapshot:
         return tree_snapshot, tree_refs
 
     # Some modern pages expose only the root node through AX and shallow DOM
