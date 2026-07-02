@@ -14,7 +14,7 @@ from pydantic import AnyUrl
 from ..runtime import logger
 from .errors import BrowserControlRecoverableError
 
-_DOM_TREE_FALLBACK_DEPTH = 1
+_DOM_TREE_FALLBACK_DEPTH = 8
 
 
 def _url_source(url: str, media_type: str) -> URLSource:
@@ -111,17 +111,11 @@ async def _fallback_dom_snapshot(session: Any) -> tuple[str, dict[str, dict]]:
     from qwenpaw.agents.tools.browser_snapshot import from_cdp_dom_tree
 
     tree_snapshot, tree_refs = from_cdp_dom_tree(dom_tree)
-    has_dom_root = isinstance(dom_tree, dict) and isinstance(
-        dom_tree.get("root"),
-        dict,
-    )
-    if tree_snapshot != "(empty)" or has_dom_root:
+    if tree_snapshot != "(empty)":
         return tree_snapshot, tree_refs
 
-    # Legacy test doubles and older bridge shims may not implement
-    # DOM.getDocument. Keep the old parser reachable only when the command
-    # returned no CDP root at all; real Chrome returns a root even for sparse
-    # pages, which prevents unbounded DOMSnapshot payloads on large apps.
+    # Some modern pages expose only the root node through AX and shallow DOM
+    # snapshots. Use DOMSnapshot only after the bounded tree produced no text.
     dom_snapshot = await session.send(
         "DOMSnapshot.captureSnapshot",
         {
