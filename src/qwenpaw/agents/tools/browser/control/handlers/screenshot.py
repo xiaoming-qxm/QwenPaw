@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import time
@@ -19,6 +20,8 @@ from ..snapshot_builder import _url_source
 from ..state import ControlState
 from ..tab_manager import _control_ensure_tab_available, _control_page_id
 from .protocol import ActionMeta
+
+_CONTROL_SCREENSHOT_TIMEOUT_SECONDS = 8.0
 
 
 @dataclass(frozen=True)
@@ -51,13 +54,31 @@ class ScreenshotHandler:
             ext = "jpeg" if screenshot_type == "jpeg" else "png"
             path = f"page-{int(time.time())}.{ext}"
         path = _resolve_output_path(path)
-        result = await session.send(
-            "Page.captureScreenshot",
-            {
-                "format": screenshot_type,
-                "captureBeyondViewport": bool(kwargs.get("full_page", False)),
-            },
-        )
+        try:
+            result = await asyncio.wait_for(
+                session.send(
+                    "Page.captureScreenshot",
+                    {
+                        "format": screenshot_type,
+                        "captureBeyondViewport": bool(
+                            kwargs.get("full_page", False),
+                        ),
+                    },
+                ),
+                timeout=_CONTROL_SCREENSHOT_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError:
+            payload = {
+                "ok": False,
+                "mode": "control",
+                "error": (
+                    "Screenshot timed out before Chrome returned image data"
+                ),
+                "needs_observation": True,
+            }
+            return _tool_response(
+                json.dumps(payload, ensure_ascii=False, indent=2),
+            )
         data = result.get("data") if isinstance(result, dict) else None
         if not isinstance(data, str) or not data:
             payload = {

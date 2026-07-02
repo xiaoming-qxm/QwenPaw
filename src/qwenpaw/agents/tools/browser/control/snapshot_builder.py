@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 import hashlib
@@ -16,6 +17,10 @@ from .errors import BrowserControlRecoverableError
 
 _DOM_TREE_FALLBACK_DEPTH = 8
 _DOM_TREE_AX_FAILURE_FALLBACK_DEPTH = 18
+_CONTROL_AX_SNAPSHOT_TIMEOUT_SECONDS = 5.0
+_CONTROL_DOM_TREE_TIMEOUT_SECONDS = 5.0
+_CONTROL_DOM_SNAPSHOT_TIMEOUT_SECONDS = 5.0
+_CONTROL_VISUAL_CONTEXT_TIMEOUT_SECONDS = 5.0
 
 
 def _url_source(url: str, media_type: str) -> URLSource:
@@ -40,11 +45,13 @@ def _control_refs_have_interactive_role(refs: dict[str, dict]) -> bool:
 
 async def _control_visual_context_block(session: Any) -> DataBlock | None:
     try:
-        result = await session.send(
+        result = await _send_with_timeout(
+            session,
             "Page.captureScreenshot",
             {"format": "jpeg", "quality": 60},
+            timeout=_CONTROL_VISUAL_CONTEXT_TIMEOUT_SECONDS,
         )
-    except BrowserControlRecoverableError:
+    except (BrowserControlRecoverableError, asyncio.TimeoutError):
         logger.debug(
             "Failed to capture adaptive visual fallback",
             exc_info=True,
@@ -79,8 +86,12 @@ async def build_control_snapshot(
     from qwenpaw.agents.tools.browser_snapshot import from_cdp_ax_tree
 
     try:
-        ax_tree = await session.send("Accessibility.getFullAXTree")
-    except Exception:
+        ax_tree = await _send_with_timeout(
+            session,
+            "Accessibility.getFullAXTree",
+            timeout=_CONTROL_AX_SNAPSHOT_TIMEOUT_SECONDS,
+        )
+    except Exception:  # noqa: BLE001
         logger.debug(
             "Failed to build control AX snapshot; using bounded DOM fallback",
             exc_info=True,
@@ -134,9 +145,11 @@ async def _fallback_dom_snapshot(
     depth: int = _DOM_TREE_FALLBACK_DEPTH,
     allow_dom_snapshot: bool = True,
 ) -> tuple[str, dict[str, dict]]:
-    dom_tree = await session.send(
+    dom_tree = await _send_with_timeout(
+        session,
         "DOM.getDocument",
         {"depth": int(depth), "pierce": True},
+        timeout=_CONTROL_DOM_TREE_TIMEOUT_SECONDS,
     )
     from qwenpaw.agents.tools.browser_snapshot import from_cdp_dom_tree
 
@@ -148,17 +161,32 @@ async def _fallback_dom_snapshot(
 
     # Some modern pages expose only the root node through AX and shallow DOM
     # snapshots. Use DOMSnapshot only after the bounded tree produced no text.
-    dom_snapshot = await session.send(
+    dom_snapshot = await _send_with_timeout(
+        session,
         "DOMSnapshot.captureSnapshot",
         {
             "computedStyles": [],
             "includeDOMRects": True,
             "includePaintOrder": True,
         },
+        timeout=_CONTROL_DOM_SNAPSHOT_TIMEOUT_SECONDS,
     )
     from qwenpaw.agents.tools.browser_snapshot import from_cdp_dom_snapshot
 
     return from_cdp_dom_snapshot(dom_snapshot)
+
+
+async def _send_with_timeout(
+    session: Any,
+    method: str,
+    params: dict[str, Any] | None = None,
+    *,
+    timeout: float,
+) -> dict[str, Any]:
+    return await asyncio.wait_for(
+        session.send(method, params or {}),
+        timeout=max(float(timeout), 0.1),
+    )
 
 
 __all__ = [
