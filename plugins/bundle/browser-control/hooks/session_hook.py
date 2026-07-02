@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -61,6 +62,87 @@ _REAL_BROWSER_INTENT_TERMS = (
     "logged in browser",
     "browser control",
     "浏览器控制",
+)
+_URL_OR_DOMAIN_RE = re.compile(
+    r"(?:https?://|www\.|[a-z0-9][a-z0-9.-]*\."
+    r"(?:com|cn|net|org|io|ai|dev|app|shop|edu|gov|co|me)\b)",
+    re.IGNORECASE,
+)
+_GOAL_BROWSER_TASK_PHRASES = (
+    "网上搜索",
+    "上网搜索",
+    "在线搜索",
+    "网页搜索",
+    "网站搜索",
+    "搜索网页",
+    "打开网页",
+    "打开网站",
+    "打开网址",
+    "访问网页",
+    "访问网站",
+    "访问网址",
+    "浏览网页",
+    "浏览网站",
+    "加入购物车",
+    "添加到购物车",
+    "加到购物车",
+    "清空购物车",
+    "删除购物车",
+    "购物车",
+    "search the web",
+    "search online",
+    "web search",
+    "open website",
+    "open web page",
+    "visit website",
+    "visit web page",
+    "shopping cart",
+    "add to cart",
+    "clear cart",
+)
+_GOAL_WEB_ACTION_TERMS = (
+    "打开",
+    "访问",
+    "进入",
+    "浏览",
+    "查看",
+    "搜索",
+    "查询",
+    "挑选",
+    "勾选",
+    "删除",
+    "清空",
+    "open",
+    "visit",
+    "navigate",
+    "browse",
+    "view",
+    "check",
+    "search",
+    "look up",
+    "select",
+    "delete",
+    "clear",
+)
+_GOAL_WEB_TARGET_TERMS = (
+    "网页",
+    "网站",
+    "站点",
+    "网址",
+    "页面",
+    "博客",
+    "商品",
+    "购物车",
+    "互联网",
+    "webpage",
+    "web page",
+    "website",
+    "web site",
+    "site",
+    "url",
+    "blog",
+    "product",
+    "cart",
 )
 
 
@@ -169,15 +251,50 @@ def _is_unrelated_slash_command(text: str) -> bool:
 
 
 def _has_real_browser_intent(text: str) -> bool:
+    return _contains_intent_term(text, _REAL_BROWSER_INTENT_TERMS)
+
+
+def _contains_intent_term(text: str, terms: tuple[str, ...]) -> bool:
     folded = text.casefold()
     compact = "".join(folded.split())
-    for term in _REAL_BROWSER_INTENT_TERMS:
+    for term in terms:
         term_folded = term.casefold()
         if term_folded in folded:
             return True
         if "".join(term_folded.split()) in compact:
             return True
     return False
+
+
+def _split_slash_command(text: str) -> tuple[str, str]:
+    stripped = text.strip()
+    if not stripped.startswith("/"):
+        return "", stripped
+    command, _, remainder = stripped.partition(" ")
+    return command.casefold(), remainder.strip()
+
+
+def _has_goal_browser_task_intent(text: str) -> bool:
+    """Return True for explicit /goal tasks that require web UI control."""
+    command, body = _split_slash_command(text)
+    if command != "/goal" or not body:
+        return False
+    if _has_real_browser_intent(body):
+        return True
+    if _URL_OR_DOMAIN_RE.search(body):
+        return True
+    if _contains_intent_term(body, _GOAL_BROWSER_TASK_PHRASES):
+        return True
+    return _contains_intent_term(
+        body,
+        _GOAL_WEB_ACTION_TERMS,
+    ) and _contains_intent_term(body, _GOAL_WEB_TARGET_TERMS)
+
+
+def _has_browser_control_intent(text: str) -> bool:
+    return _has_real_browser_intent(text) or _has_goal_browser_task_intent(
+        text,
+    )
 
 
 @lru_cache(maxsize=1)
@@ -369,13 +486,13 @@ class BrowserControlContinuationHook(LifecycleHook):
         if not user_text:
             return HookResult()
 
-        real_browser_intent = bool(
+        browser_control_intent = bool(
             extras.get("browser_control_requested"),
-        ) or _has_real_browser_intent(user_text)
+        ) or _has_browser_control_intent(user_text)
         if _is_unrelated_slash_command(user_text):
             return HookResult()
         if (
-            not real_browser_intent
+            not browser_control_intent
             and not _session_has_active_browser_control(
                 ctx.session_state,
             )
@@ -398,7 +515,7 @@ class BrowserControlIntentHook(LifecycleHook):
         user_text = (_get_last_user_text(ctx.input_msgs) or "").strip()
         if not user_text or _is_unrelated_slash_command(user_text):
             return HookResult()
-        if not _has_real_browser_intent(user_text):
+        if not _has_browser_control_intent(user_text):
             return HookResult()
         _mark_browser_control_requested(ctx, user_text)
         if not user_text.startswith("/goal"):
