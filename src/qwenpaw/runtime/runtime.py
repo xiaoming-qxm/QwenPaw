@@ -230,11 +230,12 @@ class Runtime:
 
     @staticmethod
     def _apply_context_injections(ctx: HookContext) -> None:
-        """Merge context_injections into input_msgs as a system hint.
+        """Merge context_injections into input_msgs as a dynamic hint.
 
         Sorts injections by priority (ascending) and prepends a
-        single system-role message so the agent sees the dynamic
-        context in its current turn.
+        single user-role message so the agent sees the dynamic context
+        in its current turn without violating AgentScope input-role
+        validation.
         """
         injections = ctx.context_injections
         if not injections:
@@ -249,13 +250,18 @@ class Runtime:
         try:
             from agentscope.message import Msg, TextBlock
 
+            text = "\n\n".join(parts)
             hint_msg = Msg(
-                name="system",
-                role="system",
+                name="user",
+                role="user",
                 content=[
                     TextBlock(
                         type="text",
-                        text="\n\n".join(parts),
+                        text=(
+                            "<Dynamic Context>\n"
+                            f"{text}\n"
+                            "</Dynamic Context>"
+                        ),
                     ),
                 ],
             )
