@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """QwenPaw Pet backend plugin entry point."""
 
-# pylint: disable=wrong-import-position,wrong-import-order
+# pylint: disable=wrong-import-position,wrong-import-order,no-name-in-module
 
 import atexit
 import logging

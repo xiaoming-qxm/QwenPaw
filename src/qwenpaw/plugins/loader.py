@@ -72,9 +72,7 @@ def _install_lock_path(plugin_id: str) -> Path:
     Keyed per plugin so unrelated plugins can install concurrently, but
     every process installing the *same* plugin serialises through one lock.
     """
-    safe_id = "".join(
-        c if c.isalnum() or c in "-_." else "_" for c in plugin_id
-    )
+    safe_id = "".join(c if c.isalnum() or c in "-_." else "_" for c in plugin_id)
     return _plugin_runtime_dir() / "install-locks" / f"{safe_id}.lock"
 
 
@@ -143,6 +141,26 @@ class PluginLoader:
                 continue
 
             logger.info(f"Scanning plugin directory: {plugin_dir}")
+            if (plugin_dir / "plugin.json").exists():
+                if _is_disabled_plugin_dir(plugin_dir):
+                    logger.info(
+                        "Skipping disabled/hidden plugin directory: %s",
+                        plugin_dir.name,
+                    )
+                    continue
+                try:
+                    manifest = self._load_manifest(
+                        plugin_dir / "plugin.json",
+                    )
+                    discovered.append((manifest, plugin_dir))
+                    logger.info(f"Discovered plugin: {manifest.id}")
+                except Exception as e:
+                    logger.error(
+                        f"Failed to load manifest from "
+                        f"{plugin_dir / 'plugin.json'}: {e}",
+                        exc_info=True,
+                    )
+                continue
 
             for item in plugin_dir.iterdir():
                 if not item.is_dir():
@@ -291,8 +309,7 @@ class PluginLoader:
         if not missing_deps:
             return
         logger.info(
-            "Plugin '%s' has %d unsatisfied dependency(ies): %s. "
-            "Installing...",
+            "Plugin '%s' has %d unsatisfied dependency(ies): %s. " "Installing...",
             plugin_id,
             len(missing_deps),
             ", ".join(missing_deps),
@@ -353,9 +370,7 @@ class PluginLoader:
                 f"(entry.backend or entry.frontend)",
             )
 
-        backend_exists = (
-            backend_entry_file is not None and backend_entry_file.exists()
-        )
+        backend_exists = backend_entry_file is not None and backend_entry_file.exists()
         frontend_exists = (
             frontend_entry_file is not None and frontend_entry_file.exists()
         )
@@ -432,7 +447,12 @@ class PluginLoader:
                 "description": manifest.description,
                 "author": manifest.author,
                 "dependencies": manifest.dependencies,
+                "min_version": manifest.min_version,
+                "max_version": manifest.max_version,
                 "qwenpaw_version": qv_dict,
+                "icon": manifest.icon,
+                "capabilities": manifest.capabilities,
+                "setup": manifest.setup,
                 "meta": manifest.meta,
             }
             api = PluginApi(plugin_id, config or {}, manifest_dict)
@@ -554,17 +574,29 @@ class PluginLoader:
             self._loaded_plugins[plugin_id] = record
             return record
 
+        from .state import PluginStateStore
+
+        if not PluginStateStore().is_enabled(plugin_id):
+            record = PluginRecord(
+                manifest=manifest,
+                source_path=source_path,
+                enabled=False,
+                instance=None,
+            )
+            self._loaded_plugins[plugin_id] = record
+            logger.info(
+                "Plugin '%s' is disabled; backend not loaded",
+                plugin_id,
+            )
+            return record
+
         # Ensure plugin dependencies are installed before loading
         await self._ensure_dependencies_installed(source_path, plugin_id)
 
         backend_entry = manifest.entry.backend
         frontend_entry = manifest.entry.frontend
-        backend_entry_file = (
-            source_path / backend_entry if backend_entry else None
-        )
-        frontend_entry_file = (
-            source_path / frontend_entry if frontend_entry else None
-        )
+        backend_entry_file = source_path / backend_entry if backend_entry else None
+        frontend_entry_file = source_path / frontend_entry if frontend_entry else None
 
         backend_exists, _ = self._validate_entry_points(
             plugin_id,
@@ -768,8 +800,7 @@ class PluginLoader:
 
         if result.returncode == 0:
             logger.info(
-                f"Dependencies installed for plugin '{plugin_id}'"
-                " (via pip)",
+                f"Dependencies installed for plugin '{plugin_id}'" " (via pip)",
             )
             return
 
@@ -991,9 +1022,7 @@ class PluginLoader:
 
         # Execute shutdown hooks registered by this plugin
         shutdown_hooks = [
-            h
-            for h in self.registry.get_shutdown_hooks()
-            if h.plugin_id == plugin_id
+            h for h in self.registry.get_shutdown_hooks() if h.plugin_id == plugin_id
         ]
         for hook in shutdown_hooks:
             try:
@@ -1010,9 +1039,7 @@ class PluginLoader:
 
         # Execute uninstall hooks (only run on explicit unload/remove)
         uninstall_hooks = [
-            h
-            for h in self.registry.get_uninstall_hooks()
-            if h.plugin_id == plugin_id
+            h for h in self.registry.get_uninstall_hooks() if h.plugin_id == plugin_id
         ]
         for hook in uninstall_hooks:
             try:
@@ -1035,9 +1062,7 @@ class PluginLoader:
         # gets a fresh copy (e.g. plugin_foo.utils must not be reused).
         module_name = f"plugin_{plugin_id.replace('-', '_')}"
         prefix = module_name + "."
-        stale = [
-            k for k in sys.modules if k == module_name or k.startswith(prefix)
-        ]
+        stale = [k for k in sys.modules if k == module_name or k.startswith(prefix)]
         for k in stale:
             sys.modules.pop(k, None)
 
@@ -1063,9 +1088,7 @@ class PluginLoader:
         # so symlinks or non-resolved spellings of the same directory
         # are also caught.
         plugin_dir_real = os.path.realpath(record.source_path)
-        sys.path[:] = [
-            p for p in sys.path if os.path.realpath(p) != plugin_dir_real
-        ]
+        sys.path[:] = [p for p in sys.path if os.path.realpath(p) != plugin_dir_real]
 
         # Clear all in-memory registry entries for this plugin
         self.registry.unregister_plugin(plugin_id)
@@ -1132,8 +1155,7 @@ class PluginLoader:
                 )
         except Exception as exc:
             logger.warning(
-                f"Failed to clean up tools for plugin '{plugin_id}': "
-                f"{exc}",
+                f"Failed to clean up tools for plugin '{plugin_id}': " f"{exc}",
             )
 
     def get_loaded_plugin(self, plugin_id: str) -> Optional[PluginRecord]:
@@ -1146,6 +1168,18 @@ class PluginLoader:
             PluginRecord or None if not found
         """
         return self._loaded_plugins.get(plugin_id)
+
+    def set_loaded_plugin_record(
+        self,
+        plugin_id: str,
+        record: PluginRecord,
+    ) -> None:
+        """Set or replace a plugin record without loading its backend."""
+        self._loaded_plugins[plugin_id] = record
+
+    def discard_loaded_plugin_record(self, plugin_id: str) -> None:
+        """Remove a plugin record if it is present."""
+        self._loaded_plugins.pop(plugin_id, None)
 
     def get_all_loaded_plugins(self) -> Dict[str, PluginRecord]:
         """Get all loaded plugin records.

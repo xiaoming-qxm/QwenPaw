@@ -209,8 +209,9 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         *,
         prefix: str,
         tags: Optional[List[Any]] = None,
+        under_api: bool = True,
     ) -> None:
-        """Mount a plugin ``APIRouter`` at ``/api`` + *prefix*.
+        """Mount a plugin ``APIRouter`` at ``/api`` + *prefix* by default.
 
         Args:
             plugin_id: Owning plugin id
@@ -219,6 +220,7 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
                 ``GET /api/pets/...``. Must start with ``/`` and must not
                 end with ``/`` (except the single slash ``/`` is not allowed).
             tags: Optional OpenAPI tags for included routes
+            under_api: When false, mount at *prefix* directly.
 
         Raises:
             RuntimeError: If the FastAPI app was not configured.
@@ -254,7 +256,7 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         else:
             effective_tags = [f"plugin:{plugin_id}"]
 
-        full_prefix = f"/api{normalized}"
+        full_prefix = f"/api{normalized}" if under_api else normalized
         added = _mount_plugin_http_on_app(
             http_app,
             router,
@@ -271,9 +273,9 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         )
         self._http_prefix_to_plugin[normalized] = plugin_id
         logger.info(
-            "Registered HTTP routes for plugin '%s' at prefix '/api%s'",
+            "Registered HTTP routes for plugin '%s' at prefix '%s'",
             plugin_id,
-            normalized,
+            full_prefix,
         )
 
     def get_http_router_registrations(self) -> List[HttpRouterRegistration]:

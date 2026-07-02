@@ -12,7 +12,7 @@ import tempfile
 import urllib.request
 import zipfile
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, Request, UploadFile, File
 from fastapi.responses import FileResponse
@@ -473,13 +473,62 @@ async def list_plugins(request: Request):
                 "description": manifest.description,
                 "author": manifest.author,
                 "enabled": record.enabled,
-                "loaded": True,
+                "loaded": record.instance is not None,
                 "plugin_type": manifest.plugin_type,
                 "frontend_entry": manifest.entry.frontend,
+                "installed": True,
             },
         )
 
     return result
+
+
+def _manifest_payload(manifest) -> dict[str, Any]:
+    """Serialize plugin manifest fields used by console detail pages."""
+    return {
+        "id": manifest.id,
+        "name": manifest.name,
+        "version": manifest.version,
+        "description": manifest.description,
+        "author": manifest.author,
+        "icon": manifest.icon,
+        "capabilities": manifest.capabilities,
+        "setup": manifest.setup,
+        "meta": manifest.meta,
+        "plugin_type": manifest.plugin_type,
+        "entry": manifest.entry.model_dump(),
+        "qwenpaw_version": (
+            manifest.qwenpaw_version.model_dump()
+            if manifest.qwenpaw_version
+            else None
+        ),
+    }
+
+
+def _runtime_status(record) -> dict[str, Any]:
+    """Return plugin runtime status, falling back for disabled plugins."""
+    instance = record.instance
+    if instance is not None and hasattr(instance, "get_runtime_status"):
+        status = instance.get_runtime_status()
+        if isinstance(status, dict):
+            return status
+    return {"installed": record.enabled, "connected": False}
+
+
+def _plugin_summary(record) -> dict[str, Any]:
+    manifest = record.manifest
+    return {
+        "id": manifest.id,
+        "name": manifest.name,
+        "version": manifest.version,
+        "description": manifest.description,
+        "author": manifest.author,
+        "enabled": record.enabled,
+        "loaded": record.instance is not None,
+        "plugin_type": manifest.plugin_type,
+        "frontend_entry": manifest.entry.frontend,
+        "installed": True,
+    }
 
 
 @router.get(
@@ -502,6 +551,12 @@ class InstallPluginRequest(BaseModel):
 
     source: str
     force: bool = False
+
+
+class UpdatePluginEnabledRequest(BaseModel):
+    """Request body for enabling or disabling a plugin."""
+
+    enabled: bool
 
 
 @router.post(
@@ -730,6 +785,98 @@ async def upload_plugin(
             f"Plugin '{record.manifest.name}' installed successfully."
         ),
     }
+
+
+@router.get(
+    "/{plugin_id}/detail",
+    summary="Get plugin detail",
+    description="Return manifest metadata and runtime status for one plugin.",
+)
+async def get_plugin_detail(plugin_id: str, request: Request):
+    """Return a plugin detail payload for console plugin pages."""
+    loader = getattr(request.app.state, "plugin_loader", None)
+    if loader is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Plugin loader is not ready yet.",
+        )
+
+    record = loader.get_loaded_plugin(plugin_id)
+    if record is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Plugin '{plugin_id}' not found.",
+        )
+
+    summary = _plugin_summary(record)
+    manifest = _manifest_payload(record.manifest)
+    return {
+        **summary,
+        "icon": record.manifest.icon,
+        "capabilities": record.manifest.capabilities,
+        "setup": record.manifest.setup,
+        "meta": record.manifest.meta,
+        "manifest": manifest,
+        "runtime_status": _runtime_status(record),
+    }
+
+
+@router.patch(
+    "/{plugin_id}",
+    summary="Enable or disable plugin",
+    description="Persist plugin enabled state and hot-load/unload it.",
+)
+async def update_plugin_enabled(
+    plugin_id: str,
+    body: UpdatePluginEnabledRequest,
+    request: Request,
+):
+    """Enable or disable a plugin without deleting its files."""
+    loader = getattr(request.app.state, "plugin_loader", None)
+    if loader is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Plugin loader is not ready yet.",
+        )
+
+    record = loader.get_loaded_plugin(plugin_id)
+    if record is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Plugin '{plugin_id}' is not loaded.",
+        )
+
+    from ...plugins.architecture import PluginRecord
+    from ...plugins.state import PluginStateStore
+
+    PluginStateStore().set_enabled(plugin_id, body.enabled)
+
+    if not body.enabled:
+        manifest = record.manifest
+        source_path = record.source_path
+        diagnostics = list(record.diagnostics)
+        if record.instance is not None:
+            await loader.unload_plugin(plugin_id, delete_files=False)
+        loader.set_loaded_plugin_record(
+            plugin_id,
+            PluginRecord(
+                manifest=manifest,
+                source_path=source_path,
+                enabled=False,
+                instance=None,
+                diagnostics=diagnostics,
+            ),
+        )
+        return _plugin_summary(loader.get_loaded_plugin(plugin_id))
+
+    if record.instance is None:
+        loader.discard_loaded_plugin_record(plugin_id)
+        record = await loader.load_plugin(record.manifest, record.source_path)
+        await _post_load_setup(request, plugin_id)
+    else:
+        record.enabled = True
+
+    return _plugin_summary(record)
 
 
 @router.delete(

@@ -30,6 +30,24 @@ LOG_NAMESPACE = PROJECT_NAME.lower()
 LOG_FILE_BASENAME = f"{LOG_NAMESPACE}.log"
 LOG_FILE_PATH = WORKING_DIR / LOG_FILE_BASENAME
 
+_WEBSOCKET_DEBUG_LOGGERS = (
+    "uvicorn.error",
+    "websockets",
+    "websockets.client",
+    "websockets.server",
+    "websockets.protocol",
+    "websockets.connection",
+)
+
+_WEBSOCKET_DEBUG_PREFIXES = (
+    "< ",
+    "> ",
+    "% ",
+    "= ",
+    "! ",
+    "x ",
+)
+
 
 def _enable_windows_ansi() -> None:
     """Enable ANSI escape code support on Windows 10+."""
@@ -151,6 +169,36 @@ class SuppressPathAccessLogFilter(logging.Filter):
             return True
 
 
+class SuppressWebSocketDebugLogFilter(logging.Filter):
+    """Suppress verbose third-party WebSocket protocol trace logs.
+
+    Uvicorn's WebSocket stack can emit protocol-level debug records that
+    include handshake headers, ping/pong frames, and JSON-RPC frame bodies.
+    Those are useful while debugging the protocol implementation itself, but
+    too noisy for QwenPaw application debug logs and may expose bearer tokens.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.levelno > logging.DEBUG:
+            return True
+        try:
+            msg = record.getMessage().lstrip()
+        except Exception:
+            return True
+        return not msg.startswith(_WEBSOCKET_DEBUG_PREFIXES)
+
+
+def _install_websocket_debug_log_filter() -> None:
+    for logger_name in _WEBSOCKET_DEBUG_LOGGERS:
+        logger = logging.getLogger(logger_name)
+        if any(
+            isinstance(filter_obj, SuppressWebSocketDebugLogFilter)
+            for filter_obj in logger.filters
+        ):
+            continue
+        logger.addFilter(SuppressWebSocketDebugLogFilter())
+
+
 def setup_logger(level: int | str = logging.INFO):
     """Configure logging to only output from this package, not deps."""
     log_format = "%(asctime)s | %(message)s"
@@ -158,6 +206,8 @@ def setup_logger(level: int | str = logging.INFO):
 
     if isinstance(level, str):
         level = _LEVEL_MAP.get(level.lower(), logging.INFO)
+
+    _install_websocket_debug_log_filter()
 
     formatter = ColorFormatter(log_format, datefmt)
 

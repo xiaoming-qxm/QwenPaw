@@ -190,15 +190,44 @@ class MissionGate(LoopGate):
             title = s.get("title", "?")
             lines.append(f"  - {sid}: {title}")
         tail = (
-            "\nContinue with the "
-            "**worker - verifier** pipeline:\n"
-            "1. Dispatch **workers** for remaining\n"
-            "2. Dispatch **verifiers** for completed\n"
-            "3. Update prd.json passes accordingly"
-            f"\n\nMax iterations: {max_iter}"
+            _browser_control_tail(max_iter)
+            if _is_browser_control_mission(cfg)
+            else _worker_verifier_tail(max_iter)
         )
         lines.append(tail)
         return "\n".join(lines)
+
+
+def _is_browser_control_mission(cfg: dict) -> bool:
+    """Return whether this mission is running as direct browser control."""
+    return bool(
+        cfg.get("browser_control_mission")
+        or cfg.get("browserControlMission")
+        or cfg.get("browser_control_invocation")
+    )
+
+
+def _browser_control_tail(max_iter: Any) -> str:
+    """Build continuation text for direct Browser Control missions."""
+    return (
+        "\nContinue as the browser operator in this same mission:\n"
+        "1. Use `python_repl` with the preloaded Browser SDK.\n"
+        "2. Observe, act, and verify with `tab.snapshot()` and SDK calls.\n"
+        "3. Update prd.json passes and notes yourself after verification."
+        f"\n\nMax iterations: {max_iter}"
+    )
+
+
+def _worker_verifier_tail(max_iter: Any) -> str:
+    """Build continuation text for normal worker/verifier missions."""
+    return (
+        "\nContinue with the "
+        "**worker - verifier** pipeline:\n"
+        "1. Dispatch **workers** for remaining\n"
+        "2. Dispatch **verifiers** for completed\n"
+        "3. Update prd.json passes accordingly"
+        f"\n\nMax iterations: {max_iter}"
+    )
 
 
 __all__ = ["MissionGate"]

@@ -1,4 +1,6 @@
 import { useTranslation } from "react-i18next";
+import { useNavigate } from "react-router-dom";
+import { useMemo } from "react";
 import { Button, Empty, Spin, Table, Tabs } from "antd";
 import { ExternalLink, Package, Plus } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
@@ -12,15 +14,29 @@ import styles from "./index.module.less";
 
 export default function PluginManagerPage() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
 
-  const { plugins, loading, refresh, uninstallingId, handleUninstall } =
-    usePluginManager();
+  const {
+    plugins,
+    loading,
+    refresh,
+    uninstallingId,
+    installingId,
+    handleUninstall,
+    handleInstallBundle,
+  } = usePluginManager();
 
   const installModal = useInstallModal(refresh);
+  const installedPlugins = useMemo(
+    () => (plugins ?? []).filter((plugin) => plugin.installed !== false),
+    [plugins],
+  );
 
   const columns = usePluginColumns({
     uninstallingId,
+    installingId,
     onUninstall: handleUninstall,
+    onInstallBundle: handleInstallBundle,
   });
 
   const tabItems = [
@@ -29,7 +45,7 @@ export default function PluginManagerPage() {
       label: t("pluginManager.installed"),
       children: (
         <Spin spinning={loading}>
-          {!loading && (!plugins || plugins.length === 0) ? (
+          {!loading && installedPlugins.length === 0 ? (
             <Empty
               image={<Package size={48} strokeWidth={1} />}
               description={t("pluginManager.noPlugins")}
@@ -37,11 +53,15 @@ export default function PluginManagerPage() {
             />
           ) : (
             <Table
-              dataSource={plugins}
+              dataSource={installedPlugins}
               columns={columns}
               rowKey="id"
               pagination={false}
               className={styles.table}
+              rowClassName={styles.clickableRow}
+              onRow={(record) => ({
+                onClick: () => navigate(`/plugin-manager/${record.id}`),
+              })}
             />
           )}
         </Spin>

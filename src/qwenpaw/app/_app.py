@@ -2,6 +2,7 @@
 # pylint: disable=redefined-outer-name,unused-argument
 import inspect
 import asyncio
+import json
 import mimetypes
 import os
 import sys
@@ -67,6 +68,53 @@ mimetypes.add_type("image/svg+xml", ".svg")
 # Load persisted env vars into os.environ at module import time
 # so they are available before the lifespan starts.
 load_envs_into_environ()
+
+
+def _bundled_plugins_dir() -> Path:
+    """Return the source-tree bundled plugin directory."""
+    return Path(__file__).resolve().parents[3] / "plugins" / "bundle"
+
+
+def _is_bundled_builtin_plugin(plugin_dir: Path) -> bool:
+    manifest_path = plugin_dir / "plugin.json"
+    if not manifest_path.is_file():
+        return False
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        logger.warning("Failed to read bundled plugin manifest: %s", manifest_path)
+        return False
+    meta = manifest.get("meta")
+    return isinstance(meta, dict) and meta.get("builtin") is True
+
+
+def _bundled_builtin_plugin_dirs() -> list[Path]:
+    bundled_dir = _bundled_plugins_dir()
+    if not bundled_dir.is_dir():
+        return []
+    return [
+        item
+        for item in sorted(bundled_dir.iterdir())
+        if item.is_dir() and _is_bundled_builtin_plugin(item)
+    ]
+
+
+def _default_plugin_dirs() -> list[Path]:
+    """Return plugin discovery dirs in precedence order."""
+    from ..config.utils import get_plugins_dir
+
+    candidates = _bundled_builtin_plugin_dirs()
+    candidates.append(get_plugins_dir())
+
+    seen = set()
+    result = []
+    for candidate in candidates:
+        key = str(candidate.expanduser().resolve())
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(candidate)
+    return result
 
 
 # Dynamic runner that selects the correct workspace based on request
@@ -301,9 +349,9 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             from ..agents.tools import discover_builtin_tool_funcs
 
             # pylint: disable-next=protected-access
-            workspace_registry._bootstrap_kwargs[
-                "builtin_tool_funcs"
-            ] = discover_builtin_tool_funcs()
+            workspace_registry._bootstrap_kwargs["builtin_tool_funcs"] = (
+                discover_builtin_tool_funcs()
+            )
             logger.debug("Built-in tool funcs collected")
         except Exception:
             logger.debug(
@@ -320,9 +368,9 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
             _api_action_command_specs.extend(collect_builtin_command_specs())
             # pylint: disable-next=protected-access
-            workspace_registry._bootstrap_kwargs[
-                "builtin_fallback_handler"
-            ] = get_skill_fallback_handler()
+            workspace_registry._bootstrap_kwargs["builtin_fallback_handler"] = (
+                get_skill_fallback_handler()
+            )
             logger.debug("Built-in slash commands collected")
         except Exception:
             logger.debug(
@@ -400,9 +448,9 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             from ..runtime.prompt_contributors import _ALL_CONTRIBUTORS
 
             # pylint: disable-next=protected-access
-            workspace_registry._bootstrap_kwargs[
-                "builtin_contributor_clses"
-            ] = _ALL_CONTRIBUTORS
+            workspace_registry._bootstrap_kwargs["builtin_contributor_clses"] = (
+                _ALL_CONTRIBUTORS
+            )
             logger.debug("Built-in prompt contributors collected")
         except Exception:
             logger.debug(
@@ -431,9 +479,9 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
         if _api_action_command_specs:
             # pylint: disable-next=protected-access
-            workspace_registry._bootstrap_kwargs[
-                "builtin_command_specs"
-            ] = _api_action_command_specs
+            workspace_registry._bootstrap_kwargs["builtin_command_specs"] = (
+                _api_action_command_specs
+            )
 
     except Exception:
         logger.debug(
@@ -474,8 +522,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
     fast_elapsed = time.time() - startup_start_time
     logger.info(
-        f"Server ready in {fast_elapsed:.3f}s "
-        f"(agents loading in background)",
+        f"Server ready in {fast_elapsed:.3f}s " f"(agents loading in background)",
     )
 
     # ================================================================
@@ -498,20 +545,15 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
             from ..plugins.loader import PluginLoader
             from ..plugins.runtime import RuntimeHelpers
-            from ..config.utils import get_plugins_dir
 
-            plugin_dirs = [
-                get_plugins_dir(),
-            ]
+            plugin_dirs = _default_plugin_dirs()
 
             plugin_loader = PluginLoader(plugin_dirs)
 
             plugin_loader.registry.set_plugin_http_app(app)
 
             config = load_config(get_config_path())
-            plugin_configs = (
-                config.plugins if hasattr(config, "plugins") else {}
-            )
+            plugin_configs = config.plugins if hasattr(config, "plugins") else {}
             logger.debug(
                 f"Loading plugins with {len(plugin_configs)} config(s)",
             )
@@ -636,8 +678,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
             startup_elapsed = time.time() - startup_start_time
             logger.info(
-                "Background startup completed in "
-                f"{startup_elapsed:.3f} seconds",
+                "Background startup completed in " f"{startup_elapsed:.3f} seconds",
             )
 
             # Print server URL again so it's visible after background logs

@@ -55,6 +55,9 @@ const BackupsPage = lazyImportWithRetry("../../pages/Settings/Backups");
 const PluginManagerPage = lazyImportWithRetry(
   "../../pages/Settings/PluginManager",
 );
+const PluginDetailPage = lazyImportWithRetry(
+  "../../pages/Settings/PluginDetail",
+);
 
 /**
  * "/" lands here. Waits for useSyncCodingMode to populate the store before
@@ -77,6 +80,10 @@ function DefaultRedirect() {
 /** Synonym for /acp. Kept for plugins / external links that reference uppercase. */
 function ACPRedirect() {
   return <Navigate to="/acp" replace />;
+}
+
+function BrowserExtensionRedirect() {
+  return <Navigate to="/plugin-manager/browser-control" replace />;
 }
 
 export const BUILTIN_ROUTES: Route[] = [
@@ -122,6 +129,16 @@ export const BUILTIN_ROUTES: Route[] = [
     id: "core.plugin-manager",
     path: "/plugin-manager",
     component: PluginManagerPage,
+  },
+  {
+    id: "core.plugin-detail",
+    path: "/plugin-manager/:pluginId",
+    component: PluginDetailPage,
+  },
+  {
+    id: "core.browser-extension",
+    path: "/browser-extension",
+    component: BrowserExtensionRedirect,
   },
 ];
 

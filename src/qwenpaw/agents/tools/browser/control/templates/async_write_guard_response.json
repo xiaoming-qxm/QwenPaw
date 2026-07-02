@@ -1,0 +1,20 @@
+{
+  "ok": false,
+  "mode": "control",
+  "tab_id": null,
+  "error": "async_write_guard",
+  "message": "Blocked repeat click on {target_ref_repr}: the previous click on this same target triggered {async_requests} async network request(s). Re-clicking before the state is read back could duplicate the side effect.",
+  "blocked_ref": null,
+  "previous_network": {
+    "async_requests_triggered": 0,
+    "settled": false,
+    "timed_out": false
+  },
+  "next_action": "snapshot",
+  "recommended_actions": [
+    "wait_for_then_snapshot",
+    "reload_then_snapshot",
+    "authoritative_state_view"
+  ],
+  "next_instruction": "Do not repeat the same state-changing click. Verify the current state by waiting and observing, reloading and observing, or opening an authoritative state view."
+}
