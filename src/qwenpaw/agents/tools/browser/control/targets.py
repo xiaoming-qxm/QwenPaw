@@ -346,6 +346,19 @@ def _control_visible_text_locator_script(text: str) -> str:
       label: "cart",
     }},
   ];
+  const purchaseActionText = new RegExp([
+    "buy[-_\\\\s]*now",
+    "buy",
+    "purchase",
+    "checkout",
+    "settle",
+    "购买",
+    "领券购买",
+    "立即",
+    "马上",
+    "结算"
+  ].join("|"), "i");
+  const cartActionText = /cart|basket|购物车/i;
 
   const dialogSelector = [
     "dialog[open]",
@@ -438,7 +451,34 @@ def _control_visible_text_locator_script(text: str) -> str:
     ancestorSourceText(element)
   ].filter(Boolean).join(" "));
 
+  const cartActsLikeAddCart = (element) => {{
+    const source = sourceText(element);
+    const combined = normalize([source, element.textContent].filter(Boolean)
+      .join(" "));
+    if (!cartActionText.test(combined)) return false;
+    const tag = element.tagName;
+    const href = String(element.getAttribute("href") || "");
+    if (tag === "A" && /cart/i.test(href)) return false;
+    const rect = visibleRect(element);
+    if (!rect) return false;
+    const viewportHeight = window.innerHeight || 0;
+    if (!viewportHeight || rect.top < viewportHeight * 0.72) return false;
+    let current = element.parentElement;
+    let depth = 0;
+    while (current && depth < 3) {{
+      const context = normalize([
+        current.innerText || current.textContent,
+        sourceText(current)
+      ].filter(Boolean).join(" "));
+      if (purchaseActionText.test(context)) return true;
+      current = current.parentElement;
+      depth += 1;
+    }}
+    return false;
+  }};
+
   const semanticTextOf = (element) => {{
+    if (cartActsLikeAddCart(element)) return "add cart";
     const text = sourceText(element);
     if (!text) return "";
     for (const item of actionSemanticLabels) {{

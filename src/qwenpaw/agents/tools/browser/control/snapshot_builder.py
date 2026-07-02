@@ -492,6 +492,9 @@ async def _control_dom_action_target_lines(
     if not candidates:
         return []
 
+    has_purchase_action = _dom_action_candidates_include_purchase_action(
+        candidates,
+    )
     viewport = await _dom_action_viewport_size(session)
     next_ref = _next_action_ref(refs)
     lines: list[str] = []
@@ -504,7 +507,10 @@ async def _control_dom_action_target_lines(
         if not text:
             continue
         label = _dom_action_repeat_label(text)
-        if _action_label_over_repeat_limit(label, label_counts):
+        if (
+            not (has_purchase_action and label == "cart")
+            and _action_label_over_repeat_limit(label, label_counts)
+        ):
             continue
         node_params = _dom_action_node_params(candidate)
         if node_params is None:
@@ -518,6 +524,15 @@ async def _control_dom_action_target_lines(
             continue
         tag = _clean_action_target_token(candidate.get("tag") or "element")
         role = _clean_action_target_token(candidate.get("role") or "button")
+        text = _dom_action_contextual_output_text(
+            text,
+            role,
+            candidate,
+            point,
+            viewport,
+            has_purchase_action=has_purchase_action,
+        )
+        label = _dom_action_repeat_label(text)
         x, y = (_rounded_number(point[0]), _rounded_number(point[1]))
         dedupe_key = f"{text}|{tag}|{role}|{x}|{y}"
         if dedupe_key in seen:
@@ -816,6 +831,40 @@ def _dom_action_repeat_label(text: str) -> str:
     if semantic:
         return semantic
     return " ".join(str(text or "").casefold().split())
+
+
+def _dom_action_candidates_include_purchase_action(
+    candidates: list[dict[str, Any]],
+) -> bool:
+    for candidate in candidates:
+        text = _clean_action_target_text(candidate.get("text"))
+        if _dom_action_repeat_label(text) in {"buy", "checkout"}:
+            return True
+    return False
+
+
+def _dom_action_contextual_output_text(
+    text: str,
+    role: str,
+    candidate: dict[str, Any],
+    point: tuple[float, float],
+    viewport: tuple[float, float],
+    *,
+    has_purchase_action: bool,
+) -> str:
+    if not has_purchase_action:
+        return text
+    if _dom_action_repeat_label(text) != "cart":
+        return text
+    if role == "link" or str(candidate.get("href") or "").strip():
+        return text
+    viewport_height = float(viewport[1])
+    if viewport_height <= 0:
+        return text
+    _, y = point
+    if float(y) < viewport_height * 0.72:
+        return text
+    return "add cart"
 
 
 def _action_label_over_repeat_limit(
@@ -1172,6 +1221,19 @@ _CONTROL_ACTION_TARGETS_SCRIPT = """
       "search", "check", "checkbox", "select-all", "selectall",
       "add", "plus", "sku", "spec", "variant", "option", "select"
     ].join("|"), "i");
+    const purchaseActionText = new RegExp([
+      "buy[-_\\\\s]*now",
+      "buy",
+      "purchase",
+      "checkout",
+      "settle",
+      "购买",
+      "领券购买",
+      "立即",
+      "马上",
+      "结算"
+    ].join("|"), "i");
+    const cartActionText = /cart|basket|购物车/i;
     const actionSemanticLabels = [
       {
         pattern: new RegExp([
@@ -1379,6 +1441,28 @@ _CONTROL_ACTION_TARGETS_SCRIPT = """
       ) return null;
       return rect;
     };
+    const cartActsLikeAddCart = (element, rect, text) => {
+      const source = sourceTextOf(element);
+      const combined = normalize([text, source].filter(Boolean).join(" "));
+      if (!cartActionText.test(combined)) return false;
+      const tag = element.tagName;
+      const href = String(element.getAttribute("href") || "");
+      if (tag === "A" && /cart/i.test(href)) return false;
+      const viewportHeight = window.innerHeight || 0;
+      if (!viewportHeight || rect.top < viewportHeight * 0.72) return false;
+      let current = element.parentElement;
+      let depth = 0;
+      while (current && depth < 3) {
+        const context = normalize([
+          current.innerText || current.textContent,
+          sourceTextOf(current)
+        ].filter(Boolean).join(" "));
+        if (purchaseActionText.test(context)) return true;
+        current = current.parentElement;
+        depth += 1;
+      }
+      return false;
+    };
     const isSemantic = (element) => {
       const tag = element.tagName;
       const role = String(element.getAttribute("role") || "").toLowerCase();
@@ -1434,8 +1518,9 @@ _CONTROL_ACTION_TARGETS_SCRIPT = """
     for (const element of Array.from(document.querySelectorAll(selector))) {
       const rect = visibleRect(element);
       if (!rect) continue;
-      const text = textOf(element);
+      let text = textOf(element);
       if (!text) continue;
+      if (cartActsLikeAddCart(element, rect, text)) text = "add cart";
       const cls = String(element.className || "");
       const semantic = isSemantic(element);
       const classLooksActionable = actionClass.test(cls);
@@ -1451,8 +1536,9 @@ _CONTROL_ACTION_TARGETS_SCRIPT = """
     for (const element of genericActionTextCandidates) {
       const rect = visibleRect(element);
       if (!rect) continue;
-      const text = textOf(element);
+      let text = textOf(element);
       if (!text || !actionText.test(text)) continue;
+      if (cartActsLikeAddCart(element, rect, text)) text = "add cart";
       if (text.length > 120) continue;
       addTarget(element, text, rect);
     }
