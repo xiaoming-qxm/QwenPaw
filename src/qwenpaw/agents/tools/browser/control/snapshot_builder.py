@@ -29,6 +29,8 @@ _CONTROL_ACTION_DOM_TIMEOUT_SECONDS = 2.0
 _CONTROL_ACTION_QUAD_TIMEOUT_SECONDS = 0.8
 _CONTROL_LINK_REF_ENRICH_TIMEOUT_SECONDS = 1.5
 _CONTROL_LINK_REF_ENRICH_LIMIT = 30
+_CONTROL_ACTION_MAX_LABEL_LENGTH = 96
+_CONTROL_ACTION_MAX_AREA_RATIO = 0.2
 _CONTROL_ACTION_TEXT_RE = re.compile(
     "|".join(
         (
@@ -101,6 +103,12 @@ _CONTROL_ACTION_SKIPPED_NODES = {
     "template",
     "svg",
     "canvas",
+}
+_CONTROL_ACTION_STRUCTURAL_NODES = {
+    "#document",
+    "document",
+    "html",
+    "body",
 }
 _CONTROL_ACTION_INTERACTIVE_ROLES = {
     "button",
@@ -418,6 +426,7 @@ async def _control_dom_action_target_lines(
     if not candidates:
         return []
 
+    viewport = await _dom_action_viewport_size(session)
     next_ref = _next_action_ref(refs)
     lines: list[str] = []
     seen: set[str] = set()
@@ -427,7 +436,11 @@ async def _control_dom_action_target_lines(
         node_params = _dom_action_node_params(candidate)
         if node_params is None:
             continue
-        point = await _dom_action_point(session, node_params)
+        point = await _dom_action_point(
+            session,
+            node_params,
+            viewport=viewport,
+        )
         if point is None:
             continue
         text = _clean_action_target_text(candidate.get("text"))
@@ -490,11 +503,17 @@ def _collect_dom_action_candidates(
         has_click_attr = any(
             name in attributes for name in _CONTROL_ACTION_CLICK_ATTRIBUTES
         )
+        is_structural = node_name in _CONTROL_ACTION_STRUCTURAL_NODES
+        is_compound_label = len(text) > _CONTROL_ACTION_MAX_LABEL_LENGTH
         if text and (
-            role is not None
-            or has_action_text
-            or has_action_class
-            or has_click_attr
+            not is_structural
+            and not is_compound_label
+            and (
+                role is not None
+                or has_action_text
+                or has_action_class
+                or has_click_attr
+            )
         ):
             key = (str(node.get("backendNodeId") or node.get("nodeId")), text)
             if key not in seen_nodes:
@@ -533,8 +552,8 @@ def _collect_dom_action_candidates(
     visit(root)
     candidates.sort(
         key=lambda item: (
-            int(item.get("priority") or 99),
-            int(item.get("order") or 0),
+            _int_or_default(item.get("priority"), 99),
+            _int_or_default(item.get("order"), 0),
         ),
     )
     return candidates
@@ -661,6 +680,8 @@ def _dom_action_node_params(
 async def _dom_action_point(
     session: Any,
     node_params: dict[str, int],
+    *,
+    viewport: tuple[float, float] = (0.0, 0.0),
 ) -> tuple[float, float] | None:
     try:
         result = await _send_with_timeout(
@@ -672,7 +693,41 @@ async def _dom_action_point(
     except Exception:  # noqa: BLE001
         return None
     quads = result.get("quads") if isinstance(result, dict) else None
+    if _quad_area_exceeds_viewport(quads, viewport):
+        return None
     return _quad_center(quads)
+
+
+async def _dom_action_viewport_size(session: Any) -> tuple[float, float]:
+    try:
+        metrics = await _send_with_timeout(
+            session,
+            "Page.getLayoutMetrics",
+            timeout=_CONTROL_PAGE_STATE_TIMEOUT_SECONDS,
+        )
+    except Exception:  # noqa: BLE001
+        return (0.0, 0.0)
+    if not isinstance(metrics, dict):
+        return (0.0, 0.0)
+    for key in (
+        "cssVisualViewport",
+        "visualViewport",
+        "cssLayoutViewport",
+        "layoutViewport",
+        "contentSize",
+    ):
+        viewport = metrics.get(key)
+        if not isinstance(viewport, dict):
+            continue
+        width = viewport.get("clientWidth", viewport.get("width"))
+        height = viewport.get("clientHeight", viewport.get("height"))
+        if isinstance(width, (int, float)) and isinstance(
+            height,
+            (int, float),
+        ):
+            if width > 0 and height > 0:
+                return (float(width), float(height))
+    return (0.0, 0.0)
 
 
 def _quad_center(quads: Any) -> tuple[float, float] | None:
@@ -684,6 +739,41 @@ def _quad_center(quads: Any) -> tuple[float, float] | None:
     xs = [float(quad[index]) for index in range(0, 8, 2)]
     ys = [float(quad[index]) for index in range(1, 8, 2)]
     return (sum(xs) / len(xs), sum(ys) / len(ys))
+
+
+def _quad_area_exceeds_viewport(
+    quads: Any,
+    viewport: tuple[float, float],
+) -> bool:
+    if not isinstance(quads, list) or not quads:
+        return False
+    viewport_width, viewport_height = viewport
+    viewport_area = float(viewport_width) * float(viewport_height)
+    if viewport_area <= 0:
+        return False
+    area = _quad_area(quads[0])
+    return area > viewport_area * _CONTROL_ACTION_MAX_AREA_RATIO
+
+
+def _quad_area(quad: Any) -> float:
+    if not isinstance(quad, list) or len(quad) < 8:
+        return 0.0
+    points = [
+        (float(quad[index]), float(quad[index + 1]))
+        for index in range(0, 8, 2)
+    ]
+    area = 0.0
+    for index, (x1, y1) in enumerate(points):
+        x2, y2 = points[(index + 1) % len(points)]
+        area += x1 * y2 - x2 * y1
+    return abs(area) / 2
+
+
+def _int_or_default(value: Any, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
 
 
 def _next_action_ref(refs: dict[str, dict]):

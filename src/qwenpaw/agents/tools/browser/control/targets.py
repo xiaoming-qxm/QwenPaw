@@ -763,7 +763,7 @@ async def _control_text_target(
             ):
                 try:
                     await _control_resolve_point(session, target, ref=query)
-                except RECOVERABLE_CONTROL_EXCEPTIONS:
+                except _CONTROL_POINT_SNAP_EXCEPTIONS:
                     continue
                 return target
     finally:
