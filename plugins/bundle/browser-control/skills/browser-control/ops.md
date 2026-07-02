@@ -60,7 +60,10 @@
   targeting both fail.
 - Icon-only controls may appear with synthesized labels such as `add cart`,
   `cart`, or `buy` when the DOM exposes that semantic through stable
-  attributes. Prefer those refs over visual coordinate guesses.
+  attributes. Prefer those refs over visual coordinate guesses. If a
+  synthesized icon label appears without a ref, use text targeting such as
+  `await tab.click(text="add cart")`; the SDK resolves that label from stable
+  element attributes instead of guessed coordinates.
 - Use an action candidate budget: once the current page exposes a plausible
   next action such as add-to-cart, buy, checkout, confirm, delete, or search,
   try the strongest ref/text candidate within the next browser action. If it

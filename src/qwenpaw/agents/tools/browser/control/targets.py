@@ -266,6 +266,48 @@ def _control_visible_text_locator_script(text: str) -> str:
     "[onclick]"
   ].join(",");
 
+  const actionSemanticLabels = [
+    {{
+      pattern: new RegExp([
+        "(?:add|plus)[-_\\\\s]*(?:to[-_\\\\s]*)?cart",
+        "cart[-_\\\\s]*(?:add|plus)",
+        "addcart",
+        "cartadd",
+        "加入购物车",
+        "加购"
+      ].join("|"), "i"),
+      label: "add cart",
+    }},
+    {{
+      pattern: /buy[-_\\s]*now|buy|purchase|购买|立即|马上/i,
+      label: "buy",
+    }},
+    {{
+      pattern: /checkout|settle|结算/i,
+      label: "checkout",
+    }},
+    {{
+      pattern: /submit|提交/i,
+      label: "submit",
+    }},
+    {{
+      pattern: /confirm|ok|确定|确认/i,
+      label: "confirm",
+    }},
+    {{
+      pattern: /delete|remove|clear|删除|清空/i,
+      label: "delete",
+    }},
+    {{
+      pattern: /search|搜索/i,
+      label: "search",
+    }},
+    {{
+      pattern: /cart|basket|购物车/i,
+      label: "cart",
+    }},
+  ];
+
   const dialogSelector = [
     "dialog[open]",
     "[role='dialog']",
@@ -305,13 +347,42 @@ def _control_visible_text_locator_script(text: str) -> str:
 
   const visibleRect = (element) => elementRect(element, true);
 
+  const sourceText = (element) => normalize([
+    element.getAttribute("aria-label"),
+    element.getAttribute("title"),
+    element.getAttribute("alt"),
+    element.getAttribute("data-title"),
+    element.getAttribute("data-action"),
+    element.getAttribute("data-role"),
+    element.getAttribute("data-testid"),
+    element.getAttribute("data-test"),
+    element.id || "",
+    element.className || "",
+    element.getAttribute("href")
+  ].filter(Boolean).join(" ").replace(/[-_]+/g, " "));
+
+  const semanticTextOf = (element) => {{
+    const text = sourceText(element);
+    if (!text) return "";
+    for (const item of actionSemanticLabels) {{
+      if (item.pattern.test(text)) return item.label;
+    }}
+    return "";
+  }};
+
   const elementText = (element) => normalize([
     element.getAttribute("aria-label"),
     element.getAttribute("title"),
     element.getAttribute("alt"),
     "value" in element ? element.value : "",
-    element.textContent
+    element.textContent,
+    semanticTextOf(element)
   ].filter(Boolean).join(" ")).slice(0, 500);
+
+  const sourceMatches = (element) => (
+    sourceText(element).includes(wanted) ||
+    semanticTextOf(element).includes(wanted)
+  );
 
   const roots = [document];
   for (const element of document.querySelectorAll("*")) {{
@@ -371,7 +442,9 @@ def _control_visible_text_locator_script(text: str) -> str:
     for (const element of root.querySelectorAll(interactiveSelector)) {{
       if (++inspectedInteractive > 2500) break;
       const text = elementText(element);
-      if (text && text.includes(wanted)) addCandidate(element, text, 0);
+      if ((text && text.includes(wanted)) || sourceMatches(element)) {{
+        addCandidate(element, text || wanted, 0);
+      }}
     }}
     if (candidates.length || inspectedInteractive > 2500) break;
   }}
@@ -405,13 +478,15 @@ def _control_visible_text_locator_script(text: str) -> str:
       for (const element of root.querySelectorAll("*")) {{
         if (++inspectedElements > 2000) break;
         const text = elementText(element);
-        if (!text || !text.includes(wanted)) continue;
+        if ((!text || !text.includes(wanted)) && !sourceMatches(element)) {{
+          continue;
+        }}
         const interactive = element.closest(interactiveSelector);
         const target = interactive || element;
         if (!elementRect(target, false) && !elementRect(element, false)) {{
           continue;
         }}
-        addCandidate(target, text, interactive ? 0 : 2);
+        addCandidate(target, text || wanted, interactive ? 0 : 2);
         if (candidates.length) break;
       }}
       if (candidates.length || inspectedElements > 2000) break;

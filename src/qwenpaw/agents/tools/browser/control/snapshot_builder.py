@@ -233,7 +233,10 @@ async def build_control_snapshot(
                 depth=_DOM_TREE_FALLBACK_DEPTH,
                 allow_dom_snapshot=False,
             )
-        fallback_snapshot = await _append_page_state(session, fallback_snapshot)
+        fallback_snapshot = await _append_page_state(
+            session,
+            fallback_snapshot,
+        )
         fallback_snapshot = await _append_action_targets(
             session,
             fallback_snapshot,
@@ -1010,6 +1013,55 @@ _CONTROL_ACTION_TARGETS_SCRIPT = """
       "btn", "button", "action", "cart", "buy", "purchase",
       "checkout", "submit", "confirm", "delete", "search"
     ].join("|"), "i");
+    const actionSemanticLabels = [
+      {
+        pattern: new RegExp([
+          "(?:add|plus)[-_\\\\s]*(?:to[-_\\\\s]*)?cart",
+          "cart[-_\\\\s]*(?:add|plus)",
+          "addcart",
+          "cartadd",
+          "加入购物车",
+          "加购"
+        ].join("|"), "i"),
+        label: "add cart",
+        priority: 0
+      },
+      {
+        pattern: /buy[-_\\s]*now|buy|purchase|购买|立即|马上/i,
+        label: "buy",
+        priority: 1
+      },
+      {
+        pattern: /checkout|settle|结算/i,
+        label: "checkout",
+        priority: 2
+      },
+      {
+        pattern: /submit|提交/i,
+        label: "submit",
+        priority: 3
+      },
+      {
+        pattern: /confirm|ok|确定|确认/i,
+        label: "confirm",
+        priority: 4
+      },
+      {
+        pattern: /delete|remove|clear|删除|清空/i,
+        label: "delete",
+        priority: 5
+      },
+      {
+        pattern: /search|搜索/i,
+        label: "search",
+        priority: 6
+      },
+      {
+        pattern: /cart|basket|购物车/i,
+        label: "cart",
+        priority: 7
+      }
+    ];
     const selector = [
       "button",
       "a[href]",
@@ -1034,13 +1086,43 @@ _CONTROL_ACTION_TARGETS_SCRIPT = """
       "[class*='delete' i]",
       "[class*='search' i]"
     ].join(",");
+    const sourceTextOf = (element) => normalize([
+      element.getAttribute("aria-label"),
+      element.getAttribute("title"),
+      element.getAttribute("alt"),
+      element.getAttribute("data-title"),
+      element.getAttribute("data-action"),
+      element.getAttribute("data-role"),
+      element.getAttribute("data-testid"),
+      element.getAttribute("data-test"),
+      element.id || "",
+      element.className || "",
+      element.getAttribute("href")
+    ].filter(Boolean).join(" ").replace(/[-_]+/g, " "));
+    const semanticTextOf = (element) => {
+      const source = sourceTextOf(element);
+      if (!source) return "";
+      for (const item of actionSemanticLabels) {
+        if (item.pattern.test(source)) return item.label;
+      }
+      return "";
+    };
     const textOf = (element) => normalize([
       element.getAttribute("aria-label"),
       element.getAttribute("title"),
       element.getAttribute("alt"),
       "value" in element ? element.value : "",
-      element.innerText || element.textContent
+      element.innerText || element.textContent,
+      semanticTextOf(element)
     ].filter(Boolean).join(" "));
+    const priorityOf = (text) => {
+      for (const item of actionSemanticLabels) {
+        if (text === item.label || item.pattern.test(text)) {
+          return item.priority;
+        }
+      }
+      return actionText.test(text) ? 8 : 9;
+    };
     const visibleRect = (element) => {
       if (!element || element.nodeType !== Node.ELEMENT_NODE) return null;
       const style = window.getComputedStyle(element);
@@ -1096,6 +1178,7 @@ _CONTROL_ACTION_TARGETS_SCRIPT = """
         text: text.slice(0, 100),
         tag: element.tagName.toLowerCase(),
         role,
+        priority: priorityOf(text),
         x,
         y
       });
@@ -1113,13 +1196,11 @@ _CONTROL_ACTION_TARGETS_SCRIPT = """
       }
       if (!semantic && text.length > 120) continue;
       addTarget(element, text, rect);
-      if (targets.length >= 12) break;
     }
     const genericActionTextCandidates = document.body
       ? Array.from(document.body.querySelectorAll("*"))
       : [];
     for (const element of genericActionTextCandidates) {
-      if (targets.length >= 12) break;
       const rect = visibleRect(element);
       if (!rect) continue;
       const text = textOf(element);
@@ -1127,7 +1208,12 @@ _CONTROL_ACTION_TARGETS_SCRIPT = """
       if (text.length > 120) continue;
       addTarget(element, text, rect);
     }
-    return targets;
+    targets.sort((a, b) => (
+      a.priority - b.priority ||
+      a.y - b.y ||
+      a.x - b.x
+    ));
+    return targets.slice(0, 12);
   }
   return qwenpawCollectActionTargets();
 })()
