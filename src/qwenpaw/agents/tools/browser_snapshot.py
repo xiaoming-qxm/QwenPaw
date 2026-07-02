@@ -570,7 +570,11 @@ def _dom_tree_interactive_role(
     return None
 
 
-def _dom_tree_node_id_data(node: dict[str, Any]) -> dict[str, Any]:
+def _dom_tree_ref_data(
+    node: dict[str, Any],
+    role: str,
+    attributes: dict[str, str],
+) -> dict[str, Any]:
     result: dict[str, Any] = {}
     backend_node_id = node.get("backendNodeId")
     if isinstance(backend_node_id, int):
@@ -578,6 +582,13 @@ def _dom_tree_node_id_data(node: dict[str, Any]) -> dict[str, Any]:
     node_id = node.get("nodeId")
     if isinstance(node_id, int):
         result["nodeId"] = node_id
+    if role == "link":
+        href = str(attributes.get("href") or "").strip()
+        if href:
+            result["href"] = href
+        target = str(attributes.get("target") or "").strip()
+        if target:
+            result["target"] = target
     return result
 
 
@@ -656,6 +667,7 @@ def from_cdp_dom_tree(
         role: str,
         text: Any,
         node: dict[str, Any],
+        attributes: dict[str, str],
     ) -> bool:
         if len(lines) >= _DOM_TREE_MAX_LINES:
             return False
@@ -669,7 +681,7 @@ def from_cdp_dom_tree(
             "role": role,
             "name": normalized,
             "nth": nth,
-            **_dom_tree_node_id_data(node),
+            **_dom_tree_ref_data(node, role, attributes),
         }
         refs[ref] = ref_data
         escaped = normalized.replace('"', '\\"')
@@ -696,6 +708,7 @@ def from_cdp_dom_tree(
             role,
             _dom_tree_collect_text(node),
             node,
+            attributes,
         ):
             return
 

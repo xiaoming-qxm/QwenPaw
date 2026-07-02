@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 from typing import Any
+from urllib.parse import urljoin
 
 from ..runtime import _tool_response
 from .navigation import _control_tab_id
@@ -25,6 +26,7 @@ from .tab_manager import (
     _control_ensure_tab_available,
     _control_discover_tabs_safe,
     _control_int_tab_id,
+    _control_is_http_url,
     _control_live_tab_map,
     _control_page_id,
     _control_refresh_tab_url,
@@ -82,6 +84,50 @@ class _DeferredNetworkWaitMonitor:
 
 def _json_response(payload: dict[str, Any]):
     return _tool_response(json.dumps(payload, ensure_ascii=False, indent=2))
+
+
+def _control_link_href(target: dict[str, Any], base_url: str) -> str:
+    role = str(target.get("role") or "").strip().lower()
+    href = str(target.get("href") or "").strip()
+    if role != "link" or not href:
+        return ""
+    lower_href = href.lower()
+    if lower_href.startswith(("javascript:", "mailto:", "tel:", "#")):
+        return ""
+    resolved = urljoin(str(base_url or ""), href)
+    return resolved if _control_is_http_url(resolved) else ""
+
+
+async def _control_activate_semantic_link(
+    state: ControlState,
+    session: Any,
+    tab_id: int,
+    href: str,
+) -> Any:
+    await session.send_after_banner(
+        "Page.navigate",
+        {"url": href},
+        {"status_text": "Open"},
+    )
+    _control_refresh_tab_url(state, tab_id, href)
+    _control_mark_observation_required(state, tab_id, action="click")
+    return _json_response(
+        {
+            "ok": True,
+            "mode": "control",
+            "tab_id": tab_id,
+            "navigation_occurred": True,
+            "activated_semantic_link": True,
+            "url": href,
+            "needs_observation": True,
+            "ready_for_observation": True,
+            "next_action": "snapshot",
+            "next_instruction": (
+                "The link target was opened in the current controlled tab. "
+                "Observe it with snapshot before taking another action."
+            ),
+        },
+    )
 
 
 def set_network_quiescence_wait(func: Any) -> None:
@@ -291,6 +337,14 @@ async def click_control(
     before_tabs = await _control_discover_tabs_safe(bridge)
     if not before_url:
         before_url = _control_tab_url_from_tabs(before_tabs, tab_id)
+    semantic_link_href = _control_link_href(target, before_url)
+    if semantic_link_href:
+        return await _control_activate_semantic_link(
+            state,
+            session,
+            tab_id,
+            semantic_link_href,
+        )
     network_monitor = await _network_quiescence_monitor_impl(
         session,
         bridge,
