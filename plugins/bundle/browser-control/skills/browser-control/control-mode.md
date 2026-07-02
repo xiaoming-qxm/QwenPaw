@@ -6,10 +6,17 @@
   the `python_repl` Browser SDK.
 - Do NOT use `browser_use`, `execute_shell_command`, shell commands,
   `curl`, HTTP clients/APIs, headless browsers, managed-CDP, JavaScript
-  snippets, or local files as substitutes for browser state.
+  snippets, local files, or file-reading tools as substitutes for browser
+  state.
+- Do NOT use `read_file`, `grep_search`, `glob_search`, `view_image`,
+  `view_video`, `desktop_screenshot`, `Read`, `Grep`, `Glob`,
+  `ViewImage`, `ViewVideo`, or `DesktopScreenshot` to inspect browser
+  pages or screenshots.
 - The only browser-action entrypoint is `python_repl` with the preloaded
   Browser SDK (`browser.tabs`, `tab.navigate`, `tab.snapshot`, `tab.click`,
   `tab.type`, and related SDK calls).
+- If `tab.screenshot()` returns a file path, treat it as an evidence
+  artifact only. Do not read or view that file through non-SDK tools.
 - If the bridge is disconnected, ask the user to enable the extension.
 
 ## Stay Silent By Default

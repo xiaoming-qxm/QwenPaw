@@ -33,6 +33,9 @@
 
 - Use `snapshot` first. Use `screenshot` when snapshot is empty, generic,
   visual/canvas based, or misses key state. Trust the freshest observation.
+- Do not inspect screenshot file paths with local file/media tools. If the
+  Browser SDK observations are insufficient, report a blocker instead of
+  leaving the SDK loop.
 
 ## Supported Actions
 
