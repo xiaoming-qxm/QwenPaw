@@ -352,15 +352,20 @@ async def _call_control(
     bridge: Any,
     kwargs: dict[str, Any],
 ) -> dict[str, Any]:
-    return _chunk_payload(
-        await control_func(
-            state,
-            holder_id=holder_id,
-            bridge=bridge,
-            request_context={},
-            kwargs=kwargs,
-        ),
-    )
+    state_obj = ControlState.from_dict(state)
+    try:
+        return _chunk_payload(
+            await control_func(
+                state_obj,
+                holder_id=holder_id,
+                bridge=bridge,
+                request_context={},
+                kwargs=kwargs,
+            ),
+        )
+    finally:
+        if isinstance(state, dict) and not isinstance(state, ControlState):
+            state_obj.sync_to(state)
 
 
 async def _action_with_bridge(
