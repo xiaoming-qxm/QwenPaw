@@ -552,6 +552,8 @@ def _ref_info(value: dict[str, Any]) -> RefInfo:
         x=float(value.get("x") or 0),
         y=float(value.get("y") or 0),
         bounds=parsed_bounds,
+        href=str(value.get("href") or ""),
+        target=str(value.get("target") or ""),
     )
 
 

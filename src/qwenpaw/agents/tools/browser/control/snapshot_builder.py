@@ -24,6 +24,8 @@ _CONTROL_VISUAL_CONTEXT_TIMEOUT_SECONDS = 5.0
 _CONTROL_PAGE_STATE_TIMEOUT_SECONDS = 1.5
 _CONTROL_ACTION_TARGETS_TIMEOUT_SECONDS = 1.5
 _CONTROL_ACTION_TARGETS_LIMIT = 12
+_CONTROL_LINK_REF_ENRICH_TIMEOUT_SECONDS = 1.5
+_CONTROL_LINK_REF_ENRICH_LIMIT = 30
 
 
 def _url_source(url: str, media_type: str) -> URLSource:
@@ -123,6 +125,7 @@ async def build_control_snapshot(
         return fallback_snapshot, fallback_refs, True
 
     snapshot, refs = from_cdp_ax_tree(ax_tree)
+    await _enrich_ax_link_refs_with_dom_attributes(session, refs)
     snapshot_text = snapshot.strip()
     degraded_snapshot = False
     if not refs and (
@@ -197,6 +200,73 @@ async def _send_with_timeout(
         session.send(method, params or {}),
         timeout=max(float(timeout), 0.1),
     )
+
+
+async def _enrich_ax_link_refs_with_dom_attributes(
+    session: Any,
+    refs: dict[str, dict],
+) -> None:
+    enriched = 0
+    for target in refs.values():
+        if enriched >= _CONTROL_LINK_REF_ENRICH_LIMIT:
+            return
+        if not isinstance(target, dict):
+            continue
+        role = str(target.get("role") or "").strip().lower()
+        if role != "link" or target.get("href"):
+            continue
+        backend_node_id = _positive_int(target.get("backendNodeId"))
+        if backend_node_id is None:
+            continue
+        try:
+            result = await _send_with_timeout(
+                session,
+                "DOM.describeNode",
+                {"backendNodeId": backend_node_id, "depth": 0},
+                timeout=_CONTROL_LINK_REF_ENRICH_TIMEOUT_SECONDS,
+            )
+        except Exception:  # noqa: BLE001
+            logger.debug("Failed to enrich AX link ref", exc_info=True)
+            continue
+        attributes = _describe_node_attributes(result)
+        href = str(attributes.get("href") or "").strip()
+        if href:
+            target["href"] = href
+        link_target = str(attributes.get("target") or "").strip()
+        if link_target:
+            target["target"] = link_target
+        enriched += 1
+
+
+def _describe_node_attributes(result: dict[str, Any]) -> dict[str, str]:
+    node = result.get("node") if isinstance(result, dict) else None
+    if not isinstance(node, dict):
+        result_value = (
+            result.get("result") if isinstance(result, dict) else None
+        )
+        if isinstance(result_value, dict):
+            node = result_value.get("node")
+    if not isinstance(node, dict):
+        return {}
+    attributes = node.get("attributes")
+    if not isinstance(attributes, list):
+        return {}
+    parsed: dict[str, str] = {}
+    for index in range(0, len(attributes) - 1, 2):
+        name = str(attributes[index] or "").strip().lower()
+        if not name:
+            continue
+        parsed[name] = str(attributes[index + 1] or "")
+    return parsed
+
+
+def _positive_int(value: Any) -> int | None:
+    if isinstance(value, int) and value > 0:
+        return value
+    if isinstance(value, str) and value.isdigit():
+        parsed = int(value)
+        return parsed if parsed > 0 else None
+    return None
 
 
 async def _append_page_state(session: Any, snapshot: str) -> str:

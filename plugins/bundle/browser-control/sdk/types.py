@@ -16,6 +16,8 @@ class RefInfo:
     x: float
     y: float
     bounds: tuple[float, float, float, float] | None = None
+    href: str = ""
+    target: str = ""
 
 
 @dataclass(frozen=True)
@@ -42,10 +44,46 @@ class Snapshot(dict):
             return self._mapping_value(key)
         return self.text[key]
 
+    def __contains__(self, value: object) -> bool:
+        if isinstance(value, str) and value in {
+            "text",
+            "refs",
+            "items",
+            "degraded",
+        }:
+            return True
+        if not isinstance(value, str):
+            return False
+        return value in self.text
+
     def get(self, key: str, default: Any = None) -> Any:
         if key in {"text", "refs", "items", "degraded"}:
             return self._mapping_value(key)
         return default
+
+    def split(self, *args: Any, **kwargs: Any) -> list[str]:
+        return self.text.split(*args, **kwargs)
+
+    def splitlines(self, *args: Any, **kwargs: Any) -> list[str]:
+        return self.text.splitlines(*args, **kwargs)
+
+    def find(self, *args: Any, **kwargs: Any) -> int:
+        return self.text.find(*args, **kwargs)
+
+    def lower(self) -> str:
+        return self.text.lower()
+
+    def strip(self, *args: Any, **kwargs: Any) -> str:
+        return self.text.strip(*args, **kwargs)
+
+    def startswith(self, *args: Any, **kwargs: Any) -> bool:
+        return self.text.startswith(*args, **kwargs)
+
+    def endswith(self, *args: Any, **kwargs: Any) -> bool:
+        return self.text.endswith(*args, **kwargs)
+
+    def replace(self, *args: Any, **kwargs: Any) -> str:
+        return self.text.replace(*args, **kwargs)
 
     def to_jsonable(self) -> dict[str, Any]:
         return {
@@ -75,7 +113,7 @@ class Snapshot(dict):
 
     @staticmethod
     def _ref_payload(ref: str, info: RefInfo) -> dict[str, Any]:
-        return {
+        payload = {
             "ref": ref,
             "role": info.role,
             "tag": info.role,
@@ -85,6 +123,11 @@ class Snapshot(dict):
             "y": info.y,
             "bounds": info.bounds,
         }
+        if info.href:
+            payload["href"] = info.href
+        if info.target:
+            payload["target"] = info.target
+        return payload
 
 
 @dataclass(frozen=True)

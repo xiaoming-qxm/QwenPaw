@@ -6,9 +6,11 @@
 - For a new user task, start with
   `tab = await browser.tabs.open(url_or_search_page)` and then observe with
   `await tab.snapshot()`.
-- Use `await browser.tabs.list()` and `await browser.tabs.get(tab_id)` only
-  when the user asks you to use, inspect, clean up, or continue work in a
-  specific existing tab. Do not reuse unrelated old tabs to answer a new task.
+- `await browser.tabs.list()` returns tabs already managed by this SDK
+  session. Use `await browser.tabs.list(all=True)` and
+  `await browser.tabs.get(tab_id)` only when the user asks you to use,
+  inspect, clean up, or continue work in a specific existing tab. Do not reuse
+  unrelated old tabs to answer a new task.
 - If you are unsure about SDK signatures, call
   `print(await browser.documentation())` in `python_repl`; do not guess.
 - Common calls:
@@ -43,6 +45,9 @@
 - Snapshot refs are string identifiers. Use quoted refs such as
   `await tab.click(ref="e22")`; copied snippets like `ref=e22` are tolerated,
   but quoted strings are clearer.
+- Link refs may include an `href`; clicking that ref uses SDK-managed
+  same-tab navigation when possible, so prefer the fresh ref over coordinate
+  clicks for search results and product links.
 - `action_target` lines summarize visible controls that modern pages expose
   poorly through accessibility trees. Prefer `tab.click(text="...")` for an
   action target, and use its x/y coordinates only when text targeting fails.
@@ -94,7 +99,8 @@
 
 ## Supported Actions
 
-Use SDK methods such as `browser.tabs.list()`, `browser.tabs.get(tab_id)`,
+Use SDK methods such as `browser.tabs.list()`, `browser.tabs.list(all=True)`,
+`browser.tabs.get(tab_id)`,
 `tab.snapshot()`, `tab.click(...)`, `tab.type(...)`, `tab.press_key(...)`,
 `tab.navigate(...)`, `tab.hover(...)`, `tab.scroll(...)`,
 `tab.select_option(...)`, `tab.wait_for(...)`, `tab.close()`,

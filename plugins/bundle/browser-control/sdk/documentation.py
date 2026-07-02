@@ -64,10 +64,12 @@ a URL, such as a search page, list page, detail page, cart page, or status
 page. Do not start from a homepage and type into a search box when an
 equivalent URL route is available.
 
-Use browser.tabs.list() and browser.tabs.get(tab_id) only when the user asks
-you to use, inspect, clean up, or is continuing work in a specific existing tab.
-Do not mine unrelated old tabs to answer a new task unless the user asked to
-reuse existing browser state.
+Use browser.tabs.list() and browser.tabs.get(tab_id) only for tabs already
+managed by this SDK session. Use browser.tabs.list(all=True) only when the
+user asks you to use, inspect, clean up, or continue existing browser state.
+This includes continuing work in a specific existing tab. Do not mine
+unrelated old tabs to answer a new task unless the user asked to reuse
+existing browser state.
 
 Keep each browser cell narrow: perform at most one mutating browser action,
 optionally wait for it to settle, then take a fresh snapshot. Do not batch
@@ -85,7 +87,8 @@ offscreen controls into view. Use selectors only when they are stable and
 semantic; avoid guessed class names.
 
 Snapshot refs are string identifiers. Use quoted refs such as
-``await tab.click(ref="e22")``. The REPL also prebinds common ref symbols
+``await tab.click(ref="e22")``. Link refs may include an href used by the SDK
+for reliable same-tab navigation. The REPL also prebinds common ref symbols
 (``e22 == "e22"``) to tolerate copied snippets, but quoted strings are the
 clearest form.
 
@@ -120,8 +123,9 @@ class Browser:
         Release all tabs held by this Browser instance.
 
 class Tabs:
-    async def list(self) -> list[TabInfo]:
-        Return visible browser tabs as TabInfo objects.
+    async def list(self, *, all: bool = False) -> list[TabInfo]:
+        Return SDK-managed tabs as TabInfo objects. Pass all=True only when
+        the user explicitly needs the full visible Chrome tab list.
 
     async def get(self, tab_id: int | Tab) -> Tab:
         Claim a browser tab and return a Tab object. Passing an existing
@@ -236,7 +240,8 @@ class Snapshot:
     text: str
     refs: dict[str, RefInfo]
     degraded: bool
-    str(snapshot), snapshot[:N], and snapshot.text expose the text content.
+    str(snapshot), snapshot[:N], snapshot.text, snapshot.splitlines(), and
+    other common text helpers expose the text content.
 
 class ScreenshotResult:
     ok: bool
@@ -250,6 +255,8 @@ class RefInfo:
     x: float
     y: float
     bounds: tuple[float, float, float, float] | None
+    href: str
+    target: str
 
 class ClickResult:
     ok: bool

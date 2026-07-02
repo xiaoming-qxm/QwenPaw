@@ -26,10 +26,10 @@ class Tabs:
         self._state = state
         self._current: Tab | None = None
 
-    async def list(self) -> list[TabInfo]:
-        """List available browser tabs."""
+    async def list(self, *, all: bool = False) -> list[TabInfo]:
+        """List SDK-controlled tabs, or all visible tabs when requested."""
         raw_tabs = await self._bridge.discover_tabs()
-        return [
+        visible_tabs = [
             TabInfo(
                 id=int(tab["id"]),
                 url=str(tab.get("url") or ""),
@@ -38,6 +38,9 @@ class Tabs:
             for tab in raw_tabs
             if isinstance(tab, dict) and "id" in tab
         ]
+        if all:
+            return visible_tabs
+        return self._controlled_tab_infos(visible_tabs)
 
     async def get(self, tab_id: int | Tab) -> Tab:
         """Claim a tab and return its SDK object."""
@@ -82,7 +85,7 @@ class Tabs:
         """Compatibility alias for opening or getting a controlled tab."""
         if tab_id is None:
             if not allow_new_context:
-                tabs = await self.list()
+                tabs = await self.list(all=True)
                 if tabs:
                     return await self.get(tabs[0].id)
                 raise BrowserSDKError(
@@ -198,6 +201,44 @@ class Tabs:
             _state_request_context(self._state),
         )
         self._state["current_page_id"] = str(tab_id)
+
+    def _controlled_tab_infos(
+        self,
+        visible_tabs: list[TabInfo],
+    ) -> list[TabInfo]:
+        try:
+            tabs = self._state.get("control_tabs", {})
+        except AttributeError:
+            tabs = getattr(self._state, "control_tabs", {})
+        if not isinstance(tabs, dict):
+            return []
+
+        visible_by_id = {tab.id: tab for tab in visible_tabs}
+        result: list[TabInfo] = []
+        for key, record in tabs.items():
+            if not isinstance(record, dict):
+                continue
+            holder_id = str(record.get("holder_id") or "")
+            if holder_id and holder_id != self._holder_id:
+                continue
+            tab_id = _record_tab_id(key, record)
+            if tab_id is None:
+                continue
+            live = visible_by_id.get(tab_id)
+            if live is None:
+                continue
+            record_url = str(record.get("url") or "")
+            live_url = str(live.url or "")
+            url = (
+                record_url
+                if record_url and record_url != "about:blank"
+                else live_url
+            )
+            title = str(live.title or record.get("title") or "")
+            record["url"] = url
+            record["title"] = title
+            result.append(TabInfo(id=tab_id, url=url, title=title))
+        return result
 
 
 class _BrowserConnect:
@@ -379,6 +420,15 @@ def _current_state_tab_id(state: Any) -> int | None:
         return current
     if isinstance(current, str) and current.isdigit():
         return int(current)
+    return None
+
+
+def _record_tab_id(key: Any, record: dict[str, Any]) -> int | None:
+    value = record.get("tab_id", key)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.isdigit():
+        return int(value)
     return None
 
 
