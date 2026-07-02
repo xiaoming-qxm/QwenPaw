@@ -262,6 +262,8 @@ def _control_visible_text_locator_script(text: str) -> str:
     "[role='link']",
     "[role='menuitem']",
     "[role='tab']",
+    "[role='checkbox']",
+    "[role='radio']",
     "[tabindex]:not([tabindex='-1'])",
     "[onclick]",
     "[data-spm-click]",
@@ -287,6 +289,10 @@ def _control_visible_text_locator_script(text: str) -> str:
     "[class*='submit' i]",
     "[class*='confirm' i]",
     "[class*='delete' i]",
+    "[class*='remove' i]",
+    "[class*='clear' i]",
+    "[class*='check' i]",
+    "[class*='checkbox' i]",
     "[class*='search' i]",
     "[class*='icon' i]"
   ].join(",");
@@ -304,6 +310,18 @@ def _control_visible_text_locator_script(text: str) -> str:
       label: "add cart",
     }},
     {{
+      pattern: /select[-_\\s]*all|all[-_\\s]*select|check[-_\\s]*all|全选/i,
+      label: "select all",
+    }},
+    {{
+      pattern: /delete|remove|clear|删除|清空/i,
+      label: "delete",
+    }},
+    {{
+      pattern: /checkbox|check[-_\\s]*box|item[-_\\s]*(?:check|select)|勾选|选择/i,
+      label: "checkbox",
+    }},
+    {{
       pattern: /buy[-_\\s]*now|buy|purchase|购买|立即|马上/i,
       label: "buy",
     }},
@@ -318,10 +336,6 @@ def _control_visible_text_locator_script(text: str) -> str:
     {{
       pattern: /confirm|ok|确定|确认/i,
       label: "confirm",
-    }},
-    {{
-      pattern: /delete|remove|clear|删除|清空/i,
-      label: "delete",
     }},
     {{
       pattern: /search|搜索/i,

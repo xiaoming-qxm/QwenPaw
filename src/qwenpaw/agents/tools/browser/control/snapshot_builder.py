@@ -23,7 +23,7 @@ _CONTROL_DOM_SNAPSHOT_TIMEOUT_SECONDS = 5.0
 _CONTROL_VISUAL_CONTEXT_TIMEOUT_SECONDS = 5.0
 _CONTROL_PAGE_STATE_TIMEOUT_SECONDS = 1.5
 _CONTROL_ACTION_TARGETS_TIMEOUT_SECONDS = 1.5
-_CONTROL_ACTION_TARGETS_LIMIT = 12
+_CONTROL_ACTION_TARGETS_LIMIT = 24
 _CONTROL_ACTION_DOM_DEPTH = 10
 _CONTROL_ACTION_DOM_TIMEOUT_SECONDS = 2.0
 _CONTROL_ACTION_QUAD_TIMEOUT_SECONDS = 0.8
@@ -31,6 +31,8 @@ _CONTROL_LINK_REF_ENRICH_TIMEOUT_SECONDS = 1.5
 _CONTROL_LINK_REF_ENRICH_LIMIT = 30
 _CONTROL_ACTION_MAX_LABEL_LENGTH = 96
 _CONTROL_ACTION_MAX_AREA_RATIO = 0.2
+_CONTROL_ACTION_REPEAT_LIMIT = 3
+_CONTROL_ACTION_REPEAT_LIMITED_LABELS = {"cart"}
 _CONTROL_ACTION_TEXT_RE = re.compile(
     "|".join(
         (
@@ -45,15 +47,21 @@ _CONTROL_ACTION_TEXT_RE = re.compile(
             "确认",
             "删除",
             "全选",
+            "勾选",
+            "选择",
             "清空",
             "搜索",
             "add to cart",
+            "select all",
             "cart",
             "buy",
             "checkout",
             "submit",
             "confirm",
             "delete",
+            "remove",
+            "clear",
+            "checkbox",
             "search",
         ),
     ),
@@ -72,7 +80,13 @@ _CONTROL_ACTION_CLASS_RE = re.compile(
             "submit",
             "confirm",
             "delete",
+            "remove",
+            "clear",
             "search",
+            "check",
+            "checkbox",
+            "select-all",
+            "selectall",
             "sku",
             "spec",
             "variant",
@@ -91,13 +105,31 @@ _CONTROL_ACTION_SEMANTIC_LABELS = (
         ),
         "add cart",
     ),
-    (re.compile(r"cart|basket", re.IGNORECASE), "cart"),
-    (re.compile(r"buy[-_\s]*now|buy|purchase", re.IGNORECASE), "buy"),
-    (re.compile(r"checkout|settle", re.IGNORECASE), "checkout"),
-    (re.compile(r"submit", re.IGNORECASE), "submit"),
-    (re.compile(r"confirm|ok", re.IGNORECASE), "confirm"),
-    (re.compile(r"delete|remove|clear", re.IGNORECASE), "delete"),
-    (re.compile(r"search", re.IGNORECASE), "search"),
+    (
+        re.compile(
+            r"select[-_\s]*all|all[-_\s]*select|check[-_\s]*all|全选",
+            re.IGNORECASE,
+        ),
+        "select all",
+    ),
+    (re.compile(r"delete|remove|clear|删除|清空", re.IGNORECASE), "delete"),
+    (
+        re.compile(
+            r"checkbox|check[-_\s]*box|item[-_\s]*(?:check|select)|"
+            r"勾选|选择",
+            re.IGNORECASE,
+        ),
+        "checkbox",
+    ),
+    (re.compile(r"cart|basket|购物车", re.IGNORECASE), "cart"),
+    (
+        re.compile(r"buy[-_\s]*now|buy|purchase|购买|立即|马上", re.IGNORECASE),
+        "buy",
+    ),
+    (re.compile(r"checkout|settle|结算", re.IGNORECASE), "checkout"),
+    (re.compile(r"submit|提交", re.IGNORECASE), "submit"),
+    (re.compile(r"confirm|ok|确定|确认", re.IGNORECASE), "confirm"),
+    (re.compile(r"search|搜索", re.IGNORECASE), "search"),
     (re.compile(r"sku|spec|variant|option|select", re.IGNORECASE), "option"),
 )
 _CONTROL_ACTION_TEXT_ATTRIBUTES = (
@@ -464,9 +496,16 @@ async def _control_dom_action_target_lines(
     next_ref = _next_action_ref(refs)
     lines: list[str] = []
     seen: set[str] = set()
+    label_counts: dict[str, int] = {}
     for candidate in candidates:
         if len(lines) >= _CONTROL_ACTION_TARGETS_LIMIT:
             break
+        text = _clean_action_target_text(candidate.get("text"))
+        if not text:
+            continue
+        label = _dom_action_repeat_label(text)
+        if _action_label_over_repeat_limit(label, label_counts):
+            continue
         node_params = _dom_action_node_params(candidate)
         if node_params is None:
             continue
@@ -477,9 +516,6 @@ async def _control_dom_action_target_lines(
         )
         if point is None:
             continue
-        text = _clean_action_target_text(candidate.get("text"))
-        if not text:
-            continue
         tag = _clean_action_target_token(candidate.get("tag") or "element")
         role = _clean_action_target_token(candidate.get("role") or "button")
         x, y = (_rounded_number(point[0]), _rounded_number(point[1]))
@@ -487,6 +523,8 @@ async def _control_dom_action_target_lines(
         if dedupe_key in seen:
             continue
         seen.add(dedupe_key)
+        if label in _CONTROL_ACTION_REPEAT_LIMITED_LABELS:
+            label_counts[label] = label_counts.get(label, 0) + 1
         ref = next_ref()
         target = {
             "role": role or "button",
@@ -515,6 +553,7 @@ def _collect_dom_action_candidates(
 ) -> list[dict[str, Any]]:
     candidates: list[dict[str, Any]] = []
     seen_nodes: set[tuple[str, str]] = set()
+    label_counts: dict[str, int] = {}
     order = 0
 
     def visit(node: dict[str, Any]) -> None:
@@ -541,6 +580,7 @@ def _collect_dom_action_candidates(
         )
         is_structural = node_name in _CONTROL_ACTION_STRUCTURAL_NODES
         is_compound_label = len(text) > _CONTROL_ACTION_MAX_LABEL_LENGTH
+        repeat_label = _dom_action_repeat_label(text)
         if text and (
             not is_structural
             and not is_compound_label
@@ -552,7 +592,14 @@ def _collect_dom_action_candidates(
             )
         ):
             key = (str(node.get("backendNodeId") or node.get("nodeId")), text)
-            if key not in seen_nodes:
+            if key not in seen_nodes and not _action_label_over_repeat_limit(
+                repeat_label,
+                label_counts,
+            ):
+                if repeat_label in _CONTROL_ACTION_REPEAT_LIMITED_LABELS:
+                    label_counts[repeat_label] = (
+                        label_counts.get(repeat_label, 0) + 1
+                    )
                 seen_nodes.add(key)
                 order += 1
                 candidates.append(
@@ -566,6 +613,7 @@ def _collect_dom_action_candidates(
                         "target": attributes.get("target", ""),
                         "priority": _dom_action_priority(
                             role,
+                            text,
                             has_action_text,
                             has_action_class,
                         ),
@@ -704,10 +752,15 @@ def _dom_action_semantic_label(source: str) -> str:
             labels.append(label)
         if len(labels) >= 3:
             break
-    if "add cart" in labels:
-        return "add cart"
-    if "buy" in labels:
-        return "buy"
+    for preferred in (
+        "add cart",
+        "select all",
+        "delete",
+        "checkbox",
+        "buy",
+    ):
+        if preferred in labels:
+            return preferred
     return " ".join(labels)
 
 
@@ -758,18 +811,46 @@ def _dom_action_tree_semantic_text(
     return _dom_action_semantic_label(" ".join(sources))
 
 
+def _dom_action_repeat_label(text: str) -> str:
+    semantic = _dom_action_semantic_label(text)
+    if semantic:
+        return semantic
+    return " ".join(str(text or "").casefold().split())
+
+
+def _action_label_over_repeat_limit(
+    label: str,
+    counts: dict[str, int],
+) -> bool:
+    if label not in _CONTROL_ACTION_REPEAT_LIMITED_LABELS:
+        return False
+    return counts.get(label, 0) >= _CONTROL_ACTION_REPEAT_LIMIT
+
+
 def _dom_action_priority(
     role: str | None,
+    text: str,
     has_action_text: bool,
     has_action_class: bool,
 ) -> int:
-    if has_action_text:
+    label = _dom_action_repeat_label(text)
+    if label in {"add cart", "select all", "delete"}:
         return 0
-    if has_action_class:
+    if label == "checkbox" or role in {"checkbox", "radio"}:
         return 1
-    if role in {"button", "option", "combobox", "checkbox", "radio"}:
+    if label in {"confirm", "checkout", "submit"}:
         return 2
-    return 3
+    if label == "search":
+        return 3
+    if label == "buy":
+        return 4
+    if has_action_text:
+        return 5
+    if has_action_class:
+        return 6
+    if role in {"button", "option", "combobox"}:
+        return 7
+    return 8
 
 
 def _dom_action_node_params(
@@ -1081,12 +1162,14 @@ _CONTROL_ACTION_TARGETS_SCRIPT = """
     const actionText = new RegExp([
       "加入购物车", "加购", "购物车", "购买", "立即", "马上",
       "结算", "提交", "确定", "确认", "删除", "全选", "清空",
-      "搜索", "add to cart", "cart", "buy", "checkout", "submit",
-      "confirm", "delete", "search"
+      "勾选", "选择", "搜索", "add to cart", "select all", "cart",
+      "buy", "checkout", "submit", "confirm", "delete", "remove",
+      "clear", "checkbox", "search"
     ].join("|"), "i");
     const actionClass = new RegExp([
       "btn", "button", "action", "cart", "buy", "purchase",
-      "checkout", "submit", "confirm", "delete", "search",
+      "checkout", "submit", "confirm", "delete", "remove", "clear",
+      "search", "check", "checkbox", "select-all", "selectall",
       "add", "plus", "sku", "spec", "variant", "option", "select"
     ].join("|"), "i");
     const actionSemanticLabels = [
@@ -1103,9 +1186,30 @@ _CONTROL_ACTION_TARGETS_SCRIPT = """
         priority: 0
       },
       {
+        pattern: /select[-_\\s]*all|all[-_\\s]*select|check[-_\\s]*all|全选/i,
+        label: "select all",
+        priority: 0
+      },
+      {
+        pattern: /delete|remove|clear|删除|清空/i,
+        label: "delete",
+        priority: 0
+      },
+      {
+        pattern: new RegExp([
+          "checkbox",
+          "check[-_\\\\s]*box",
+          "item[-_\\\\s]*(?:check|select)",
+          "勾选",
+          "选择"
+        ].join("|"), "i"),
+        label: "checkbox",
+        priority: 1
+      },
+      {
         pattern: /buy[-_\\s]*now|buy|purchase|购买|立即|马上/i,
         label: "buy",
-        priority: 1
+        priority: 4
       },
       {
         pattern: /checkout|settle|结算/i,
@@ -1120,17 +1224,12 @@ _CONTROL_ACTION_TARGETS_SCRIPT = """
       {
         pattern: /confirm|ok|确定|确认/i,
         label: "confirm",
-        priority: 4
-      },
-      {
-        pattern: /delete|remove|clear|删除|清空/i,
-        label: "delete",
-        priority: 5
+        priority: 2
       },
       {
         pattern: /search|搜索/i,
         label: "search",
-        priority: 6
+        priority: 3
       },
       {
         pattern: /cart|basket|购物车/i,
@@ -1149,6 +1248,8 @@ _CONTROL_ACTION_TARGETS_SCRIPT = """
       "[role='link']",
       "[role='menuitem']",
       "[role='tab']",
+      "[role='checkbox']",
+      "[role='radio']",
       "[tabindex]:not([tabindex='-1'])",
       "[onclick]",
       "[data-spm-click]",
@@ -1174,6 +1275,10 @@ _CONTROL_ACTION_TARGETS_SCRIPT = """
       "[class*='submit' i]",
       "[class*='confirm' i]",
       "[class*='delete' i]",
+      "[class*='remove' i]",
+      "[class*='clear' i]",
+      "[class*='check' i]",
+      "[class*='checkbox' i]",
       "[class*='search' i]",
       "[class*='icon' i]"
     ].join(",");
@@ -1248,6 +1353,14 @@ _CONTROL_ACTION_TARGETS_SCRIPT = """
       }
       return actionText.test(text) ? 8 : 9;
     };
+    const labelOf = (text) => {
+      for (const item of actionSemanticLabels) {
+        if (text === item.label || item.pattern.test(text)) {
+          return item.label;
+        }
+      }
+      return normalize(text).toLowerCase();
+    };
     const visibleRect = (element) => {
       if (!element || element.nodeType !== Node.ELEMENT_NODE) return null;
       const style = window.getComputedStyle(element);
@@ -1279,12 +1392,16 @@ _CONTROL_ACTION_TARGETS_SCRIPT = """
         role === "link" ||
         role === "menuitem" ||
         role === "tab" ||
+        role === "checkbox" ||
+        role === "radio" ||
         element.hasAttribute("onclick") ||
         element.hasAttribute("tabindex")
       );
     };
     const targets = [];
     const seen = new Set();
+    const repeatCounts = new Map();
+    const repeatLimitedLabels = new Set(["cart"]);
     const addTarget = (element, text, rect) => {
       if (!text) return;
       const viewportArea = Math.max(
@@ -1296,6 +1413,12 @@ _CONTROL_ACTION_TARGETS_SCRIPT = """
       const x = Math.round(rect.left + rect.width / 2);
       const y = Math.round(rect.top + rect.height / 2);
       const role = String(element.getAttribute("role") || "").toLowerCase();
+      const label = labelOf(text);
+      if (repeatLimitedLabels.has(label)) {
+        const count = Number(repeatCounts.get(label) || 0);
+        if (count >= 3) return;
+        repeatCounts.set(label, count + 1);
+      }
       const key = `${text}|${element.tagName}|${role}|${x}|${y}`;
       if (seen.has(key)) return;
       seen.add(key);
@@ -1338,7 +1461,7 @@ _CONTROL_ACTION_TARGETS_SCRIPT = """
       a.y - b.y ||
       a.x - b.x
     ));
-    return targets.slice(0, 12);
+    return targets.slice(0, 24);
   }
   return qwenpawCollectActionTargets();
 })()
