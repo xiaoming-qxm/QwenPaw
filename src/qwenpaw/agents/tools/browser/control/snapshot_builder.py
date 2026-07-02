@@ -800,6 +800,8 @@ async def _dom_action_point(
     except Exception:  # noqa: BLE001
         return None
     quads = result.get("quads") if isinstance(result, dict) else None
+    if _quad_outside_viewport(quads, viewport):
+        return None
     if _quad_area_exceeds_viewport(quads, viewport):
         return None
     return _quad_center(quads)
@@ -860,6 +862,28 @@ def _quad_area_exceeds_viewport(
         return False
     area = _quad_area(quads[0])
     return area > viewport_area * _CONTROL_ACTION_MAX_AREA_RATIO
+
+
+def _quad_outside_viewport(
+    quads: Any,
+    viewport: tuple[float, float],
+) -> bool:
+    if not isinstance(quads, list) or not quads:
+        return False
+    viewport_width, viewport_height = viewport
+    if viewport_width <= 0 or viewport_height <= 0:
+        return False
+    quad = quads[0]
+    if not isinstance(quad, list) or len(quad) < 8:
+        return False
+    xs = [float(quad[index]) for index in range(0, 8, 2)]
+    ys = [float(quad[index]) for index in range(1, 8, 2)]
+    return (
+        max(xs) < 0
+        or min(xs) > viewport_width
+        or max(ys) < 0
+        or min(ys) > viewport_height
+    )
 
 
 def _quad_area(quad: Any) -> float:
