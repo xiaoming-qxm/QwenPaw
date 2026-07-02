@@ -82,6 +82,24 @@ _CONTROL_ACTION_CLASS_RE = re.compile(
     ),
     re.IGNORECASE,
 )
+_CONTROL_ACTION_SEMANTIC_LABELS = (
+    (
+        re.compile(
+            r"(?:add|plus)[-_\s]*(?:to[-_\s]*)?cart|"
+            r"cart[-_\s]*(?:add|plus)|addcart|cartadd",
+            re.IGNORECASE,
+        ),
+        "add cart",
+    ),
+    (re.compile(r"cart|basket", re.IGNORECASE), "cart"),
+    (re.compile(r"buy[-_\s]*now|buy|purchase", re.IGNORECASE), "buy"),
+    (re.compile(r"checkout|settle", re.IGNORECASE), "checkout"),
+    (re.compile(r"submit", re.IGNORECASE), "submit"),
+    (re.compile(r"confirm|ok", re.IGNORECASE), "confirm"),
+    (re.compile(r"delete|remove|clear", re.IGNORECASE), "delete"),
+    (re.compile(r"search", re.IGNORECASE), "search"),
+    (re.compile(r"sku|spec|variant|option|select", re.IGNORECASE), "option"),
+)
 _CONTROL_ACTION_TEXT_ATTRIBUTES = (
     "aria-label",
     "title",
@@ -495,7 +513,9 @@ def _collect_dom_action_candidates(
             return
 
         attributes = _dom_action_attributes(node.get("attributes"))
-        text = _dom_action_text(node, attributes)
+        visible_text = _dom_action_text(node, attributes)
+        semantic_text = _dom_action_semantic_text(attributes)
+        text = visible_text or semantic_text
         role = _dom_action_role(node_name, attributes)
         class_name = str(attributes.get("class") or "")
         has_action_text = bool(_CONTROL_ACTION_TEXT_RE.search(text))
@@ -649,6 +669,39 @@ def _dom_action_text(
     walk(node)
     text = " ".join(" ".join(pieces).split())
     return text[:180]
+
+
+def _dom_action_semantic_text(attributes: dict[str, str]) -> str:
+    source = " ".join(
+        str(attributes.get(name) or "")
+        for name in (
+            "aria-label",
+            "title",
+            "alt",
+            "data-title",
+            "data-action",
+            "data-role",
+            "data-testid",
+            "data-test",
+            "id",
+            "class",
+            "href",
+        )
+    )
+    if not source.strip():
+        return ""
+
+    labels: list[str] = []
+    for pattern, label in _CONTROL_ACTION_SEMANTIC_LABELS:
+        if pattern.search(source) and label not in labels:
+            labels.append(label)
+        if len(labels) >= 3:
+            break
+    if "add cart" in labels:
+        return "add cart"
+    if "buy" in labels:
+        return "buy"
+    return " ".join(labels)
 
 
 def _dom_action_priority(

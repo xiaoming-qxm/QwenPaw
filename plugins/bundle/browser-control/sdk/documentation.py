@@ -38,6 +38,9 @@ Synchronization rule: ``wait_for`` is not a mutating action. It may be used
 after a click, navigation, scroll, or type operation to let the page settle,
 but it makes any previous snapshot stale. Always call ``await tab.snapshot()``
 after ``wait_for`` before the next mutating action.
+Opening a new tab does not count as an observation. After
+``browser.tabs.open(...)``, call ``await tab.snapshot()`` before scrolling,
+clicking, typing, or selecting.
 
 Production rule: read after write. After any state-changing action, verify
 state from a fresh observation or an authoritative page. Do not treat a
@@ -127,6 +130,9 @@ that modern pages expose poorly through accessibility trees. If an
 click that complete quoted ref first. If it does not have a ref, prefer its
 text with ``await tab.click(text="...")``; use x/y coordinates only when ref
 and text targeting both fail.
+Icon-only controls may appear with synthesized labels such as ``add cart``,
+``cart``, or ``buy`` when the DOM exposes that semantic through stable
+attributes. Prefer those refs over visual coordinate guesses.
 JavaScript evaluation is not available in control mode:
 do not call ``tab.evaluate`` or ``tab.action("evaluate", ...)``.
 Do not read or view screenshot files with local file/media tools. If a

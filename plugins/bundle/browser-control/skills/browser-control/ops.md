@@ -6,6 +6,9 @@
 - For a new user task, start with
   `tab = await browser.tabs.open(url_or_search_page)` and then observe with
   `await tab.snapshot()`.
+- Opening a new tab is not an observation. After
+  `browser.tabs.open(...)`, call `await tab.snapshot()` before scrolling,
+  clicking, typing, or selecting.
 - `await browser.tabs.list()` returns tabs already managed by this SDK
   session. Use `await browser.tabs.list(all=True)` and
   `await browser.tabs.get(tab_id)` only when the user asks you to use,
@@ -55,6 +58,9 @@
   has no ref, prefer
   `tab.click(text="...")`; use x/y coordinates only when ref and text
   targeting both fail.
+- Icon-only controls may appear with synthesized labels such as `add cart`,
+  `cart`, or `buy` when the DOM exposes that semantic through stable
+  attributes. Prefer those refs over visual coordinate guesses.
 - Use coordinates only after SDK evidence identifies the target's position;
   do not guess page coordinates from a generic layout.
 - If a click appears unchanged, re-observe or screenshot before trying
