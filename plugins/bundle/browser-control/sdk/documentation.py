@@ -56,10 +56,24 @@ For a new user task, prefer opening a fresh SDK-owned background tab:
 
     tab = await browser.tabs.open("https://example.com")
 
+Prefer direct browser-visible routes when the user intent can be expressed as
+a URL, such as a search page, list page, detail page, cart page, or status
+page. Do not start from a homepage and type into a search box when an
+equivalent URL route is available.
+
 Use browser.tabs.list() and browser.tabs.get(tab_id) only when the user asks
 you to use, inspect, clean up, or is continuing work in a specific existing tab.
 Do not mine unrelated old tabs to answer a new task unless the user asked to
 reuse existing browser state.
+
+Keep each browser cell narrow: perform at most one mutating browser action,
+optionally wait for it to settle, then take a fresh snapshot. Do not batch
+click/type/click sequences in one ``python_repl`` cell. If a click, type,
+selection, or form-submit action times out or leaves the page unchanged,
+retry that exact action sequence at most once after a fresh snapshot. On the
+next failure, change route: use a direct URL, a canonical list/detail/status
+page, a different visible control, or report a real blocker when page
+evidence requires it.
 
 ``snapshot()`` takes no arguments; do not call ``snapshot(full=True)``.
 ``scroll`` only accepts keyword arguments such as ``direction`` and

@@ -17,6 +17,10 @@
   `await tab.scroll(direction="down", amount="page")`,
   `await tab.wait_for(2)`,
   `snap = await tab.snapshot()`.
+- Prefer a direct, browser-visible URL when the user intent can be expressed
+  as a page route, search URL, list URL, detail URL, cart URL, or status URL.
+  Do not start from a homepage and type into a search box when an equivalent
+  URL route is available.
 - `snapshot()` takes no arguments. Do not call `snapshot(full=True)`.
 - `scroll` only accepts keyword arguments such as `direction` and `amount`.
 - JavaScript evaluation is not available in control mode. Do not call
@@ -31,6 +35,14 @@
   as a fallback.
 - If a click appears unchanged, re-observe or screenshot before trying
   another route.
+- Keep each `python_repl` browser cell narrow: perform at most one mutating
+  browser action, optionally wait for it to settle, then take a fresh
+  snapshot. Do not batch click/type/click sequences in one cell.
+- If a click, type, selection, or form-submit action times out or leaves the
+  page unchanged, retry that exact action sequence at most once after a fresh
+  snapshot. On the next failure, change route: use a direct URL, a canonical
+  list/detail/status page, a different visible control, or report a real
+  blocker when the page evidence requires it.
 
 ## Read-After-Write Verification
 
