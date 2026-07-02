@@ -23,6 +23,26 @@ _SKILL_DIR = Path(__file__).resolve().parents[1] / "skills" / "browser-control"
 _SKILL_BODY_FILES = ("ops.md", "blocker-report.md", "control-mode.md")
 _SKILL_MARKER = '<skill name="browser-control">'
 _BROWSER_CONTROL_GOAL_MAX_ITERATIONS = 40
+_BROWSER_CONTROL_GOAL_GUIDANCE = """
+# Browser Control Goal Discipline
+
+- Keep a compact checklist for the current browser goal. After each browser
+  observation, mark completed subtasks and move to the next unmet subtask;
+  do not restart from the first subtask.
+- Before starting any new search, navigation, or listing action, audit the
+  latest authoritative state. If the current page already proves the
+  requested item, category, count, or empty/non-empty state, advance to the
+  next requested subtask instead of repeating the same write.
+- A singular browser write is complete after the first authoritative
+  read-back proves it. Do not add another matching item, delete another row,
+  or repeat the same state-changing click unless the user explicitly asked
+  for multiple distinct changes.
+- Keep Browser SDK cells narrow: at most one mutating browser action per
+  `python_repl` cell, optionally followed by a wait and a fresh observation.
+- If a plausible action target cannot be activated after one fresh
+  observation, choose a different real target or route. Do not loop on the
+  same listing, screenshot, coordinate, or product candidate.
+""".strip()
 _REAL_BROWSER_INTENT_TERMS = (
     "用我的浏览器",
     "使用我的浏览器",
@@ -367,6 +387,38 @@ def _mark_browser_control_requested(ctx: HookContext, user_text: str) -> None:
     extras["goal_max_iterations"] = _BROWSER_CONTROL_GOAL_MAX_ITERATIONS
 
 
+def _inject_browser_control_goal_guidance(ctx: HookContext) -> None:
+    extras = getattr(ctx, "extras", None)
+    if extras is None:
+        extras = {}
+        setattr(ctx, "extras", extras)
+    if extras.get("_browser_control_goal_guidance_injected"):
+        return
+    extras["_browser_control_goal_guidance_injected"] = True
+
+    inject_context = getattr(ctx, "inject_context", None)
+    if callable(inject_context):
+        inject_context(
+            _BROWSER_CONTROL_GOAL_GUIDANCE,
+            priority=30,
+            source="browser_control_goal",
+        )
+        return
+
+    injections = getattr(ctx, "context_injections", None)
+    if injections is None:
+        injections = []
+        setattr(ctx, "context_injections", injections)
+    if isinstance(injections, list):
+        injections.append(
+            {
+                "content": _BROWSER_CONTROL_GOAL_GUIDANCE,
+                "priority": 30,
+                "source": "browser_control_goal",
+            },
+        )
+
+
 def _text_block_value(block: Any) -> str:
     if isinstance(block, dict):
         return str(block.get("text") or "")
@@ -490,6 +542,7 @@ class BrowserControlContinuationHook(LifecycleHook):
     async def run(self, ctx: HookContext) -> HookResult:
         extras = getattr(ctx, "extras", {}) or {}
         if extras.get("browser_control_invocation"):
+            _inject_browser_control_goal_guidance(ctx)
             return HookResult()
 
         user_text = (_get_last_user_text(ctx.input_msgs) or "").strip()
@@ -510,6 +563,7 @@ class BrowserControlContinuationHook(LifecycleHook):
             return HookResult()
 
         _append_browser_control_skill(ctx, user_text)
+        _inject_browser_control_goal_guidance(ctx)
         _mark_browser_control_invocation(ctx)
         return HookResult()
 

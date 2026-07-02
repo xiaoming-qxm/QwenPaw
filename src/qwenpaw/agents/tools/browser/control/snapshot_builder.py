@@ -107,6 +107,19 @@ _CONTROL_ACTION_TEXT_ATTRIBUTES = (
     "placeholder",
     "value",
 )
+_CONTROL_ACTION_SEMANTIC_ATTRIBUTES = (
+    "aria-label",
+    "title",
+    "alt",
+    "data-title",
+    "data-action",
+    "data-role",
+    "data-testid",
+    "data-test",
+    "id",
+    "class",
+    "href",
+)
 _CONTROL_ACTION_CLICK_ATTRIBUTES = {
     "onclick",
     "onmousedown",
@@ -517,7 +530,7 @@ def _collect_dom_action_candidates(
 
         attributes = _dom_action_attributes(node.get("attributes"))
         visible_text = _dom_action_text(node, attributes)
-        semantic_text = _dom_action_semantic_text(attributes)
+        semantic_text = _dom_action_tree_semantic_text(node, attributes)
         text = visible_text or semantic_text
         role = _dom_action_role(node_name, attributes)
         class_name = str(attributes.get("class") or "")
@@ -674,23 +687,14 @@ def _dom_action_text(
     return text[:180]
 
 
-def _dom_action_semantic_text(attributes: dict[str, str]) -> str:
-    source = " ".join(
+def _dom_action_semantic_source(attributes: dict[str, str]) -> str:
+    return " ".join(
         str(attributes.get(name) or "")
-        for name in (
-            "aria-label",
-            "title",
-            "alt",
-            "data-title",
-            "data-action",
-            "data-role",
-            "data-testid",
-            "data-test",
-            "id",
-            "class",
-            "href",
-        )
+        for name in _CONTROL_ACTION_SEMANTIC_ATTRIBUTES
     )
+
+
+def _dom_action_semantic_label(source: str) -> str:
     if not source.strip():
         return ""
 
@@ -705,6 +709,53 @@ def _dom_action_semantic_text(attributes: dict[str, str]) -> str:
     if "buy" in labels:
         return "buy"
     return " ".join(labels)
+
+
+def _dom_action_semantic_text(attributes: dict[str, str]) -> str:
+    return _dom_action_semantic_label(
+        _dom_action_semantic_source(attributes),
+    )
+
+
+def _dom_action_tree_semantic_text(
+    node: dict[str, Any],
+    attributes: dict[str, str],
+) -> str:
+    sources = [_dom_action_semantic_source(attributes)]
+
+    def walk(current: dict[str, Any], depth: int) -> None:
+        if len(sources) >= 40 or depth <= 0:
+            return
+        node_name = str(current.get("nodeName") or "").lower()
+        if node_name in _CONTROL_ACTION_SKIPPED_NODES:
+            return
+        current_attributes = _dom_action_attributes(
+            current.get("attributes"),
+        )
+        source = _dom_action_semantic_source(current_attributes)
+        if source.strip():
+            sources.append(source)
+        for key in ("children", "shadowRoots", "pseudoElements"):
+            children = current.get(key)
+            if not isinstance(children, list):
+                continue
+            for child in children:
+                if isinstance(child, dict):
+                    walk(child, depth - 1)
+                if len(sources) >= 40:
+                    return
+
+    for key in ("children", "shadowRoots", "pseudoElements"):
+        children = node.get(key)
+        if not isinstance(children, list):
+            continue
+        for child in children:
+            if isinstance(child, dict):
+                walk(child, 3)
+            if len(sources) >= 40:
+                break
+
+    return _dom_action_semantic_label(" ".join(sources))
 
 
 def _dom_action_priority(
@@ -1011,7 +1062,8 @@ _CONTROL_ACTION_TARGETS_SCRIPT = """
     ].join("|"), "i");
     const actionClass = new RegExp([
       "btn", "button", "action", "cart", "buy", "purchase",
-      "checkout", "submit", "confirm", "delete", "search"
+      "checkout", "submit", "confirm", "delete", "search",
+      "add", "plus", "sku", "spec", "variant", "option", "select"
     ].join("|"), "i");
     const actionSemanticLabels = [
       {
@@ -1075,30 +1127,79 @@ _CONTROL_ACTION_TARGETS_SCRIPT = """
       "[role='tab']",
       "[tabindex]:not([tabindex='-1'])",
       "[onclick]",
+      "[data-spm-click]",
+      "[data-click]",
+      "[data-clickid]",
+      "[data-action]",
+      "[data-role]",
+      "[aria-label]",
+      "[title]",
       "[class*='btn' i]",
       "[class*='button' i]",
       "[class*='action' i]",
       "[class*='cart' i]",
       "[class*='buy' i]",
+      "[class*='add' i]",
+      "[class*='plus' i]",
+      "[class*='sku' i]",
+      "[class*='spec' i]",
+      "[class*='variant' i]",
+      "[class*='option' i]",
+      "[class*='select' i]",
       "[class*='purchase' i]",
       "[class*='submit' i]",
       "[class*='confirm' i]",
       "[class*='delete' i]",
-      "[class*='search' i]"
+      "[class*='search' i]",
+      "[class*='icon' i]"
     ].join(",");
+    const semanticAttributes = [
+      "aria-label",
+      "title",
+      "alt",
+      "data-title",
+      "data-action",
+      "data-role",
+      "data-testid",
+      "data-test",
+      "id",
+      "class",
+      "href"
+    ];
+    const ownSourceTextOf = (element) => normalize(
+      semanticAttributes
+        .map((name) => element.getAttribute(name))
+        .filter(Boolean)
+        .join(" ")
+        .replace(/[-_]+/g, " ")
+    );
+    const descendantSourceText = (element) => {
+      const pieces = [];
+      let inspected = 0;
+      for (const child of Array.from(element.querySelectorAll("*"))) {
+        if (++inspected > 60) break;
+        const text = ownSourceTextOf(child);
+        if (text) pieces.push(text);
+      }
+      return normalize(pieces.join(" "));
+    };
+    const ancestorSourceText = (element) => {
+      const pieces = [];
+      let current = element.parentElement;
+      let depth = 0;
+      while (current && depth < 2) {
+        const text = ownSourceTextOf(current);
+        if (text) pieces.push(text);
+        current = current.parentElement;
+        depth += 1;
+      }
+      return normalize(pieces.join(" "));
+    };
     const sourceTextOf = (element) => normalize([
-      element.getAttribute("aria-label"),
-      element.getAttribute("title"),
-      element.getAttribute("alt"),
-      element.getAttribute("data-title"),
-      element.getAttribute("data-action"),
-      element.getAttribute("data-role"),
-      element.getAttribute("data-testid"),
-      element.getAttribute("data-test"),
-      element.id || "",
-      element.className || "",
-      element.getAttribute("href")
-    ].filter(Boolean).join(" ").replace(/[-_]+/g, " "));
+      ownSourceTextOf(element),
+      descendantSourceText(element),
+      ancestorSourceText(element)
+    ].filter(Boolean).join(" "));
     const semanticTextOf = (element) => {
       const source = sourceTextOf(element);
       if (!source) return "";

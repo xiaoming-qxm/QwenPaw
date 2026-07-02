@@ -263,7 +263,32 @@ def _control_visible_text_locator_script(text: str) -> str:
     "[role='menuitem']",
     "[role='tab']",
     "[tabindex]:not([tabindex='-1'])",
-    "[onclick]"
+    "[onclick]",
+    "[data-spm-click]",
+    "[data-click]",
+    "[data-clickid]",
+    "[data-action]",
+    "[data-role]",
+    "[aria-label]",
+    "[title]",
+    "[class*='btn' i]",
+    "[class*='button' i]",
+    "[class*='action' i]",
+    "[class*='cart' i]",
+    "[class*='buy' i]",
+    "[class*='add' i]",
+    "[class*='plus' i]",
+    "[class*='sku' i]",
+    "[class*='spec' i]",
+    "[class*='variant' i]",
+    "[class*='option' i]",
+    "[class*='select' i]",
+    "[class*='purchase' i]",
+    "[class*='submit' i]",
+    "[class*='confirm' i]",
+    "[class*='delete' i]",
+    "[class*='search' i]",
+    "[class*='icon' i]"
   ].join(",");
 
   const actionSemanticLabels = [
@@ -347,19 +372,57 @@ def _control_visible_text_locator_script(text: str) -> str:
 
   const visibleRect = (element) => elementRect(element, true);
 
+  const semanticAttributes = [
+    "aria-label",
+    "title",
+    "alt",
+    "data-title",
+    "data-action",
+    "data-role",
+    "data-testid",
+    "data-test",
+    "id",
+    "class",
+    "href"
+  ];
+
+  const ownSourceText = (element) => normalize(
+    semanticAttributes
+      .map((name) => element.getAttribute(name))
+      .filter(Boolean)
+      .join(" ")
+      .replace(/[-_]+/g, " ")
+  );
+
+  const descendantSourceText = (element) => {{
+    const pieces = [];
+    let inspected = 0;
+    for (const child of Array.from(element.querySelectorAll("*"))) {{
+      if (++inspected > 60) break;
+      const text = ownSourceText(child);
+      if (text) pieces.push(text);
+    }}
+    return normalize(pieces.join(" "));
+  }};
+
+  const ancestorSourceText = (element) => {{
+    const pieces = [];
+    let current = element.parentElement;
+    let depth = 0;
+    while (current && depth < 2) {{
+      const text = ownSourceText(current);
+      if (text) pieces.push(text);
+      current = current.parentElement;
+      depth += 1;
+    }}
+    return normalize(pieces.join(" "));
+  }};
+
   const sourceText = (element) => normalize([
-    element.getAttribute("aria-label"),
-    element.getAttribute("title"),
-    element.getAttribute("alt"),
-    element.getAttribute("data-title"),
-    element.getAttribute("data-action"),
-    element.getAttribute("data-role"),
-    element.getAttribute("data-testid"),
-    element.getAttribute("data-test"),
-    element.id || "",
-    element.className || "",
-    element.getAttribute("href")
-  ].filter(Boolean).join(" ").replace(/[-_]+/g, " "));
+    ownSourceText(element),
+    descendantSourceText(element),
+    ancestorSourceText(element)
+  ].filter(Boolean).join(" "));
 
   const semanticTextOf = (element) => {{
     const text = sourceText(element);
