@@ -13,6 +13,8 @@ from .tab import Tab
 from .types import TabInfo
 
 _REQUEST_CONTEXT: dict[str, Any] = {}
+_SESSION_STATES: dict[str, dict[str, Any]] = {}
+_SESSION_HOLDER_IDS: dict[str, str] = {}
 
 
 class Tabs:
@@ -108,7 +110,14 @@ class Tabs:
 
     async def current(self) -> Tab | None:
         """Return the most recently claimed tab, if any."""
-        return self._current
+        if self._current is not None:
+            return self._current
+        tab_id = _current_state_tab_id(self._state)
+        if tab_id is None:
+            return None
+        tab = Tab(tab_id, self._bridge, self._holder_id, self._state)
+        self._current = tab
+        return tab
 
     async def _attach_tab(
         self,
@@ -207,11 +216,9 @@ class Browser:
             bridge = await RemoteBridge.connect(ws_url, token)
         if bridge is None:
             bridge = _DisconnectedBridge(ws_url, token)
-        holder_id = f"python_repl:{uuid.uuid4().hex}"
-        state: dict[str, Any] = {"workspace_id": "python_repl"}
         request_context = get_request_context()
-        if request_context:
-            state["request_context"] = request_context
+        holder_id = _session_holder_id(request_context)
+        state = _session_state(request_context)
         return cls(bridge, holder_id, state)
 
     async def documentation(self) -> str:
@@ -229,12 +236,18 @@ class Browser:
             result = close()
             if hasattr(result, "__await__"):
                 await result
+        _forget_session(self._state, self._holder_id)
 
     async def _replace_connection(self, replacement: "Browser") -> None:
-        await self.close()
+        await _close_bridge_transport(self._bridge)
         self._bridge = replacement._bridge
-        self._holder_id = replacement._holder_id
-        self._state = replacement._state
+        if self._state is not replacement._state:
+            _merge_session_state(self._state, replacement._state)
+            _adopt_session_cache(
+                replacement._state,
+                self._state,
+                self._holder_id,
+            )
         self.tabs = Tabs(self._bridge, self._holder_id, self._state)
 
     def _set_request_context(
@@ -268,6 +281,85 @@ def get_request_context() -> dict[str, Any]:
     """Return the Browser SDK request context for the current REPL call."""
 
     return dict(_REQUEST_CONTEXT)
+
+
+def _request_context_key(request_context: dict[str, Any]) -> str:
+    for key in ("root_session_id", "session_id"):
+        value = str(request_context.get(key) or "").strip()
+        if value:
+            return value
+    return "default"
+
+
+def _session_holder_id(request_context: dict[str, Any]) -> str:
+    key = _request_context_key(request_context)
+    holder_id = _SESSION_HOLDER_IDS.get(key)
+    if holder_id:
+        return holder_id
+    suffix = key if key != "default" else uuid.uuid4().hex
+    holder_id = f"python_repl:{suffix}"
+    _SESSION_HOLDER_IDS[key] = holder_id
+    return holder_id
+
+
+def _session_state(request_context: dict[str, Any]) -> dict[str, Any]:
+    key = _request_context_key(request_context)
+    state = _SESSION_STATES.get(key)
+    if state is None:
+        state = {"workspace_id": "python_repl"}
+        _SESSION_STATES[key] = state
+    _set_state_request_context(state, request_context)
+    return state
+
+
+def _forget_session(state: dict[str, Any], holder_id: str) -> None:
+    for key, cached_state in list(_SESSION_STATES.items()):
+        if cached_state is state:
+            _SESSION_STATES.pop(key, None)
+            if _SESSION_HOLDER_IDS.get(key) == holder_id:
+                _SESSION_HOLDER_IDS.pop(key, None)
+
+
+def _merge_session_state(
+    current: dict[str, Any],
+    replacement: dict[str, Any],
+) -> None:
+    request_context = replacement.get("request_context")
+    if isinstance(request_context, dict) and request_context:
+        _set_state_request_context(current, request_context)
+
+
+def _adopt_session_cache(
+    old_state: dict[str, Any],
+    new_state: dict[str, Any],
+    holder_id: str,
+) -> None:
+    for key, cached_state in list(_SESSION_STATES.items()):
+        if cached_state is old_state:
+            _SESSION_STATES[key] = new_state
+            _SESSION_HOLDER_IDS[key] = holder_id
+
+
+async def _close_bridge_transport(bridge: Any) -> None:
+    close = getattr(bridge, "close", None)
+    if not callable(close):
+        return
+    with contextlib.suppress(Exception):
+        result = close()
+        if hasattr(result, "__await__"):
+            await result
+
+
+def _current_state_tab_id(state: Any) -> int | None:
+    try:
+        current = state.get("current_page_id")
+    except AttributeError:
+        current = getattr(state, "current_page_id", None)
+    if isinstance(current, int):
+        return current
+    if isinstance(current, str) and current.isdigit():
+        return int(current)
+    return None
 
 
 def _set_state_request_context(

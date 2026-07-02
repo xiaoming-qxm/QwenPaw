@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import secrets
+import asyncio
 import contextlib
 import inspect
 from datetime import UTC, datetime
@@ -215,15 +216,27 @@ async def browser_sdk_ws(websocket: WebSocket) -> None:
         websocket,
         ws_send_lock,
     )
+    request_tasks: set[asyncio.Task[None]] = set()
     try:
         while True:
             message = await websocket.receive_json()
-            response = await _handle_sdk_ws_message(bridge, message)
-            if response is not None:
-                await ws_send_lock.send_json(websocket, response)
+            task = asyncio.create_task(
+                _handle_sdk_ws_request(
+                    bridge,
+                    websocket,
+                    ws_send_lock,
+                    message,
+                ),
+            )
+            request_tasks.add(task)
+            task.add_done_callback(request_tasks.discard)
     except WebSocketDisconnect:
         pass
     finally:
+        for task in request_tasks:
+            task.cancel()
+        if request_tasks:
+            await asyncio.gather(*request_tasks, return_exceptions=True)
         _remove_sdk_event_forwarders(bridge, handlers)
 
 
@@ -281,6 +294,17 @@ def _remove_sdk_event_forwarders(
     for method, handler in handlers:
         with contextlib.suppress(Exception):
             remove_listener(method, handler)
+
+
+async def _handle_sdk_ws_request(
+    bridge: Any | None,
+    websocket: WebSocket,
+    send_lock: _AsyncSendLock,
+    message: dict[str, Any],
+) -> None:
+    response = await _handle_sdk_ws_message(bridge, message)
+    if response is not None:
+        await send_lock.send_json(websocket, response)
 
 
 async def _handle_sdk_ws_message(
