@@ -5,6 +5,18 @@
 - Use `python_repl` and the preloaded `browser` SDK for real Chrome work.
 - Start with `await browser.tabs.list()` and `await browser.tabs.get(tab_id)`,
   then observe with `await tab.snapshot()`.
+- If you are unsure about SDK signatures, call
+  `print(await browser.documentation())` in `python_repl`; do not guess.
+- Common calls:
+  `tab = await browser.tabs.open(url)`,
+  `snap = await tab.snapshot()`,
+  `await tab.wait_for(2)`,
+  `await tab.wait_for(wait_time=2)`,
+  `await tab.scroll(direction="down", amount="page")`.
+- `snapshot()` takes no arguments. Do not call `snapshot(full=True)`.
+- `scroll` only accepts keyword arguments such as `direction` and `amount`.
+- JavaScript evaluation is not available in control mode. Do not call
+  `tab.evaluate` or `tab.action("evaluate", ...)`.
 - After each navigation, click, type, selection, reload, or wait,
   observe again.
 - Prefer refs or selectors from the latest snapshot; use visible text only
@@ -36,6 +48,10 @@
 - Do not inspect screenshot file paths with local file/media tools. If the
   Browser SDK observations are insufficient, report a blocker instead of
   leaving the SDK loop.
+- If a web search result page returns a degraded snapshot after one
+  wait/reload, switch to another browser-accessible web UI route, such as a
+  different search provider or the site's own search page. Do not repeat the
+  same degraded snapshot loop.
 
 ## Supported Actions
 

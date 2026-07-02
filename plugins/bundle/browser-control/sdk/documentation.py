@@ -29,6 +29,25 @@ Production rule: read after write. After any state-changing action, verify
 state from a fresh observation or an authoritative page. Do not treat a
 stale badge, local counter, or unchanged DOM as proof of success or failure.
 
+LLM-safe call patterns:
+
+    tabs = await browser.tabs.list()
+    tab = await browser.tabs.open("https://example.com")
+    snap = await tab.snapshot()
+    print(snap.text)
+    await tab.wait_for(2)
+    await tab.wait_for(wait_time=2)
+    await tab.scroll(direction="down", amount="page")
+    await tab.scroll(direction="up", amount="half")
+
+``snapshot()`` takes no arguments; do not call ``snapshot(full=True)``.
+``scroll`` only accepts keyword arguments such as ``direction`` and
+``amount``. JavaScript evaluation is not available in control mode:
+do not call ``tab.evaluate`` or ``tab.action("evaluate", ...)``.
+Do not read or view screenshot files with local file/media tools. If a
+snapshot is degraded after one wait/reload, switch to another web UI route
+or report a blocker instead of repeating the same observation loop.
+
 class Browser:
     tabs: Tabs
 
@@ -80,6 +99,7 @@ class Tab:
 
     async def snapshot(self) -> Snapshot:
         Observe the tab and return text plus reference metadata.
+        snapshot() takes no arguments.
 
     async def screenshot(
         self,
@@ -89,6 +109,7 @@ class Tab:
     ) -> ScreenshotResult:
         Observe the tab visually and save a screenshot. Like snapshot(),
         this is an observation and can be used before a mutating action.
+        Do not read or view screenshot files with non-SDK tools.
 
     async def click(
         self,
@@ -119,6 +140,7 @@ class Tab:
 
     async def scroll(self, **kwargs) -> ActionResult:
         Scroll the page or a target region.
+        Example: await tab.scroll(direction="down", amount="page")
 
     async def select_option(self, **kwargs) -> ActionResult:
         Select one or more options in a control.
@@ -130,6 +152,7 @@ class Tab:
         Wait for page state and then observe again before acting. A single
         positional number is accepted as seconds, or milliseconds when the
         value is greater than 100.
+        Examples: await tab.wait_for(2) or await tab.wait_for(wait_time=2).
 
     async def close(self, force: bool = False) -> ActionResult:
         Close a Tab created by the SDK. Tabs claimed from the user's existing
