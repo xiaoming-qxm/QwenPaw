@@ -141,6 +141,31 @@ def _control_request_context() -> dict[str, Any]:
     return context
 
 
+def _control_refresh_session_request_context(
+    session: Any,
+    request_context: dict[str, Any] | None,
+) -> None:
+    """Keep cached CDP sessions aligned with the current tool call context."""
+
+    if not request_context:
+        return
+
+    current = getattr(session, "request_context", None)
+    if not isinstance(current, dict):
+        current = {}
+    else:
+        current = dict(current)
+
+    for key, value in request_context.items():
+        if value is None:
+            continue
+        if isinstance(value, str) and not value:
+            continue
+        current[key] = value
+
+    setattr(session, "request_context", current)
+
+
 def _control_store_last_dialog(
     state: dict,
     *,
@@ -289,6 +314,10 @@ async def _control_get_session(
             else:
                 from .navigation import _control_sync_session_navigation_scope
 
+                _control_refresh_session_request_context(
+                    session,
+                    request_context,
+                )
                 _control_sync_session_navigation_scope(state, session)
                 return session
         else:
