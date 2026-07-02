@@ -50,6 +50,11 @@ cart/status/list page shows an item or setting that satisfies the user's
 requested quantity/category, advance to the next requested subtask; do not
 add another item, repeat the same write, or return to search unless the user
 explicitly asked for more.
+Treat a single requested write, such as adding one product, selecting one
+option, deleting one matching row, or saving one setting, as complete after
+the first authoritative read-back proves the requested item/category/count is
+present; adding another matching item is incorrect unless the user explicitly
+asked for multiple items or a different item.
 
 LLM-safe call patterns:
 

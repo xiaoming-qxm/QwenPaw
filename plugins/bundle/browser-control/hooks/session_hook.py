@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 _SKILL_DIR = Path(__file__).resolve().parents[1] / "skills" / "browser-control"
 _SKILL_BODY_FILES = ("ops.md", "blocker-report.md", "control-mode.md")
 _SKILL_MARKER = '<skill name="browser-control">'
+_BROWSER_CONTROL_GOAL_MAX_ITERATIONS = 40
 _REAL_BROWSER_INTENT_TERMS = (
     "用我的浏览器",
     "使用我的浏览器",
@@ -363,6 +364,7 @@ def _mark_browser_control_requested(ctx: HookContext, user_text: str) -> None:
         setattr(ctx, "extras", extras)
     extras["browser_control_requested"] = True
     extras["browser_control_request_text"] = user_text
+    extras["goal_max_iterations"] = _BROWSER_CONTROL_GOAL_MAX_ITERATIONS
 
 
 def _text_block_value(block: Any) -> str:
