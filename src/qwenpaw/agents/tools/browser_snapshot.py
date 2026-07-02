@@ -591,12 +591,20 @@ def from_cdp_ax_tree(
         counter[0] += 1
         return f"e{counter[0]}"
 
+    def visit_children(node: dict[str, Any], depth: int) -> None:
+        for child_id in node.get("childIds", []) or []:
+            child = by_id.get(str(child_id))
+            if child is not None:
+                visit(child, depth)
+
     def visit(node: dict[str, Any], depth: int) -> None:
         if node.get("ignored"):
+            visit_children(node, depth)
             return
 
         role_raw = _ax_value(node.get("role"))
         if not role_raw:
+            visit_children(node, depth)
             return
         role = role_raw.lower()
         name = _ax_value(node.get("name"))
@@ -628,10 +636,7 @@ def from_cdp_ax_tree(
                 line += f" [nth={nth}]"
 
         lines.append(line)
-        for child_id in node.get("childIds", []) or []:
-            child = by_id.get(str(child_id))
-            if child is not None:
-                visit(child, depth + 1)
+        visit_children(node, depth + 1)
 
     for root in roots:
         visit(root, 0)
