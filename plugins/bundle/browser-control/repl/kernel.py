@@ -26,13 +26,26 @@ class ReplKernel:
         self._namespace: dict[str, Any] = {"__builtins__": __builtins__}
         self._loop = asyncio.new_event_loop()
 
-    def execute_sync(self, code: str, timeout_ms: int = 30000) -> dict:
+    def execute_sync(
+        self,
+        code: str,
+        timeout_ms: int = 30000,
+        request_context: dict[str, Any] | None = None,
+    ) -> dict:
         """Execute code from the stdin request loop."""
-        return self._loop.run_until_complete(self._execute(code, timeout_ms))
+        return self._loop.run_until_complete(
+            self._execute(code, timeout_ms, request_context),
+        )
 
-    async def _execute(self, code: str, timeout_ms: int) -> dict:
+    async def _execute(
+        self,
+        code: str,
+        timeout_ms: int,
+        request_context: dict[str, Any] | None,
+    ) -> dict:
         stdout_capture = io.StringIO()
         try:
+            self._install_request_context(request_context)
             with contextlib.redirect_stdout(stdout_capture):
                 result = await asyncio.wait_for(
                     self._execute_code(code),
@@ -76,6 +89,30 @@ class ReplKernel:
     def reset(self) -> None:
         """Clear user-defined namespace values."""
         self._namespace = {"__builtins__": __builtins__}
+
+    def _install_request_context(
+        self,
+        request_context: dict[str, Any] | None,
+    ) -> None:
+        context = dict(request_context or {})
+        self._namespace["__qwenpaw_request_context__"] = context
+        try:
+            from sdk import browser as browser_module
+
+            set_request_context = getattr(
+                browser_module,
+                "set_request_context",
+                None,
+            )
+            if callable(set_request_context):
+                set_request_context(context)
+        except Exception:  # noqa: BLE001
+            pass
+
+        browser = self._namespace.get("browser")
+        refresh = getattr(browser, "_set_request_context", None)
+        if callable(refresh):
+            refresh(context)
 
 
 def _compile_code(code: str) -> CodeType:
@@ -122,6 +159,10 @@ def _error_result(error_type: str, message: str) -> dict:
     }
 
 
+def _dict_param(value: Any) -> dict[str, Any]:
+    return dict(value) if isinstance(value, dict) else {}
+
+
 def main() -> int:
     """Run the kernel stdin/stdout loop."""
     kernel = ReplKernel()
@@ -137,6 +178,7 @@ def main() -> int:
             result = kernel.execute_sync(
                 str(params.get("code") or ""),
                 int(params.get("timeout_ms") or 30000),
+                _dict_param(params.get("request_context")),
             )
         elif method == "reset":
             kernel.reset()

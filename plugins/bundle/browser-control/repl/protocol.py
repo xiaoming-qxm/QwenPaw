@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 
@@ -15,6 +15,7 @@ class ExecRequest:
     id: int
     code: str
     timeout_ms: int = 30000
+    request_context: dict[str, Any] = field(default_factory=dict)
 
     def to_json(self) -> str:
         """Serialize this request as one JSON-RPC line."""
@@ -26,6 +27,7 @@ class ExecRequest:
                 "params": {
                     "code": self.code,
                     "timeout_ms": self.timeout_ms,
+                    "request_context": self.request_context,
                 },
             },
         )

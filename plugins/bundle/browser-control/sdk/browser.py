@@ -12,6 +12,8 @@ from .remote_bridge import RemoteBridge
 from .tab import Tab
 from .types import TabInfo
 
+_REQUEST_CONTEXT: dict[str, Any] = {}
+
 
 class Tabs:
     """Tab collection facade backed by the native messaging bridge."""
@@ -162,6 +164,10 @@ class Tabs:
             "url_key": _url_key(url),
             "created_by_control": bool(created_by_control),
         }
+        _apply_request_context_to_tab_record(
+            tabs[str(tab_id)],
+            _state_request_context(self._state),
+        )
         self._state["current_page_id"] = str(tab_id)
 
 
@@ -202,7 +208,10 @@ class Browser:
         if bridge is None:
             bridge = _DisconnectedBridge(ws_url, token)
         holder_id = f"python_repl:{uuid.uuid4().hex}"
-        state = {"workspace_id": "python_repl"}
+        state: dict[str, Any] = {"workspace_id": "python_repl"}
+        request_context = get_request_context()
+        if request_context:
+            state["request_context"] = request_context
         return cls(bridge, holder_id, state)
 
     async def documentation(self) -> str:
@@ -228,6 +237,12 @@ class Browser:
         self._state = replacement._state
         self.tabs = Tabs(self._bridge, self._holder_id, self._state)
 
+    def _set_request_context(
+        self,
+        request_context: dict[str, Any] | None,
+    ) -> None:
+        _set_state_request_context(self._state, request_context)
+
 
 def _current_bridge() -> Any | None:
     try:
@@ -240,6 +255,53 @@ def _current_bridge() -> Any | None:
     if manager is None or not manager.is_connected():
         return None
     return manager.get_connection()
+
+
+def set_request_context(request_context: dict[str, Any] | None) -> None:
+    """Refresh the Browser SDK request context for the current REPL call."""
+
+    global _REQUEST_CONTEXT  # pylint: disable=global-statement
+    _REQUEST_CONTEXT = dict(request_context or {})
+
+
+def get_request_context() -> dict[str, Any]:
+    """Return the Browser SDK request context for the current REPL call."""
+
+    return dict(_REQUEST_CONTEXT)
+
+
+def _set_state_request_context(
+    state: dict[str, Any],
+    request_context: dict[str, Any] | None,
+) -> None:
+    context = dict(request_context or {})
+    if context:
+        state["request_context"] = context
+        return
+    state.pop("request_context", None)
+
+
+def _state_request_context(state: dict[str, Any]) -> dict[str, Any]:
+    request_context = state.get("request_context")
+    return dict(request_context) if isinstance(request_context, dict) else {}
+
+
+def _apply_request_context_to_tab_record(
+    record: dict[str, Any],
+    request_context: dict[str, Any],
+) -> None:
+    for key in (
+        "session_id",
+        "root_session_id",
+        "agent_id",
+        "root_agent_id",
+        "tool_call_id",
+        "user_id",
+        "channel",
+    ):
+        value = str(request_context.get(key) or "")
+        if value:
+            record[key] = value
 
 
 class _DisconnectedBridge:
@@ -333,4 +395,4 @@ def _url_key(url: str) -> str:
     return _control_url_key(url) if url else ""
 
 
-__all__ = ["Browser", "Tabs"]
+__all__ = ["Browser", "Tabs", "get_request_context", "set_request_context"]

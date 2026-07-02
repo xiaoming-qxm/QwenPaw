@@ -5,6 +5,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from qwenpaw.agents.tools.browser.control.session_manager import (
+    _control_request_context,
+)
+
 from .repl.manager import KernelManager
 from .routes import _expected_token, extension_install_status
 
@@ -29,7 +33,11 @@ def _get_manager() -> KernelManager:
 async def python_repl(code: str, timeout_ms: int = 30000) -> str:
     """Execute Python code in the Browser Control REPL kernel."""
     manager = _get_manager()
-    result = await manager.execute(code, timeout_ms)
+    result = await manager.execute(
+        code,
+        timeout_ms,
+        request_context=_control_request_context(),
+    )
     error = result.get("error")
     if error:
         return (

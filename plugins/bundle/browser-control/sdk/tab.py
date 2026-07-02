@@ -104,7 +104,7 @@ class Tab:
             tab_id=self.id,
             holder_id=self._holder_id,
             bridge=self._bridge,
-            request_context={},
+            request_context=_request_context(self._state),
         )
         text, refs_raw, degraded = await build_control_snapshot(session)
         self._store_refs(refs_raw)
@@ -359,7 +359,7 @@ async def _call_control(
                 state_obj,
                 holder_id=holder_id,
                 bridge=bridge,
-                request_context={},
+                request_context=_request_context(state),
                 kwargs=kwargs,
             ),
         )
@@ -395,7 +395,7 @@ async def _action_with_bridge(
             action_name,
             holder_id=holder_id,
             bridge=bridge,
-            request_context={},
+            request_context=_request_context(state),
             **kwargs,
         )
     finally:
@@ -428,6 +428,21 @@ def _known_tab_field(state: Any, tab_id: int, field: str) -> str:
         return ""
     entry = tabs.get(str(tab_id)) or tabs.get(tab_id)
     return str(entry.get(field) or "") if isinstance(entry, dict) else ""
+
+
+def _request_context(state: Any) -> dict[str, Any]:
+    try:
+        raw = state.get("request_context", {})
+    except AttributeError:
+        raw = getattr(state, "request_context", {})
+    if isinstance(raw, dict) and raw:
+        return dict(raw)
+    try:
+        from .browser import get_request_context
+
+        return get_request_context()
+    except (ImportError, RuntimeError):
+        return {}
 
 
 def _known_tab_bool(state: Any, tab_id: int, field: str) -> bool:

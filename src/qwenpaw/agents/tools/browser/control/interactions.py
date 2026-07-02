@@ -8,7 +8,12 @@ from typing import Any
 from urllib.parse import urljoin
 
 from ..runtime import _tool_response
-from .navigation import _control_tab_id
+from .navigation import (
+    _control_remember_approved_navigation,
+    _control_sync_session_navigation_scope,
+    _control_tab_id,
+    _control_url_key,
+)
 from .network_settle import (
     _network_quiescence_monitor as _default_network_monitor,
     _network_quiescence_wait as _default_network_wait,
@@ -47,8 +52,6 @@ from .transitions import (
     _control_create_action_transition_waiter,
     _control_resolve_action_transition,
 )
-from .navigation import _control_url_key
-
 _network_quiescence_wait_impl: Any = _default_network_wait
 _network_quiescence_monitor_impl: Any = _default_network_monitor
 
@@ -104,6 +107,8 @@ async def _control_activate_semantic_link(
     tab_id: int,
     href: str,
 ) -> Any:
+    _control_remember_approved_navigation(state, href)
+    _control_sync_session_navigation_scope(state, session)
     await session.send_after_banner(
         "Page.navigate",
         {"url": href},

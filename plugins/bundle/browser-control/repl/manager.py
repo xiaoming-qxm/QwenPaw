@@ -64,6 +64,8 @@ class KernelManager:
         self,
         code: str,
         timeout_ms: int = 30000,
+        *,
+        request_context: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Execute code in the kernel and return its result payload."""
         await self.ensure_running()
@@ -71,6 +73,7 @@ class KernelManager:
             id=self._next_request_id(),
             code=code,
             timeout_ms=timeout_ms,
+            request_context=dict(request_context or {}),
         )
         try:
             return await self._execute_request(request, timeout_ms)
