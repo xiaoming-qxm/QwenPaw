@@ -155,6 +155,80 @@ def _control_async_write_guard(
     )
 
 
+def _control_coordinate_click_loop_guard_response(
+    *,
+    tab_id: int,
+    target_ref: str,
+    consecutive_no_effect: int,
+) -> ToolChunk:
+    payload = {
+        "ok": False,
+        "mode": "control",
+        "tab_id": tab_id,
+        "error": "coordinate_click_loop_guard",
+        "message": (
+            "A previous raw coordinate click at this nearby point was "
+            "observed with no page change."
+        ),
+        "blocked_ref": target_ref,
+        "consecutive_no_effect": consecutive_no_effect,
+        "needs_observation": True,
+        "next_action": "snapshot",
+        "next_instruction": (
+            "Do not repeat raw coordinate clicks at the same point. Use a "
+            "fresh snapshot target by ref/text/selector, navigate directly "
+            "when the destination URL is known, choose a different semantic "
+            "target, or report that the page does not expose a reliable "
+            "Browser Control target."
+        ),
+        "use_instead": [
+            "snapshot",
+            "click(ref=...)",
+            "click(text=...)",
+            "click(selector=...)",
+            "navigate(url=...)",
+        ],
+    }
+    return _tool_response(json.dumps(payload, ensure_ascii=False, indent=2))
+
+
+def _control_coordinate_click_loop_guard(
+    state: dict,
+    tab_id: int,
+    target_ref: str,
+) -> ToolChunk | None:
+    """Block repeated raw coordinate clicks after an observed no-op."""
+    target_ref = str(target_ref or "").strip()
+    if not target_ref.startswith("point:"):
+        return None
+
+    records = state.get("control_click_effects")
+    if not isinstance(records, dict):
+        return None
+    record = records.get(str(tab_id))
+    if not isinstance(record, dict):
+        return None
+    if str(record.get("ref") or "") != target_ref:
+        return None
+
+    network = record.get("network")
+    if (
+        isinstance(network, dict)
+        and int(network.get("async_requests_triggered") or 0) > 0
+    ):
+        return None
+
+    consecutive = int(record.get("consecutive_no_effect") or 0)
+    if consecutive <= 0 or bool(record.get("pending")):
+        return None
+
+    return _control_coordinate_click_loop_guard_response(
+        tab_id=tab_id,
+        target_ref=target_ref,
+        consecutive_no_effect=consecutive,
+    )
+
+
 def _click_effect_reset(state: dict, tab_id: int) -> None:
     records = state.get("control_click_effects")
     if not isinstance(records, dict):
@@ -175,7 +249,7 @@ def _click_effect_check(
         return False, {"no_effect": False}
 
     record = records.get(key)
-    if not isinstance(record, dict) or not record.get("pending"):
+    if not isinstance(record, dict):
         return False, {"no_effect": False}
 
     current_hash = str(current_hash or "")
@@ -187,6 +261,16 @@ def _click_effect_check(
         else 0
     )
     network_payload = network if isinstance(network, dict) else {}
+
+    if not record.get("pending"):
+        if (
+            async_requests <= 0
+            and current_hash
+            and previous_hash
+            and current_hash != previous_hash
+        ):
+            _click_effect_reset(state, tab_id)
+        return False, {"no_effect": False}
 
     if current_hash and previous_hash and current_hash == previous_hash:
         consecutive = int(record.get("consecutive_no_effect") or 0) + 1
@@ -259,16 +343,20 @@ def _control_observation_required_response(
                 "tab_id": tab_id,
                 "error": (
                     "Fresh observation required. Observe the current page "
-                    "with snapshot or screenshot before taking another "
-                    "mutating browser action."
+                    "with snapshot before taking another mutating browser "
+                    "action. Use screenshot only as visual context when "
+                    "snapshot cannot describe the page; do not turn a "
+                    "screenshot into repeated raw coordinate clicks."
                 ),
                 "after_action": after_action,
                 "next_action": "snapshot",
                 "needs_observation": True,
                 "next_instruction": (
                     "The previous browser action may have changed the page. "
-                    "Observe the current page with snapshot or screenshot "
-                    "before taking another click, type, or key action."
+                    "Observe the current page with snapshot before taking "
+                    "another click, type, or key action. Prefer "
+                    "ref/text/selector targets from the snapshot for "
+                    "state-changing actions."
                 ),
                 "use_instead": [
                     "snapshot",
@@ -308,6 +396,8 @@ __all__ = [
     "_click_effect_snapshot_hashes",
     "_control_async_write_guard",
     "_control_clear_observation_required",
+    "_control_coordinate_click_loop_guard",
+    "_control_coordinate_click_loop_guard_response",
     "_control_mark_observation_required",
     "_control_observation_required_response",
     "_control_pending_observations",

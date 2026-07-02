@@ -22,6 +22,7 @@ from .observation import (
     _click_effect_last_snapshot_hash,
     _click_effect_record_click,
     _control_async_write_guard,
+    _control_coordinate_click_loop_guard,
     _control_mark_observation_required,
 )
 from .session_manager import _control_get_session
@@ -246,6 +247,17 @@ def _control_click_feedback_payload(
             "counter, or control. Verify by waiting and observing, reloading "
             "and observing, or reading an authoritative state view."
         )
+    elif coordinate_space:
+        message = (
+            "Raw coordinate click completed, but no navigation was detected."
+        )
+        instruction = (
+            "Observe the page with snapshot before another action. Do not "
+            "repeat raw coordinate clicks if the page state did not change; "
+            "use a snapshot ref/text/selector target, navigate directly when "
+            "the destination URL is known, or report that the page does not "
+            "expose a reliable Browser Control target."
+        )
     else:
         message = (
             "Click completed, but no navigation was detected. If the target "
@@ -375,6 +387,13 @@ async def click_control(
         clicked_point = {"x": x, "y": y}
     if tracking_ref:
         blocked = _control_async_write_guard(state, tab_id, tracking_ref)
+        if blocked is not None:
+            return blocked
+        blocked = _control_coordinate_click_loop_guard(
+            state,
+            tab_id,
+            tracking_ref,
+        )
         if blocked is not None:
             return blocked
     allow_new_context = bool(kwargs.get("allow_new_context", False))

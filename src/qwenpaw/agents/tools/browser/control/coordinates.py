@@ -28,7 +28,10 @@ def _control_coordinate_space_payload(
         "instruction": (
             "Convert screenshot image pixels to tab.click coordinates by "
             "multiplying image_x/image_y by image_to_viewport_scale_x/y. "
-            "Coordinates outside the viewport are invalid."
+            "Coordinates outside the viewport are invalid. Raw coordinates "
+            "are a visual fallback; prefer snapshot ref/text/selector "
+            "targets for state-changing actions and do not repeat the same "
+            "coordinate after an observed no-op."
         ),
     }
     if screenshot_width > 0 and screenshot_height > 0:
