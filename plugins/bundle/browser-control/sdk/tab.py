@@ -45,9 +45,12 @@ from qwenpaw.agents.tools.browser.control.state import ControlState
 from .errors import BrowserSDKError
 from .guard import ObserveActGuard
 from .artifacts import record_image_artifact
+from .inspection import evaluate_expression, read_page_info
 from .types import (
     ActionResult,
     ClickResult,
+    EvaluateResult,
+    PageInfo,
     RefInfo,
     ScreenshotResult,
     Snapshot,
@@ -167,6 +170,40 @@ class Tab:
             message=_result_message(payload),
             path=screenshot_path,
             coordinate_space=_dict_payload(payload.get("coordinate_space")),
+        )
+
+    async def page_info(self) -> PageInfo:
+        """Read page metadata without satisfying target-action observation."""
+        info = await read_page_info(
+            self._bridge,
+            tab_id=self.id,
+            holder_id=self._holder_id,
+            fallback_url=self.url,
+            fallback_title=self.title,
+        )
+        _sync_known_tab_metadata(
+            self._state,
+            self.id,
+            url=info.url,
+            title=info.title,
+        )
+        return info
+
+    async def evaluate(
+        self,
+        expression: str,
+        *,
+        timeout_ms: int = 1000,
+        await_promise: bool = False,
+    ) -> EvaluateResult:
+        """Run a bounded read-only JavaScript expression in page scope."""
+        return await evaluate_expression(
+            self._bridge,
+            tab_id=self.id,
+            holder_id=self._holder_id,
+            expression=expression,
+            timeout_ms=timeout_ms,
+            await_promise=await_promise,
         )
 
     async def click(
@@ -295,6 +332,15 @@ class Tab:
     async def navigate(self, url: str) -> ActionResult:
         _control_remember_approved_navigation(self._state, url)
         return await self.action("navigate", url=url)
+
+    async def back(self) -> ActionResult:
+        return await self.action("navigate_back")
+
+    async def forward(self) -> ActionResult:
+        return await self.action("navigate_forward")
+
+    async def reload(self) -> ActionResult:
+        return await self.action("reload")
 
     async def wait_for(self, *args: Any, **kwargs: Any) -> ActionResult:
         """Wait for page settling or text state without fresh snapshot."""
@@ -500,7 +546,17 @@ def _known_tab_bool(state: Any, tab_id: int, field: str) -> bool:
 
 
 def _sync_known_tab_url(state: Any, tab_id: int, url: str) -> None:
-    if not url:
+    _sync_known_tab_metadata(state, tab_id, url=url)
+
+
+def _sync_known_tab_metadata(
+    state: Any,
+    tab_id: int,
+    *,
+    url: str = "",
+    title: str = "",
+) -> None:
+    if not url and not title:
         return
     try:
         tabs = state.setdefault("control_tabs", {})
@@ -514,8 +570,11 @@ def _sync_known_tab_url(state: Any, tab_id: int, url: str) -> None:
     if not isinstance(entry, dict):
         entry = {"tab_id": tab_id}
         tabs[str(tab_id)] = entry
-    entry["url"] = url
-    entry["url_key"] = _control_url_key(url)
+    if url:
+        entry["url"] = url
+        entry["url_key"] = _control_url_key(url)
+    if title:
+        entry["title"] = title
 
 
 async def _bridge_request_checked(

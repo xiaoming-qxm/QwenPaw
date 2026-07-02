@@ -24,7 +24,8 @@ from .protocol import ActionMeta
 
 
 @dataclass(frozen=True)
-class NavigateBackHandler:
+class NavigateHistoryHandler:
+    direction: str
     meta: ActionMeta = ActionMeta(True, False, True)
 
     async def execute(
@@ -54,16 +55,21 @@ class NavigateBackHandler:
                 history.get("entries") if isinstance(history, dict) else []
             )
             current = int(history.get("currentIndex") or 0)
-            if current <= 0 or not isinstance(entries, list):
+            target_index = self._target_index(current)
+            if (
+                target_index < 0
+                or not isinstance(entries, list)
+                or target_index >= len(entries)
+            ):
                 return _json_response(
                     {
                         "ok": False,
                         "mode": "control",
-                        "error": "No previous page in history",
+                        "error": self._missing_history_message(),
                     },
                 )
-            previous = entries[current - 1]
-            entry_id = int(previous.get("id"))
+            target = entries[target_index]
+            entry_id = int(target.get("id"))
             wait_for_load = (
                 control_navigation._control_create_page_load_waiter(
                     bridge,
@@ -74,7 +80,7 @@ class NavigateBackHandler:
                 await session.send_after_banner(
                     "Page.navigateToHistoryEntry",
                     {"entryId": entry_id},
-                    {"status_text": "Back"},
+                    {"status_text": self._status_text()},
                 )
             except (
                 asyncio.TimeoutError,
@@ -83,11 +89,13 @@ class NavigateBackHandler:
                 ValueError,
                 TypeError,
             ) as exc:
-                raise NavigationFailed(f"navigate_back failed: {exc}") from exc
+                raise NavigationFailed(
+                    f"{self._action_name()} failed: {exc}",
+                ) from exc
             page_settled = await wait_for_load(
                 control_navigation._CONTROL_NAVIGATE_LOAD_TIMEOUT_SECONDS,
             )
-            url = str(previous.get("url") or "")
+            url = str(target.get("url") or "")
             if url:
                 state.current_page_id = str(tab_id)
                 _control_refresh_tab_url(state, tab_id, url)
@@ -104,7 +112,7 @@ class NavigateBackHandler:
                     "ok": True,
                     "mode": "control",
                     "tab_id": tab_id,
-                    "navigated_back": True,
+                    f"navigated_{self.direction}": True,
                     "url": url,
                     "page_settled": page_settled,
                     "network_settled": _network_settled(network),
@@ -115,6 +123,41 @@ class NavigateBackHandler:
                 {"ok": False, "mode": "control", "error": str(exc)},
             )
 
+    def _target_index(self, current: int) -> int:
+        return current + 1 if self.direction == "forward" else current - 1
+
+    def _missing_history_message(self) -> str:
+        if self.direction == "forward":
+            return "No next page in history"
+        return "No previous page in history"
+
+    def _status_text(self) -> str:
+        return "Forward" if self.direction == "forward" else "Back"
+
+    def _action_name(self) -> str:
+        return (
+            "navigate_forward"
+            if self.direction == "forward"
+            else "navigate_back"
+        )
+
+
+@dataclass(frozen=True)
+class NavigateBackHandler(NavigateHistoryHandler):
+    direction: str = "back"
+
+
+@dataclass(frozen=True)
+class NavigateForwardHandler(NavigateHistoryHandler):
+    direction: str = "forward"
+
 
 NAVIGATE_BACK_HANDLER = NavigateBackHandler()
-__all__ = ["NAVIGATE_BACK_HANDLER", "NavigateBackHandler"]
+NAVIGATE_FORWARD_HANDLER = NavigateForwardHandler()
+__all__ = [
+    "NAVIGATE_BACK_HANDLER",
+    "NAVIGATE_FORWARD_HANDLER",
+    "NavigateBackHandler",
+    "NavigateForwardHandler",
+    "NavigateHistoryHandler",
+]

@@ -173,6 +173,36 @@ class ScreenshotResult:
 
 
 @dataclass(frozen=True)
+class PageInfo:
+    """Read-only page metadata useful for navigation and scroll decisions."""
+
+    url: str
+    title: str
+    viewport_width: int
+    viewport_height: int
+    content_width: int
+    content_height: int
+    scroll_x: int
+    scroll_y: int
+    max_scroll_y: int
+    scroll_percent: int
+    at_top: bool
+    at_bottom: bool
+    device_pixel_ratio: float
+
+
+@dataclass(frozen=True)
+class EvaluateResult:
+    """Result of a bounded read-only JavaScript evaluation."""
+
+    ok: bool
+    type: str
+    value: Any = None
+    description: str = ""
+    exception_text: str = ""
+
+
+@dataclass(frozen=True)
 class TabInfo:
     """Summary of a browser tab."""
 

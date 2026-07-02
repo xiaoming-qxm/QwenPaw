@@ -181,8 +181,27 @@ try the strongest ref/text candidate within the next browser action. If it
 fails after one fresh observation, try a different real candidate or route.
 Do not keep inspecting listings, screenshots, or broad page snapshots while
 a page-level action target already matches the task.
-JavaScript evaluation is not available in control mode:
-do not call ``tab.evaluate`` or ``tab.action("evaluate", ...)``.
+If visual or semantic evidence already reveals a cart action on a product
+page, do not take another screenshot or scroll to find a ref. In the next
+browser action, try the strongest add-cart semantic action, such as
+``await tab.click(text="add cart")`` or a fresh ``加入购物车``/add-cart ref.
+Prefer add-cart semantics over generic cart or buy: plain ``cart`` may mean
+opening the cart page, and ``buy`` may mean checkout. Use generic ``cart``
+only when the latest observation or screenshot clearly shows it is the
+product-page add-to-cart control.
+For metadata or bounded structured reads, use read-only extraction helpers:
+``await tab.page_info()`` for URL/title/viewport/scroll metadata and
+``await tab.evaluate("...")`` for small JSON-serializable page expressions.
+These helpers are for inspection only. ``tab.evaluate`` is protected by a
+conservative read-only policy that rejects assignment, user-event, network,
+storage, history/location mutation, dynamic code execution, and document-write
+APIs before sending code to Chrome.
+A helper does not satisfy the observe-before-act guard.
+Before clicking, typing, scrolling, selecting, navigating, deleting, or
+confirming, still call ``snapshot()`` or
+``screenshot()`` and target the action from that fresh evidence. Do not use
+``tab.evaluate`` to mutate page state, submit forms, click controls, rewrite
+DOM, or bypass the Browser Control action APIs.
 Do not read or view screenshot files with local file/media tools. If a
 snapshot is degraded after one wait/reload, switch to another web UI route
 or report a blocker instead of repeating the same observation loop.
@@ -302,6 +321,29 @@ class Tab:
     async def navigate(self, url: str) -> ActionResult:
         Navigate the claimed tab to a URL.
 
+    async def back(self) -> ActionResult:
+        Navigate to the previous browser history entry.
+
+    async def forward(self) -> ActionResult:
+        Navigate to the next browser history entry.
+
+    async def reload(self) -> ActionResult:
+        Reload the current tab.
+
+    async def page_info(self) -> PageInfo:
+        Return read-only URL/title/viewport/content/scroll metadata. This is
+        useful for scroll budgeting and status reporting, but it does not
+        replace snapshot() or screenshot() before a mutating target action.
+
+    async def evaluate(
+        self,
+        expression: str,
+        timeout_ms: int = 1000,
+        await_promise: bool = False,
+    ) -> EvaluateResult:
+        Evaluate a bounded read-only JavaScript expression with
+        returnByValue=True. Use it for small structured extraction only.
+
     async def wait_for(self, **kwargs) -> ActionResult:
         Wait for page state. Does not require a fresh observation, but makes
         any previous observation stale; call snapshot() after it before
@@ -328,6 +370,28 @@ class ScreenshotResult:
     message: str
     path: str
     coordinate_space: dict[str, Any]
+
+class PageInfo:
+    url: str
+    title: str
+    viewport_width: int
+    viewport_height: int
+    content_width: int
+    content_height: int
+    scroll_x: int
+    scroll_y: int
+    max_scroll_y: int
+    scroll_percent: int
+    at_top: bool
+    at_bottom: bool
+    device_pixel_ratio: float
+
+class EvaluateResult:
+    ok: bool
+    type: str
+    value: Any
+    description: str
+    exception_text: str
 
 class RefInfo:
     role: str

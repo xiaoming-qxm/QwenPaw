@@ -784,6 +784,7 @@ _CONTROL_IMPLICIT_MODE_ACTIONS = {
     "open",
     "navigate",
     "navigate_back",
+    "navigate_forward",
     "reload",
     "tabs",
     "snapshot",

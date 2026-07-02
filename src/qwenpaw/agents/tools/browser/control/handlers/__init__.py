@@ -16,7 +16,7 @@ from .misc import (
     handle_unsupported,
 )
 from .navigate import NAVIGATE_HANDLER
-from .navigate_back import NAVIGATE_BACK_HANDLER
+from .navigate_back import NAVIGATE_BACK_HANDLER, NAVIGATE_FORWARD_HANDLER
 from .open import OPEN_HANDLER
 from .press_key import PRESS_KEY_HANDLER
 from .release_tab import RELEASE_TAB_HANDLER
@@ -41,6 +41,7 @@ register_handler("claim_tab", CLAIM_TAB_HANDLER)
 register_handler("release_tab", RELEASE_TAB_HANDLER)
 register_handler("navigate", NAVIGATE_HANDLER)
 register_handler("navigate_back", NAVIGATE_BACK_HANDLER)
+register_handler("navigate_forward", NAVIGATE_FORWARD_HANDLER)
 register_handler("reload", RELOAD_HANDLER)
 register_handler("scroll", SCROLL_HANDLER)
 register_handler("hover", HOVER_HANDLER)
@@ -59,6 +60,7 @@ ACTION_HANDLERS: dict[str, ActionHandler] = {
     "claim_tab": CLAIM_TAB_HANDLER.execute,
     "navigate": NAVIGATE_HANDLER.execute,
     "navigate_back": NAVIGATE_BACK_HANDLER.execute,
+    "navigate_forward": NAVIGATE_FORWARD_HANDLER.execute,
     "reload": RELOAD_HANDLER.execute,
     "scroll": SCROLL_HANDLER.execute,
     "hover": HOVER_HANDLER.execute,

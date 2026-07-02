@@ -6,7 +6,6 @@ from __future__ import annotations
 import json
 import logging
 import re
-from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -57,6 +56,11 @@ _BROWSER_CONTROL_GOAL_GUIDANCE = """
 - If a plausible action target cannot be activated after one fresh
   observation, choose a different real target or route. Do not loop on the
   same listing, screenshot, coordinate, or product candidate.
+- If visual or semantic evidence already reveals a cart action on a product
+  page, try the strongest add-cart semantic action in the next browser turn,
+  such as `tab.click(text="add cart")` or a fresh `加入购物车`/add-cart ref.
+  Do not take another screenshot or scroll to find a ref for the same
+  already-visible cart action.
 """.strip()
 _REAL_BROWSER_INTENT_TERMS = (
     "用我的浏览器",
@@ -227,11 +231,18 @@ _BROWSER_REPL_TERMS = (
     "tab.press_key",
     "tab.navigate",
     "tab.wait_for",
+    "tab.page_info",
+    "tab.evaluate",
+    "tab.back",
+    "tab.forward",
+    "tab.reload",
     "tab.close",
     "tab.scroll",
     "tab.hover",
     "tab.select_option",
 )
+
+_SKILL_BODY_CACHE: tuple[tuple[tuple[str, int, int], ...], str] | None = None
 
 _BROWSER_REPL_RELEASE_TERMS = (
     "browser.close(",
@@ -341,8 +352,13 @@ def _has_browser_control_intent(text: str) -> bool:
     )
 
 
-@lru_cache(maxsize=1)
 def _browser_control_skill_body() -> str:
+    global _SKILL_BODY_CACHE  # pylint: disable=global-statement
+
+    fingerprint = _skill_body_fingerprint()
+    if _SKILL_BODY_CACHE is not None and _SKILL_BODY_CACHE[0] == fingerprint:
+        return _SKILL_BODY_CACHE[1]
+
     sections = [
         "# Browser Control Skill",
         "Use the `python_repl` tool and its preloaded Browser SDK to operate "
@@ -353,7 +369,18 @@ def _browser_control_skill_body() -> str:
         text = path.read_text(encoding="utf-8").strip()
         if text:
             sections.append(text)
-    return "\n\n".join(sections).strip()
+    body = "\n\n".join(sections).strip()
+    _SKILL_BODY_CACHE = (fingerprint, body)
+    return body
+
+
+def _skill_body_fingerprint() -> tuple[tuple[str, int, int], ...]:
+    entries: list[tuple[str, int, int]] = []
+    for filename in _SKILL_BODY_FILES:
+        path = _SKILL_DIR / filename
+        stat = path.stat()
+        entries.append((filename, stat.st_mtime_ns, stat.st_size))
+    return tuple(entries)
 
 
 def _mark_browser_control_invocation(ctx: HookContext) -> None:

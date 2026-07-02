@@ -32,8 +32,15 @@
 - `scroll` only accepts keyword arguments such as `direction` and `amount`.
   Use `amount="top"` or `amount="bottom"` for absolute page jumps when the
   needed control is expected near the start or end of a long page.
-- JavaScript evaluation is not available in control mode. Do not call
-  `tab.evaluate` or `tab.action("evaluate", ...)`.
+- For metadata or small structured reads, use read-only helpers:
+  `await tab.page_info()` for URL/title/viewport/scroll state and
+  `await tab.evaluate("...")` for bounded JSON-serializable extraction.
+  `tab.evaluate` is protected by a conservative read-only policy that rejects
+  assignment, user-event, network, storage, history/location mutation,
+  dynamic code execution, and document-write APIs before sending code to
+  Chrome. These helpers do not satisfy the observe-before-act guard and must
+  not mutate page state, submit forms, click controls, rewrite DOM, or
+  replace snapshot refs before a mutating action.
 - `wait_for` is a synchronization action. It may follow a click, navigation,
   type, or scroll without another snapshot first, but it makes previous
   observations stale. Always observe after `wait_for` before the next
@@ -70,6 +77,14 @@
   fails after one fresh observation, try a different real candidate or route.
   Do not keep inspecting listings, screenshots, or broad page snapshots while
   a page-level action target already matches the task.
+- If visual or semantic evidence already reveals a cart action on a product
+  page, do not take another screenshot or scroll to find a ref. In the next
+  browser action, try the strongest add-cart semantic action, such as
+  `await tab.click(text="add cart")` or a fresh `加入购物车`/add-cart ref.
+  Prefer add-cart semantics over generic cart or buy: plain `cart` may mean
+  opening the cart page, and `buy` may mean checkout. Use generic `cart` only
+  when the latest observation or screenshot clearly shows it is the
+  product-page add-to-cart control.
 - Use coordinates only after SDK evidence identifies the target's position;
   do not guess page coordinates from a generic layout.
 - Do not convert screenshots into coordinates for state-changing actions such
@@ -152,5 +167,6 @@ Use SDK methods such as `browser.tabs.list()`, `browser.tabs.list(all=True)`,
 `browser.tabs.get(tab_id)`,
 `tab.snapshot()`, `tab.click(...)`, `tab.type(...)`, `tab.press_key(...)`,
 `tab.navigate(...)`, `tab.hover(...)`, `tab.scroll(...)`,
-`tab.select_option(...)`, `tab.wait_for(...)`, `tab.close()`,
-`browser.tabs.close(tab_id)`, and `browser.close()`.
+`tab.select_option(...)`, `tab.page_info()`, `tab.evaluate(...)`,
+`tab.back()`, `tab.forward()`, `tab.reload()`, `tab.wait_for(...)`,
+`tab.close()`, `browser.tabs.close(tab_id)`, and `browser.close()`.

@@ -11,10 +11,11 @@ from ...runtime import _tool_response
 
 def unsupported_control_action_response(action: str):
     guidance = (
-        "JavaScript evaluation is not available in control mode. "
-        "Use the Browser Control Python REPL SDK to inspect current tab URLs, "
-        "and use snapshot or screenshot to observe page "
-        "state before choosing the next browser action."
+        "Raw evaluate actions are not available through browser_use. "
+        "Use the Browser Control Python REPL SDK helpers such as "
+        "tab.page_info(), tab.evaluate(...) for bounded read-only extraction, "
+        "and snapshot or screenshot to observe page state before choosing the "
+        "next browser action."
     )
     unsupported_actions = {
         "eval",
@@ -22,7 +23,7 @@ def unsupported_control_action_response(action: str):
         "run_code",
         "runtime.evaluate",
     }
-    use_instead = ["tabs", "snapshot", "screenshot"]
+    use_instead = ["python_repl", "tabs", "snapshot", "screenshot"]
     if action in {"connect_cdp", "list_cdp_targets"}:
         use_instead = ["tabs", "claim_tab", "open", "snapshot"]
     return _tool_response(
