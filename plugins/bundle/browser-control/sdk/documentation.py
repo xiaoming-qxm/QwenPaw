@@ -51,6 +51,8 @@ LLM-safe call patterns:
     await tab.scroll(direction="down", amount="page")
     await tab.wait_for(2)
     snap = await tab.snapshot()
+    await tab.scroll(direction="up", amount="top")
+    snap = await tab.snapshot()
 
 For a new user task, prefer opening a fresh SDK-owned background tab:
 
@@ -83,7 +85,11 @@ semantic; avoid guessed class names.
 
 ``snapshot()`` takes no arguments; do not call ``snapshot(full=True)``.
 ``scroll`` only accepts keyword arguments such as ``direction`` and
-``amount``. JavaScript evaluation is not available in control mode:
+``amount``. Use ``amount="top"`` or ``amount="bottom"`` for absolute jumps
+when the relevant control is expected near the start or end of a long page.
+Snapshot text may begin with ``page_state`` containing ``scroll_percent``,
+``at_top``, and ``at_bottom``; use it to avoid repeated ineffective scrolls.
+JavaScript evaluation is not available in control mode:
 do not call ``tab.evaluate`` or ``tab.action("evaluate", ...)``.
 Do not read or view screenshot files with local file/media tools. If a
 snapshot is degraded after one wait/reload, switch to another web UI route
@@ -184,6 +190,8 @@ class Tab:
     async def scroll(self, **kwargs) -> ActionResult:
         Scroll the page or a target region.
         Example: await tab.scroll(direction="down", amount="page")
+        Absolute jumps: await tab.scroll(direction="up", amount="top") or
+        await tab.scroll(direction="down", amount="bottom").
 
     async def select_option(self, **kwargs) -> ActionResult:
         Select one or more options in a control.

@@ -15,6 +15,7 @@
   `tab = await browser.tabs.open(url)`,
   `snap = await tab.snapshot()`,
   `await tab.scroll(direction="down", amount="page")`,
+  `await tab.scroll(direction="up", amount="top")`,
   `await tab.wait_for(2)`,
   `snap = await tab.snapshot()`.
 - Prefer a direct, browser-visible URL when the user intent can be expressed
@@ -23,6 +24,8 @@
   URL route is available.
 - `snapshot()` takes no arguments. Do not call `snapshot(full=True)`.
 - `scroll` only accepts keyword arguments such as `direction` and `amount`.
+  Use `amount="top"` or `amount="bottom"` for absolute page jumps when the
+  needed control is expected near the start or end of a long page.
 - JavaScript evaluation is not available in control mode. Do not call
   `tab.evaluate` or `tab.action("evaluate", ...)`.
 - `wait_for` is a synchronization action. It may follow a click, navigation,
@@ -40,6 +43,10 @@
   do not guess page coordinates from a generic layout.
 - If a click appears unchanged, re-observe or screenshot before trying
   another route.
+- Snapshot output starts with `page_state` when scroll metrics are available.
+  Use `at_top`, `at_bottom`, and `scroll_percent` to decide whether another
+  scroll is meaningful; do not repeat page scrolls once the expected boundary is
+  reached.
 - Keep each `python_repl` browser cell narrow: perform at most one mutating
   browser action, optionally wait for it to settle, then take a fresh
   snapshot. Do not batch click/type/click sequences in one cell.

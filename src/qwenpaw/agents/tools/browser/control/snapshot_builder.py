@@ -21,6 +21,7 @@ _CONTROL_AX_SNAPSHOT_TIMEOUT_SECONDS = 5.0
 _CONTROL_DOM_TREE_TIMEOUT_SECONDS = 5.0
 _CONTROL_DOM_SNAPSHOT_TIMEOUT_SECONDS = 5.0
 _CONTROL_VISUAL_CONTEXT_TIMEOUT_SECONDS = 5.0
+_CONTROL_PAGE_STATE_TIMEOUT_SECONDS = 1.5
 
 
 def _url_source(url: str, media_type: str) -> URLSource:
@@ -112,6 +113,7 @@ async def build_control_snapshot(
                 depth=_DOM_TREE_FALLBACK_DEPTH,
                 allow_dom_snapshot=False,
             )
+        fallback_snapshot = await _append_page_state(session, fallback_snapshot)
         return fallback_snapshot, fallback_refs, True
 
     snapshot, refs = from_cdp_ax_tree(ax_tree)
@@ -136,6 +138,7 @@ async def build_control_snapshot(
                 refs = fallback_refs
     if refs and not _control_refs_have_interactive_role(refs):
         degraded_snapshot = True
+    snapshot = await _append_page_state(session, snapshot)
     return snapshot, refs, degraded_snapshot
 
 
@@ -189,8 +192,97 @@ async def _send_with_timeout(
     )
 
 
+async def _append_page_state(session: Any, snapshot: str) -> str:
+    line = await _control_page_state_line(session)
+    if not line:
+        return snapshot
+    snapshot = snapshot.strip() or "(empty)"
+    if snapshot == "(empty)":
+        return line
+    return f"{line}\n{snapshot}"
+
+
+async def _control_page_state_line(session: Any) -> str:
+    try:
+        result = await _send_with_timeout(
+            session,
+            "Runtime.evaluate",
+            {
+                "expression": _CONTROL_PAGE_STATE_SCRIPT,
+                "returnByValue": True,
+                "awaitPromise": False,
+                "timeout": 1000,
+            },
+            timeout=_CONTROL_PAGE_STATE_TIMEOUT_SECONDS,
+        )
+    except Exception:  # noqa: BLE001
+        logger.debug("Failed to read control page state", exc_info=True)
+        return ""
+    value = _runtime_evaluate_value(result)
+    if not isinstance(value, dict):
+        return ""
+    scroll_y = _rounded_number(value.get("scrollY"))
+    max_scroll_y = _rounded_number(value.get("maxScrollY"))
+    percent = _rounded_number(value.get("scrollPercent"))
+    at_top = bool(value.get("atTop"))
+    at_bottom = bool(value.get("atBottom"))
+    return (
+        '- page_state "'
+        f"scroll_y={scroll_y} max_scroll_y={max_scroll_y} "
+        f"scroll={percent}% at_top={str(at_top).lower()} "
+        f"at_bottom={str(at_bottom).lower()}"
+        '"'
+    )
+
+
+def _runtime_evaluate_value(result: dict[str, Any]) -> Any:
+    remote_object = result.get("result") if isinstance(result, dict) else None
+    if isinstance(remote_object, dict) and "result" in remote_object:
+        remote_object = remote_object.get("result")
+    if isinstance(remote_object, dict):
+        return remote_object.get("value")
+    return None
+
+
+def _rounded_number(value: Any) -> int:
+    if isinstance(value, (int, float)):
+        return int(round(float(value)))
+    try:
+        return int(round(float(str(value))))
+    except (TypeError, ValueError):
+        return 0
+
+
+_CONTROL_PAGE_STATE_SCRIPT = """
+(() => {
+  const doc = document.scrollingElement
+    || document.documentElement
+    || document.body;
+  const viewportHeight = window.innerHeight || doc.clientHeight || 0;
+  const scrollHeight = Math.max(
+    doc.scrollHeight || 0,
+    document.documentElement ? document.documentElement.scrollHeight || 0 : 0,
+    document.body ? document.body.scrollHeight || 0 : 0
+  );
+  const scrollY = window.scrollY || doc.scrollTop || 0;
+  const maxScrollY = Math.max(0, scrollHeight - viewportHeight);
+  const scrollPercent = maxScrollY > 0
+    ? Math.round((scrollY / maxScrollY) * 100)
+    : 0;
+  return {
+    scrollY: Math.round(scrollY),
+    maxScrollY: Math.round(maxScrollY),
+    scrollPercent,
+    atTop: scrollY <= 2,
+    atBottom: maxScrollY <= 2 || scrollY >= maxScrollY - 2,
+  };
+})()
+""".strip()
+
+
 __all__ = [
     "_control_escalation_payload",
+    "_control_page_state_line",
     "_control_snapshot_hash",
     "_control_visual_context_block",
     "_url_source",
