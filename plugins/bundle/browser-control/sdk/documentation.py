@@ -100,6 +100,13 @@ out-of-viewport error, do not repeat the same nearby point; choose a
 different target from fresh evidence, use a semantic route, or report a real
 blocker.
 
+For product-selection or shopping tasks, treat each listing as a candidate.
+If the current candidate lacks the required purchase/cart action, return to
+the listing and try a bounded set of different real candidates or filters
+before declaring the task blocked. Use only real hrefs/refs observed from
+the page; do not invent item ids, API URLs, cart URLs, or mobile detail
+links.
+
 Snapshot refs are string identifiers. Use quoted refs such as
 ``await tab.click(ref="e22")``. Link refs may include an href used by the SDK
 for reliable same-tab navigation. The REPL also prebinds common ref symbols

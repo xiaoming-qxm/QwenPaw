@@ -24,6 +24,12 @@
 - Do not repeat the same nearby coordinate after a fresh observation shows
   no page change. Switch to a semantic ref/text target, a direct route, or
   report the blocker.
+- For product-selection or shopping tasks, treat each product/listing as a
+  candidate. If the current candidate lacks the required action, return to
+  the listing and try a bounded set of different real candidates or filters
+  before declaring the task blocked. Use only real hrefs/refs observed from
+  the page; do not invent item ids, API URLs, cart URLs, or mobile detail
+  links.
 - If a call raises `BridgeDisconnected`, run
   `browser = await browser.connect()` once and retry from a fresh SDK
   observation. If reconnecting still fails, ask the user to enable or refresh
