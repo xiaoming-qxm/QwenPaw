@@ -1078,6 +1078,28 @@ _CONTROL_ACTION_TARGETS_SCRIPT = """
     };
     const targets = [];
     const seen = new Set();
+    const addTarget = (element, text, rect) => {
+      if (!text) return;
+      const viewportArea = Math.max(
+        0,
+        (window.innerWidth || 0) * (window.innerHeight || 0)
+      );
+      const area = Math.max(0, rect.width * rect.height);
+      if (viewportArea > 0 && area > viewportArea * 0.2) return;
+      const x = Math.round(rect.left + rect.width / 2);
+      const y = Math.round(rect.top + rect.height / 2);
+      const role = String(element.getAttribute("role") || "").toLowerCase();
+      const key = `${text}|${element.tagName}|${role}|${x}|${y}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      targets.push({
+        text: text.slice(0, 100),
+        tag: element.tagName.toLowerCase(),
+        role,
+        x,
+        y
+      });
+    };
     for (const element of Array.from(document.querySelectorAll(selector))) {
       const rect = visibleRect(element);
       if (!rect) continue;
@@ -1090,19 +1112,20 @@ _CONTROL_ACTION_TARGETS_SCRIPT = """
         continue;
       }
       if (!semantic && text.length > 120) continue;
-      const x = Math.round(rect.left + rect.width / 2);
-      const y = Math.round(rect.top + rect.height / 2);
-      const key = `${text}|${element.tagName}|${x}|${y}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      targets.push({
-        text: text.slice(0, 100),
-        tag: element.tagName.toLowerCase(),
-        role: String(element.getAttribute("role") || "").toLowerCase(),
-        x,
-        y
-      });
+      addTarget(element, text, rect);
       if (targets.length >= 12) break;
+    }
+    const genericActionTextCandidates = document.body
+      ? Array.from(document.body.querySelectorAll("*"))
+      : [];
+    for (const element of genericActionTextCandidates) {
+      if (targets.length >= 12) break;
+      const rect = visibleRect(element);
+      if (!rect) continue;
+      const text = textOf(element);
+      if (!text || !actionText.test(text)) continue;
+      if (text.length > 120) continue;
+      addTarget(element, text, rect);
     }
     return targets;
   }

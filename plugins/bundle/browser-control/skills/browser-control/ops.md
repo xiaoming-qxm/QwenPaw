@@ -61,6 +61,12 @@
 - Icon-only controls may appear with synthesized labels such as `add cart`,
   `cart`, or `buy` when the DOM exposes that semantic through stable
   attributes. Prefer those refs over visual coordinate guesses.
+- Use an action candidate budget: once the current page exposes a plausible
+  next action such as add-to-cart, buy, checkout, confirm, delete, or search,
+  try the strongest ref/text candidate within the next browser action. If it
+  fails after one fresh observation, try a different real candidate or route.
+  Do not keep inspecting listings, screenshots, or broad page snapshots while
+  a page-level action target already matches the task.
 - Use coordinates only after SDK evidence identifies the target's position;
   do not guess page coordinates from a generic layout.
 - If a click appears unchanged, re-observe or screenshot before trying

@@ -133,6 +133,12 @@ and text targeting both fail.
 Icon-only controls may appear with synthesized labels such as ``add cart``,
 ``cart``, or ``buy`` when the DOM exposes that semantic through stable
 attributes. Prefer those refs over visual coordinate guesses.
+Use an action candidate budget: once the current page exposes a plausible
+next action such as add-to-cart, buy, checkout, confirm, delete, or search,
+try the strongest ref/text candidate within the next browser action. If it
+fails after one fresh observation, try a different real candidate or route.
+Do not keep inspecting listings, screenshots, or broad page snapshots while
+a page-level action target already matches the task.
 JavaScript evaluation is not available in control mode:
 do not call ``tab.evaluate`` or ``tab.action("evaluate", ...)``.
 Do not read or view screenshot files with local file/media tools. If a
