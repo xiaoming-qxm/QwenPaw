@@ -24,6 +24,9 @@
 - Do not repeat the same nearby coordinate after a fresh observation shows
   no page change. Switch to a semantic ref/text target, a direct route, or
   report the blocker.
+- Snapshot refs are scoped to the observation that produced them. Copy the
+  complete latest ref, for example `r3_e22`; do not strip the `r3_` prefix or
+  reuse refs from older snapshots after the page changes.
 - For product-selection or shopping tasks, treat each product/listing as a
   candidate. If the current candidate lacks the required action, return to
   the listing and try a bounded set of different real candidates or filters

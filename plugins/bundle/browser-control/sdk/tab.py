@@ -31,6 +31,9 @@ from qwenpaw.agents.tools.browser.control.navigation import (
 from qwenpaw.agents.tools.browser.control.network_settle import (
     _network_quiescence_wait,
 )
+from qwenpaw.agents.tools.browser.control.ref_scope import (
+    _control_scope_snapshot_refs,
+)
 from qwenpaw.agents.tools.browser.control.session_manager import (
     _control_get_session,
 )
@@ -110,6 +113,12 @@ class Tab:
             request_context=_request_context(self._state),
         )
         text, refs_raw, degraded = await build_control_snapshot(session)
+        text, refs_raw, _ref_scope = _control_scope_snapshot_refs(
+            self._state,
+            self.id,
+            text,
+            refs_raw,
+        )
         self._store_refs(refs_raw)
         refs = {
             key: _ref_info(value)

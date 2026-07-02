@@ -48,7 +48,7 @@ LLM-safe call patterns:
     tab = await browser.tabs.open("https://example.com")
     snap = await tab.snapshot()
     print(snap.text)
-    await tab.click(ref="e22")
+    await tab.click(ref="r1_e22")
     await tab.scroll(direction="down", amount="page")
     await tab.wait_for(2)
     snap = await tab.snapshot()
@@ -107,11 +107,13 @@ before declaring the task blocked. Use only real hrefs/refs observed from
 the page; do not invent item ids, API URLs, cart URLs, or mobile detail
 links.
 
-Snapshot refs are string identifiers. Use quoted refs such as
-``await tab.click(ref="e22")``. Link refs may include an href used by the SDK
-for reliable same-tab navigation. The REPL also prebinds common ref symbols
-(``e22 == "e22"``) to tolerate copied snippets, but quoted strings are the
-clearest form.
+Snapshot refs are snapshot-scoped string identifiers. Use the complete quoted
+ref exactly as shown in the latest snapshot, such as
+``await tab.click(ref="r3_e22")``. Do not strip the ``r3_`` prefix, invent a
+shorter ``e22`` ref, or reuse a ref copied from an older snapshot. Link refs
+may include an href used by the SDK for reliable same-tab navigation. The REPL
+also prebinds common ref symbols to tolerate copied snippets, but quoted
+strings copied from the latest snapshot are the clearest form.
 
 ``snapshot()`` takes no arguments; do not call ``snapshot(full=True)``.
 ``scroll`` only accepts keyword arguments such as ``direction`` and
@@ -121,9 +123,10 @@ Snapshot text may begin with ``page_state`` containing ``scroll_percent``,
 ``at_top``, and ``at_bottom``; use it to avoid repeated ineffective scrolls.
 Snapshot text may also include ``action_target`` lines for visible controls
 that modern pages expose poorly through accessibility trees. If an
-``action_target`` line has ``[ref=e...]``, click that quoted ref first. If it
-does not have a ref, prefer its text with ``await tab.click(text="...")``;
-use x/y coordinates only when ref and text targeting both fail.
+``action_target`` line has a ``[ref=...]`` value such as ``[ref=r4_e17]``,
+click that complete quoted ref first. If it does not have a ref, prefer its
+text with ``await tab.click(text="...")``; use x/y coordinates only when ref
+and text targeting both fail.
 JavaScript evaluation is not available in control mode:
 do not call ``tab.evaluate`` or ``tab.action("evaluate", ...)``.
 Do not read or view screenshot files with local file/media tools. If a

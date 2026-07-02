@@ -16,7 +16,7 @@
 - Common calls:
   `tab = await browser.tabs.open(url)`,
   `snap = await tab.snapshot()`,
-  `await tab.click(ref="e22")`,
+  `await tab.click(ref="r1_e22")`,
   `await tab.scroll(direction="down", amount="page")`,
   `await tab.scroll(direction="up", amount="top")`,
   `await tab.wait_for(2)`,
@@ -42,15 +42,17 @@
   `await tab.click(text="visible label")`; the SDK can locate visible DOM
   text and scroll offscreen controls into view. Use CSS selectors only for
   stable semantic selectors, not guessed class names.
-- Snapshot refs are string identifiers. Use quoted refs such as
-  `await tab.click(ref="e22")`; copied snippets like `ref=e22` are tolerated,
-  but quoted strings are clearer.
+- Snapshot refs are snapshot-scoped string identifiers. Use the complete
+  quoted ref exactly as shown in the latest snapshot, such as
+  `await tab.click(ref="r3_e22")`; do not strip the `r3_` prefix, invent
+  shorter `e22` refs, or reuse refs copied from older snapshots.
 - Link refs may include an `href`; clicking that ref uses SDK-managed
   same-tab navigation when possible, so prefer the fresh ref over coordinate
   clicks for search results and product links.
 - `action_target` lines summarize visible controls that modern pages expose
-  poorly through accessibility trees. If an action target has `[ref=e...]`,
-  click that quoted ref first. If it has no ref, prefer
+  poorly through accessibility trees. If an action target has a `[ref=...]`
+  value such as `[ref=r4_e17]`, click that complete quoted ref first. If it
+  has no ref, prefer
   `tab.click(text="...")`; use x/y coordinates only when ref and text
   targeting both fail.
 - Use coordinates only after SDK evidence identifies the target's position;

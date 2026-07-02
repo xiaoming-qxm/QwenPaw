@@ -19,6 +19,7 @@ from ..snapshot_builder import (
     _control_visual_context_block,
     build_control_snapshot,
 )
+from ..ref_scope import _control_scope_snapshot_refs
 from ..state import ControlState
 from ..state_verification import _control_state_verification_payload
 from ..tab_manager import _control_ensure_tab_available, _control_page_id
@@ -63,6 +64,12 @@ class SnapshotHandler:
             session,
         )
         snapshot_hash = _control_snapshot_hash(snapshot)
+        snapshot, refs, ref_scope = _control_scope_snapshot_refs(
+            state,
+            tab_id,
+            snapshot,
+            refs,
+        )
         escalated, escalation_info = _click_effect_check(
             state,
             tab_id,
@@ -78,6 +85,8 @@ class SnapshotHandler:
             "snapshot": snapshot,
             "refs": refs,
         }
+        if ref_scope:
+            payload["ref_scope"] = ref_scope
         if escalated:
             payload["escalation"] = _control_escalation_payload(
                 escalation_info,
