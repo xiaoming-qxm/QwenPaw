@@ -1,7 +1,11 @@
-# Browser Control Skill
-
+---
+name: browser-control
+description: Use Browser Control Python REPL to operate Chrome through the QwenPaw Browser SDK.
 activation:
   when_tools_available: ["python_repl"]
+---
+
+# Browser Control Skill
 
 ## Overview
 

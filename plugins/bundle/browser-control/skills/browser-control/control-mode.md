@@ -34,8 +34,9 @@
 ## Goal Mode Execution
 
 When operating under Goal mode:
-- You are the browser operator. Execute the task directly with
+- The current agent is the browser operator. Execute the task directly with
   `python_repl` and the Browser SDK.
+- Use python_repl + Browser SDK only for browser actions.
 - Do NOT dispatch workers, call `spawn_subagent`, delegate to other
   agents, or ask someone else to operate the browser.
 - Follow observe-act-verify for each action.

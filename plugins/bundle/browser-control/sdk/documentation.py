@@ -22,8 +22,13 @@ recreate it manually:
 
 Core rule: observe before act. Call ``await tab.snapshot()`` before any
 mutating method such as click, type, press_key, scroll, hover,
-select_option, navigate, or wait_for. A mutating action consumes the fresh
-observation, so observe again before the next mutating action.
+select_option, or navigate. A mutating action consumes the fresh observation,
+so observe again before the next mutating action.
+
+Synchronization rule: ``wait_for`` is not a mutating action. It may be used
+after a click, navigation, scroll, or type operation to let the page settle,
+but it makes any previous snapshot stale. Always call ``await tab.snapshot()``
+after ``wait_for`` before the next mutating action.
 
 Production rule: read after write. After any state-changing action, verify
 state from a fresh observation or an authoritative page. Do not treat a
@@ -31,14 +36,21 @@ stale badge, local counter, or unchanged DOM as proof of success or failure.
 
 LLM-safe call patterns:
 
-    tabs = await browser.tabs.list()
     tab = await browser.tabs.open("https://example.com")
     snap = await tab.snapshot()
     print(snap.text)
-    await tab.wait_for(2)
-    await tab.wait_for(wait_time=2)
     await tab.scroll(direction="down", amount="page")
-    await tab.scroll(direction="up", amount="half")
+    await tab.wait_for(2)
+    snap = await tab.snapshot()
+
+For a new user task, prefer opening a fresh SDK-owned background tab:
+
+    tab = await browser.tabs.open("https://example.com")
+
+Use browser.tabs.list() and browser.tabs.get(tab_id) only when the user asks
+you to use, inspect, clean up, or is continuing work in a specific existing tab.
+Do not mine unrelated old tabs to answer a new task unless the user asked to
+reuse existing browser state.
 
 ``snapshot()`` takes no arguments; do not call ``snapshot(full=True)``.
 ``scroll`` only accepts keyword arguments such as ``direction`` and
@@ -149,7 +161,9 @@ class Tab:
         Navigate the claimed tab to a URL.
 
     async def wait_for(self, **kwargs) -> ActionResult:
-        Wait for page state and then observe again before acting. A single
+        Wait for page state. Does not require a fresh observation, but makes
+        any previous observation stale; call snapshot() after it before
+        clicking, typing, scrolling, selecting, or navigating again. A single
         positional number is accepted as seconds, or milliseconds when the
         value is greater than 100.
         Examples: await tab.wait_for(2) or await tab.wait_for(wait_time=2).

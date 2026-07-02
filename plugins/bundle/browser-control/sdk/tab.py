@@ -258,6 +258,7 @@ class Tab:
         return await self.action("navigate", url=url)
 
     async def wait_for(self, *args: Any, **kwargs: Any) -> ActionResult:
+        """Wait for page settling or text state without requiring a new snapshot."""
         if len(args) > 1:
             raise TypeError("wait_for accepts at most one positional argument")
         if args:
@@ -273,7 +274,24 @@ class Tab:
                 raise TypeError(
                     "wait_for positional argument must be text or seconds",
                 )
-        return await self.action("wait_for", **kwargs)
+        try:
+            payload = _chunk_payload(
+                await _action_with_bridge(
+                    self._state,
+                    "wait_for",
+                    holder_id=self._holder_id,
+                    bridge=self._bridge,
+                    kwargs={"page_id": str(self.id), **kwargs},
+                ),
+            )
+            _sync_known_tab_url(
+                self._state,
+                self.id,
+                str(payload.get("url") or ""),
+            )
+            return _action_result(payload)
+        finally:
+            self._guard.consume_observation()
 
     async def close(self, *, force: bool = False) -> ActionResult:
         """Close SDK-created tabs, or release existing tabs by default."""

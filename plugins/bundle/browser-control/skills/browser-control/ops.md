@@ -3,22 +3,30 @@
 ## Observe, Act, Verify
 
 - Use `python_repl` and the preloaded `browser` SDK for real Chrome work.
-- Start with `await browser.tabs.list()` and `await browser.tabs.get(tab_id)`,
-  then observe with `await tab.snapshot()`.
+- For a new user task, start with
+  `tab = await browser.tabs.open(url_or_search_page)` and then observe with
+  `await tab.snapshot()`.
+- Use `await browser.tabs.list()` and `await browser.tabs.get(tab_id)` only
+  when the user asks you to use, inspect, clean up, or continue work in a
+  specific existing tab. Do not reuse unrelated old tabs to answer a new task.
 - If you are unsure about SDK signatures, call
   `print(await browser.documentation())` in `python_repl`; do not guess.
 - Common calls:
   `tab = await browser.tabs.open(url)`,
   `snap = await tab.snapshot()`,
+  `await tab.scroll(direction="down", amount="page")`,
   `await tab.wait_for(2)`,
-  `await tab.wait_for(wait_time=2)`,
-  `await tab.scroll(direction="down", amount="page")`.
+  `snap = await tab.snapshot()`.
 - `snapshot()` takes no arguments. Do not call `snapshot(full=True)`.
 - `scroll` only accepts keyword arguments such as `direction` and `amount`.
 - JavaScript evaluation is not available in control mode. Do not call
   `tab.evaluate` or `tab.action("evaluate", ...)`.
-- After each navigation, click, type, selection, reload, or wait,
-  observe again.
+- `wait_for` is a synchronization action. It may follow a click, navigation,
+  type, or scroll without another snapshot first, but it makes previous
+  observations stale. Always observe after `wait_for` before the next
+  mutating action.
+- After each navigation, click, type, selection, reload, scroll, or wait,
+  observe again before the next mutating action.
 - Prefer refs or selectors from the latest snapshot; use visible text only
   as a fallback.
 - If a click appears unchanged, re-observe or screenshot before trying
@@ -37,7 +45,7 @@
 ## Tab And Navigation Rules
 
 - A successful `claim_tab` response means the tab is ready; observe it
-  instead of opening duplicates.
+  instead of opening duplicates when the user explicitly selected that tab.
 - Keep one claimed tab per target unless the user asks for multiple tabs.
 - Keep `allow_new_context` false unless a separate tab/window is required.
 
