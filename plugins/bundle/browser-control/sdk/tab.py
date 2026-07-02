@@ -157,6 +157,7 @@ class Tab:
             needs_observation=bool(payload.get("needs_observation", False)),
             message=_result_message(payload),
             path=screenshot_path,
+            coordinate_space=_dict_payload(payload.get("coordinate_space")),
         )
 
     async def click(
@@ -199,6 +200,8 @@ class Tab:
             url=str(payload.get("url") or ""),
             needs_observation=bool(payload.get("needs_observation", True)),
             message=_result_message(payload),
+            clicked_point=_dict_payload(payload.get("clicked_point")),
+            coordinate_space=_dict_payload(payload.get("coordinate_space")),
         )
 
     async def type(
@@ -442,6 +445,10 @@ def _chunk_payload(chunk: Any) -> dict[str, Any]:
     except (TypeError, ValueError):
         return {"ok": False, "message": str(text or "")}
     return parsed if isinstance(parsed, dict) else {"ok": False}
+
+
+def _dict_payload(value: Any) -> dict[str, Any]:
+    return dict(value) if isinstance(value, dict) else {}
 
 
 def _known_tab_field(state: Any, tab_id: int, field: str) -> str:

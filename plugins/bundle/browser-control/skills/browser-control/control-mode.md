@@ -17,6 +17,13 @@
   `tab.type`, and related SDK calls).
 - If `tab.screenshot()` returns a file path, treat it as an evidence
   artifact only. Do not read or view that file through non-SDK tools.
+- `tab.click(x=..., y=...)` uses viewport CSS pixels. If you choose a point
+  from a `tab.screenshot()` image, use its `coordinate_space` scale to
+  convert screenshot pixels to viewport coordinates before clicking.
+  Coordinates outside the current viewport are invalid.
+- Do not repeat the same nearby coordinate after a fresh observation shows
+  no page change. Switch to a semantic ref/text target, a direct route, or
+  report the blocker.
 - If a call raises `BridgeDisconnected`, run
   `browser = await browser.connect()` once and retry from a fresh SDK
   observation. If reconnecting still fails, ask the user to enable or refresh

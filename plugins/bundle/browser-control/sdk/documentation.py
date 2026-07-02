@@ -86,6 +86,20 @@ or coordinates. The SDK text locator can find visible DOM text and scroll
 offscreen controls into view. Use selectors only when they are stable and
 semantic; avoid guessed class names.
 
+Coordinate rule: ``tab.click(x=..., y=...)`` uses viewport CSS pixels, not
+raw screenshot pixels and not the scaled image shown in the chat UI. When
+``tab.screenshot()`` returns a ``coordinate_space`` payload, convert visual
+image coordinates first:
+
+    click_x = image_x * coordinate_space["image_to_viewport_scale_x"]
+    click_y = image_y * coordinate_space["image_to_viewport_scale_y"]
+
+Coordinates outside ``0..viewport_width`` and ``0..viewport_height`` are
+invalid. If a coordinate click reports no navigation, no state change, or an
+out-of-viewport error, do not repeat the same nearby point; choose a
+different target from fresh evidence, use a semantic route, or report a real
+blocker.
+
 Snapshot refs are string identifiers. Use quoted refs such as
 ``await tab.click(ref="e22")``. Link refs may include an href used by the SDK
 for reliable same-tab navigation. The REPL also prebinds common ref symbols
@@ -249,6 +263,7 @@ class ScreenshotResult:
     needs_observation: bool
     message: str
     path: str
+    coordinate_space: dict[str, Any]
 
 class RefInfo:
     role: str

@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 
@@ -139,6 +139,8 @@ class ClickResult:
     url: str
     needs_observation: bool
     message: str
+    clicked_point: dict[str, Any] = field(default_factory=dict)
+    coordinate_space: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -167,6 +169,7 @@ class ScreenshotResult:
     needs_observation: bool
     message: str
     path: str
+    coordinate_space: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

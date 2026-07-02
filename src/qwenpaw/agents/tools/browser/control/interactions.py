@@ -27,6 +27,12 @@ from .observation import (
 from .session_manager import _control_get_session
 from .state import ControlState
 from .state_verification import _control_state_verification_payload
+from .coordinates import (
+    _control_coordinate_space_payload,
+    _control_point_tracking_ref,
+    _control_validate_viewport_coordinates,
+)
+from .errors import TargetResolutionFailed
 from .tab_manager import (
     _control_ensure_tab_available,
     _control_discover_tabs_safe,
@@ -214,6 +220,8 @@ def _control_click_feedback_payload(
     navigation_occurred: bool,
     url: str,
     network_metadata: dict[str, Any] | None = None,
+    clicked_point: dict[str, Any] | None = None,
+    coordinate_space: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     async_requests = (
         int(network_metadata.get("async_requests_triggered") or 0)
@@ -264,6 +272,10 @@ def _control_click_feedback_payload(
     }
     if url:
         payload["url"] = url
+    if clicked_point:
+        payload["clicked_point"] = clicked_point
+    if coordinate_space:
+        payload["coordinate_space"] = coordinate_space
     if isinstance(network_metadata, dict) and async_requests > 0:
         payload["network"] = {
             "async_requests_triggered": async_requests,
@@ -305,16 +317,14 @@ async def click_control(
     selector = str(kwargs.get("selector") or "").strip()
     text = str(kwargs.get("text") or "").strip()
     tracking_ref = str(ref or selector or text or "").strip()
-    if tracking_ref:
-        blocked = _control_async_write_guard(state, tab_id, tracking_ref)
-        if blocked is not None:
-            return blocked
     target = state.refs.get(str(tab_id), {}).get(ref, {}) if ref else {}
     if not target and selector:
         target = await _control_selector_target(session, selector)
     if not target and text:
         target = await _control_text_target(session, text)
     x_param, y_param = kwargs.get("x"), kwargs.get("y")
+    coordinate_space: dict[str, Any] | None = None
+    clicked_point: dict[str, Any] | None = None
     if (
         not target
         and not any([ref, selector, text])
@@ -322,12 +332,37 @@ async def click_control(
         and y_param is not None
     ):
         width, height = await _control_viewport_size(session)
+        try:
+            raw_x = float(x_param)
+            raw_y = float(y_param)
+        except (TypeError, ValueError) as exc:
+            raise TargetResolutionFailed(
+                "x/y coordinates must be numeric viewport CSS pixels",
+            ) from exc
+        _control_validate_viewport_coordinates(
+            x=raw_x,
+            y=raw_y,
+            viewport_width=width,
+            viewport_height=height,
+        )
         x, y = await _control_snap_to_element(
             session,
-            float(x_param),
-            float(y_param),
+            raw_x,
+            raw_y,
             width,
             height,
+        )
+        tracking_ref = _control_point_tracking_ref(x, y)
+        clicked_point = {
+            "x": x,
+            "y": y,
+            "input_x": raw_x,
+            "input_y": raw_y,
+            "tracking_ref": tracking_ref,
+        }
+        coordinate_space = _control_coordinate_space_payload(
+            viewport_width=width,
+            viewport_height=height,
         )
     else:
         x, y = await _control_resolve_point(
@@ -337,6 +372,11 @@ async def click_control(
             fallback_x=x_param,
             fallback_y=y_param,
         )
+        clicked_point = {"x": x, "y": y}
+    if tracking_ref:
+        blocked = _control_async_write_guard(state, tab_id, tracking_ref)
+        if blocked is not None:
+            return blocked
     allow_new_context = bool(kwargs.get("allow_new_context", False))
     before_url = _control_cached_tab_url(state, tab_id)
     before_tabs = await _control_discover_tabs_safe(bridge)
@@ -413,6 +453,8 @@ async def click_control(
                 navigation_occurred=navigated,
                 url=current_url,
                 network_metadata=network,
+                clicked_point=clicked_point,
+                coordinate_space=coordinate_space,
             ),
         )
     finally:
