@@ -76,6 +76,13 @@ _DOM_TREE_TEXT_ATTRIBUTES = (
     "placeholder",
     "value",
 )
+_DOM_TREE_CLICKABLE_ATTRIBUTES = {
+    "onclick",
+    "onmousedown",
+    "onmouseup",
+    "data-click",
+    "data-clickid",
+}
 _DOM_TREE_SKIPPED_NODES = {
     "script",
     "style",
@@ -521,6 +528,100 @@ def _dom_tree_attributes(attributes: Any) -> dict[str, str]:
     return result
 
 
+def _dom_tree_interactive_role(
+    node_name: str,
+    attributes: dict[str, str],
+) -> str | None:
+    role = str(attributes.get("role") or "").strip().lower()
+    if role in INTERACTIVE_ROLES:
+        return role
+
+    if node_name == "a" and attributes.get("href"):
+        return "link"
+    if node_name == "button":
+        return "button"
+    if node_name == "textarea":
+        return "textbox"
+    if node_name == "select":
+        return "combobox"
+    if node_name == "summary":
+        return "button"
+    if node_name == "option":
+        return "option"
+    if node_name == "input":
+        input_type = str(attributes.get("type") or "text").lower()
+        if input_type in {"checkbox"}:
+            return "checkbox"
+        if input_type in {"radio"}:
+            return "radio"
+        if input_type in {"range"}:
+            return "slider"
+        if input_type in {"number"}:
+            return "spinbutton"
+        if input_type in {"search"}:
+            return "searchbox"
+        if input_type in {"button", "submit", "reset"}:
+            return "button"
+        return "textbox"
+    if attributes.get("contenteditable") in {"", "true", "plaintext-only"}:
+        return "textbox"
+    if any(name in attributes for name in _DOM_TREE_CLICKABLE_ATTRIBUTES):
+        return "button"
+    return None
+
+
+def _dom_tree_node_id_data(node: dict[str, Any]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    backend_node_id = node.get("backendNodeId")
+    if isinstance(backend_node_id, int):
+        result["backendNodeId"] = backend_node_id
+    node_id = node.get("nodeId")
+    if isinstance(node_id, int):
+        result["nodeId"] = node_id
+    return result
+
+
+def _dom_tree_collect_text(node: dict[str, Any], limit: int = 600) -> str:
+    pieces: list[str] = []
+
+    def add(value: Any) -> None:
+        text = str(value or "")
+        if text:
+            pieces.append(text)
+
+    def walk(current: dict[str, Any]) -> None:
+        if len(" ".join(pieces)) >= limit:
+            return
+        node_name = str(current.get("nodeName") or "").lower()
+        if node_name in _DOM_TREE_SKIPPED_NODES:
+            return
+        node_type = current.get("nodeType")
+        if node_type == 3 or node_name == "#text":
+            add(current.get("nodeValue"))
+            return
+
+        attributes = _dom_tree_attributes(current.get("attributes"))
+        for attr_name in _DOM_TREE_TEXT_ATTRIBUTES:
+            add(attributes.get(attr_name))
+
+        for key in ("children", "shadowRoots", "pseudoElements"):
+            children = current.get(key)
+            if not isinstance(children, list):
+                continue
+            for child in children:
+                if isinstance(child, dict):
+                    walk(child)
+                if len(" ".join(pieces)) >= limit:
+                    return
+
+        content_document = current.get("contentDocument")
+        if isinstance(content_document, dict):
+            walk(content_document)
+
+    walk(node)
+    return _normalize_dom_text(" ".join(pieces))
+
+
 def from_cdp_dom_tree(
     document_json: dict[str, Any],
 ) -> tuple[str, dict[str, dict]]:
@@ -533,6 +634,14 @@ def from_cdp_dom_tree(
 
     lines: list[str] = []
     seen: set[str] = set()
+    refs: dict[str, dict] = {}
+    tracker = _create_tracker()
+    counter = 0
+
+    def next_ref() -> str:
+        nonlocal counter
+        counter += 1
+        return f"e{counter}"
 
     def append_line(text: Any) -> None:
         if len(lines) >= _DOM_TREE_MAX_LINES:
@@ -542,6 +651,33 @@ def from_cdp_dom_tree(
             return
         escaped = normalized.replace('"', '\\"')
         lines.append(f'- text "{escaped}"')
+
+    def append_interactive_line(
+        role: str,
+        text: Any,
+        node: dict[str, Any],
+    ) -> bool:
+        if len(lines) >= _DOM_TREE_MAX_LINES:
+            return False
+        normalized = _unique_dom_text(seen, str(text or ""))
+        if normalized is None:
+            return False
+        ref = next_ref()
+        nth = tracker["get_next_index"](role, normalized)
+        tracker["track_ref"](role, normalized, ref)
+        ref_data = {
+            "role": role,
+            "name": normalized,
+            "nth": nth,
+            **_dom_tree_node_id_data(node),
+        }
+        refs[ref] = ref_data
+        escaped = normalized.replace('"', '\\"')
+        suffix = f" [ref={ref}]"
+        if nth is not None and nth > 0:
+            suffix += f" [nth={nth}]"
+        lines.append(f'- {role} "{escaped}"{suffix}')
+        return True
 
     def visit(node: dict[str, Any]) -> None:
         if len(lines) >= _DOM_TREE_MAX_LINES:
@@ -555,6 +691,14 @@ def from_cdp_dom_tree(
             append_line(node.get("nodeValue"))
 
         attributes = _dom_tree_attributes(node.get("attributes"))
+        role = _dom_tree_interactive_role(node_name, attributes)
+        if role is not None and append_interactive_line(
+            role,
+            _dom_tree_collect_text(node),
+            node,
+        ):
+            return
+
         for attr_name in _DOM_TREE_TEXT_ATTRIBUTES:
             append_line(attributes.get(attr_name))
 
@@ -575,7 +719,8 @@ def from_cdp_dom_tree(
     visit(root)
     if not lines:
         return "(empty)", {}
-    return "\n".join(lines), {}
+    _remove_nth_from_non_duplicates(refs, tracker)
+    return "\n".join(lines), refs
 
 
 def from_cdp_ax_tree(
