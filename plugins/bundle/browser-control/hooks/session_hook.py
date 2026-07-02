@@ -40,6 +40,10 @@ _BROWSER_CONTROL_GOAL_GUIDANCE = """
   requested item or category, do not leave the cart to add another matching
   item. Print/read the current cart contents, then continue to the requested
   clear/delete/final-state subtasks.
+- If an authoritative cart, list, status, or detail page contains the
+  requested item/category terms or a clear synonym, treat that subtask as
+  satisfied. Leaving that page to search for another matching item is a
+  failure, not extra diligence.
 - A singular browser write is complete after the first authoritative
   read-back proves it. Do not add another matching item, delete another row,
   or repeat the same state-changing click unless the user explicitly asked
@@ -411,7 +415,7 @@ def _inject_browser_control_goal_guidance(ctx: HookContext) -> None:
     if callable(inject_context):
         inject_context(
             _BROWSER_CONTROL_GOAL_GUIDANCE,
-            priority=30,
+            priority=5,
             source="browser_control_goal",
         )
         return
@@ -424,7 +428,7 @@ def _inject_browser_control_goal_guidance(ctx: HookContext) -> None:
         injections.append(
             {
                 "content": _BROWSER_CONTROL_GOAL_GUIDANCE,
-                "priority": 30,
+                "priority": 5,
                 "source": "browser_control_goal",
             },
         )

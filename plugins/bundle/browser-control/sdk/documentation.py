@@ -56,6 +56,10 @@ whether the current run created it. In cart/list cleanup workflows, if a
 cart page already shows a matching requested item or category, do not leave
 the cart to add another matching item. Print/read the current cart contents,
 then continue to the requested clear/delete/final-state subtasks.
+If an authoritative cart, list, status, or detail page contains the requested
+item/category terms or a clear synonym, treat that subtask as satisfied.
+Leaving that page to search for another matching item is a failure, not
+extra diligence.
 Treat a single requested write, such as adding one product, selecting one
 option, deleting one matching row, or saving one setting, as complete after
 the first authoritative read-back proves the requested item/category/count is
