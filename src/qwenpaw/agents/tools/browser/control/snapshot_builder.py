@@ -24,6 +24,7 @@ _CONTROL_VISUAL_CONTEXT_TIMEOUT_SECONDS = 5.0
 _CONTROL_PAGE_STATE_TIMEOUT_SECONDS = 1.5
 _CONTROL_ACTION_TARGETS_TIMEOUT_SECONDS = 1.5
 _CONTROL_ACTION_TARGETS_LIMIT = 24
+_CONTROL_ACTION_CANDIDATE_LIMIT = _CONTROL_ACTION_TARGETS_LIMIT * 12
 _CONTROL_ACTION_DOM_DEPTH = 10
 _CONTROL_ACTION_DOM_TIMEOUT_SECONDS = 2.0
 _CONTROL_ACTION_QUAD_TIMEOUT_SECONDS = 0.8
@@ -613,7 +614,7 @@ def _collect_dom_action_candidates(
         sibling_index: int | None = None,
     ) -> None:
         nonlocal order
-        if len(candidates) >= _CONTROL_ACTION_TARGETS_LIMIT * 4:
+        if len(candidates) >= _CONTROL_ACTION_CANDIDATE_LIMIT:
             return
         node_name = str(node.get("nodeName") or "").lower()
         if node_name in _CONTROL_ACTION_SKIPPED_NODES:
