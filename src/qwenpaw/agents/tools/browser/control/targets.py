@@ -543,6 +543,14 @@ def _control_visible_text_locator_script(text: str) -> str:
   }};
 
   let weakAddCartCandidateCache;
+  const cartRowCandidateCanBeAddCart = (item) => {{
+    if (!cartActionText.test(item.text)) return false;
+    const tag = item.element.tagName;
+    const href = String(item.element.getAttribute("href") || "");
+    if (tag === "A" && /cart/i.test(href)) return false;
+    if (weakActionExclusionText.test(item.text)) return false;
+    return true;
+  }};
   const weakAddCartCandidate = () => {{
     if (weakAddCartCandidateCache !== undefined) {{
       return weakAddCartCandidateCache;
@@ -557,7 +565,10 @@ def _control_visible_text_locator_script(text: str) -> str:
         if (item.rect.right > purchase.rect.left + 8) return false;
         if (rowOverlapRatio(item.rect, purchase.rect) < 0.45) return false;
         if (purchaseActionText.test(item.text)) return false;
-        if (cartActionText.test(item.text)) return false;
+        if (
+          cartActionText.test(item.text) &&
+          !cartRowCandidateCanBeAddCart(item)
+        ) return false;
         if (weakActionExclusionText.test(item.text)) return false;
         return true;
       }});

@@ -631,7 +631,11 @@ def _collect_dom_action_candidates(
             siblings=siblings,
             sibling_index=sibling_index,
         )
-        text = visible_text or semantic_text or weak_add_cart_text
+        text = _dom_action_preferred_text(
+            visible_text=visible_text,
+            semantic_text=semantic_text,
+            weak_add_cart_text=weak_add_cart_text,
+        )
         role = _dom_action_role(node_name, attributes)
         class_name = str(attributes.get("class") or "")
         has_action_text = bool(_CONTROL_ACTION_TEXT_RE.search(text))
@@ -900,12 +904,10 @@ def _dom_action_weak_add_cart_text(
             _dom_action_semantic_source(attributes),
         ),
     )
-    if _dom_action_repeat_label(source) in {
-        "add cart",
-        "cart",
-        "buy",
-        "checkout",
-    }:
+    repeat_label = _dom_action_repeat_label(source)
+    if repeat_label in {"add cart", "buy", "checkout"}:
+        return ""
+    if repeat_label == "cart" and _dom_action_is_cart_navigation(attributes):
         return ""
     if _CONTROL_ACTION_WEAK_ADD_CART_EXCLUSION_RE.search(source):
         return ""
@@ -922,6 +924,29 @@ def _dom_action_weak_add_cart_text(
         if _dom_action_repeat_label(sibling_text) in {"buy", "checkout"}:
             return "add cart"
     return ""
+
+
+def _dom_action_preferred_text(
+    *,
+    visible_text: str,
+    semantic_text: str,
+    weak_add_cart_text: str,
+) -> str:
+    strong_text = visible_text or semantic_text
+    if (
+        weak_add_cart_text
+        and _dom_action_repeat_label(strong_text) == "cart"
+    ):
+        return weak_add_cart_text
+    return strong_text or weak_add_cart_text
+
+
+def _dom_action_is_cart_navigation(attributes: dict[str, str]) -> bool:
+    href = str(attributes.get("href") or "").strip()
+    return bool(
+        href
+        and re.search(r"(?:^|/|\\b)cart(?:\\b|[/?#._-])", href, re.I)
+    )
 
 
 def _dom_action_repeat_label(text: str) -> str:
@@ -1621,6 +1646,14 @@ _CONTROL_ACTION_TARGETS_SCRIPT = """
       return controls;
     };
     let weakAddCartCandidateCache;
+    const cartRowCandidateCanBeAddCart = (item) => {
+      if (!cartActionText.test(item.text)) return false;
+      const tag = item.element.tagName;
+      const href = String(item.element.getAttribute("href") || "");
+      if (tag === "A" && /cart/i.test(href)) return false;
+      if (weakActionExclusionText.test(item.text)) return false;
+      return true;
+    };
     const weakAddCartCandidate = () => {
       if (weakAddCartCandidateCache !== undefined) {
         return weakAddCartCandidateCache;
@@ -1635,7 +1668,10 @@ _CONTROL_ACTION_TARGETS_SCRIPT = """
           if (item.rect.right > purchase.rect.left + 8) return false;
           if (rowOverlapRatio(item.rect, purchase.rect) < 0.45) return false;
           if (purchaseActionText.test(item.text)) return false;
-          if (cartActionText.test(item.text)) return false;
+          if (
+            cartActionText.test(item.text) &&
+            !cartRowCandidateCanBeAddCart(item)
+          ) return false;
           if (weakActionExclusionText.test(item.text)) return false;
           return true;
         });
