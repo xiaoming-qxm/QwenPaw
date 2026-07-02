@@ -8,6 +8,7 @@ import secrets
 import asyncio
 import contextlib
 import inspect
+import logging
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -30,8 +31,48 @@ from .extension_setup import (
 ws_router = APIRouter(tags=["nm-bridge"])
 api_router = APIRouter(tags=["nm-bridge"])
 router = api_router
+logger = logging.getLogger(__name__)
 
 DEFAULT_CONFIG_PATH = Path.home() / ".qwenpaw" / "nm-bridge.json"
+SDK_EVENT_MAX_BYTES = 512 * 1024
+SDK_FORWARDED_EVENTS = (
+    "cdp.event",
+    "runtime.event",
+    "tab.updated",
+    "tabs.created",
+    "tabs.updated",
+    "tabs.activated",
+    "tabs.removed",
+    "webNavigation.createdNavigationTarget",
+)
+SDK_FORWARDED_CDP_EVENTS = {
+    "Network.loadingFailed",
+    "Network.loadingFinished",
+    "Network.requestWillBeSent",
+    "Page.frameNavigated",
+    "Page.javascriptDialogOpening",
+    "Page.loadEventFired",
+    "Page.navigatedWithinDocument",
+}
+SDK_TAB_EVENT_KEYS = {
+    "active",
+    "createdByQwenPaw",
+    "frameId",
+    "groupId",
+    "id",
+    "index",
+    "managed",
+    "openerTabId",
+    "pendingUrl",
+    "sourceTabId",
+    "status",
+    "tabId",
+    "timeStamp",
+    "title",
+    "url",
+    "windowId",
+}
+SDK_TAB_CHANGE_INFO_KEYS = {"status", "url", "pendingUrl"}
 
 _bridge_state = get_nm_bridge_route_state()
 if not _bridge_state.ws_url:
@@ -132,6 +173,106 @@ def _default_bridge() -> Any | None:
     except ImportError:
         return None
     return get_nm_bridge()
+
+
+def _compact_sdk_event_params(
+    method: str,
+    event: dict[str, Any],
+) -> dict[str, Any] | None:
+    if method == "cdp.event":
+        return _compact_cdp_event(event)
+    if method in {
+        "tab.updated",
+        "tabs.created",
+        "tabs.updated",
+        "tabs.activated",
+        "tabs.removed",
+        "webNavigation.createdNavigationTarget",
+    }:
+        return _compact_tab_event(event)
+    return event
+
+
+def _compact_cdp_event(event: dict[str, Any]) -> dict[str, Any] | None:
+    cdp_method = str(event.get("method") or "")
+    if cdp_method not in SDK_FORWARDED_CDP_EVENTS:
+        return None
+
+    params = event.get("params")
+    if not isinstance(params, dict):
+        params = {}
+
+    compact: dict[str, Any] = {
+        "method": cdp_method,
+        "params": _compact_cdp_event_payload(cdp_method, params),
+    }
+    for key in ("tabId", "tab_id"):
+        if key in event:
+            compact[key] = event[key]
+    return compact
+
+
+def _compact_cdp_event_payload(
+    method: str,
+    params: dict[str, Any],
+) -> dict[str, Any]:
+    if method == "Network.requestWillBeSent":
+        request = params.get("request")
+        if not isinstance(request, dict):
+            request = {}
+        return {
+            "requestId": params.get("requestId"),
+            "request": {"url": request.get("url", "")},
+        }
+    if method in {"Network.loadingFinished", "Network.loadingFailed"}:
+        payload = {"requestId": params.get("requestId")}
+        if method == "Network.loadingFailed":
+            payload["errorText"] = params.get("errorText", "")
+        return payload
+    if method == "Page.frameNavigated":
+        frame = params.get("frame")
+        if not isinstance(frame, dict):
+            frame = {}
+        return {
+            "frame": {
+                key: frame[key]
+                for key in ("id", "parentId", "url")
+                if key in frame
+            },
+        }
+    if method == "Page.navigatedWithinDocument":
+        return {"url": params.get("url", "")}
+    if method == "Page.javascriptDialogOpening":
+        return {
+            "type": params.get("type", ""),
+            "message": params.get("message", ""),
+            "url": params.get("url", ""),
+        }
+    return {}
+
+
+def _compact_tab_event(event: dict[str, Any]) -> dict[str, Any]:
+    compact = {
+        key: value
+        for key, value in event.items()
+        if key in SDK_TAB_EVENT_KEYS
+    }
+    change_info = event.get("changeInfo")
+    if isinstance(change_info, dict):
+        compact["changeInfo"] = {
+            key: value
+            for key, value in change_info.items()
+            if key in SDK_TAB_CHANGE_INFO_KEYS
+        }
+    return compact
+
+
+def _sdk_event_payload_fits(payload: dict[str, Any]) -> bool:
+    try:
+        raw = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    except (TypeError, ValueError):
+        return False
+    return len(raw.encode("utf-8")) <= SDK_EVENT_MAX_BYTES
 
 
 async def _drop_connected_websocket(bridge: Any | None) -> None:
@@ -266,18 +407,32 @@ def _register_sdk_event_forwarders(
 
     def make_handler(method: str):
         async def handler(event: dict[str, Any]) -> None:
-            await send_lock.send_json(
-                websocket,
-                {
-                    "jsonrpc": "2.0",
-                    "method": method,
-                    "params": event,
-                },
-            )
+            params = _compact_sdk_event_params(method, event)
+            if params is None:
+                return
+            payload = {
+                "jsonrpc": "2.0",
+                "method": method,
+                "params": params,
+            }
+            if not _sdk_event_payload_fits(payload):
+                logger.debug(
+                    "Dropping oversized Browser SDK event: %s",
+                    method,
+                )
+                return
+            try:
+                await send_lock.send_json(websocket, payload)
+            except (WebSocketDisconnect, RuntimeError, OSError):
+                logger.debug(
+                    "Browser SDK websocket is closed while forwarding %s",
+                    method,
+                    exc_info=True,
+                )
 
         return handler
 
-    for method in ("cdp.event", "runtime.event", "tab.updated"):
+    for method in SDK_FORWARDED_EVENTS:
         handler = make_handler(method)
         add_listener(method, handler)
         handlers.append((method, handler))

@@ -23,6 +23,7 @@ from .errors import (
 
 JSONRPC_VERSION = "2.0"
 DEFAULT_TIMEOUT_SECONDS = 30.0
+DEFAULT_MAX_MESSAGE_BYTES = 16 * 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -102,9 +103,23 @@ class RemoteBridge:
             return await connector(
                 self.ws_url,
                 additional_headers=headers,
+                max_size=DEFAULT_MAX_MESSAGE_BYTES,
             )
         except TypeError:
-            return await connector(self.ws_url, extra_headers=headers)
+            try:
+                return await connector(
+                    self.ws_url,
+                    extra_headers=headers,
+                    max_size=DEFAULT_MAX_MESSAGE_BYTES,
+                )
+            except TypeError:
+                try:
+                    return await connector(
+                        self.ws_url,
+                        additional_headers=headers,
+                    )
+                except TypeError:
+                    return await connector(self.ws_url, extra_headers=headers)
         except Exception as exc:
             raise BridgeDisconnected(
                 f"Browser Control SDK could not connect: {self.ws_url}",
