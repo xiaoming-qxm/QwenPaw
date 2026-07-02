@@ -203,6 +203,7 @@ class Tab:
             self.id,
             str(payload.get("url") or ""),
         )
+        _raise_for_failed_payload(payload)
         return ClickResult(
             ok=bool(payload.get("ok")),
             navigation_occurred=bool(payload.get("navigation_occurred")),
@@ -240,6 +241,7 @@ class Tab:
         except TargetResolutionFailed:
             self._guard.mark_observed()
             raise
+        _raise_for_failed_payload(payload)
         return TypeResult(
             ok=bool(payload.get("ok")),
             needs_observation=bool(payload.get("needs_observation", True)),
@@ -295,7 +297,7 @@ class Tab:
         return await self.action("navigate", url=url)
 
     async def wait_for(self, *args: Any, **kwargs: Any) -> ActionResult:
-        """Wait for page settling or text state without requiring a new snapshot."""
+        """Wait for page settling or text state without fresh snapshot."""
         if len(args) > 1:
             raise TypeError("wait_for accepts at most one positional argument")
         if args:
@@ -595,11 +597,19 @@ def _result_message(payload: dict[str, Any]) -> str:
 
 
 def _action_result(payload: dict[str, Any]) -> ActionResult:
+    _raise_for_failed_payload(payload)
     return ActionResult(
         ok=bool(payload.get("ok")),
         needs_observation=bool(payload.get("needs_observation", True)),
         message=_result_message(payload),
     )
+
+
+def _raise_for_failed_payload(payload: dict[str, Any]) -> None:
+    if payload.get("ok") is not False:
+        return
+    message = _result_message(payload) or "Browser Control action failed"
+    raise BrowserSDKError(message)
 
 
 __all__ = ["Tab"]

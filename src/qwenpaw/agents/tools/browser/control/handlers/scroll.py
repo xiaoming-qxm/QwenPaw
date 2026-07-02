@@ -9,6 +9,11 @@ from typing import Any
 
 from ..errors import BrowserControlRecoverableError
 from ..navigation import _control_tab_id
+from ..observation import (
+    _click_effect_last_snapshot_hash,
+    _click_effect_record_click,
+    _control_scroll_action_loop_guard,
+)
 from ..session_manager import _control_get_session
 from ..state import ControlState
 from ..tab_manager import _control_ensure_tab_available, _control_page_id
@@ -47,6 +52,15 @@ class ScrollHandler:
             height = height if height > 0 else 600.0
             direction = str(kwargs.get("direction") or "down").strip().lower()
             amount = kwargs.get("amount") or "page"
+            tracking_ref = _scroll_tracking_ref(direction, amount)
+            blocked = _control_scroll_action_loop_guard(
+                state,
+                tab_id,
+                tracking_ref,
+            )
+            if blocked is not None:
+                return blocked
+
             fallback = None
             timed_out = False
             absolute_position = _absolute_scroll_position(direction, amount)
@@ -83,6 +97,12 @@ class ScrollHandler:
                     )
             await asyncio.sleep(0.3)
             metrics = await _read_scroll_metrics(session)
+            _click_effect_record_click(
+                state,
+                tab_id,
+                tracking_ref,
+                _click_effect_last_snapshot_hash(state, tab_id),
+            )
             payload = {
                 "ok": True,
                 "mode": "control",
@@ -91,6 +111,15 @@ class ScrollHandler:
                 "direction": direction,
                 "amount": amount,
                 "pixels": pixels,
+                "needs_observation": True,
+                "ready_for_observation": True,
+                "next_action": "snapshot",
+                "next_instruction": (
+                    "Observe the page with snapshot before another action. "
+                    "If the next snapshot is unchanged, do not repeat the "
+                    "same scroll; use a visible ref/text target, an absolute "
+                    "top/bottom jump, direct navigation, or report a blocker."
+                ),
                 **metrics,
             }
             if timed_out:
@@ -191,6 +220,17 @@ def _scroll_delta(direction: str, pixels: int) -> tuple[int, int]:
     return (0, pixels)
 
 
+def _scroll_tracking_ref(direction: str, amount: Any) -> str:
+    raw_direction = str(direction or "down").strip().lower() or "down"
+    if isinstance(amount, (int, float)):
+        raw_amount = f"{int(amount)}" if float(amount).is_integer() else str(
+            amount,
+        )
+    else:
+        raw_amount = str(amount or "page").strip().lower() or "page"
+    return f"scroll:{raw_direction}:{raw_amount}"
+
+
 async def _scroll_to_absolute(session: Any, position: str) -> None:
     await _send_with_timeout(
         session,
@@ -265,9 +305,17 @@ def _absolute_scroll_script(position: str) -> str:
   const maxScrollY = Math.max(0, scrollHeight - viewportHeight);
   const y = {target};
   if (doc && typeof doc.scrollTo === "function") {{
-    doc.scrollTo({{ top: y, left: doc.scrollLeft || 0, behavior: "instant" }});
+    doc.scrollTo({{
+      top: y,
+      left: doc.scrollLeft || 0,
+      behavior: "instant"
+    }});
   }}
-  window.scrollTo({{ top: y, left: window.scrollX || 0, behavior: "instant" }});
+  window.scrollTo({{
+    top: y,
+    left: window.scrollX || 0,
+    behavior: "instant"
+  }});
   return true;
 }})()
 """.strip()

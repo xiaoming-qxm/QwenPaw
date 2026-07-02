@@ -192,14 +192,13 @@ def _control_coordinate_click_loop_guard_response(
     return _tool_response(json.dumps(payload, ensure_ascii=False, indent=2))
 
 
-def _control_coordinate_click_loop_guard(
+def _control_repeated_no_effect_record(
     state: dict,
     tab_id: int,
     target_ref: str,
-) -> ToolChunk | None:
-    """Block repeated raw coordinate clicks after an observed no-op."""
+) -> tuple[dict[str, Any], int] | None:
     target_ref = str(target_ref or "").strip()
-    if not target_ref.startswith("point:"):
+    if not target_ref:
         return None
 
     records = state.get("control_click_effects")
@@ -221,8 +220,84 @@ def _control_coordinate_click_loop_guard(
     consecutive = int(record.get("consecutive_no_effect") or 0)
     if consecutive <= 0 or bool(record.get("pending")):
         return None
+    return record, consecutive
+
+
+def _control_coordinate_click_loop_guard(
+    state: dict,
+    tab_id: int,
+    target_ref: str,
+) -> ToolChunk | None:
+    """Block repeated raw coordinate clicks after an observed no-op."""
+    target_ref = str(target_ref or "").strip()
+    if not target_ref.startswith("point:"):
+        return None
+
+    record = _control_repeated_no_effect_record(state, tab_id, target_ref)
+    if record is None:
+        return None
+
+    _, consecutive = record
 
     return _control_coordinate_click_loop_guard_response(
+        tab_id=tab_id,
+        target_ref=target_ref,
+        consecutive_no_effect=consecutive,
+    )
+
+
+def _control_scroll_action_loop_guard_response(
+    *,
+    tab_id: int,
+    target_ref: str,
+    consecutive_no_effect: int,
+) -> ToolChunk:
+    payload = {
+        "ok": False,
+        "mode": "control",
+        "tab_id": tab_id,
+        "error": "scroll_action_loop_guard",
+        "message": (
+            "A previous scroll with the same direction and amount was "
+            "observed with no page change."
+        ),
+        "blocked_ref": target_ref,
+        "consecutive_no_effect": consecutive_no_effect,
+        "needs_observation": True,
+        "next_action": "snapshot",
+        "next_instruction": (
+            "Do not repeat ineffective scrolls. Use the current snapshot's "
+            "refs/action targets, try an absolute top/bottom jump once, "
+            "navigate directly to a canonical page, or report the blocker if "
+            "the page does not expose the needed control."
+        ),
+        "use_instead": [
+            "snapshot",
+            "click(ref=...)",
+            "click(text=...)",
+            "scroll(direction='down', amount='bottom')",
+            "navigate(url=...)",
+        ],
+    }
+    return _tool_response(json.dumps(payload, ensure_ascii=False, indent=2))
+
+
+def _control_scroll_action_loop_guard(
+    state: dict,
+    tab_id: int,
+    target_ref: str,
+) -> ToolChunk | None:
+    """Block repeated same scrolls after an observed no-op."""
+    target_ref = str(target_ref or "").strip()
+    if not target_ref.startswith("scroll:"):
+        return None
+
+    record = _control_repeated_no_effect_record(state, tab_id, target_ref)
+    if record is None:
+        return None
+
+    _, consecutive = record
+    return _control_scroll_action_loop_guard_response(
         tab_id=tab_id,
         target_ref=target_ref,
         consecutive_no_effect=consecutive,
@@ -402,4 +477,7 @@ __all__ = [
     "_control_observation_required_response",
     "_control_pending_observations",
     "_control_require_observation_before_action",
+    "_control_repeated_no_effect_record",
+    "_control_scroll_action_loop_guard",
+    "_control_scroll_action_loop_guard_response",
 ]
