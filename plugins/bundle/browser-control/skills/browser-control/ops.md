@@ -49,8 +49,10 @@
   same-tab navigation when possible, so prefer the fresh ref over coordinate
   clicks for search results and product links.
 - `action_target` lines summarize visible controls that modern pages expose
-  poorly through accessibility trees. Prefer `tab.click(text="...")` for an
-  action target, and use its x/y coordinates only when text targeting fails.
+  poorly through accessibility trees. If an action target has `[ref=e...]`,
+  click that quoted ref first. If it has no ref, prefer
+  `tab.click(text="...")`; use x/y coordinates only when ref and text
+  targeting both fail.
 - Use coordinates only after SDK evidence identifies the target's position;
   do not guess page coordinates from a generic layout.
 - If a click appears unchanged, re-observe or screenshot before trying

@@ -4,9 +4,9 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any
-
 import hashlib
+import re
+from typing import Any
 from typing import cast
 
 from agentscope.message import DataBlock, URLSource
@@ -24,8 +24,98 @@ _CONTROL_VISUAL_CONTEXT_TIMEOUT_SECONDS = 5.0
 _CONTROL_PAGE_STATE_TIMEOUT_SECONDS = 1.5
 _CONTROL_ACTION_TARGETS_TIMEOUT_SECONDS = 1.5
 _CONTROL_ACTION_TARGETS_LIMIT = 12
+_CONTROL_ACTION_DOM_DEPTH = 10
+_CONTROL_ACTION_DOM_TIMEOUT_SECONDS = 2.0
+_CONTROL_ACTION_QUAD_TIMEOUT_SECONDS = 0.8
 _CONTROL_LINK_REF_ENRICH_TIMEOUT_SECONDS = 1.5
 _CONTROL_LINK_REF_ENRICH_LIMIT = 30
+_CONTROL_ACTION_TEXT_RE = re.compile(
+    "|".join(
+        (
+            "加入购物车",
+            "加购",
+            "购物车",
+            "购买",
+            "立即",
+            "结算",
+            "提交",
+            "确定",
+            "确认",
+            "删除",
+            "全选",
+            "清空",
+            "搜索",
+            "add to cart",
+            "cart",
+            "buy",
+            "checkout",
+            "submit",
+            "confirm",
+            "delete",
+            "search",
+        ),
+    ),
+    re.IGNORECASE,
+)
+_CONTROL_ACTION_CLASS_RE = re.compile(
+    "|".join(
+        (
+            "btn",
+            "button",
+            "action",
+            "cart",
+            "buy",
+            "purchase",
+            "checkout",
+            "submit",
+            "confirm",
+            "delete",
+            "search",
+            "sku",
+            "spec",
+            "variant",
+            "option",
+            "select",
+        ),
+    ),
+    re.IGNORECASE,
+)
+_CONTROL_ACTION_TEXT_ATTRIBUTES = (
+    "aria-label",
+    "title",
+    "alt",
+    "placeholder",
+    "value",
+)
+_CONTROL_ACTION_CLICK_ATTRIBUTES = {
+    "onclick",
+    "onmousedown",
+    "onmouseup",
+    "data-click",
+    "data-clickid",
+}
+_CONTROL_ACTION_SKIPPED_NODES = {
+    "script",
+    "style",
+    "noscript",
+    "template",
+    "svg",
+    "canvas",
+}
+_CONTROL_ACTION_INTERACTIVE_ROLES = {
+    "button",
+    "link",
+    "menuitem",
+    "tab",
+    "option",
+    "checkbox",
+    "radio",
+    "combobox",
+    "listbox",
+    "textbox",
+    "searchbox",
+    "switch",
+}
 
 
 def _url_source(url: str, media_type: str) -> URLSource:
@@ -121,6 +211,7 @@ async def build_control_snapshot(
         fallback_snapshot = await _append_action_targets(
             session,
             fallback_snapshot,
+            fallback_refs,
         )
         return fallback_snapshot, fallback_refs, True
 
@@ -148,7 +239,7 @@ async def build_control_snapshot(
     if refs and not _control_refs_have_interactive_role(refs):
         degraded_snapshot = True
     snapshot = await _append_page_state(session, snapshot)
-    snapshot = await _append_action_targets(session, snapshot)
+    snapshot = await _append_action_targets(session, snapshot, refs)
     return snapshot, refs, degraded_snapshot
 
 
@@ -279,8 +370,20 @@ async def _append_page_state(session: Any, snapshot: str) -> str:
     return f"{line}\n{snapshot}"
 
 
-async def _append_action_targets(session: Any, snapshot: str) -> str:
-    lines = await _control_action_target_lines(session)
+async def _append_action_targets(
+    session: Any,
+    snapshot: str,
+    refs: dict[str, dict],
+) -> str:
+    lines = await _control_dom_action_target_lines(session, refs)
+    seen_text = {_action_target_line_text(line) for line in lines}
+    for line in await _control_action_target_lines(session):
+        line_text = _action_target_line_text(line)
+        if line_text and line_text in seen_text:
+            continue
+        if line_text:
+            seen_text.add(line_text)
+        lines.append(line)
     if not lines:
         return snapshot
     snapshot = snapshot.strip() or "(empty)"
@@ -290,6 +393,321 @@ async def _append_action_targets(session: Any, snapshot: str) -> str:
     if snapshot_lines and snapshot_lines[0].startswith("- page_state "):
         return "\n".join([snapshot_lines[0], *lines, *snapshot_lines[1:]])
     return "\n".join([*lines, *snapshot_lines])
+
+
+async def _control_dom_action_target_lines(
+    session: Any,
+    refs: dict[str, dict],
+) -> list[str]:
+    try:
+        result = await _send_with_timeout(
+            session,
+            "DOM.getDocument",
+            {"depth": _CONTROL_ACTION_DOM_DEPTH, "pierce": True},
+            timeout=_CONTROL_ACTION_DOM_TIMEOUT_SECONDS,
+        )
+    except Exception:  # noqa: BLE001
+        logger.debug("Failed to read DOM action targets", exc_info=True)
+        return []
+
+    root = result.get("root") if isinstance(result, dict) else None
+    if not isinstance(root, dict):
+        return []
+
+    candidates = _collect_dom_action_candidates(root)
+    if not candidates:
+        return []
+
+    next_ref = _next_action_ref(refs)
+    lines: list[str] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        if len(lines) >= _CONTROL_ACTION_TARGETS_LIMIT:
+            break
+        node_params = _dom_action_node_params(candidate)
+        if node_params is None:
+            continue
+        point = await _dom_action_point(session, node_params)
+        if point is None:
+            continue
+        text = _clean_action_target_text(candidate.get("text"))
+        if not text:
+            continue
+        tag = _clean_action_target_token(candidate.get("tag") or "element")
+        role = _clean_action_target_token(candidate.get("role") or "button")
+        x, y = (_rounded_number(point[0]), _rounded_number(point[1]))
+        dedupe_key = f"{text}|{tag}|{role}|{x}|{y}"
+        if dedupe_key in seen:
+            continue
+        seen.add(dedupe_key)
+        ref = next_ref()
+        target = {
+            "role": role or "button",
+            "name": text,
+            "x": x,
+            "y": y,
+        }
+        target.update(node_params)
+        href = str(candidate.get("href") or "").strip()
+        if href:
+            target["href"] = href
+        link_target = str(candidate.get("target") or "").strip()
+        if link_target:
+            target["target"] = link_target
+        refs[ref] = target
+        role_part = f" role={role}" if role else ""
+        lines.append(
+            f'- action_target "{_quote_snapshot_text(text)}" '
+            f"[ref={ref}] tag={tag}{role_part} x={x} y={y}",
+        )
+    return lines
+
+
+def _collect_dom_action_candidates(
+    root: dict[str, Any],
+) -> list[dict[str, Any]]:
+    candidates: list[dict[str, Any]] = []
+    seen_nodes: set[tuple[str, str]] = set()
+    order = 0
+
+    def visit(node: dict[str, Any]) -> None:
+        nonlocal order
+        if len(candidates) >= _CONTROL_ACTION_TARGETS_LIMIT * 4:
+            return
+        node_name = str(node.get("nodeName") or "").lower()
+        if node_name in _CONTROL_ACTION_SKIPPED_NODES:
+            return
+        node_type = node.get("nodeType")
+        if node_type == 3 or node_name == "#text":
+            return
+
+        attributes = _dom_action_attributes(node.get("attributes"))
+        text = _dom_action_text(node, attributes)
+        role = _dom_action_role(node_name, attributes)
+        class_name = str(attributes.get("class") or "")
+        has_action_text = bool(_CONTROL_ACTION_TEXT_RE.search(text))
+        has_action_class = bool(_CONTROL_ACTION_CLASS_RE.search(class_name))
+        has_click_attr = any(
+            name in attributes for name in _CONTROL_ACTION_CLICK_ATTRIBUTES
+        )
+        if text and (
+            role is not None
+            or has_action_text
+            or has_action_class
+            or has_click_attr
+        ):
+            key = (str(node.get("backendNodeId") or node.get("nodeId")), text)
+            if key not in seen_nodes:
+                seen_nodes.add(key)
+                order += 1
+                candidates.append(
+                    {
+                        "tag": node_name or "element",
+                        "role": role or "button",
+                        "text": text,
+                        "backendNodeId": node.get("backendNodeId"),
+                        "nodeId": node.get("nodeId"),
+                        "href": attributes.get("href", ""),
+                        "target": attributes.get("target", ""),
+                        "priority": _dom_action_priority(
+                            role,
+                            has_action_text,
+                            has_action_class,
+                        ),
+                        "order": order,
+                    },
+                )
+
+        for key in ("children", "shadowRoots", "pseudoElements"):
+            children = node.get(key)
+            if not isinstance(children, list):
+                continue
+            for child in children:
+                if isinstance(child, dict):
+                    visit(child)
+
+        content_document = node.get("contentDocument")
+        if isinstance(content_document, dict):
+            visit(content_document)
+
+    visit(root)
+    candidates.sort(
+        key=lambda item: (
+            int(item.get("priority") or 99),
+            int(item.get("order") or 0),
+        ),
+    )
+    return candidates
+
+
+def _dom_action_attributes(attributes: Any) -> dict[str, str]:
+    if not isinstance(attributes, list):
+        return {}
+    result: dict[str, str] = {}
+    for index in range(0, len(attributes) - 1, 2):
+        name = str(attributes[index] or "").strip().lower()
+        if not name:
+            continue
+        result[name] = str(attributes[index + 1] or "")
+    return result
+
+
+def _dom_action_role(
+    node_name: str,
+    attributes: dict[str, str],
+) -> str | None:
+    role = str(attributes.get("role") or "").strip().lower()
+    if role in _CONTROL_ACTION_INTERACTIVE_ROLES:
+        return role
+    if node_name == "a" and attributes.get("href"):
+        return "link"
+    if node_name in {"button", "summary"}:
+        return "button"
+    if node_name == "select":
+        return "combobox"
+    if node_name == "textarea":
+        return "textbox"
+    if node_name == "option":
+        return "option"
+    if node_name == "input":
+        input_type = str(attributes.get("type") or "text").lower()
+        if input_type == "checkbox":
+            return "checkbox"
+        if input_type == "radio":
+            return "radio"
+        if input_type == "search":
+            return "searchbox"
+        if input_type in {"button", "submit", "reset"}:
+            return "button"
+        return "textbox"
+    class_name = str(attributes.get("class") or "")
+    if _CONTROL_ACTION_CLASS_RE.search(class_name):
+        return "button"
+    if any(name in attributes for name in _CONTROL_ACTION_CLICK_ATTRIBUTES):
+        return "button"
+    return None
+
+
+def _dom_action_text(
+    node: dict[str, Any],
+    attributes: dict[str, str],
+) -> str:
+    pieces: list[str] = []
+
+    def add(value: Any) -> None:
+        text = str(value or "")
+        if text:
+            pieces.append(text)
+
+    for attr_name in _CONTROL_ACTION_TEXT_ATTRIBUTES:
+        add(attributes.get(attr_name))
+
+    def walk(current: dict[str, Any]) -> None:
+        if len(" ".join(pieces)) >= 600:
+            return
+        node_name = str(current.get("nodeName") or "").lower()
+        if node_name in _CONTROL_ACTION_SKIPPED_NODES:
+            return
+        node_type = current.get("nodeType")
+        if node_type == 3 or node_name == "#text":
+            add(current.get("nodeValue"))
+            return
+        current_attributes = _dom_action_attributes(
+            current.get("attributes"),
+        )
+        for attr_name in _CONTROL_ACTION_TEXT_ATTRIBUTES:
+            add(current_attributes.get(attr_name))
+        for key in ("children", "shadowRoots", "pseudoElements"):
+            children = current.get(key)
+            if not isinstance(children, list):
+                continue
+            for child in children:
+                if isinstance(child, dict):
+                    walk(child)
+                if len(" ".join(pieces)) >= 600:
+                    return
+
+    walk(node)
+    text = " ".join(" ".join(pieces).split())
+    return text[:180]
+
+
+def _dom_action_priority(
+    role: str | None,
+    has_action_text: bool,
+    has_action_class: bool,
+) -> int:
+    if has_action_text:
+        return 0
+    if has_action_class:
+        return 1
+    if role in {"button", "option", "combobox", "checkbox", "radio"}:
+        return 2
+    return 3
+
+
+def _dom_action_node_params(
+    candidate: dict[str, Any],
+) -> dict[str, int] | None:
+    backend_node_id = _positive_int(candidate.get("backendNodeId"))
+    if backend_node_id is not None:
+        return {"backendNodeId": backend_node_id}
+    node_id = _positive_int(candidate.get("nodeId"))
+    if node_id is not None:
+        return {"nodeId": node_id}
+    return None
+
+
+async def _dom_action_point(
+    session: Any,
+    node_params: dict[str, int],
+) -> tuple[float, float] | None:
+    try:
+        result = await _send_with_timeout(
+            session,
+            "DOM.getContentQuads",
+            node_params,
+            timeout=_CONTROL_ACTION_QUAD_TIMEOUT_SECONDS,
+        )
+    except Exception:  # noqa: BLE001
+        return None
+    quads = result.get("quads") if isinstance(result, dict) else None
+    return _quad_center(quads)
+
+
+def _quad_center(quads: Any) -> tuple[float, float] | None:
+    if not isinstance(quads, list) or not quads:
+        return None
+    quad = quads[0]
+    if not isinstance(quad, list) or len(quad) < 8:
+        return None
+    xs = [float(quad[index]) for index in range(0, 8, 2)]
+    ys = [float(quad[index]) for index in range(1, 8, 2)]
+    return (sum(xs) / len(xs), sum(ys) / len(ys))
+
+
+def _next_action_ref(refs: dict[str, dict]):
+    next_index = 1
+    for ref in refs:
+        if ref.startswith("e") and ref[1:].isdigit():
+            next_index = max(next_index, int(ref[1:]) + 1)
+
+    def build() -> str:
+        nonlocal next_index
+        while f"e{next_index}" in refs:
+            next_index += 1
+        ref = f"e{next_index}"
+        next_index += 1
+        return ref
+
+    return build
+
+
+def _action_target_line_text(line: str) -> str:
+    match = re.search(r'- action_target "((?:\\"|[^"])*)"', line)
+    if not match:
+        return ""
+    return match.group(1).replace('\\"', '"').replace("\\\\", "\\")
 
 
 async def _control_action_target_lines(session: Any) -> list[str]:

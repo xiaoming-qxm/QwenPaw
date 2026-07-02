@@ -99,9 +99,10 @@ when the relevant control is expected near the start or end of a long page.
 Snapshot text may begin with ``page_state`` containing ``scroll_percent``,
 ``at_top``, and ``at_bottom``; use it to avoid repeated ineffective scrolls.
 Snapshot text may also include ``action_target`` lines for visible controls
-that modern pages expose poorly through accessibility trees. Prefer their
-text with ``await tab.click(text="...")``; use their x/y coordinates only
-when text targeting fails.
+that modern pages expose poorly through accessibility trees. If an
+``action_target`` line has ``[ref=e...]``, click that quoted ref first. If it
+does not have a ref, prefer its text with ``await tab.click(text="...")``;
+use x/y coordinates only when ref and text targeting both fail.
 JavaScript evaluation is not available in control mode:
 do not call ``tab.evaluate`` or ``tab.action("evaluate", ...)``.
 Do not read or view screenshot files with local file/media tools. If a
