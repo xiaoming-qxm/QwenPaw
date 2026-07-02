@@ -101,6 +101,13 @@
   requested quantity/category, advance to the next requested subtask; do not
   add another item, repeat the same write, or return to search unless the user
   explicitly asked for more.
+- State-based completion beats provenance. If a page already proves the
+  requested state, count that subtask as satisfied even if you are unsure
+  whether the current run created it.
+- In cart/list cleanup workflows, if a cart page already shows a matching
+  requested item or category, do not leave the cart to add another matching
+  item. Print/read the current cart contents, then continue to the requested
+  clear/delete/final-state subtasks.
 - Treat a single requested write, such as adding one product, selecting one
   option, deleting one matching row, or saving one setting, as complete after
   the first authoritative read-back proves the requested item/category/count is

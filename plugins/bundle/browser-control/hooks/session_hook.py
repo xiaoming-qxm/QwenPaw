@@ -33,6 +33,13 @@ _BROWSER_CONTROL_GOAL_GUIDANCE = """
   latest authoritative state. If the current page already proves the
   requested item, category, count, or empty/non-empty state, advance to the
   next requested subtask instead of repeating the same write.
+- State-based completion beats provenance. If an authoritative page already
+  proves the requested state, count that subtask as satisfied even if you are
+  unsure whether the current run created that state.
+- For cart/list cleanup workflows, if a cart page already shows a matching
+  requested item or category, do not leave the cart to add another matching
+  item. Print/read the current cart contents, then continue to the requested
+  clear/delete/final-state subtasks.
 - A singular browser write is complete after the first authoritative
   read-back proves it. Do not add another matching item, delete another row,
   or repeat the same state-changing click unless the user explicitly asked
