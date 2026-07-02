@@ -36,6 +36,36 @@ def _click_effect_snapshot_hashes(state: dict) -> dict[str, str]:
     return hashes
 
 
+def _control_visual_observation_records(state: dict) -> dict[str, Any]:
+    records = state.get("control_visual_observations")
+    if not isinstance(records, dict):
+        records = {}
+        state["control_visual_observations"] = records
+    return records
+
+
+def _control_mark_visual_observation(
+    state: dict,
+    tab_id: int,
+    *,
+    source: str,
+) -> None:
+    _control_visual_observation_records(state)[str(tab_id)] = {
+        "tab_id": tab_id,
+        "source": str(source or "visual"),
+        "created_at": time.time(),
+    }
+
+
+def _control_clear_visual_observation(state: dict, tab_id: int) -> None:
+    records = state.get("control_visual_observations")
+    if not isinstance(records, dict):
+        return
+    records.pop(str(tab_id), None)
+    if not records:
+        state.pop("control_visual_observations", None)
+
+
 def _click_effect_record_snapshot(
     state: dict,
     tab_id: int,
@@ -190,6 +220,70 @@ def _control_coordinate_click_loop_guard_response(
         ],
     }
     return _tool_response(json.dumps(payload, ensure_ascii=False, indent=2))
+
+
+def _control_visual_coordinate_click_guard_response(
+    *,
+    tab_id: int,
+    target_ref: str,
+    source: str,
+) -> ToolChunk:
+    payload = {
+        "ok": False,
+        "mode": "control",
+        "tab_id": tab_id,
+        "error": "visual_coordinate_click_guard",
+        "message": (
+            "The latest observation for this tab was a screenshot. "
+            "Screenshot-derived coordinates are visual context only and "
+            "cannot be used for raw coordinate clicks."
+        ),
+        "blocked_ref": target_ref,
+        "visual_observation": {
+            "source": source or "screenshot",
+        },
+        "needs_observation": True,
+        "next_action": "snapshot",
+        "next_instruction": (
+            "Take a fresh snapshot and activate a structured "
+            "ref/text/selector target. If the required control is not exposed "
+            "as a reliable Browser Control target, choose a different real "
+            "route or report a blocker instead of converting the screenshot "
+            "into x/y coordinates."
+        ),
+        "use_instead": [
+            "snapshot",
+            "click(ref=...)",
+            "click(text=...)",
+            "click(selector=...)",
+            "navigate(url=...)",
+        ],
+    }
+    return _tool_response(json.dumps(payload, ensure_ascii=False, indent=2))
+
+
+def _control_visual_coordinate_click_guard(
+    state: dict,
+    tab_id: int,
+    target_ref: str,
+) -> ToolChunk | None:
+    """Block raw coordinate clicks immediately after visual observation."""
+    target_ref = str(target_ref or "").strip()
+    if not target_ref.startswith("point:"):
+        return None
+
+    records = state.get("control_visual_observations")
+    if not isinstance(records, dict):
+        return None
+    record = records.get(str(tab_id))
+    if not isinstance(record, dict):
+        return None
+    source = str(record.get("source") or "screenshot")
+    return _control_visual_coordinate_click_guard_response(
+        tab_id=tab_id,
+        target_ref=target_ref,
+        source=source,
+    )
 
 
 def _control_repeated_no_effect_record(
@@ -471,13 +565,17 @@ __all__ = [
     "_click_effect_snapshot_hashes",
     "_control_async_write_guard",
     "_control_clear_observation_required",
+    "_control_clear_visual_observation",
     "_control_coordinate_click_loop_guard",
     "_control_coordinate_click_loop_guard_response",
     "_control_mark_observation_required",
+    "_control_mark_visual_observation",
     "_control_observation_required_response",
     "_control_pending_observations",
     "_control_require_observation_before_action",
     "_control_repeated_no_effect_record",
     "_control_scroll_action_loop_guard",
     "_control_scroll_action_loop_guard_response",
+    "_control_visual_coordinate_click_guard",
+    "_control_visual_coordinate_click_guard_response",
 ]

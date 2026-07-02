@@ -11,6 +11,7 @@ from ..observation import (
     _click_effect_check,
     _click_effect_record_snapshot,
     _control_clear_observation_required,
+    _control_clear_visual_observation,
 )
 from ..session_manager import _control_get_session
 from ..snapshot_builder import (
@@ -78,6 +79,7 @@ class SnapshotHandler:
         _click_effect_record_snapshot(state, tab_id, snapshot_hash)
         state.refs[str(tab_id)] = refs
         _control_clear_observation_required(state, tab_id)
+        _control_clear_visual_observation(state, tab_id)
         payload = {
             "ok": True,
             "mode": "control",

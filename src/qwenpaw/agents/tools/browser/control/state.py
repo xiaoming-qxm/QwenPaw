@@ -21,6 +21,7 @@ class ControlState(dict[str, Any]):
     sessions: dict[str, Any] = field(default_factory=dict)
     refs: dict[str, dict[str, Any]] = field(default_factory=dict)
     pending_observations: dict[str, Any] = field(default_factory=dict)
+    visual_observations: dict[str, Any] = field(default_factory=dict)
     click_effects: dict[str, Any] = field(default_factory=dict)
     snapshot_hashes: dict[str, str] = field(default_factory=dict)
     network_enabled_tabs: set[int] = field(default_factory=set)
@@ -36,6 +37,7 @@ class ControlState(dict[str, Any]):
         "control_sessions": "sessions",
         "refs": "refs",
         "control_pending_observations": "pending_observations",
+        "control_visual_observations": "visual_observations",
         "control_click_effects": "click_effects",
         "control_snapshot_hashes": "snapshot_hashes",
         "control_network_enabled_tabs": "network_enabled_tabs",
@@ -90,6 +92,8 @@ class ControlState(dict[str, Any]):
             data["refs"] = self.refs
         if self.pending_observations:
             data["control_pending_observations"] = self.pending_observations
+        if self.visual_observations:
+            data["control_visual_observations"] = self.visual_observations
         if self.click_effects:
             data["control_click_effects"] = self.click_effects
         if self.snapshot_hashes:

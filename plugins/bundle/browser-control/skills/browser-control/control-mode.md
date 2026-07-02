@@ -19,7 +19,10 @@
   artifact only. Do not read or view that file through non-SDK tools.
 - `tab.click(x=..., y=...)` uses viewport CSS pixels. If you choose a point
   from a `tab.screenshot()` image, use its `coordinate_space` scale to
-  convert screenshot pixels to viewport coordinates before clicking.
+  understand where the visual element is, then take a fresh `snapshot` and
+  activate a `ref`, `text`, or `selector` target. Do not follow
+  `tab.screenshot()` with raw `tab.click(x=..., y=...)` for state-changing
+  actions; the runtime rejects screenshot-derived coordinate clicks.
   Coordinates outside the current viewport are invalid.
 - Do not repeat the same nearby coordinate after a fresh observation shows
   no page change. Switch to a semantic ref/text target, a direct route, or

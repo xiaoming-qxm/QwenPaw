@@ -107,6 +107,11 @@ image coordinates first:
     click_x = image_x * coordinate_space["image_to_viewport_scale_x"]
     click_y = image_y * coordinate_space["image_to_viewport_scale_y"]
 
+Screenshot observations are visual-only for coordinates. Do not follow
+tab.screenshot() with tab.click(x=..., y=...) for state-changing actions;
+take a fresh snapshot and use ref/text/selector targets. The runtime rejects
+screenshot-derived raw coordinate clicks so accidental visual guesses cannot
+change cart, checkout, delete, confirm, select-all, or similar state.
 Coordinates outside ``0..viewport_width`` and ``0..viewport_height`` are
 invalid. If a coordinate click reports no navigation, no state change, or an
 out-of-viewport error, do not repeat the same nearby point; choose a

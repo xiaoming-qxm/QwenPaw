@@ -23,6 +23,7 @@ from ..observation import (
     _click_effect_check,
     _click_effect_record_snapshot,
     _control_clear_observation_required,
+    _control_mark_visual_observation,
 )
 from ..session_manager import _control_get_session
 from ..snapshot_builder import (
@@ -121,6 +122,7 @@ class ScreenshotHandler:
         )
         _click_effect_record_snapshot(state, tab_id, visual_hash)
         _control_clear_observation_required(state, tab_id)
+        _control_mark_visual_observation(state, tab_id, source="screenshot")
         output_path = Path(path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_bytes(image_bytes)

@@ -23,6 +23,7 @@ from .observation import (
     _click_effect_record_click,
     _control_async_write_guard,
     _control_coordinate_click_loop_guard,
+    _control_visual_coordinate_click_guard,
     _control_mark_observation_required,
 )
 from .session_manager import _control_get_session
@@ -386,6 +387,13 @@ async def click_control(
         )
         clicked_point = {"x": x, "y": y}
     if tracking_ref:
+        blocked = _control_visual_coordinate_click_guard(
+            state,
+            tab_id,
+            tracking_ref,
+        )
+        if blocked is not None:
+            return blocked
         blocked = _control_async_write_guard(state, tab_id, tracking_ref)
         if blocked is not None:
             return blocked

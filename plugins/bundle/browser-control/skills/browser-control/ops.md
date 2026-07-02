@@ -75,7 +75,8 @@
 - Do not convert screenshots into coordinates for state-changing actions such
   as add-to-cart, checkout, confirm, delete, or select-all. Treat screenshots
   as observation only, then return to a ref/text/semantic action target or
-  report a blocker if the SDK cannot expose a real target.
+  report a blocker if the SDK cannot expose a real target. The runtime
+  rejects screenshot-derived raw coordinate clicks.
 - If a click appears unchanged, re-observe or screenshot before trying
   another route.
 - Snapshot output starts with `page_state` when scroll metrics are available.
