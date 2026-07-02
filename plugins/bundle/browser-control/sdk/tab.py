@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any, cast
 
 from qwenpaw.agents.tools.browser.control import (
@@ -40,6 +41,7 @@ from qwenpaw.agents.tools.browser.control.state import ControlState
 
 from .errors import BrowserSDKError
 from .guard import ObserveActGuard
+from .artifacts import record_image_artifact
 from .types import (
     ActionResult,
     ClickResult,
@@ -140,11 +142,21 @@ class Tab:
             ),
         )
         self._guard.mark_observed()
+        screenshot_path = str(payload.get("path") or "")
+        if bool(payload.get("ok")) and screenshot_path:
+            media_type = (
+                "image/jpeg" if screenshot_type == "jpeg" else "image/png"
+            )
+            record_image_artifact(
+                screenshot_path,
+                media_type=media_type,
+                name=Path(screenshot_path).name,
+            )
         return ScreenshotResult(
             ok=bool(payload.get("ok")),
             needs_observation=bool(payload.get("needs_observation", False)),
             message=_result_message(payload),
-            path=str(payload.get("path") or ""),
+            path=screenshot_path,
         )
 
     async def click(

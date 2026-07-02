@@ -52,31 +52,31 @@ class ReplKernel:
                     self._execute_code(code),
                     timeout=timeout_ms / 1000,
                 )
-            return {
-                "output": stdout_capture.getvalue(),
-                "return_value": repr(result) if result is not None else None,
-                "error": None,
-            }
+            return _execution_result(
+                output=stdout_capture.getvalue(),
+                return_value=repr(result) if result is not None else None,
+                error=None,
+            )
         except asyncio.TimeoutError:
-            return {
-                "output": stdout_capture.getvalue(),
-                "return_value": None,
-                "error": {
+            return _execution_result(
+                output=stdout_capture.getvalue(),
+                return_value=None,
+                error={
                     "type": "TimeoutError",
                     "message": (f"Execution timed out after {timeout_ms}ms"),
                     "traceback": "",
                 },
-            }
+            )
         except Exception as exc:  # noqa: BLE001
-            return {
-                "output": stdout_capture.getvalue(),
-                "return_value": None,
-                "error": {
+            return _execution_result(
+                output=stdout_capture.getvalue(),
+                return_value=None,
+                error={
                     "type": type(exc).__name__,
                     "message": str(exc),
                     "traceback": traceback.format_exc(),
                 },
-            }
+            )
 
     async def _execute_code(self, code: str) -> Any:
         namespace = self._namespace
@@ -147,6 +147,29 @@ def _new_namespace() -> dict[str, Any]:
         },
     )
     return namespace
+
+
+def _execution_result(
+    *,
+    output: str,
+    return_value: str | None,
+    error: dict[str, Any] | None,
+) -> dict[str, Any]:
+    return {
+        "output": output,
+        "return_value": return_value,
+        "error": error,
+        "artifacts": _drain_artifacts(),
+    }
+
+
+def _drain_artifacts() -> list[dict[str, Any]]:
+    try:
+        from sdk.artifacts import drain_artifacts
+
+        return drain_artifacts()
+    except Exception:  # noqa: BLE001
+        return []
 
 
 def _success_response(request_id: int, result: dict) -> str:

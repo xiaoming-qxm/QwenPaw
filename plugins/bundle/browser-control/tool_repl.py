@@ -4,7 +4,12 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
+from typing import cast
 
+from agentscope.message import DataBlock, TextBlock, ToolResultState, URLSource
+from agentscope.tool import ToolChunk
+from pydantic import AnyUrl
 from qwenpaw.agents.tools.browser.control.session_manager import (
     _control_request_context,
 )
@@ -30,7 +35,7 @@ def _get_manager() -> KernelManager:
     return _manager
 
 
-async def python_repl(code: str, timeout_ms: int = 30000) -> str:
+async def python_repl(code: str, timeout_ms: int = 30000) -> str | ToolChunk:
     """Execute Python code in the Browser Control REPL kernel."""
     manager = _get_manager()
     result = await manager.execute(
@@ -40,16 +45,54 @@ async def python_repl(code: str, timeout_ms: int = 30000) -> str:
     )
     error = result.get("error")
     if error:
-        return (
+        text = (
             f"Error ({error['type']}): {error['message']}\n"
             f"{error.get('traceback', '')}"
         )
+        return _with_artifacts(text, result.get("artifacts"))
     parts = []
     if result.get("output"):
         parts.append(result["output"])
     if result.get("return_value"):
         parts.append(result["return_value"])
-    return "\n".join(parts) or "(no output)"
+    return _with_artifacts(
+        "\n".join(parts) or "(no output)",
+        result.get("artifacts"),
+    )
+
+
+def _with_artifacts(text: str, artifacts: Any) -> str | ToolChunk:
+    blocks = _artifact_blocks(artifacts)
+    if not blocks:
+        return text
+    return ToolChunk(
+        is_last=True,
+        state=ToolResultState.SUCCESS,
+        content=[TextBlock(type="text", text=text), *blocks],
+    )
+
+
+def _artifact_blocks(artifacts: Any) -> list[DataBlock]:
+    if not isinstance(artifacts, list):
+        return []
+    blocks: list[DataBlock] = []
+    for item in artifacts:
+        if not isinstance(item, dict):
+            continue
+        url = str(item.get("url") or "").strip()
+        media_type = str(item.get("media_type") or "").strip()
+        if not url or not media_type:
+            continue
+        blocks.append(
+            DataBlock(
+                source=URLSource(
+                    url=cast(AnyUrl, url),
+                    media_type=media_type,
+                ),
+                name=str(item.get("name") or ""),
+            ),
+        )
+    return blocks
 
 
 async def python_repl_reset() -> str:

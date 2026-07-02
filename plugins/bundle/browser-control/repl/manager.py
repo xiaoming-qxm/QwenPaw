@@ -159,11 +159,14 @@ class KernelManager:
         except asyncio.TimeoutError as exc:
             raise _KernelResponseTimeout from exc
         _, result = parse_response(line.decode("utf-8"))
-        return {
+        payload = {
             "output": result.output,
             "return_value": result.return_value,
             "error": result.error,
         }
+        if result.artifacts:
+            payload["artifacts"] = result.artifacts
+        return payload
 
     def _next_request_id(self) -> int:
         request_id = self._next_id

@@ -40,6 +40,7 @@ class ExecResult:
     output: str
     return_value: str | None
     error: dict[str, Any] | None
+    artifacts: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -68,6 +69,11 @@ def parse_response(line: str) -> tuple[int, ExecResult]:
         output=str(result.get("output") or ""),
         return_value=result.get("return_value"),
         error=result.get("error"),
+        artifacts=(
+            result.get("artifacts")
+            if isinstance(result.get("artifacts"), list)
+            else []
+        ),
     )
 
 
