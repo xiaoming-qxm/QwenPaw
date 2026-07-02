@@ -119,6 +119,26 @@ class Tabs:
         self._current = tab
         return tab
 
+    async def close(
+        self,
+        tab_id: int | Tab | None = None,
+        *,
+        force: bool = False,
+    ):
+        """Close or release a tab without changing its creation metadata."""
+        if isinstance(tab_id, Tab):
+            tab = tab_id
+        elif tab_id is None:
+            tab = await self.current()
+            if tab is None:
+                raise BrowserSDKError("No current browser tab is available")
+        else:
+            tab = Tab(int(tab_id), self._bridge, self._holder_id, self._state)
+        result = await tab.close(force=force)
+        if self._current is not None and self._current.id == tab.id:
+            self._current = None
+        return result
+
     async def _attach_tab(
         self,
         tab_id: int,

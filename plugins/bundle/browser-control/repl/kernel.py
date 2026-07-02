@@ -17,13 +17,14 @@ from typing import Any
 
 
 _RETURN_NAME = "__qwenpaw_repl_return__"
+_MAX_PREBOUND_REF_INDEX = 10000
 
 
 class ReplKernel:
     """Execute Python snippets inside a persistent namespace."""
 
     def __init__(self) -> None:
-        self._namespace: dict[str, Any] = {"__builtins__": __builtins__}
+        self._namespace: dict[str, Any] = _new_namespace()
         self._loop = asyncio.new_event_loop()
 
     def execute_sync(
@@ -88,7 +89,7 @@ class ReplKernel:
 
     def reset(self) -> None:
         """Clear user-defined namespace values."""
-        self._namespace = {"__builtins__": __builtins__}
+        self._namespace = _new_namespace()
 
     def _install_request_context(
         self,
@@ -135,6 +136,17 @@ def _compile_code(code: str) -> CodeType:
         "exec",
         flags=ast.PyCF_ALLOW_TOP_LEVEL_AWAIT,
     )
+
+
+def _new_namespace() -> dict[str, Any]:
+    namespace: dict[str, Any] = {"__builtins__": __builtins__}
+    namespace.update(
+        {
+            f"e{index}": f"e{index}"
+            for index in range(1, _MAX_PREBOUND_REF_INDEX + 1)
+        },
+    )
+    return namespace
 
 
 def _success_response(request_id: int, result: dict) -> str:

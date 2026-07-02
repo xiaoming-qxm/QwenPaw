@@ -48,6 +48,7 @@ LLM-safe call patterns:
     tab = await browser.tabs.open("https://example.com")
     snap = await tab.snapshot()
     print(snap.text)
+    await tab.click(ref="e22")
     await tab.scroll(direction="down", amount="page")
     await tab.wait_for(2)
     snap = await tab.snapshot()
@@ -83,12 +84,21 @@ or coordinates. The SDK text locator can find visible DOM text and scroll
 offscreen controls into view. Use selectors only when they are stable and
 semantic; avoid guessed class names.
 
+Snapshot refs are string identifiers. Use quoted refs such as
+``await tab.click(ref="e22")``. The REPL also prebinds common ref symbols
+(``e22 == "e22"``) to tolerate copied snippets, but quoted strings are the
+clearest form.
+
 ``snapshot()`` takes no arguments; do not call ``snapshot(full=True)``.
 ``scroll`` only accepts keyword arguments such as ``direction`` and
 ``amount``. Use ``amount="top"`` or ``amount="bottom"`` for absolute jumps
 when the relevant control is expected near the start or end of a long page.
 Snapshot text may begin with ``page_state`` containing ``scroll_percent``,
 ``at_top``, and ``at_bottom``; use it to avoid repeated ineffective scrolls.
+Snapshot text may also include ``action_target`` lines for visible controls
+that modern pages expose poorly through accessibility trees. Prefer their
+text with ``await tab.click(text="...")``; use their x/y coordinates only
+when text targeting fails.
 JavaScript evaluation is not available in control mode:
 do not call ``tab.evaluate`` or ``tab.action("evaluate", ...)``.
 Do not read or view screenshot files with local file/media tools. If a
@@ -142,6 +152,16 @@ class Tabs:
 
     async def current(self) -> Tab | None:
         Return the most recently claimed Tab.
+
+    async def close(
+        self,
+        tab_id: int | Tab | None = None,
+        force: bool = False,
+    ) -> ActionResult:
+        Close or release a tab. Passing no tab_id closes the current tab.
+        Signature shorthand: ``async def close(self, tab_id=None, ...)``.
+        Use ``await tab.close()`` or ``await browser.tabs.close(tab_id)``;
+        there is no separate ``browser.tabs.close_tab`` method.
 
 class Tab:
     id: int

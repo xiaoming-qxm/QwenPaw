@@ -14,6 +14,7 @@
 - Common calls:
   `tab = await browser.tabs.open(url)`,
   `snap = await tab.snapshot()`,
+  `await tab.click(ref="e22")`,
   `await tab.scroll(direction="down", amount="page")`,
   `await tab.scroll(direction="up", amount="top")`,
   `await tab.wait_for(2)`,
@@ -39,6 +40,12 @@
   `await tab.click(text="visible label")`; the SDK can locate visible DOM
   text and scroll offscreen controls into view. Use CSS selectors only for
   stable semantic selectors, not guessed class names.
+- Snapshot refs are string identifiers. Use quoted refs such as
+  `await tab.click(ref="e22")`; copied snippets like `ref=e22` are tolerated,
+  but quoted strings are clearer.
+- `action_target` lines summarize visible controls that modern pages expose
+  poorly through accessibility trees. Prefer `tab.click(text="...")` for an
+  action target, and use its x/y coordinates only when text targeting fails.
 - Use coordinates only after SDK evidence identifies the target's position;
   do not guess page coordinates from a generic layout.
 - If a click appears unchanged, re-observe or screenshot before trying
@@ -90,4 +97,5 @@
 Use SDK methods such as `browser.tabs.list()`, `browser.tabs.get(tab_id)`,
 `tab.snapshot()`, `tab.click(...)`, `tab.type(...)`, `tab.press_key(...)`,
 `tab.navigate(...)`, `tab.hover(...)`, `tab.scroll(...)`,
-`tab.select_option(...)`, `tab.wait_for(...)`, and `browser.close()`.
+`tab.select_option(...)`, `tab.wait_for(...)`, `tab.close()`,
+`browser.tabs.close(tab_id)`, and `browser.close()`.
