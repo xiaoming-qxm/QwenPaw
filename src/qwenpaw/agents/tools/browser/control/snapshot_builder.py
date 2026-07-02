@@ -96,6 +96,35 @@ _CONTROL_ACTION_CLASS_RE = re.compile(
     ),
     re.IGNORECASE,
 )
+_CONTROL_ACTION_WEAK_ADD_CART_EXCLUSION_RE = re.compile(
+    "|".join(
+        (
+            "collect",
+            "favorite",
+            "fav",
+            "wish",
+            "heart",
+            "star",
+            "share",
+            "service",
+            "shop",
+            "store",
+            "home",
+            "more",
+            "收藏",
+            "关注",
+            "客服",
+            "店铺",
+            "进店",
+            "首页",
+            "分享",
+            "更多",
+            "举报",
+            "反馈",
+        ),
+    ),
+    re.IGNORECASE,
+)
 _CONTROL_ACTION_SEMANTIC_LABELS = (
     (
         re.compile(
@@ -522,6 +551,13 @@ async def _control_dom_action_target_lines(
         )
         if point is None:
             continue
+        if candidate.get("requires_bottom_purchase_bar"):
+            viewport_height = float(viewport[1])
+            if (
+                viewport_height <= 0
+                or float(point[1]) < viewport_height * 0.72
+            ):
+                continue
         tag = _clean_action_target_token(candidate.get("tag") or "element")
         role = _clean_action_target_token(candidate.get("role") or "button")
         text = _dom_action_contextual_output_text(
@@ -571,7 +607,11 @@ def _collect_dom_action_candidates(
     label_counts: dict[str, int] = {}
     order = 0
 
-    def visit(node: dict[str, Any]) -> None:
+    def visit(
+        node: dict[str, Any],
+        siblings: list[dict[str, Any]] | None = None,
+        sibling_index: int | None = None,
+    ) -> None:
         nonlocal order
         if len(candidates) >= _CONTROL_ACTION_TARGETS_LIMIT * 4:
             return
@@ -585,7 +625,13 @@ def _collect_dom_action_candidates(
         attributes = _dom_action_attributes(node.get("attributes"))
         visible_text = _dom_action_text(node, attributes)
         semantic_text = _dom_action_tree_semantic_text(node, attributes)
-        text = visible_text or semantic_text
+        weak_add_cart_text = _dom_action_weak_add_cart_text(
+            node,
+            attributes,
+            siblings=siblings,
+            sibling_index=sibling_index,
+        )
+        text = visible_text or semantic_text or weak_add_cart_text
         role = _dom_action_role(node_name, attributes)
         class_name = str(attributes.get("class") or "")
         has_action_text = bool(_CONTROL_ACTION_TEXT_RE.search(text))
@@ -593,6 +639,7 @@ def _collect_dom_action_candidates(
         has_click_attr = any(
             name in attributes for name in _CONTROL_ACTION_CLICK_ATTRIBUTES
         )
+        is_weak_add_cart = weak_add_cart_text == "add cart"
         is_structural = node_name in _CONTROL_ACTION_STRUCTURAL_NODES
         is_compound_label = len(text) > _CONTROL_ACTION_MAX_LABEL_LENGTH
         repeat_label = _dom_action_repeat_label(text)
@@ -604,6 +651,7 @@ def _collect_dom_action_candidates(
                 or has_action_text
                 or has_action_class
                 or has_click_attr
+                or is_weak_add_cart
             )
         ):
             key = (str(node.get("backendNodeId") or node.get("nodeId")), text)
@@ -626,6 +674,7 @@ def _collect_dom_action_candidates(
                         "nodeId": node.get("nodeId"),
                         "href": attributes.get("href", ""),
                         "target": attributes.get("target", ""),
+                        "requires_bottom_purchase_bar": is_weak_add_cart,
                         "priority": _dom_action_priority(
                             role,
                             text,
@@ -640,9 +689,9 @@ def _collect_dom_action_candidates(
             children = node.get(key)
             if not isinstance(children, list):
                 continue
-            for child in children:
+            for index, child in enumerate(children):
                 if isinstance(child, dict):
-                    visit(child)
+                    visit(child, children, index)
 
         content_document = node.get("contentDocument")
         if isinstance(content_document, dict):
@@ -824,6 +873,55 @@ def _dom_action_tree_semantic_text(
                 break
 
     return _dom_action_semantic_label(" ".join(sources))
+
+
+def _dom_action_weak_add_cart_text(
+    node: dict[str, Any],
+    attributes: dict[str, str],
+    *,
+    siblings: list[dict[str, Any]] | None,
+    sibling_index: int | None,
+) -> str:
+    if siblings is None or sibling_index is None:
+        return ""
+    node_name = str(node.get("nodeName") or "").lower()
+    role = _dom_action_role(node_name, attributes)
+    class_name = str(attributes.get("class") or "")
+    has_action_class = bool(_CONTROL_ACTION_CLASS_RE.search(class_name))
+    has_click_attr = any(
+        name in attributes for name in _CONTROL_ACTION_CLICK_ATTRIBUTES
+    )
+    if role is None and not has_action_class and not has_click_attr:
+        return ""
+    source = " ".join(
+        (
+            _dom_action_text(node, attributes),
+            _dom_action_tree_semantic_text(node, attributes),
+            _dom_action_semantic_source(attributes),
+        ),
+    )
+    if _dom_action_repeat_label(source) in {
+        "add cart",
+        "cart",
+        "buy",
+        "checkout",
+    }:
+        return ""
+    if _CONTROL_ACTION_WEAK_ADD_CART_EXCLUSION_RE.search(source):
+        return ""
+    for sibling in siblings[sibling_index + 1:sibling_index + 4]:
+        if not isinstance(sibling, dict):
+            continue
+        sibling_attributes = _dom_action_attributes(
+            sibling.get("attributes"),
+        )
+        sibling_text = (
+            _dom_action_text(sibling, sibling_attributes)
+            or _dom_action_tree_semantic_text(sibling, sibling_attributes)
+        )
+        if _dom_action_repeat_label(sibling_text) in {"buy", "checkout"}:
+            return "add cart"
+    return ""
 
 
 def _dom_action_repeat_label(text: str) -> str:
@@ -1399,12 +1497,15 @@ _CONTROL_ACTION_TARGETS_SCRIPT = """
       }
       return "";
     };
-    const textOf = (element) => normalize([
+    const rawTextOf = (element) => normalize([
       element.getAttribute("aria-label"),
       element.getAttribute("title"),
       element.getAttribute("alt"),
       "value" in element ? element.value : "",
-      element.innerText || element.textContent,
+      element.innerText || element.textContent
+    ].filter(Boolean).join(" "));
+    const textOf = (element) => normalize([
+      rawTextOf(element),
       semanticTextOf(element)
     ].filter(Boolean).join(" "));
     const priorityOf = (text) => {
@@ -1440,6 +1541,115 @@ _CONTROL_ACTION_TARGETS_SCRIPT = """
         rect.left > window.innerWidth
       ) return null;
       return rect;
+    };
+    const weakActionExclusionText = new RegExp([
+      "collect",
+      "favorite",
+      "fav",
+      "wish",
+      "heart",
+      "star",
+      "share",
+      "service",
+      "shop",
+      "store",
+      "home",
+      "more",
+      "收藏",
+      "关注",
+      "客服",
+      "店铺",
+      "进店",
+      "首页",
+      "分享",
+      "更多",
+      "举报",
+      "反馈"
+    ].join("|"), "i");
+    const rowOverlapRatio = (a, b) => {
+      const overlap = Math.max(
+        0,
+        Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top)
+      );
+      return overlap / Math.max(1, Math.min(a.height, b.height));
+    };
+    let bottomPurchaseBarControlsCache;
+    const bottomPurchaseBarControls = () => {
+      if (bottomPurchaseBarControlsCache !== undefined) {
+        return bottomPurchaseBarControlsCache;
+      }
+      const viewportWidth = window.innerWidth || 0;
+      const viewportHeight = window.innerHeight || 0;
+      const seenElements = new Set();
+      const controls = [];
+      const addControl = (element) => {
+        if (!element || seenElements.has(element)) return;
+        const rect = visibleRect(element);
+        if (!rect || !viewportHeight) return;
+        if (rect.top < viewportHeight * 0.68) return;
+        if (rect.width < 28 || rect.height < 24) return;
+        if (rect.width > Math.max(320, viewportWidth * 0.75)) return;
+        const text = normalize([
+          rawTextOf(element),
+          sourceTextOf(element)
+        ].filter(Boolean).join(" "));
+        seenElements.add(element);
+        controls.push({ element, rect, text });
+      };
+      for (const element of Array.from(document.querySelectorAll(selector))) {
+        addControl(element);
+      }
+      const xFractions = [0.08, 0.18, 0.30, 0.42, 0.54, 0.66, 0.78, 0.90];
+      const yFractions = [0.76, 0.84, 0.92];
+      for (const yFraction of yFractions) {
+        for (const xFraction of xFractions) {
+          const x = Math.max(
+            1,
+            Math.min(viewportWidth - 1, viewportWidth * xFraction)
+          );
+          const y = Math.max(
+            1,
+            Math.min(viewportHeight - 1, viewportHeight * yFraction)
+          );
+          for (const element of document.elementsFromPoint(x, y)) {
+            if (!(element instanceof Element)) continue;
+            addControl(element.closest(selector) || element);
+          }
+        }
+      }
+      bottomPurchaseBarControlsCache = controls;
+      return controls;
+    };
+    let weakAddCartCandidateCache;
+    const weakAddCartCandidate = () => {
+      if (weakAddCartCandidateCache !== undefined) {
+        return weakAddCartCandidateCache;
+      }
+      const controls = bottomPurchaseBarControls();
+      const purchaseControls = controls
+        .filter((item) => purchaseActionText.test(item.text))
+        .sort((a, b) => a.rect.left - b.rect.left);
+      for (const purchase of purchaseControls) {
+        const candidates = controls.filter((item) => {
+          if (item.element === purchase.element) return false;
+          if (item.rect.right > purchase.rect.left + 8) return false;
+          if (rowOverlapRatio(item.rect, purchase.rect) < 0.45) return false;
+          if (purchaseActionText.test(item.text)) return false;
+          if (cartActionText.test(item.text)) return false;
+          if (weakActionExclusionText.test(item.text)) return false;
+          return true;
+        });
+        candidates.sort((a, b) => (
+          Math.abs(a.rect.right - purchase.rect.left) -
+          Math.abs(b.rect.right - purchase.rect.left)
+        ));
+        if (candidates[0]) {
+          weakAddCartCandidateCache = candidates[0];
+          return weakAddCartCandidateCache;
+        }
+      }
+      weakAddCartCandidateCache = null;
+      return null;
     };
     const cartActsLikeAddCart = (element, rect, text) => {
       const source = sourceTextOf(element);
@@ -1519,6 +1729,8 @@ _CONTROL_ACTION_TARGETS_SCRIPT = """
       const rect = visibleRect(element);
       if (!rect) continue;
       let text = textOf(element);
+      const inferred = weakAddCartCandidate();
+      if (!text && inferred && inferred.element === element) text = "add cart";
       if (!text) continue;
       if (cartActsLikeAddCart(element, rect, text)) text = "add cart";
       const cls = String(element.className || "");
@@ -1530,6 +1742,8 @@ _CONTROL_ACTION_TARGETS_SCRIPT = """
       if (!semantic && text.length > 120) continue;
       addTarget(element, text, rect);
     }
+    const inferred = weakAddCartCandidate();
+    if (inferred) addTarget(inferred.element, "add cart", inferred.rect);
     const genericActionTextCandidates = document.body
       ? Array.from(document.body.querySelectorAll("*"))
       : [];

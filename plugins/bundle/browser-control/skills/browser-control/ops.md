@@ -72,6 +72,10 @@
   a page-level action target already matches the task.
 - Use coordinates only after SDK evidence identifies the target's position;
   do not guess page coordinates from a generic layout.
+- Do not convert screenshots into coordinates for state-changing actions such
+  as add-to-cart, checkout, confirm, delete, or select-all. Treat screenshots
+  as observation only, then return to a ref/text/semantic action target or
+  report a blocker if the SDK cannot expose a real target.
 - If a click appears unchanged, re-observe or screenshot before trying
   another route.
 - Snapshot output starts with `page_state` when scroll metrics are available.

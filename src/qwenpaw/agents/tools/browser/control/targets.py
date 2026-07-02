@@ -451,6 +451,129 @@ def _control_visible_text_locator_script(text: str) -> str:
     ancestorSourceText(element)
   ].filter(Boolean).join(" "));
 
+  const rawElementText = (element) => normalize([
+    element.getAttribute("aria-label"),
+    element.getAttribute("title"),
+    element.getAttribute("alt"),
+    "value" in element ? element.value : "",
+    element.textContent
+  ].filter(Boolean).join(" ")).slice(0, 500);
+
+  const weakActionExclusionText = new RegExp([
+    "collect",
+    "favorite",
+    "fav",
+    "wish",
+    "heart",
+    "star",
+    "share",
+    "service",
+    "shop",
+    "store",
+    "home",
+    "more",
+    "收藏",
+    "关注",
+    "客服",
+    "店铺",
+    "进店",
+    "首页",
+    "分享",
+    "更多",
+    "举报",
+    "反馈"
+  ].join("|"), "i");
+
+  const rowOverlapRatio = (a, b) => {{
+    const overlap = Math.max(
+      0,
+      Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top)
+    );
+    return overlap / Math.max(1, Math.min(a.height, b.height));
+  }};
+
+  let bottomPurchaseBarControlsCache;
+  const bottomPurchaseBarControls = () => {{
+    if (bottomPurchaseBarControlsCache !== undefined) {{
+      return bottomPurchaseBarControlsCache;
+    }}
+    const viewportWidth = window.innerWidth || 0;
+    const viewportHeight = window.innerHeight || 0;
+    const seenElements = new Set();
+    const controls = [];
+    const addControl = (element) => {{
+      if (!element || seenElements.has(element)) return;
+      const rect = visibleRect(element);
+      if (!rect || !viewportHeight) return;
+      if (rect.top < viewportHeight * 0.68) return;
+      if (rect.width < 28 || rect.height < 24) return;
+      if (rect.width > Math.max(320, viewportWidth * 0.75)) return;
+      const text = normalize([
+        rawElementText(element),
+        sourceText(element)
+      ].filter(Boolean).join(" "));
+      seenElements.add(element);
+      controls.push({{ element, rect, text }});
+    }};
+    for (const element of Array.from(
+      document.querySelectorAll(interactiveSelector)
+    )) {{
+      addControl(element);
+    }}
+    const xFractions = [0.08, 0.18, 0.30, 0.42, 0.54, 0.66, 0.78, 0.90];
+    const yFractions = [0.76, 0.84, 0.92];
+    for (const yFraction of yFractions) {{
+      for (const xFraction of xFractions) {{
+        const x = Math.max(
+          1,
+          Math.min(viewportWidth - 1, viewportWidth * xFraction)
+        );
+        const y = Math.max(
+          1,
+          Math.min(viewportHeight - 1, viewportHeight * yFraction)
+        );
+        for (const element of document.elementsFromPoint(x, y)) {{
+          if (!(element instanceof Element)) continue;
+          addControl(element.closest(interactiveSelector) || element);
+        }}
+      }}
+    }}
+    bottomPurchaseBarControlsCache = controls;
+    return controls;
+  }};
+
+  let weakAddCartCandidateCache;
+  const weakAddCartCandidate = () => {{
+    if (weakAddCartCandidateCache !== undefined) {{
+      return weakAddCartCandidateCache;
+    }}
+    const controls = bottomPurchaseBarControls();
+    const purchaseControls = controls
+      .filter((item) => purchaseActionText.test(item.text))
+      .sort((a, b) => a.rect.left - b.rect.left);
+    for (const purchase of purchaseControls) {{
+      const candidates = controls.filter((item) => {{
+        if (item.element === purchase.element) return false;
+        if (item.rect.right > purchase.rect.left + 8) return false;
+        if (rowOverlapRatio(item.rect, purchase.rect) < 0.45) return false;
+        if (purchaseActionText.test(item.text)) return false;
+        if (cartActionText.test(item.text)) return false;
+        if (weakActionExclusionText.test(item.text)) return false;
+        return true;
+      }});
+      candidates.sort((a, b) => (
+        Math.abs(a.rect.right - purchase.rect.left) -
+        Math.abs(b.rect.right - purchase.rect.left)
+      ));
+      if (candidates[0]) {{
+        weakAddCartCandidateCache = candidates[0];
+        return weakAddCartCandidateCache;
+      }}
+    }}
+    weakAddCartCandidateCache = null;
+    return null;
+  }};
+
   const cartActsLikeAddCart = (element) => {{
     const source = sourceText(element);
     const combined = normalize([source, element.textContent].filter(Boolean)
@@ -478,6 +601,8 @@ def _control_visible_text_locator_script(text: str) -> str:
   }};
 
   const semanticTextOf = (element) => {{
+    const inferred = weakAddCartCandidate();
+    if (inferred && inferred.element === element) return "add cart";
     if (cartActsLikeAddCart(element)) return "add cart";
     const text = sourceText(element);
     if (!text) return "";
@@ -488,11 +613,7 @@ def _control_visible_text_locator_script(text: str) -> str:
   }};
 
   const elementText = (element) => normalize([
-    element.getAttribute("aria-label"),
-    element.getAttribute("title"),
-    element.getAttribute("alt"),
-    "value" in element ? element.value : "",
-    element.textContent,
+    rawElementText(element),
     semanticTextOf(element)
   ].filter(Boolean).join(" ")).slice(0, 500);
 
@@ -553,6 +674,11 @@ def _control_visible_text_locator_script(text: str) -> str:
       target,
     }});
   }};
+
+  if (wanted === "add cart") {{
+    const inferred = weakAddCartCandidate();
+    if (inferred) addCandidate(inferred.element, "add cart", 0);
+  }}
 
   let inspectedInteractive = 0;
   for (const root of roots) {{
