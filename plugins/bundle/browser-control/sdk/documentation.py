@@ -45,6 +45,11 @@ clicking, typing, or selecting.
 Production rule: read after write. After any state-changing action, verify
 state from a fresh observation or an authoritative page. Do not treat a
 stale badge, local counter, or unchanged DOM as proof of success or failure.
+Treat an authoritative state page as a subtask boundary. For example, if a
+cart/status/list page shows an item or setting that satisfies the user's
+requested quantity/category, advance to the next requested subtask; do not
+add another item, repeat the same write, or return to search unless the user
+explicitly asked for more.
 
 LLM-safe call patterns:
 

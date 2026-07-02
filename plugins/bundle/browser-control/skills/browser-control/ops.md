@@ -88,6 +88,11 @@
 
 - After submitting, saving, adding, removing, selecting, following, or
   updating settings, read the resulting state back.
+- Treat an authoritative state page as a subtask boundary. For example, if a
+  cart/status/list page shows an item or setting that satisfies the user's
+  requested quantity/category, advance to the next requested subtask; do not
+  add another item, repeat the same write, or return to search unless the user
+  explicitly asked for more.
 - If async network activity happened but a badge, counter, button, or
   page fragment still shows the old value, treat the page as stale.
 - Verification ladder: `wait_for` then `snapshot`; if stale, `reload` then
