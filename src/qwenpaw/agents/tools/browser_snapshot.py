@@ -67,6 +67,8 @@ STRUCTURAL_ROLES = frozenset(
 _DOM_SNAPSHOT_MAX_LINES = 220
 _DOM_SNAPSHOT_MAX_TEXT_LENGTH = 180
 _DOM_TREE_MAX_LINES = 160
+_AX_TREE_MAX_LINES = 180
+_AX_TREE_MAX_TEXT_LENGTH = 240
 _DOM_TREE_TEXT_ATTRIBUTES = (
     "aria-label",
     "alt",
@@ -89,6 +91,7 @@ _BASE64_IMAGE_PREFIXES = (
     "r0lgod",  # GIF
     "uklgr",  # WebP RIFF
 )
+_AX_TREE_REDUNDANT_ROLES = frozenset({"inlinetextbox"})
 
 
 def _get_indent_level(line: str) -> int:
@@ -310,6 +313,19 @@ def _normalize_dom_text(text: str) -> str:
     if len(text) > _DOM_SNAPSHOT_MAX_TEXT_LENGTH:
         text = text[: _DOM_SNAPSHOT_MAX_TEXT_LENGTH - 1].rstrip() + "…"
     return text
+
+
+def _normalize_ax_text(text: str | None) -> str | None:
+    if text is None:
+        return None
+    if _is_private_use_only(text) or _looks_like_encoded_blob(text):
+        return None
+    normalized = re.sub(r"\s+", " ", str(text)).strip()
+    if not normalized:
+        return None
+    if len(normalized) > _AX_TREE_MAX_TEXT_LENGTH:
+        normalized = normalized[: _AX_TREE_MAX_TEXT_LENGTH - 1].rstrip() + "…"
+    return normalized
 
 
 def _is_private_use_only(text: str) -> bool:
@@ -591,13 +607,28 @@ def from_cdp_ax_tree(
         counter[0] += 1
         return f"e{counter[0]}"
 
+    truncated = False
+
+    def can_add_content_line() -> bool:
+        return len(lines) < max(_AX_TREE_MAX_LINES - 1, 1)
+
+    def mark_truncated() -> None:
+        nonlocal truncated
+        truncated = True
+
     def visit_children(node: dict[str, Any], depth: int) -> None:
+        if truncated:
+            return
         for child_id in node.get("childIds", []) or []:
             child = by_id.get(str(child_id))
             if child is not None:
                 visit(child, depth)
+            if truncated:
+                return
 
     def visit(node: dict[str, Any], depth: int) -> None:
+        if truncated:
+            return
         if node.get("ignored"):
             visit_children(node, depth)
             return
@@ -607,41 +638,62 @@ def from_cdp_ax_tree(
             visit_children(node, depth)
             return
         role = role_raw.lower()
-        name = _ax_value(node.get("name"))
+        name = _normalize_ax_text(_ax_value(node.get("name")))
+
+        if role in _AX_TREE_REDUNDANT_ROLES:
+            visit_children(node, depth)
+            return
 
         is_interactive = role in INTERACTIVE_ROLES
         is_content = role in CONTENT_ROLES
         should_have_ref = is_interactive or (is_content and name)
+        should_emit = not (
+            role in STRUCTURAL_ROLES and not name and not should_have_ref
+        )
 
-        prefix = "  " * depth
-        line = f"{prefix}- {role_raw}"
-        if name:
-            escaped_name = name.replace('"', '\\"')
-            line += f' "{escaped_name}"'
+        child_depth = depth
+        if should_emit:
+            if not can_add_content_line():
+                mark_truncated()
+                return
 
-        if should_have_ref:
-            ref = next_ref()
-            nth = tracker["get_next_index"](role, name)
-            tracker["track_ref"](role, name, ref)
-            ref_data = {"role": role, "name": name, "nth": nth}
-            backend_id = node.get("backendDOMNodeId") or node.get(
-                "backendNodeId",
-            )
-            if backend_id is not None:
-                ref_data["backendNodeId"] = backend_id
-            refs[ref] = ref_data
+            prefix = "  " * depth
+            line = f"{prefix}- {role_raw}"
+            if name:
+                escaped_name = name.replace('"', '\\"')
+                line += f' "{escaped_name}"'
 
-            line += f" [ref={ref}]"
-            if nth is not None and nth > 0:
-                line += f" [nth={nth}]"
+            if should_have_ref:
+                ref = next_ref()
+                nth = tracker["get_next_index"](role, name)
+                tracker["track_ref"](role, name, ref)
+                ref_data = {"role": role, "name": name, "nth": nth}
+                backend_id = node.get("backendDOMNodeId") or node.get(
+                    "backendNodeId",
+                )
+                if backend_id is not None:
+                    ref_data["backendNodeId"] = backend_id
+                refs[ref] = ref_data
 
-        lines.append(line)
-        visit_children(node, depth + 1)
+                line += f" [ref={ref}]"
+                if nth is not None and nth > 0:
+                    line += f" [nth={nth}]"
+
+            lines.append(line)
+            child_depth = depth + 1
+        visit_children(node, child_depth)
 
     for root in roots:
         visit(root, 0)
+        if truncated:
+            break
 
     _remove_nth_from_non_duplicates(refs, tracker)
+    if truncated:
+        lines.append(
+            '- note "Snapshot truncated; use visible refs, page search, '
+            'or a narrower route instead of reading offloaded files."',
+        )
     return "\n".join(lines) or "(empty)", refs
 
 
