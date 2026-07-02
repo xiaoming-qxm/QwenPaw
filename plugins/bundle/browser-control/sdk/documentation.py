@@ -20,6 +20,15 @@ recreate it manually:
     from sdk import Browser
     browser = await Browser.connect(ws_url="<bridge-url>", token="<token>")
 
+If a call raises ``BridgeDisconnected``, recover the preloaded object once:
+
+    browser = await browser.connect()
+
+This refreshes the current Browser object in place and returns it.
+Do not instantiate Browser() directly; the constructor requires internal
+bridge state that the REPL already manages. If the reconnect attempt still
+cannot reach the bridge, stop and report a blocker instead of looping.
+
 Core rule: observe before act. Call ``await tab.snapshot()`` before any
 mutating method such as click, type, press_key, scroll, hover,
 select_option, or navigate. A mutating action consumes the fresh observation,
@@ -64,7 +73,9 @@ class Browser:
     tabs: Tabs
 
     async def connect(ws_url: str = "", token: str = "") -> Browser:
-        Create a Browser SDK instance for REPL-generated code.
+        Create a Browser SDK instance when called as Browser.connect(...).
+        When called as browser.connect(), reconnect the existing object in
+        place and return it.
 
     async def documentation(self) -> str:
         Return this API reference.

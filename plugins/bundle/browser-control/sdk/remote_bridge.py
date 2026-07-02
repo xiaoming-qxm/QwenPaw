@@ -64,6 +64,7 @@ class RemoteBridge:
         ] = defaultdict(list)
         self._receiver_task: asyncio.Task[None] | None = None
         self._send_lock = asyncio.Lock()
+        self._reconnect_lock = asyncio.Lock()
 
     @classmethod
     async def connect(cls, ws_url: str, token: str) -> "RemoteBridge":
@@ -278,10 +279,7 @@ class RemoteBridge:
         *,
         timeout: float = DEFAULT_TIMEOUT_SECONDS,
     ) -> Any:
-        if not self.connected or self._ws is None:
-            raise BridgeDisconnected(
-                f"Browser Control SDK bridge is not connected: {self.ws_url}",
-            )
+        await self._ensure_connected()
         request_id = self._next_id
         self._next_id += 1
         loop = asyncio.get_running_loop()
@@ -309,6 +307,16 @@ class RemoteBridge:
             )
             raise BrowserSDKError(message_text)
         return response.get("result")
+
+    async def _ensure_connected(self) -> None:
+        if self.connected and self._ws is not None:
+            return
+        async with self._reconnect_lock:
+            if self.connected and self._ws is not None:
+                return
+            if self._ws is not None or self._receiver_task is not None:
+                await self.close()
+            await self.start()
 
     async def _receive_loop(self) -> None:
         try:

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import uuid
 from typing import Any
 
@@ -164,8 +165,27 @@ class Tabs:
         self._state["current_page_id"] = str(tab_id)
 
 
+class _BrowserConnect:
+    """Descriptor that supports class and instance Browser.connect calls."""
+
+    def __get__(self, instance: Any, owner: type) -> Any:
+        async def connect(ws_url: str = "", token: str = "") -> Browser:
+            if instance is None:
+                return await owner._connect_new(ws_url, token)
+            replacement = await owner._connect_new(
+                ws_url or _bridge_value(instance._bridge, "ws_url"),
+                token or _bridge_value(instance._bridge, "token"),
+            )
+            await instance._replace_connection(replacement)
+            return instance
+
+        return connect
+
+
 class Browser:
     """Entry point for the Browser Control SDK."""
+
+    connect = _BrowserConnect()
 
     def __init__(self, bridge: Any, holder_id: str, state: Any) -> None:
         self.tabs = Tabs(bridge, holder_id, state)
@@ -174,7 +194,7 @@ class Browser:
         self._state = state
 
     @classmethod
-    async def connect(cls, ws_url: str = "", token: str = "") -> "Browser":
+    async def _connect_new(cls, ws_url: str = "", token: str = "") -> "Browser":
         """Create a Browser SDK entry point for REPL-generated code."""
         bridge = _current_bridge()
         if bridge is None and ws_url:
@@ -193,12 +213,20 @@ class Browser:
 
     async def close(self) -> None:
         """Release all tabs held by this browser instance."""
-        await self._bridge.release_all(self._holder_id)
+        with contextlib.suppress(BridgeDisconnected):
+            await self._bridge.release_all(self._holder_id)
         close = getattr(self._bridge, "close", None)
         if callable(close):
             result = close()
             if hasattr(result, "__await__"):
                 await result
+
+    async def _replace_connection(self, replacement: "Browser") -> None:
+        await self.close()
+        self._bridge = replacement._bridge
+        self._holder_id = replacement._holder_id
+        self._state = replacement._state
+        self.tabs = Tabs(self._bridge, self._holder_id, self._state)
 
 
 def _current_bridge() -> Any | None:
@@ -249,6 +277,10 @@ def _disconnect_message(ws_url: str, *, detail: str = "") -> str:
     target = ws_url or "the Browser Control bridge"
     suffix = f" ({detail})" if detail else ""
     return f"Browser Control bridge is not connected: {target}{suffix}"
+
+
+def _bridge_value(bridge: Any, name: str) -> str:
+    return str(getattr(bridge, name, "") or "")
 
 
 def _jsonrpc_error(response: dict[str, Any]) -> str:

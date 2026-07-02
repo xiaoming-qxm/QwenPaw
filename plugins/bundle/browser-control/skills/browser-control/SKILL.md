@@ -21,6 +21,16 @@ from sdk import Browser
 browser = await Browser.connect()
 ```
 
+If a browser call raises `BridgeDisconnected`, refresh the preloaded object
+once before reporting a blocker:
+
+```python
+browser = await browser.connect()
+```
+
+Do not instantiate `Browser()` directly. If reconnecting still fails, stop
+and report the bridge as blocked instead of repeating the same operation.
+
 Use SDK code inside `python_repl` to inspect tabs, take snapshots, act on refs,
 and verify the result. Call `await browser.documentation()` when you need the
 API reference.

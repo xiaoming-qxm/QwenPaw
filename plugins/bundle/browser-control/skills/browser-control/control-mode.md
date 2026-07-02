@@ -17,7 +17,10 @@
   `tab.type`, and related SDK calls).
 - If `tab.screenshot()` returns a file path, treat it as an evidence
   artifact only. Do not read or view that file through non-SDK tools.
-- If the bridge is disconnected, ask the user to enable the extension.
+- If a call raises `BridgeDisconnected`, run
+  `browser = await browser.connect()` once and retry from a fresh SDK
+  observation. If reconnecting still fails, ask the user to enable or refresh
+  the extension.
 
 ## Stay Silent By Default
 
