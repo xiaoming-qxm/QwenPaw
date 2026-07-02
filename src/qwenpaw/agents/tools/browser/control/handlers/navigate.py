@@ -146,7 +146,9 @@ class NavigateHandler:
 
 
 def _network_settled(metadata: dict[str, Any] | None) -> bool:
-    return bool(metadata.get("settled")) if isinstance(metadata, dict) else False
+    return (
+        bool(metadata.get("settled")) if isinstance(metadata, dict) else False
+    )
 
 
 async def _send_navigate(session: Any, url: str) -> None:

@@ -171,7 +171,11 @@ class Tab:
                 "y": y,
             },
         )
-        _sync_known_tab_url(self._state, self.id, str(payload.get("url") or ""))
+        _sync_known_tab_url(
+            self._state,
+            self.id,
+            str(payload.get("url") or ""),
+        )
         return ClickResult(
             ok=bool(payload.get("ok")),
             navigation_occurred=bool(payload.get("navigation_occurred")),
@@ -233,7 +237,11 @@ class Tab:
                 kwargs={"page_id": str(self.id), **kwargs},
             ),
         )
-        _sync_known_tab_url(self._state, self.id, str(payload.get("url") or ""))
+        _sync_known_tab_url(
+            self._state,
+            self.id,
+            str(payload.get("url") or ""),
+        )
         return _action_result(payload)
 
     async def hover(self, **kwargs: Any) -> ActionResult:
@@ -349,12 +357,14 @@ async def _action_with_bridge(
     state_obj = ControlState.from_dict(state)
     try:
         set_network_quiescence_wait(_network_quiescence_wait)
+        # pylint: disable=protected-access
         control_navigation._CONTROL_NAVIGATE_LOAD_TIMEOUT_SECONDS = (
             _CONTROL_NAVIGATE_LOAD_TIMEOUT_SECONDS
         )
         control_navigation._CONTROL_NAVIGATE_NETWORK_TIMEOUT_SECONDS = (
             _CONTROL_NAVIGATE_NETWORK_TIMEOUT_SECONDS
         )
+        # pylint: enable=protected-access
         if action_name not in ACTION_HANDLERS:
             return unsupported_control_action_response(action_name)
         return await dispatch(

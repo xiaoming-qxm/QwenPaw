@@ -509,7 +509,9 @@ def from_cdp_dom_tree(
     document_json: dict[str, Any],
 ) -> tuple[str, dict[str, dict]]:
     """Build a bounded read-only text snapshot from CDP DOM.getDocument."""
-    root = document_json.get("root") if isinstance(document_json, dict) else None
+    root = (
+        document_json.get("root") if isinstance(document_json, dict) else None
+    )
     if not isinstance(root, dict):
         return "(empty)", {}
 

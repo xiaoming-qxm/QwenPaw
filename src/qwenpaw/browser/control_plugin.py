@@ -45,9 +45,8 @@ def load_browser_control_submodule(name: str) -> ModuleType:
         package_name = f"{parent_name}.{part}"
         package = sys.modules.get(package_name)
         init_path = parent_dir / "__init__.py"
-        if (
-            package is None
-            or (init_path.exists() and not getattr(package, "__file__", None))
+        if package is None or (
+            init_path.exists() and not getattr(package, "__file__", None)
         ):
             if init_path.exists():
                 spec = importlib.util.spec_from_file_location(
@@ -56,8 +55,12 @@ def load_browser_control_submodule(name: str) -> ModuleType:
                     submodule_search_locations=[str(parent_dir)],
                 )
                 if spec is None or spec.loader is None:
+                    message = (
+                        "Could not load browser control package: "
+                        f"{package_name}"
+                    )
                     raise ImportError(
-                        f"Could not load browser control package: {package_name}"
+                        message,
                     )
                 package = importlib.util.module_from_spec(spec)
                 sys.modules[package_name] = package

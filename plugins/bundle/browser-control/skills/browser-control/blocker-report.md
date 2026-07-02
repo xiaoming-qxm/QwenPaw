@@ -19,8 +19,13 @@ unchanged badge is recoverable. Re-observe and try another visible route.
 - If blocked, keep the story incomplete and record `blocked_reason`.
 - Tell the user exactly what action is needed.
 
-## Mission Progress
+## Goal Completion Protocol
 
-- Set a story's `passes` field to true only from browser evidence.
-- Add discovered required stories when needed; do not delete existing ones.
-- Answer only after all stories pass or an explicit blocker appears.
+- Before calling `update_goal(status="complete")`:
+  1. Execute a final verification snapshot (`await tab.snapshot()`).
+  2. Confirm the objective is fully met from browser evidence.
+  3. If any aspect is uncertain, continue working -- do not mark complete.
+- If blocked by login, CAPTCHA, payment, or other safety/auth barriers:
+  - Call `update_goal(status="blocked")` immediately.
+  - Report the exact blocker and what user action is needed.
+- Do not mark near-matches or unverified results as complete.

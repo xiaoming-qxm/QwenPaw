@@ -82,7 +82,10 @@ def _is_bundled_builtin_plugin(plugin_dir: Path) -> bool:
     try:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        logger.warning("Failed to read bundled plugin manifest: %s", manifest_path)
+        logger.warning(
+            "Failed to read bundled plugin manifest: %s",
+            manifest_path,
+        )
         return False
     meta = manifest.get("meta")
     return isinstance(meta, dict) and meta.get("builtin") is True
@@ -349,9 +352,9 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             from ..agents.tools import discover_builtin_tool_funcs
 
             # pylint: disable-next=protected-access
-            workspace_registry._bootstrap_kwargs["builtin_tool_funcs"] = (
-                discover_builtin_tool_funcs()
-            )
+            workspace_registry._bootstrap_kwargs[
+                "builtin_tool_funcs"
+            ] = discover_builtin_tool_funcs()
             logger.debug("Built-in tool funcs collected")
         except Exception:
             logger.debug(
@@ -368,9 +371,9 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
             _api_action_command_specs.extend(collect_builtin_command_specs())
             # pylint: disable-next=protected-access
-            workspace_registry._bootstrap_kwargs["builtin_fallback_handler"] = (
-                get_skill_fallback_handler()
-            )
+            workspace_registry._bootstrap_kwargs[
+                "builtin_fallback_handler"
+            ] = get_skill_fallback_handler()
             logger.debug("Built-in slash commands collected")
         except Exception:
             logger.debug(
@@ -448,9 +451,9 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             from ..runtime.prompt_contributors import _ALL_CONTRIBUTORS
 
             # pylint: disable-next=protected-access
-            workspace_registry._bootstrap_kwargs["builtin_contributor_clses"] = (
-                _ALL_CONTRIBUTORS
-            )
+            workspace_registry._bootstrap_kwargs[
+                "builtin_contributor_clses"
+            ] = _ALL_CONTRIBUTORS
             logger.debug("Built-in prompt contributors collected")
         except Exception:
             logger.debug(
@@ -479,9 +482,9 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
         if _api_action_command_specs:
             # pylint: disable-next=protected-access
-            workspace_registry._bootstrap_kwargs["builtin_command_specs"] = (
-                _api_action_command_specs
-            )
+            workspace_registry._bootstrap_kwargs[
+                "builtin_command_specs"
+            ] = _api_action_command_specs
 
     except Exception:
         logger.debug(
@@ -522,7 +525,8 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
     fast_elapsed = time.time() - startup_start_time
     logger.info(
-        f"Server ready in {fast_elapsed:.3f}s " f"(agents loading in background)",
+        f"Server ready in {fast_elapsed:.3f}s "
+        f"(agents loading in background)",
     )
 
     # ================================================================
@@ -553,7 +557,9 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             plugin_loader.registry.set_plugin_http_app(app)
 
             config = load_config(get_config_path())
-            plugin_configs = config.plugins if hasattr(config, "plugins") else {}
+            plugin_configs = (
+                config.plugins if hasattr(config, "plugins") else {}
+            )
             logger.debug(
                 f"Loading plugins with {len(plugin_configs)} config(s)",
             )
@@ -678,7 +684,8 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
             startup_elapsed = time.time() - startup_start_time
             logger.info(
-                "Background startup completed in " f"{startup_elapsed:.3f} seconds",
+                "Background startup completed in "
+                f"{startup_elapsed:.3f} seconds",
             )
 
             # Print server URL again so it's visible after background logs

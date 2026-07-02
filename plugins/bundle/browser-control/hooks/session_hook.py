@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -22,18 +21,6 @@ logger = logging.getLogger(__name__)
 _SKILL_DIR = Path(__file__).resolve().parents[1] / "skills" / "browser-control"
 _SKILL_BODY_FILES = ("ops.md", "blocker-report.md", "control-mode.md")
 _SKILL_MARKER = '<skill name="browser-control">'
-_MISSION_START_MARKER = "Starting Mission Mode:"
-_MISSION_TASK_RE = re.compile(
-    r"Task \(saved in `[^`]+`\):\n> (?P<task>.*?)(?:\n\n|\Z)",
-    re.DOTALL,
-)
-_MISSION_LOOP_DIR_RE = re.compile(
-    r"\| Loop dir \(= work dir\) \| `(?P<path>[^`]+)` \|",
-)
-_MISSION_LOOP_CONFIG_RE = re.compile(
-    r"`(?P<path>[^`]+/loop_config\.json)`",
-)
-_MISSION_PRD_RE = re.compile(r"`(?P<path>[^`]+/prd\.json)`")
 _REAL_BROWSER_INTENT_TERMS = (
     "用我的浏览器",
     "使用我的浏览器",
@@ -75,34 +62,6 @@ _REAL_BROWSER_INTENT_TERMS = (
     "browser control",
     "浏览器控制",
 )
-_MISSION_WEB_INTENT_TERMS = (
-    "网上搜索",
-    "去网上搜索",
-    "网页搜索",
-    "搜索网页",
-    "打开网页",
-    "打开网站",
-    "访问网站",
-    "用浏览器",
-    "使用浏览器",
-    "通过浏览器",
-    "浏览器打开",
-    "浏览器访问",
-    "浏览器查看",
-    "打开购物车页面",
-    "淘宝购物车",
-    "search the web",
-    "search online",
-    "open the web page",
-    "open the website",
-    "visit the website",
-)
-_MISSION_WEB_INTENT_PATTERNS = (
-    re.compile(r"https?://", re.IGNORECASE),
-    re.compile(r"\bwww\.", re.IGNORECASE),
-    re.compile(r"\b[a-z0-9-]+(?:\.[a-z0-9-]+)+\b", re.IGNORECASE),
-    re.compile(r"打开.{0,40}页面"),
-)
 
 
 def _get_field(value: Any, name: str, default: Any = None) -> Any:
@@ -114,11 +73,6 @@ def _get_field(value: Any, name: str, default: Any = None) -> Any:
 def _message_content(message: Any) -> list[Any]:
     content = _get_field(message, "content", [])
     return content if isinstance(content, list) else []
-
-
-def _message_metadata(message: Any) -> dict[str, Any]:
-    metadata = _get_field(message, "metadata", {})
-    return metadata if isinstance(metadata, dict) else {}
 
 
 def _block_text(block: Any) -> str:
@@ -192,39 +146,26 @@ def _python_repl_code(block: Any) -> str:
 
 def _is_browser_repl_code(code: str) -> bool:
     compact = "".join(str(code or "").split())
-    return any("".join(term.split()) in compact for term in _BROWSER_REPL_TERMS)
+    return any(
+        "".join(term.split()) in compact for term in _BROWSER_REPL_TERMS
+    )
 
 
 def _is_browser_repl_release_code(code: str) -> bool:
     compact = "".join(str(code or "").split())
-    return any("".join(term.split()) in compact for term in _BROWSER_REPL_RELEASE_TERMS)
+    return any(
+        "".join(term.split()) in compact
+        for term in _BROWSER_REPL_RELEASE_TERMS
+    )
 
 
-def _is_non_mission_slash_command(text: str) -> bool:
+def _is_unrelated_slash_command(text: str) -> bool:
+    """Return True if text is a slash command unrelated to browser control."""
     stripped = text.strip()
     if not stripped.startswith("/"):
         return False
     command = stripped.split(None, 1)[0].casefold()
-    return command != "/mission"
-
-
-def _is_mission_command(text: str) -> bool:
-    stripped = text.strip()
-    return stripped.startswith("/") and (
-        stripped.split(None, 1)[0].casefold() == "/mission"
-    )
-
-
-def _has_mission_web_intent(text: str) -> bool:
-    folded = text.casefold()
-    compact = "".join(folded.split())
-    for term in _MISSION_WEB_INTENT_TERMS:
-        term_folded = term.casefold()
-        if term_folded in folded:
-            return True
-        if "".join(term_folded.split()) in compact:
-            return True
-    return any(pattern.search(folded) for pattern in _MISSION_WEB_INTENT_PATTERNS)
+    return command not in ("/goal",)
 
 
 def _has_real_browser_intent(text: str) -> bool:
@@ -236,8 +177,6 @@ def _has_real_browser_intent(text: str) -> bool:
             return True
         if "".join(term_folded.split()) in compact:
             return True
-    if _is_mission_command(text) and _has_mission_web_intent(text):
-        return True
     return False
 
 
@@ -283,7 +222,9 @@ def _extend_request_blocked_tools(request_context: dict[str, Any]) -> None:
             if value.strip()
         }
     elif isinstance(existing, (list, tuple, set, frozenset)):
-        blocked = {str(value).strip() for value in existing if str(value).strip()}
+        blocked = {
+            str(value).strip() for value in existing if str(value).strip()
+        }
     else:
         blocked = set()
     blocked.update(_BROWSER_CONTROL_BLOCKED_TOOLS)
@@ -323,112 +264,27 @@ def _set_text_block_value(block: Any, text: str) -> Any:
         return TextBlock(type="text", text=text)
 
 
-def _strip_mission_command(text: str) -> str:
-    stripped = text.strip()
-    if not _is_mission_command(stripped):
-        return stripped
-    return stripped.split(None, 1)[1].strip() if " " in stripped else ""
-
-
-def _is_mission_prompt(text: str) -> bool:
-    return (
-        _MISSION_START_MARKER in text
-        and "Task (saved in `" in text
-        and "Mission Mode" in text
-    )
-
-
-def _mission_task_text(prompt: str, requested_text: str) -> str:
-    match = _MISSION_TASK_RE.search(prompt)
-    if match:
-        return " ".join(match.group("task").split())
-    return _strip_mission_command(requested_text)
-
-
-def _mission_loop_dir(prompt: str) -> str:
-    match = _MISSION_LOOP_DIR_RE.search(prompt)
-    if match:
-        return match.group("path")
-    match = _MISSION_LOOP_CONFIG_RE.search(prompt)
-    if match:
-        return str(Path(match.group("path")).parent)
-    return ""
-
-
-def _browser_control_mission_prompt(prompt: str, requested_text: str) -> str:
-    task_text = _mission_task_text(prompt, requested_text)
-    loop_dir = _mission_loop_dir(prompt)
-    if not loop_dir:
-        return prompt
-
-    prd_path = f"{loop_dir}/prd.json"
-    loop_config_path = f"{loop_dir}/loop_config.json"
-    task_path = f"{loop_dir}/task.md"
-    return f"""Starting Browser Control Mission Mode.
-
-Task (saved in `{task_path}`):
-> {task_text}
-
-Loop dir (= work dir): `{loop_dir}`
-prd.json: `{prd_path}`
-loop_config.json: `{loop_config_path}`
-
-You are the browser operator for this mission, not a worker controller.
-The user's `/mission` command is approval to execute this browser task now.
-
-Required execution sequence:
-1. Write `{prd_path}` with the exact Mission schema:
-   `project`, `branchName`, `description`, and `userStories`.
-   Each story must include `id`, `title`, `description`,
-   `acceptanceCriteria`, `priority`, `passes`, and `notes`.
-   Build the PRD as a Python object and serialize it with
-   `json.dumps(prd, ensure_ascii=False, indent=2) + "\\n"` before writing.
-   Never hand-write raw JSON text; unescaped quotes in evidence notes make
-   `prd.json` invalid.
-   Use `write_file` for PRD writes; do not use shell commands to generate
-   or update mission files.
-2. Immediately read `{loop_config_path}`, set `current_phase` to
-   `"execution_confirmed"`, set `"browser_control_mission": true`,
-   and write it back.
-   Use `read_file` and `write_file` for loop_config updates.
-3. Continue in this same turn. Do NOT report the PRD or wait for
-   confirmation.
-4. Execute the stories yourself with `python_repl` and the Browser SDK.
-   Use observe-act-verify after every browser action.
-5. After each story succeeds, update `{prd_path}` and set that story's
-   `passes` to `true` with concise evidence in `notes`.
-6. When all stories pass, set `current_phase` in `{loop_config_path}` to
-   `"completed"` and report the result. If a login, CAPTCHA, payment,
-   identity check, or other safety blocker appears, stop and report it.
-
-Do NOT dispatch workers, call `spawn_subagent`, delegate to another agent,
-use `browser_use`, use `execute_shell_command`, use shell commands, use
-`curl`, or use HTTP/search APIs as substitutes for the real browser.
-The only browser-action entrypoint is `python_repl` with the preloaded
-Browser SDK (`browser.tabs`, `tab.navigate`, `tab.snapshot`, `tab.click`,
-`tab.type`, and related SDK calls).
-Do not call `desktop_screenshot`, `view_image`, or `view_video`; use
-`tab.screenshot()` for CDP-backed page screenshots when a visual fallback
-is needed.
-"""
-
-
-def _rewrite_browser_control_mission_prompt(
-    ctx: HookContext,
-    user_text: str,
-) -> str:
-    extras = getattr(ctx, "extras", {}) or {}
-    requested_text = str(extras.get("browser_control_request_text") or "")
-    if not requested_text:
-        requested_text = user_text
-    if not _is_mission_prompt(user_text):
-        return user_text
-    return _browser_control_mission_prompt(user_text, requested_text)
+def _rewrite_to_goal_command(ctx: HookContext, original_text: str) -> None:
+    """Rewrite user message to /goal to activate Goal mode loop."""
+    goal_text = f"/goal {original_text}"
+    msgs = getattr(ctx, "input_msgs", None)
+    if not msgs:
+        return
+    last = msgs[-1]
+    content = getattr(last, "content", None)
+    if isinstance(content, list):
+        for index, item in enumerate(content):
+            if _is_text_block(item):
+                content[index] = _set_text_block_value(item, goal_text)
+                return
+    elif isinstance(content, str):
+        last.content = goal_text
 
 
 def _append_browser_control_skill(ctx: HookContext, user_text: str) -> None:
-    user_text = _rewrite_browser_control_mission_prompt(ctx, user_text)
-    block = f"{_SKILL_MARKER}\n" f"{_browser_control_skill_body()}\n" "</skill>"
+    block = (
+        f"{_SKILL_MARKER}\n" f"{_browser_control_skill_body()}\n" "</skill>"
+    )
     merged = f"{user_text.rstrip()}\n\n{block}" if user_text else block
 
     msgs = getattr(ctx, "input_msgs", None) or []
@@ -473,13 +329,6 @@ def _session_has_active_browser_control(
 
     active = False
     for message in context:
-        metadata = _message_metadata(message)
-        if (
-            metadata.get("browser_mission") is True
-            and metadata.get("browser_mission_status") in {"complete", "completed"}
-        ):
-            active = False
-            continue
         for block in _message_content(message):
             code = _python_repl_code(block)
             if not code or not _is_browser_repl_code(code):
@@ -489,136 +338,18 @@ def _session_has_active_browser_control(
     return active
 
 
-def _ctx_text_values(ctx: HookContext) -> list[str]:
-    messages: list[Any] = []
-    input_msgs = getattr(ctx, "input_msgs", None)
-    if isinstance(input_msgs, list):
-        messages.extend(input_msgs)
-
-    state = _agent_state(getattr(ctx, "session_state", None))
-    context = state.get("context")
-    if isinstance(context, list):
-        messages.extend(context)
-
-    values: list[str] = []
-    for message in messages:
-        for block in _message_content(message):
-            if _is_text_block(block):
-                values.append(_text_block_value(block))
-    return values
-
-
-def _path_value(value: Any) -> Path | None:
-    text = str(value or "").strip()
-    if not text:
-        return None
-    return Path(text)
-
-
-def _browser_control_mission_file_paths(
-    ctx: HookContext,
-    texts: list[str],
-) -> tuple[Path, Path] | None:
-    extras = getattr(ctx, "extras", {}) or {}
-    prd_path = _path_value(extras.get("browser_control_mission_prd_path"))
-    loop_config_path = _path_value(
-        extras.get("browser_control_mission_loop_config_path"),
-    )
-    loop_dir = _path_value(extras.get("browser_control_mission_loop_dir"))
-
-    for text in texts:
-        if loop_dir is None:
-            loop_dir = _path_value(_mission_loop_dir(text))
-        if loop_config_path is None:
-            match = _MISSION_LOOP_CONFIG_RE.search(text)
-            if match:
-                loop_config_path = _path_value(match.group("path"))
-        if prd_path is None:
-            match = _MISSION_PRD_RE.search(text)
-            if match:
-                prd_path = _path_value(match.group("path"))
-
-    if loop_dir is not None:
-        prd_path = prd_path or loop_dir / "prd.json"
-        loop_config_path = loop_config_path or loop_dir / "loop_config.json"
-    if prd_path is not None and loop_config_path is None:
-        loop_config_path = prd_path.parent / "loop_config.json"
-    if loop_config_path is not None and prd_path is None:
-        prd_path = loop_config_path.parent / "prd.json"
-    if prd_path is None or loop_config_path is None:
-        return None
-    if prd_path.name != "prd.json" or loop_config_path.name != "loop_config.json":
-        return None
-    if prd_path.parent != loop_config_path.parent:
-        return None
-    return prd_path, loop_config_path
-
-
-def _read_json_object(path: Path) -> dict[str, Any] | None:
-    try:
-        parsed = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, TypeError, ValueError):
-        return None
-    return parsed if isinstance(parsed, dict) else None
-
-
-def _all_mission_stories_passed(prd_path: Path) -> bool:
-    prd = _read_json_object(prd_path)
-    if prd is None:
-        return False
-    stories = prd.get("userStories")
-    if not isinstance(stories, list) or not stories:
-        return False
-    return all(
-        isinstance(story, dict) and story.get("passes") is True for story in stories
-    )
-
-
-def _is_browser_control_mission_context(
-    ctx: HookContext,
-    texts: list[str],
-) -> bool:
-    extras = getattr(ctx, "extras", {}) or {}
-    if extras.get("browser_control_invocation"):
-        return True
-    if extras.get("browser_control_requested"):
-        return True
-    return any("Starting Browser Control Mission Mode." in text for text in texts)
-
-
-def _mark_browser_control_mission_completed_if_ready(
-    ctx: HookContext,
-) -> bool:
+def _should_cleanup_session(ctx: HookContext) -> bool:
+    """Determine if browser sessions should be fully cleaned up."""
     if getattr(ctx, "error", None) is not None:
-        return False
-    texts = _ctx_text_values(ctx)
-    if not _is_browser_control_mission_context(ctx, texts):
-        return False
-    paths = _browser_control_mission_file_paths(ctx, texts)
-    if paths is None:
-        return False
-    prd_path, loop_config_path = paths
-    if not prd_path.exists() or not loop_config_path.exists():
-        return False
-    if not _all_mission_stories_passed(prd_path):
-        return False
-
-    loop_config = _read_json_object(loop_config_path)
-    if loop_config is None:
-        return False
-    if loop_config.get("current_phase") != "completed":
-        loop_config["current_phase"] = "completed"
-        loop_config_path.write_text(
-            json.dumps(loop_config, ensure_ascii=False, indent=2) + "\n",
-            encoding="utf-8",
+        return True
+    session_state = getattr(ctx, "session_state", None)
+    if isinstance(session_state, dict):
+        goal_state = session_state.get("goal_completed") or session_state.get(
+            "goal_blocked",
         )
-
-    extras = getattr(ctx, "extras", None)
-    if extras is None:
-        extras = {}
-        setattr(ctx, "extras", extras)
-    extras["browser_control_mission_completed"] = True
-    return True
+        if goal_state:
+            return True
+    return False
 
 
 class BrowserControlContinuationHook(LifecycleHook):
@@ -641,10 +372,13 @@ class BrowserControlContinuationHook(LifecycleHook):
         real_browser_intent = bool(
             extras.get("browser_control_requested"),
         ) or _has_real_browser_intent(user_text)
-        if _is_non_mission_slash_command(user_text):
+        if _is_unrelated_slash_command(user_text):
             return HookResult()
-        if not real_browser_intent and not _session_has_active_browser_control(
-            ctx.session_state
+        if (
+            not real_browser_intent
+            and not _session_has_active_browser_control(
+                ctx.session_state,
+            )
         ):
             return HookResult()
 
@@ -662,10 +396,13 @@ class BrowserControlIntentHook(LifecycleHook):
 
     async def run(self, ctx: HookContext) -> HookResult:
         user_text = (_get_last_user_text(ctx.input_msgs) or "").strip()
-        if not user_text or _is_non_mission_slash_command(user_text):
+        if not user_text or _is_unrelated_slash_command(user_text):
             return HookResult()
-        if _has_real_browser_intent(user_text):
-            _mark_browser_control_requested(ctx, user_text)
+        if not _has_real_browser_intent(user_text):
+            return HookResult()
+        _mark_browser_control_requested(ctx, user_text)
+        if not user_text.startswith("/goal"):
+            _rewrite_to_goal_command(ctx, user_text)
         return HookResult()
 
 
@@ -688,26 +425,13 @@ class BrowserControlFinalizeHook(LifecycleHook):
                 exc_info=True,
             )
 
-        mission_completed = False
-        try:
-            mission_completed = _mark_browser_control_mission_completed_if_ready(ctx)
-        except Exception:
-            logger.warning(
-                "browser control mission finalization failed session=%s",
-                getattr(ctx, "session_id", ""),
-                exc_info=True,
-            )
-
+        should_cleanup = _should_cleanup_session(ctx)
         try:
             workspace_dir = getattr(ctx, "workspace_dir", None)
             workspace_id = Path(workspace_dir).name if workspace_dir else ""
             session_id = getattr(ctx, "session_id", "") or ""
             root_session_id = getattr(ctx, "root_session_id", "") or ""
-            extras = getattr(ctx, "extras", {}) or {}
-            mission_completed = mission_completed or bool(
-                extras.get("browser_control_mission_completed"),
-            )
-            if getattr(ctx, "error", None) is not None or mission_completed:
+            if should_cleanup:
                 from qwenpaw.agents.tools.browser_control import (
                     cleanup_control_sessions_for_request,
                 )

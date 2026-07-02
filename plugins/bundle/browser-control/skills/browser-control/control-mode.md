@@ -24,16 +24,15 @@
 - If the user asks to stop, cancel, end, or release Chrome control, call
   `await browser.close()` in `python_repl` immediately, then report release.
 
-## Mission Mode Auto-Execution
+## Goal Mode Execution
 
-When operating under `/mission` mode:
-- Browser-control missions override generic Mission Mode worker-dispatch
-  guidance. The current agent is the browser operator for these stories.
-- Do NOT dispatch workers, call `spawn_subagent`, delegate to other agents,
-  or ask a worker to operate the browser.
-- After writing prd.json, immediately update loop_config.json:
-  set `current_phase` to `"execution_confirmed"`.
-- Do NOT wait for user confirmation -- the user's /mission command
-  already expresses clear intent.
-- Continue executing stories using python_repl + Browser SDK only.
-- After completing each story, update prd.json to set its `passes` to `true`.
+When operating under Goal mode:
+- You are the browser operator. Execute the task directly with
+  `python_repl` and the Browser SDK.
+- Do NOT dispatch workers, call `spawn_subagent`, delegate to other
+  agents, or ask someone else to operate the browser.
+- Follow observe-act-verify for each action.
+- When the objective is fully achieved (verified from browser evidence),
+  call `update_goal(status="complete")`.
+- If blocked (auth, CAPTCHA, payment, etc.), call
+  `update_goal(status="blocked")` and report what the user needs to do.

@@ -326,7 +326,7 @@ class RemoteBridge:
                 params = message.get("params")
                 if isinstance(method, str) and isinstance(params, dict):
                     await self._dispatch_event(method, params)
-        except asyncio.CancelledError:
+        except asyncio.CancelledError:  # pylint: disable=try-except-raise
             raise
         except Exception as exc:
             self._fail_pending(

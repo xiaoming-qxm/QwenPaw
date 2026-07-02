@@ -135,7 +135,9 @@ class Tabs:
             try:
                 if int(tab.get("id") or tab.get("tabId") or -1) == tab_id:
                     return {
-                        "url": str(tab.get("url") or tab.get("pendingUrl") or ""),
+                        "url": str(
+                            tab.get("url") or tab.get("pendingUrl") or "",
+                        ),
                         "title": str(tab.get("title") or ""),
                     }
             except (TypeError, ValueError):

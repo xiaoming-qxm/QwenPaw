@@ -360,7 +360,10 @@ def _control_states_have_tabs(
     workspace_id: str = "",
 ) -> bool:
     for state in states:
-        if workspace_id and str(state.get("workspace_id") or "") != workspace_id:
+        if (
+            workspace_id
+            and str(state.get("workspace_id") or "") != workspace_id
+        ):
             continue
         control_tabs = state.get("control_tabs")
         if isinstance(control_tabs, dict) and control_tabs:
@@ -495,7 +498,10 @@ async def cleanup_control_sessions_for_request(
     )
 
     for state in states:
-        if workspace_id and str(state.get("workspace_id") or "") != workspace_id:
+        if (
+            workspace_id
+            and str(state.get("workspace_id") or "") != workspace_id
+        ):
             continue
         cleanup_result = await _control_cleanup_matching_tabs(
             state,
@@ -513,7 +519,10 @@ async def cleanup_control_sessions_for_request(
     if result["matched_tabs"] == 0 and not had_local_control_state:
         seen_tab_ids: set[int] = set()
         for state in states:
-            if workspace_id and str(state.get("workspace_id") or "") != workspace_id:
+            if (
+                workspace_id
+                and str(state.get("workspace_id") or "") != workspace_id
+            ):
                 continue
             cleanup_result = await _control_cleanup_extension_created_tabs(
                 state,
@@ -555,7 +564,10 @@ async def release_control_sessions_for_request(
     bridge = manager.get_connection()
 
     for state in list(_workspace_states.values()):
-        if workspace_id and str(state.get("workspace_id") or "") != workspace_id:
+        if (
+            workspace_id
+            and str(state.get("workspace_id") or "") != workspace_id
+        ):
             continue
         release_result = await _control_release_matching_tabs(
             state,

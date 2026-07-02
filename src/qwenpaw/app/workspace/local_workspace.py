@@ -113,8 +113,12 @@ class QwenPawLocalWorkspace(AgentScopeLocalWorkspace):
             )
             or {}
         )
-        denied = {n for n, c in cfg.items() if getattr(c, "enabled", True) is False}
-        explicit_enabled = {n for n, c in cfg.items() if getattr(c, "enabled", True)}
+        denied = {
+            n for n, c in cfg.items() if getattr(c, "enabled", True) is False
+        }
+        explicit_enabled = {
+            n for n, c in cfg.items() if getattr(c, "enabled", True)
+        }
 
         defaults = self._tool_registry.default_enabled_names()
         plugin_opt_ins = explicit_enabled - defaults

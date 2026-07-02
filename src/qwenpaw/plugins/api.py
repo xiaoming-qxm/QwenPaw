@@ -121,7 +121,8 @@ class PluginApi:
                 metadata=merged_metadata,
             )
             logger.info(
-                f"Plugin '{self.plugin_id}' registered provider " f"'{provider_id}'",
+                f"Plugin '{self.plugin_id}' registered provider "
+                f"'{provider_id}'",
             )
 
     def register_startup_hook(
@@ -465,7 +466,8 @@ class PluginApi:
                 if tool_name not in tools_module.__all__:
                     tools_module.__all__.append(tool_name)
                 logger.info(
-                    f"Registered tool function '{tool_name}' " f"to tools module",
+                    f"Registered tool function '{tool_name}' "
+                    f"to tools module",
                 )
 
                 from ..config.config import (
@@ -491,7 +493,9 @@ class PluginApi:
                     agent_config.tools = ToolsConfig()
 
                 if tool_name not in agent_config.tools.builtin_tools:
-                    agent_config.tools.builtin_tools[tool_name] = BuiltinToolConfig(
+                    agent_config.tools.builtin_tools[
+                        tool_name
+                    ] = BuiltinToolConfig(
                         name=tool_name,
                         enabled=enabled,
                         description=description,
@@ -1247,7 +1251,8 @@ class PluginApi:
             )
         except Exception as exc:
             logger.error(
-                f"Failed to install skills for plugin " f"'{self.plugin_id}': {exc}",
+                f"Failed to install skills for plugin "
+                f"'{self.plugin_id}': {exc}",
                 exc_info=True,
             )
 
@@ -1299,7 +1304,8 @@ class PluginApi:
                                 shutil.rmtree(skill_dir)
                             except OSError as rmtree_exc:
                                 logger.warning(
-                                    "Failed to fully remove skill " "directory %s: %s",
+                                    "Failed to fully remove skill "
+                                    "directory %s: %s",
                                     skill_dir,
                                     rmtree_exc,
                                 )

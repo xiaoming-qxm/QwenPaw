@@ -115,7 +115,9 @@ def _should_use_control_mode(
 
     control_action = action in _ACTION_HANDLERS
     browser_control_context = bool(
-        _browser_control_invocation_context().get("browser_control_invocation"),
+        _browser_control_invocation_context().get(
+            "browser_control_invocation",
+        ),
     )
     if browser_control_context and (
         control_action or action in _CONTROL_BLOCKED_LEGACY_ACTIONS
@@ -171,7 +173,8 @@ async def stop_browsers_for_workspace_dirs(
                 await _action_stop(state)
             except Exception as e:
                 logger.error(
-                    "Failed to stop browser for workspace %s before " "restore: %s",
+                    "Failed to stop browser for workspace %s before "
+                    "restore: %s",
                     state.get("workspace_id", "unknown"),
                     e,
                 )

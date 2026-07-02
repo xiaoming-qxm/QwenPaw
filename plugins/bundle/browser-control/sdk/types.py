@@ -33,7 +33,12 @@ class Snapshot(dict):
         return self.text
 
     def __getitem__(self, key: Any) -> Any:
-        if isinstance(key, str) and key in {"text", "refs", "items", "degraded"}:
+        if isinstance(key, str) and key in {
+            "text",
+            "refs",
+            "items",
+            "degraded",
+        }:
             return self._mapping_value(key)
         return self.text[key]
 
@@ -46,7 +51,8 @@ class Snapshot(dict):
         return {
             "text": self.text,
             "refs": {
-                ref: self._ref_payload(ref, info) for ref, info in self.refs.items()
+                ref: self._ref_payload(ref, info)
+                for ref, info in self.refs.items()
             },
             "items": self._items_payload(),
             "degraded": self.degraded,
@@ -57,12 +63,15 @@ class Snapshot(dict):
             return self._items_payload()
         if key == "refs":
             return {
-                ref: self._ref_payload(ref, info) for ref, info in self.refs.items()
+                ref: self._ref_payload(ref, info)
+                for ref, info in self.refs.items()
             }
         return getattr(self, key)
 
     def _items_payload(self) -> list[dict[str, Any]]:
-        return [self._ref_payload(ref, info) for ref, info in self.refs.items()]
+        return [
+            self._ref_payload(ref, info) for ref, info in self.refs.items()
+        ]
 
     @staticmethod
     def _ref_payload(ref: str, info: RefInfo) -> dict[str, Any]:

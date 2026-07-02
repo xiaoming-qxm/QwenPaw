@@ -301,7 +301,9 @@ async def _handle_sdk_ws_message(
         result = await _execute_sdk_bridge_method(
             bridge,
             str(message.get("method") or ""),
-            message.get("params") if isinstance(message.get("params"), dict) else {},
+            message.get("params")
+            if isinstance(message.get("params"), dict)
+            else {},
         )
         return {"jsonrpc": "2.0", "id": request_id, "result": result}
     except Exception as exc:  # noqa: BLE001
