@@ -75,6 +75,12 @@ next failure, change route: use a direct URL, a canonical list/detail/status
 page, a different visible control, or report a real blocker when page
 evidence requires it.
 
+When a control label is known but the snapshot is truncated or misses the
+control, try ``await tab.click(text="visible label")`` before CSS selectors
+or coordinates. The SDK text locator can find visible DOM text and scroll
+offscreen controls into view. Use selectors only when they are stable and
+semantic; avoid guessed class names.
+
 ``snapshot()`` takes no arguments; do not call ``snapshot(full=True)``.
 ``scroll`` only accepts keyword arguments such as ``direction`` and
 ``amount``. JavaScript evaluation is not available in control mode:

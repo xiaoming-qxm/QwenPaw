@@ -278,7 +278,14 @@ def _control_visible_text_locator_script(text: str) -> str:
     "[class*='drawer' i]"
   ].join(",");
 
-  const visibleRect = (element) => {{
+  const isOffscreen = (rect) => (
+    rect.bottom < 0 ||
+    rect.right < 0 ||
+    rect.top > window.innerHeight ||
+    rect.left > window.innerWidth
+  );
+
+  const elementRect = (element, requireViewport = false) => {{
     if (!element || element.nodeType !== Node.ELEMENT_NODE) return null;
     const style = window.getComputedStyle(element);
     if (
@@ -290,16 +297,13 @@ def _control_visible_text_locator_script(text: str) -> str:
     }}
     const rect = element.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) return null;
-    if (
-      rect.bottom < 0 ||
-      rect.right < 0 ||
-      rect.top > window.innerHeight ||
-      rect.left > window.innerWidth
-    ) {{
+    if (requireViewport && isOffscreen(rect)) {{
       return null;
     }}
     return rect;
   }};
+
+  const visibleRect = (element) => elementRect(element, true);
 
   const elementText = (element) => normalize([
     element.getAttribute("aria-label"),
@@ -328,11 +332,12 @@ def _control_visible_text_locator_script(text: str) -> str:
 
   const candidates = [];
   const addCandidate = (target, text, interactivePenalty) => {{
-    const rect = visibleRect(target);
+    const rect = elementRect(target, false);
     if (!rect) return;
     const targetText = elementText(target) || text;
     const exact = targetText === wanted || text === wanted ? 0 : 1;
     const area = Math.max(1, rect.width * rect.height);
+    const viewportPenalty = isOffscreen(rect) ? 5000000 : 0;
     const depth = (() => {{
       let value = 0;
       let current = target;
@@ -351,13 +356,13 @@ def _control_visible_text_locator_script(text: str) -> str:
         dialogPenalty +
         exact * 100000000 +
         interactivePenalty * 10000000 +
+        viewportPenalty +
         area -
         depth
       ),
-      x: rect.left + rect.width / 2,
-      y: rect.top + rect.height / 2,
       text: targetText || text,
       tagName: target.tagName,
+      target,
     }});
   }};
 
@@ -403,7 +408,9 @@ def _control_visible_text_locator_script(text: str) -> str:
         if (!text || !text.includes(wanted)) continue;
         const interactive = element.closest(interactiveSelector);
         const target = interactive || element;
-        if (!visibleRect(target) && !visibleRect(element)) continue;
+        if (!elementRect(target, false) && !elementRect(element, false)) {{
+          continue;
+        }}
         addCandidate(target, text, interactive ? 0 : 2);
         if (candidates.length) break;
       }}
@@ -414,9 +421,18 @@ def _control_visible_text_locator_script(text: str) -> str:
   candidates.sort((a, b) => a.score - b.score);
   const best = candidates[0];
   if (!best) return null;
+  if (!visibleRect(best.target)) {{
+    best.target.scrollIntoView({{
+      block: "center",
+      inline: "center",
+      behavior: "instant",
+    }});
+  }}
+  const rect = visibleRect(best.target) || elementRect(best.target, false);
+  if (!rect) return null;
   return {{
-    x: best.x,
-    y: best.y,
+    x: rect.left + rect.width / 2,
+    y: rect.top + rect.height / 2,
     text: String(best.text || "").slice(0, 200),
     tagName: best.tagName,
   }};

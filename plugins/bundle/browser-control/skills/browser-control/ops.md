@@ -31,8 +31,13 @@
   mutating action.
 - After each navigation, click, type, selection, reload, scroll, or wait,
   observe again before the next mutating action.
-- Prefer refs or selectors from the latest snapshot; use visible text only
-  as a fallback.
+- Prefer refs from the latest snapshot. If the target label is known but
+  missing because the snapshot is truncated, generic, or AX-only, use
+  `await tab.click(text="visible label")`; the SDK can locate visible DOM
+  text and scroll offscreen controls into view. Use CSS selectors only for
+  stable semantic selectors, not guessed class names.
+- Use coordinates only after SDK evidence identifies the target's position;
+  do not guess page coordinates from a generic layout.
 - If a click appears unchanged, re-observe or screenshot before trying
   another route.
 - Keep each `python_repl` browser cell narrow: perform at most one mutating

@@ -20,6 +20,7 @@ from qwenpaw.agents.tools.browser.control.interactions import (
     set_network_quiescence_wait,
     type_control,
 )
+from qwenpaw.agents.tools.browser.control.errors import TargetResolutionFailed
 from qwenpaw.agents.tools.browser.control.navigation import (
     _CONTROL_NAVIGATE_LOAD_TIMEOUT_SECONDS,
     _CONTROL_NAVIGATE_NETWORK_TIMEOUT_SECONDS,
@@ -157,20 +158,24 @@ class Tab:
     ) -> ClickResult:
         """Click a target in the tab."""
         self._guard.check_before_action("click")
-        payload = await _call_control(
-            click_control,
-            self._state,
-            holder_id=self._holder_id,
-            bridge=self._bridge,
-            kwargs={
-                "page_id": str(self.id),
-                "ref": ref or "",
-                "selector": selector or "",
-                "text": text or "",
-                "x": x,
-                "y": y,
-            },
-        )
+        try:
+            payload = await _call_control(
+                click_control,
+                self._state,
+                holder_id=self._holder_id,
+                bridge=self._bridge,
+                kwargs={
+                    "page_id": str(self.id),
+                    "ref": ref or "",
+                    "selector": selector or "",
+                    "text": text or "",
+                    "x": x,
+                    "y": y,
+                },
+            )
+        except TargetResolutionFailed:
+            self._guard.mark_observed()
+            raise
         _sync_known_tab_url(
             self._state,
             self.id,
@@ -194,19 +199,23 @@ class Tab:
     ) -> TypeResult:
         """Type text into the active or targeted element."""
         self._guard.check_before_action("type")
-        payload = await _call_control(
-            type_control,
-            self._state,
-            holder_id=self._holder_id,
-            bridge=self._bridge,
-            kwargs={
-                "page_id": str(self.id),
-                "text": text,
-                "ref": ref or "",
-                "selector": selector or "",
-                "submit": submit,
-            },
-        )
+        try:
+            payload = await _call_control(
+                type_control,
+                self._state,
+                holder_id=self._holder_id,
+                bridge=self._bridge,
+                kwargs={
+                    "page_id": str(self.id),
+                    "text": text,
+                    "ref": ref or "",
+                    "selector": selector or "",
+                    "submit": submit,
+                },
+            )
+        except TargetResolutionFailed:
+            self._guard.mark_observed()
+            raise
         return TypeResult(
             ok=bool(payload.get("ok")),
             needs_observation=bool(payload.get("needs_observation", True)),
@@ -228,15 +237,19 @@ class Tab:
     async def action(self, name: str, **kwargs: Any) -> ActionResult:
         """Run a generic Browser Control action."""
         self._guard.check_before_action(name)
-        payload = _chunk_payload(
-            await _action_with_bridge(
-                self._state,
-                str(name or "").strip().lower(),
-                holder_id=self._holder_id,
-                bridge=self._bridge,
-                kwargs={"page_id": str(self.id), **kwargs},
-            ),
-        )
+        try:
+            payload = _chunk_payload(
+                await _action_with_bridge(
+                    self._state,
+                    str(name or "").strip().lower(),
+                    holder_id=self._holder_id,
+                    bridge=self._bridge,
+                    kwargs={"page_id": str(self.id), **kwargs},
+                ),
+            )
+        except TargetResolutionFailed:
+            self._guard.mark_observed()
+            raise
         _sync_known_tab_url(
             self._state,
             self.id,
