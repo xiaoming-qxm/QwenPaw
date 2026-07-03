@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import time
 from pathlib import Path
 from typing import Any
 from typing import cast
@@ -19,6 +21,37 @@ from .routes import _expected_token, extension_install_status
 
 
 _manager: KernelManager | None = None
+_IDLE_TIMEOUT_SECONDS = 300  # 5 minutes
+
+
+class _IdleTracker:
+    """Auto-shutdown REPL after idle timeout."""
+
+    def __init__(self) -> None:
+        self._last_activity: float = 0
+        self._timer_task: asyncio.Task | None = None
+
+    def touch(self) -> None:
+        """Record activity timestamp and ensure timer is running."""
+        self._last_activity = time.monotonic()
+        if self._timer_task is None or self._timer_task.done():
+            try:
+                loop = asyncio.get_running_loop()
+                self._timer_task = loop.create_task(self._idle_loop())
+            except RuntimeError:
+                pass
+
+    async def _idle_loop(self) -> None:
+        """Periodically check idle state."""
+        while True:
+            await asyncio.sleep(60)
+            elapsed = time.monotonic() - self._last_activity
+            if elapsed >= _IDLE_TIMEOUT_SECONDS:
+                await shutdown_python_repl()
+                break
+
+
+_idle_tracker = _IdleTracker()
 
 
 def _get_manager() -> KernelManager:
@@ -37,6 +70,7 @@ def _get_manager() -> KernelManager:
 
 async def python_repl(code: str, timeout_ms: int = 30000) -> str | ToolChunk:
     """Execute Python code in the Browser Control REPL kernel."""
+    _idle_tracker.touch()
     manager = _get_manager()
     result = await manager.execute(
         code,

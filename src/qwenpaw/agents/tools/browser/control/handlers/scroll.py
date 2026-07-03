@@ -223,8 +223,12 @@ def _scroll_delta(direction: str, pixels: int) -> tuple[int, int]:
 def _scroll_tracking_ref(direction: str, amount: Any) -> str:
     raw_direction = str(direction or "down").strip().lower() or "down"
     if isinstance(amount, (int, float)):
-        raw_amount = f"{int(amount)}" if float(amount).is_integer() else str(
-            amount,
+        raw_amount = (
+            f"{int(amount)}"
+            if float(amount).is_integer()
+            else str(
+                amount,
+            )
         )
     else:
         raw_amount = str(amount or "page").strip().lower() or "page"

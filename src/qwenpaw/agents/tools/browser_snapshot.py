@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 """Build role snapshot + refs from Playwright aria_snapshot."""
+# pylint: disable=too-many-return-statements,too-many-branches
+# pylint: disable=too-many-statements
 
 import re
 from typing import Any

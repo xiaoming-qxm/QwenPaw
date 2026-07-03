@@ -26,6 +26,7 @@ from .observation import (
     _control_visual_coordinate_click_guard,
     _control_mark_observation_required,
 )
+from .ref_scope import _control_current_snapshot_ref
 from .session_manager import _control_get_session
 from .state import ControlState
 from .state_verification import _control_state_verification_payload
@@ -60,6 +61,7 @@ from .transitions import (
     _control_create_action_transition_waiter,
     _control_resolve_action_transition,
 )
+
 _network_quiescence_wait_impl: Any = _default_network_wait
 _network_quiescence_monitor_impl: Any = _default_network_monitor
 
@@ -326,11 +328,14 @@ async def click_control(
         bridge=bridge,
         request_context=request_context,
     )
-    ref = kwargs.get("ref") or ""
+    ref = str(kwargs.get("ref") or "").strip()
     selector = str(kwargs.get("selector") or "").strip()
     text = str(kwargs.get("text") or "").strip()
+    resolved_ref = _control_current_snapshot_ref(state, tab_id, ref)
     tracking_ref = str(ref or selector or text or "").strip()
-    target = state.refs.get(str(tab_id), {}).get(ref, {}) if ref else {}
+    target = (
+        state.refs.get(str(tab_id), {}).get(resolved_ref, {}) if ref else {}
+    )
     if not target and selector:
         target = await _control_selector_target(session, selector)
     if not target and text:
@@ -514,9 +519,12 @@ async def type_control(
         before_tabs=before_tabs,
         source_tab_id=tab_id,
     )
-    ref = kwargs.get("ref") or ""
+    ref = str(kwargs.get("ref") or "").strip()
     selector = str(kwargs.get("selector") or "").strip()
-    target = state.refs.get(str(tab_id), {}).get(ref, {}) if ref else {}
+    resolved_ref = _control_current_snapshot_ref(state, tab_id, ref)
+    target = (
+        state.refs.get(str(tab_id), {}).get(resolved_ref, {}) if ref else {}
+    )
     if not target and selector:
         target = await _control_selector_target(session, selector)
     if target:

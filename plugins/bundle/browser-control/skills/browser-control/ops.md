@@ -170,3 +170,33 @@ Use SDK methods such as `browser.tabs.list()`, `browser.tabs.list(all=True)`,
 `tab.select_option(...)`, `tab.page_info()`, `tab.evaluate(...)`,
 `tab.back()`, `tab.forward()`, `tab.reload()`, `tab.wait_for(...)`,
 `tab.close()`, `browser.tabs.close(tab_id)`, and `browser.close()`.
+
+## Task Discipline
+
+- Keep a compact checklist for the current browser task. After each browser
+  observation, mark completed subtasks and move to the next unmet subtask;
+  do not restart from the first subtask.
+- Before starting any new action, audit the latest page state. If it already
+  proves the requested outcome, advance to the next subtask instead of
+  repeating the same action.
+- State-based completion beats provenance. If a page already proves the
+  requested state, count that subtask as satisfied even if you are unsure
+  whether the current run created that state.
+- Keep SDK cells narrow: at most one mutating browser action per python_repl
+  call, optionally followed by a wait and a fresh observation.
+- Treat select-all, delete, and confirm as separate browser writes in
+  separate python_repl turns. If ObservationRequired appears, observe once,
+  then issue exactly one next state-changing action in a new turn.
+- If a plausible action target cannot be activated after one fresh
+  observation, choose a different real target or route. Do not loop on the
+  same action.
+
+## Completion Rules
+
+- Do NOT stop with a text-only response while a browser task is active.
+  Always verify the final state with a fresh `tab.snapshot()` before
+  reporting the result.
+- When the task is confirmed complete, call `await browser.close()` to
+  release resources, then report the result to the user.
+- If stuck after two fresh observations with no progress, change approach
+  or report a blocker. Do not loop on the same failing action.

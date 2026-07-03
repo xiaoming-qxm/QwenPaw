@@ -253,9 +253,7 @@ def _compact_cdp_event_payload(
 
 def _compact_tab_event(event: dict[str, Any]) -> dict[str, Any]:
     compact = {
-        key: value
-        for key, value in event.items()
-        if key in SDK_TAB_EVENT_KEYS
+        key: value for key, value in event.items() if key in SDK_TAB_EVENT_KEYS
     }
     change_info = event.get("changeInfo")
     if isinstance(change_info, dict):
@@ -385,8 +383,6 @@ class _AsyncSendLock:
     """Serialize Starlette websocket writes from requests and events."""
 
     def __init__(self) -> None:
-        import asyncio
-
         self._lock = asyncio.Lock()
 
     async def send_json(self, websocket: WebSocket, payload: dict) -> None:

@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Tab facade for the Browser Control SDK."""
+# pylint: disable=too-many-public-methods
 
 from __future__ import annotations
 

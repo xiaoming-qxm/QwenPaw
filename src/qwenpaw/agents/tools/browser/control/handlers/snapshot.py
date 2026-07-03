@@ -20,7 +20,10 @@ from ..snapshot_builder import (
     _control_visual_context_block,
     build_control_snapshot,
 )
-from ..ref_scope import _control_scope_snapshot_refs
+from ..ref_scope import (
+    _control_scope_snapshot_refs,
+    _control_snapshot_payload_refs,
+)
 from ..state import ControlState
 from ..state_verification import _control_state_verification_payload
 from ..tab_manager import _control_ensure_tab_available, _control_page_id
@@ -85,7 +88,7 @@ class SnapshotHandler:
             "mode": "control",
             "tab_id": tab_id,
             "snapshot": snapshot,
-            "refs": refs,
+            "refs": _control_snapshot_payload_refs(refs),
         }
         if ref_scope:
             payload["ref_scope"] = ref_scope

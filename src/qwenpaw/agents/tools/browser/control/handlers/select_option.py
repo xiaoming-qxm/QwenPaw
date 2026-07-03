@@ -9,6 +9,7 @@ from typing import Any
 
 from ..errors import BrowserControlRecoverableError, TargetResolutionFailed
 from ..navigation import _control_tab_id
+from ..ref_scope import _control_current_snapshot_ref
 from ..session_manager import _control_get_session
 from ..state import ControlState
 from ..tab_manager import _control_ensure_tab_available, _control_page_id
@@ -119,7 +120,10 @@ async def _select_node_params(
 ) -> dict[str, int]:
     ref = str(kwargs.get("ref") or "")
     selector = str(kwargs.get("selector") or "").strip()
-    target = state.refs.get(str(tab_id), {}).get(ref, {}) if ref else {}
+    resolved_ref = _control_current_snapshot_ref(state, tab_id, ref)
+    target = (
+        state.refs.get(str(tab_id), {}).get(resolved_ref, {}) if ref else {}
+    )
     if not target and selector:
         target = await _control_selector_target(session, selector)
     node_params = _control_node_params(target)

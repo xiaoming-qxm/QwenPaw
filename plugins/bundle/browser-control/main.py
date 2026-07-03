@@ -13,13 +13,9 @@ from qwenpaw.browser.connection_manager import (
     clear_bridge_connection_manager,
     set_bridge_connection_manager,
 )
+from qwenpaw.loop.gates.rubric import PrematureStopGate
 from qwenpaw.plugins.api import PluginApi
 
-from .hooks import (
-    BrowserControlContinuationHook,
-    BrowserControlFinalizeHook,
-    BrowserControlIntentHook,
-)
 from .nm_bridge import get_nm_bridge
 from .routes import (
     api_router,
@@ -35,6 +31,18 @@ from .tool_repl import (
 )
 
 logger = logging.getLogger(__name__)
+
+_BROWSER_PREMATURE_STOP_PROMPT = (
+    "You have used browser tools in this session but produced a "
+    "text-only response. If the browser task is not verified "
+    "complete, continue with a fresh tab.snapshot() to check "
+    "the current state. Do not stop without verifying."
+)
+
+_premature_stop_gate = PrematureStopGate(
+    prompt=_BROWSER_PREMATURE_STOP_PROMPT,
+    max_interventions=2,
+)
 
 
 def _load_manifest_module() -> ModuleType:
@@ -110,9 +118,6 @@ class BrowserControlPlugin:
             callback=self.startup,
             priority=110,
         )
-        api.register_runtime_hook(BrowserControlContinuationHook())
-        api.register_runtime_hook(BrowserControlIntentHook())
-        api.register_runtime_hook(BrowserControlFinalizeHook())
         api.register_tool(
             tool_name="python_repl",
             tool_func=python_repl,
@@ -131,6 +136,11 @@ class BrowserControlPlugin:
             skills_dir=Path(__file__).parent / "skills",
             enabled_by_default=True,
             channels=["all"],
+        )
+        api.register_agent_stop_handler(
+            handler=_premature_stop_gate.check,
+            priority=90,
+            name="browser_control_premature_stop",
         )
         logger.info("Browser Control plugin registered: %s", api.plugin_id)
 

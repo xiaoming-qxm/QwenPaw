@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Top-level Browser facade for the Browser Control SDK."""
+# pylint: disable=protected-access,redefined-builtin
 
 from __future__ import annotations
 
@@ -270,7 +271,11 @@ class Browser:
         self._state = state
 
     @classmethod
-    async def _connect_new(cls, ws_url: str = "", token: str = "") -> "Browser":
+    async def _connect_new(
+        cls,
+        ws_url: str = "",
+        token: str = "",
+    ) -> "Browser":
         """Create a Browser SDK entry point for REPL-generated code."""
         bridge = _current_bridge()
         if bridge is None and ws_url:

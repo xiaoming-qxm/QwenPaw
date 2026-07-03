@@ -145,8 +145,7 @@ _CONTROL_ACTION_SEMANTIC_LABELS = (
     (re.compile(r"delete|remove|clear|删除|清空", re.IGNORECASE), "delete"),
     (
         re.compile(
-            r"checkbox|check[-_\s]*box|item[-_\s]*(?:check|select)|"
-            r"勾选|选择",
+            r"checkbox|check[-_\s]*box|item[-_\s]*(?:check|select)|" r"勾选|选择",
             re.IGNORECASE,
         ),
         "checkbox",
@@ -537,10 +536,9 @@ async def _control_dom_action_target_lines(
         if not text:
             continue
         label = _dom_action_repeat_label(text)
-        if (
-            not (has_purchase_action and label == "cart")
-            and _action_label_over_repeat_limit(label, label_counts)
-        ):
+        if not (
+            has_purchase_action and label == "cart"
+        ) and _action_label_over_repeat_limit(label, label_counts):
             continue
         node_params = _dom_action_node_params(candidate)
         if node_params is None:
@@ -659,16 +657,22 @@ def _collect_dom_action_candidates(
                 or is_weak_add_cart
             )
         ):
-            key = (str(node.get("backendNodeId") or node.get("nodeId")), text)
-            if key not in seen_nodes and not _action_label_over_repeat_limit(
-                repeat_label,
-                label_counts,
+            node_key = (
+                str(node.get("backendNodeId") or node.get("nodeId")),
+                text,
+            )
+            if (
+                node_key not in seen_nodes
+                and not _action_label_over_repeat_limit(
+                    repeat_label,
+                    label_counts,
+                )
             ):
                 if repeat_label in _CONTROL_ACTION_REPEAT_LIMITED_LABELS:
                     label_counts[repeat_label] = (
                         label_counts.get(repeat_label, 0) + 1
                     )
-                seen_nodes.add(key)
+                seen_nodes.add(node_key)
                 order += 1
                 candidates.append(
                     {
@@ -689,7 +693,6 @@ def _collect_dom_action_candidates(
                         "order": order,
                     },
                 )
-
         for key in ("children", "shadowRoots", "pseudoElements"):
             children = node.get(key)
             if not isinstance(children, list):
@@ -912,16 +915,16 @@ def _dom_action_weak_add_cart_text(
         return ""
     if _CONTROL_ACTION_WEAK_ADD_CART_EXCLUSION_RE.search(source):
         return ""
-    for sibling in siblings[sibling_index + 1:sibling_index + 4]:
+    for sibling in siblings[sibling_index + 1 : sibling_index + 4]:
         if not isinstance(sibling, dict):
             continue
         sibling_attributes = _dom_action_attributes(
             sibling.get("attributes"),
         )
-        sibling_text = (
-            _dom_action_text(sibling, sibling_attributes)
-            or _dom_action_tree_semantic_text(sibling, sibling_attributes)
-        )
+        sibling_text = _dom_action_text(
+            sibling,
+            sibling_attributes,
+        ) or _dom_action_tree_semantic_text(sibling, sibling_attributes)
         if _dom_action_repeat_label(sibling_text) in {"buy", "checkout"}:
             return "add cart"
     return ""
@@ -934,10 +937,7 @@ def _dom_action_preferred_text(
     weak_add_cart_text: str,
 ) -> str:
     strong_text = visible_text or semantic_text
-    if (
-        weak_add_cart_text
-        and _dom_action_repeat_label(strong_text) == "cart"
-    ):
+    if weak_add_cart_text and _dom_action_repeat_label(strong_text) == "cart":
         return weak_add_cart_text
     return strong_text or weak_add_cart_text
 
@@ -945,8 +945,7 @@ def _dom_action_preferred_text(
 def _dom_action_is_cart_navigation(attributes: dict[str, str]) -> bool:
     href = str(attributes.get("href") or "").strip()
     return bool(
-        href
-        and re.search(r"(?:^|/|\\b)cart(?:\\b|[/?#._-])", href, re.I)
+        href and re.search(r"(?:^|/|\\b)cart(?:\\b|[/?#._-])", href, re.I),
     )
 
 

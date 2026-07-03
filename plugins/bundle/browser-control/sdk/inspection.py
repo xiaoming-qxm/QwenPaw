@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Read-only inspection helpers for Browser Control SDK tabs."""
+# pylint: disable=too-many-branches
 
 from __future__ import annotations
 
@@ -125,8 +126,7 @@ async def evaluate_expression(
             ok=False,
             type="error",
             exception_text=(
-                "Expression rejected by read-only policy: "
-                f"{policy_error}"
+                "Expression rejected by read-only policy: " f"{policy_error}"
             ),
         )
     payload = await send_tab_cdp(
