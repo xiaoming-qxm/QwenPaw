@@ -113,18 +113,6 @@ class BrowserExtractionResult:
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
-@dataclass(frozen=True)
-class LegacyBrowserUseResult:
-    """Structured result returned by the legacy browser_use shim."""
-
-    ok: bool
-    message: str = ""
-    sdk_gap: bool = False
-    action: str = ""
-    error: str = ""
-    data: dict[str, Any] = field(default_factory=dict)
-
-
 __all__ = [
     "BrowserActionRequest",
     "BrowserActionResult",
@@ -137,6 +125,5 @@ __all__ = [
     "BrowserScreenshot",
     "ConcreteBrowserContext",
     "ExtractionFormat",
-    "LegacyBrowserUseResult",
     "ResolvedBrowserContext",
 ]

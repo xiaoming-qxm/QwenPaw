@@ -46,6 +46,16 @@ class Browser:
             if hasattr(result, "__await__"):
                 await result
 
+    async def stop(self) -> None:
+        """Destroy the backend runtime for this browser session."""
+        stop = getattr(self.session, "stop", None)
+        if callable(stop):
+            result = stop()
+            if hasattr(result, "__await__"):
+                await result
+            return
+        await self.close()
+
     @classmethod
     async def connect(
         cls,

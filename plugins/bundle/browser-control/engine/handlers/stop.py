@@ -5,7 +5,7 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
-from qwenpaw.agents.tools.browser.runtime import _tool_response
+from qwenpaw.browser_sdk._runtime import _tool_response
 from ..state import ControlState
 from ..tab_manager import (
     _control_cleanup_extension_created_tabs,
@@ -56,7 +56,7 @@ class StopHandler:
         if result["matched_tabs"] == 0 and request_context.get(
             "browser_control_invocation",
         ):
-            prefix = f"browser_use:{state.workspace_id or 'default'}"
+            prefix = f"browser_sdk:{state.workspace_id or 'default'}"
             result = await _control_cleanup_matching_tabs(
                 state,
                 bridge=bridge,

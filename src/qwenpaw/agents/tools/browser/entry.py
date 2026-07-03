@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
-# mypy: ignore-errors
-"""Unified browser tool entry point."""
+"""Compatibility entry point for browser helper exports."""
 
 from .namespace import *  # noqa: F401,F403
 

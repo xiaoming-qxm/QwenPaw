@@ -7,7 +7,7 @@ import contextlib
 from collections.abc import Callable
 from typing import Any
 
-from qwenpaw.agents.tools.browser.runtime import (
+from qwenpaw.browser_sdk._runtime import (
     _get_workspace_state,
     _workspace_states,
     logger,

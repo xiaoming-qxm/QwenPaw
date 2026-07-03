@@ -8,7 +8,7 @@ from typing import Any
 
 from agentscope.tool import ToolChunk
 
-from qwenpaw.agents.tools.browser.runtime import _tool_response
+from qwenpaw.browser_sdk._runtime import _tool_response
 from ..navigation import _control_tab_id
 from ..observation import (
     _control_mark_observation_required,

@@ -10,7 +10,6 @@ from .browser import Browser, connect_browser
 from .actions import BrowserActions, TabActions
 from .isolated_backend import (
     IsolatedBrowserBackend,
-    LegacyBrowserUseAdapter,
     register_isolated_backend_once,
 )
 from .errors import (
@@ -35,7 +34,6 @@ from .types import (
     BrowserScreenshot,
     ConcreteBrowserContext,
     ExtractionFormat,
-    LegacyBrowserUseResult,
     ResolvedBrowserContext,
 )
 from .tab import Tab
@@ -68,8 +66,6 @@ __all__ = [
     "DefaultBrowserPolicy",
     "ExtractionFormat",
     "IsolatedBrowserBackend",
-    "LegacyBrowserUseAdapter",
-    "LegacyBrowserUseResult",
     "ResolvedBrowserContext",
     "Tab",
     "TabActions",

@@ -15,7 +15,7 @@ from typing import cast
 from agentscope.message import DataBlock, URLSource
 from pydantic import AnyUrl
 
-from qwenpaw.agents.tools.browser.runtime import logger
+from qwenpaw.browser_sdk._runtime import logger
 from .errors import BrowserControlRecoverableError
 
 _DOM_TREE_FALLBACK_DEPTH = 8
@@ -232,7 +232,7 @@ def _control_snapshot_hash(snapshot: str) -> str:
 def _control_refs_have_interactive_role(refs: dict[str, dict]) -> bool:
     if not refs:
         return False
-    from qwenpaw.agents.tools.browser_snapshot import INTERACTIVE_ROLES
+    from qwenpaw.browser_sdk._snapshot import INTERACTIVE_ROLES
 
     return any(
         str(ref.get("role") or "").lower() in INTERACTIVE_ROLES
@@ -281,7 +281,7 @@ async def build_control_snapshot(
     session: Any,
 ) -> tuple[str, dict[str, dict], bool]:
     """Build an accessibility snapshot with a bounded DOM fallback."""
-    from qwenpaw.agents.tools.browser_snapshot import from_cdp_ax_tree
+    from qwenpaw.browser_sdk._snapshot import from_cdp_ax_tree
 
     try:
         ax_tree = await _send_with_timeout(
@@ -361,7 +361,7 @@ async def _fallback_dom_snapshot(
         {"depth": int(depth), "pierce": True},
         timeout=_CONTROL_DOM_TREE_TIMEOUT_SECONDS,
     )
-    from qwenpaw.agents.tools.browser_snapshot import from_cdp_dom_tree
+    from qwenpaw.browser_sdk._snapshot import from_cdp_dom_tree
 
     tree_snapshot, tree_refs = from_cdp_dom_tree(dom_tree)
     if tree_snapshot != "(empty)":
@@ -381,7 +381,7 @@ async def _fallback_dom_snapshot(
         },
         timeout=_CONTROL_DOM_SNAPSHOT_TIMEOUT_SECONDS,
     )
-    from qwenpaw.agents.tools.browser_snapshot import from_cdp_dom_snapshot
+    from qwenpaw.browser_sdk._snapshot import from_cdp_dom_snapshot
 
     return from_cdp_dom_snapshot(dom_snapshot)
 

@@ -153,6 +153,35 @@ testpaths = [
     "tests",
 ]
 
+[tool.mypy]
+exclude = [
+    "src/qwenpaw/agents/skills/.*",
+]
+
+[[tool.mypy.overrides]]
+module = [
+    "qwenpaw.agents",
+    "qwenpaw.agents.*",
+    "qwenpaw.config",
+    "qwenpaw.config.*",
+]
+disable_error_code = [
+    "abstract",
+    "arg-type",
+    "assignment",
+    "attr-defined",
+    "call-arg",
+    "import-untyped",
+    "list-item",
+    "misc",
+    "override",
+    "return-value",
+    "truthy-function",
+    "union-attr",
+    "valid-type",
+    "var-annotated",
+]
+
 [tool.coverage.run]
 source = ["src/qwenpaw"]
 omit = [

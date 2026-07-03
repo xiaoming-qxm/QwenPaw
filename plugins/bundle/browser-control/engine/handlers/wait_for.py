@@ -8,7 +8,7 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
-from qwenpaw.agents.tools.browser.runtime import _tool_response
+from qwenpaw.browser_sdk._runtime import _tool_response
 from ..state import ControlState
 from .protocol import ActionMeta
 

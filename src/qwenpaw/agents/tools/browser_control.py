@@ -1,18 +1,14 @@
 # -*- coding: utf-8 -*-
-"""Backward-compatible shim for the browser tool package."""
+"""Browser Control lifecycle helpers."""
 
 from qwenpaw.browser.control_plugin import load_browser_control_submodule
-
-from .browser import entry as _entry
-
-browser_use = getattr(_entry, "browser_use")
-legacy_browser_use_bypass = getattr(_entry, "legacy_browser_use_bypass")
-stop_all_browsers = getattr(_entry, "stop_all_browsers")
-stop_browsers_for_workspace_dirs = getattr(
-    _entry,
-    "stop_browsers_for_workspace_dirs",
+from qwenpaw.browser_sdk._runtime import (
+    _get_workspace_state,
+    _tool_response,
+    _workspace_states,
+    stop_all_browsers,
+    stop_browsers_for_workspace_dirs,
 )
-_action_control = getattr(_entry, "_action_control")
 
 
 def _control_tab_manager():
@@ -31,9 +27,29 @@ async def release_control_sessions_for_request(**kwargs):
     return await manager.release_control_sessions_for_request(**kwargs)
 
 
+async def _action_control(*args, **kwargs):
+    """Dispatch a Browser Control action through the plugin engine."""
+    from qwenpaw.browser.control_engine import get_control_engine
+
+    if args and isinstance(args[0], dict):
+        state = args[0]
+        action = str(args[1] if len(args) > 1 else kwargs.pop("action", ""))
+    else:
+        action = str(args[0] if args else kwargs.pop("action", ""))
+        workspace_id = str(kwargs.pop("workspace_id", "") or "default")
+        state = _get_workspace_state(workspace_id)
+    engine = get_control_engine()
+    if engine is None:
+        engine_impl = load_browser_control_submodule("engine_impl")
+        engine = engine_impl.ControlEngineImpl()
+    return await engine.dispatch(state, action, **kwargs)
+
+
 __all__ = [
-    "browser_use",
-    "legacy_browser_use_bypass",
+    "_action_control",
+    "_get_workspace_state",
+    "_tool_response",
+    "_workspace_states",
     "cleanup_control_sessions_for_request",
     "release_control_sessions_for_request",
     "stop_all_browsers",

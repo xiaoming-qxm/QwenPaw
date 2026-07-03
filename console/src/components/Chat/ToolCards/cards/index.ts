@@ -93,7 +93,7 @@ export const BUILTIN_CARD_REGISTRY: Record<string, BuiltinCardComponent> = {
   send_file_to_user: SendFileCard,
 
   // Browser
-  browser_use: BrowserUseCard,
+  browser: BrowserUseCard,
   browser_navigate: BrowserUseCard,
   navigate: BrowserUseCard,
   browser_click: BrowserUseCard,

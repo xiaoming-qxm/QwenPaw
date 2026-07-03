@@ -531,7 +531,7 @@ def _playwright_chromium_bundle_present() -> bool:
 
 
 def browser_automation_notes(cfg: Config | None) -> list[str]:
-    """``browser_use`` / Playwright readiness (read-only hints).
+    """Browser SDK / Playwright readiness (read-only hints).
 
     Does not start a browser; only checks imports, typical paths, and
     workspace ``browser/user_data`` layout.
@@ -540,7 +540,7 @@ def browser_automation_notes(cfg: Config | None) -> list[str]:
 
     if importlib.util.find_spec("playwright") is None:
         notes.append(
-            "browser_use needs the Playwright Python package — install with: "
+            "Browser SDK needs the Playwright Python package — install with: "
             f"'{sys.executable}' -m pip install playwright && "
             f"'{sys.executable}' -m playwright install chromium",
         )
@@ -562,14 +562,14 @@ def browser_automation_notes(cfg: Config | None) -> list[str]:
     )
     if use_default in ("0", "false", "no", "off"):
         notes.append(
-            "QWENPAW_BROWSER_USE_DEFAULT is off — browser_use will not "
+            "QWENPAW_BROWSER_USE_DEFAULT is off — Browser SDK will not "
             "prefer the OS default Chrome/Edge path; bundled or scanned "
             "Chromium paths apply.",
         )
 
     if is_running_in_container():
         notes.append(
-            "Container environment: use headless browser_use unless you add "
+            "Container environment: use headless Browser SDK unless you add "
             "display forwarding; install Chromium in the image or run "
             f"'{sys.executable}' -m playwright install chromium "
             "if launches fail.",
@@ -588,7 +588,7 @@ def browser_automation_notes(cfg: Config | None) -> list[str]:
     elif not exe and sys.platform == "darwin":
         if not _playwright_chromium_bundle_present():
             notes.append(
-                "No Chrome/Edge/Chromium on PATH — browser_use falls back to "
+                "No Chrome/Edge/Chromium on PATH — Browser SDK falls back to "
                 "WebKit on macOS; install Chrome/Edge or run "
                 f"'{sys.executable}' -m playwright install chromium' if you "
                 "need Chromium specifically.",
@@ -597,7 +597,7 @@ def browser_automation_notes(cfg: Config | None) -> list[str]:
     if sys.platform.startswith("linux") and not is_running_in_container():
         if not (os.environ.get("DISPLAY") or "").strip():
             notes.append(
-                "DISPLAY is unset — headed browser_use (visible window) "
+                "DISPLAY is unset — headed Browser SDK (visible window) "
                 "may fail; use the default headless mode or configure "
                 "X11/Wayland.",
             )
@@ -610,7 +610,7 @@ def browser_automation_notes(cfg: Config | None) -> list[str]:
                 if ud.is_file():
                     notes.append(
                         f"{agent_id}: {ud} exists as a file — remove or "
-                        "rename it so browser_use can use a profile "
+                        "rename it so Browser SDK can use a profile "
                         "directory.",
                     )
                 elif ud.is_dir() and not os.access(ud, os.W_OK):

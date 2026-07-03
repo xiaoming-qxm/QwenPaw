@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from qwenpaw.agents.tools.browser.runtime import logger
+from qwenpaw.browser_sdk._runtime import logger
 from .errors import RECOVERABLE_CONTROL_EXCEPTIONS
 
 
@@ -22,8 +22,8 @@ def _control_holder_id(
         or "",
     ).strip()
     if session_scope:
-        return f"browser_use:{workspace_id}:{session_scope}"
-    return f"browser_use:{workspace_id}"
+        return f"browser_sdk:{workspace_id}:{session_scope}"
+    return f"browser_sdk:{workspace_id}"
 
 
 def _control_sessions(state: dict) -> dict[str, Any]:

@@ -13,7 +13,7 @@ from typing import Any
 
 from agentscope.tool import ToolChunk
 
-from qwenpaw.agents.tools.browser.runtime import _tool_response
+from qwenpaw.browser_sdk._runtime import _tool_response
 from .tab_manager import _CONTROL_MUTATING_ACTIONS
 
 _ASYNC_WRITE_GUARD_TEMPLATE_PATH = (

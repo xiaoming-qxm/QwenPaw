@@ -93,7 +93,7 @@ def _response_payload(response: ToolResponse) -> dict[str, Any]:
     """Convert a ToolResponse into a normalised result dict.
 
     The ``ok`` field is inferred from:
-    - JSON responses with an explicit ``ok`` field (``browser_use``,
+    - JSON responses with an explicit ``ok`` field (``browser``,
       ``desktop_screenshot``).
     - Plain-text error prefixes (``Error:``, ``Command failed``).
     - Exceptions caught in ``_call_tool`` (already ``ok: False``).

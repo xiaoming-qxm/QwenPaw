@@ -89,7 +89,7 @@ function formatBrowserResult(result: unknown): string {
 
 /** All tool names this card handles */
 export const BROWSER_TOOL_NAMES = new Set([
-  "browser_use",
+  "browser",
   "browser_navigate",
   "navigate",
   "browser_click",
@@ -107,7 +107,7 @@ function getBrowserTitle(
   params: Record<string, unknown>,
   t: TFunction,
 ): string {
-  if (name === "browser_use") {
+  if (name === "browser") {
     const action = (params.action || "") as string;
     const url = (params.url || "") as string;
     const selector = (params.selector || params.element || "") as string;

@@ -7,7 +7,7 @@ import asyncio
 import json
 from typing import Any
 
-from qwenpaw.agents.tools.browser.runtime import (
+from qwenpaw.browser_sdk._runtime import (
     _CONTROL_BANNER_TIMEOUT_SECONDS,
     _tool_response,
     logger,

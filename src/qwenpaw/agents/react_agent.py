@@ -632,7 +632,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
         ):
             mgr.hooks.register(name, default_timeout_secs=20.0)
         mgr.hooks.register(
-            "browser_use",
+            "browser",
             max_internal_timeout_secs=3600.0,
         )
 

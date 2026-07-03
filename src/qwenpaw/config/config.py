@@ -1735,8 +1735,8 @@ def _default_builtin_tools() -> Dict[str, BuiltinToolConfig]:
             description="Find files matching a glob pattern",
             icon="📁",
         ),
-        "browser_use": BuiltinToolConfig(
-            name="browser_use",
+        "browser": BuiltinToolConfig(
+            name="browser",
             enabled=True,
             description="Browser automation and web interaction",
             icon="🌐",
@@ -1893,6 +1893,16 @@ class ToolsConfig(BaseModel):
         icon value.
         """
         defaults = _default_builtin_tools()
+        legacy_browser = self.builtin_tools.pop("browser_use", None)
+        if legacy_browser is not None:
+            migrated = legacy_browser.model_copy(
+                update={
+                    "name": "browser",
+                    "icon": legacy_browser.icon or defaults["browser"].icon,
+                },
+            )
+            if "browser" not in self.builtin_tools:
+                self.builtin_tools["browser"] = migrated
         for name, tc in defaults.items():
             if name not in self.builtin_tools:
                 self.builtin_tools[name] = tc

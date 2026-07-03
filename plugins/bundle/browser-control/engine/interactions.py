@@ -8,7 +8,7 @@ import json
 from typing import Any
 from urllib.parse import urljoin
 
-from qwenpaw.agents.tools.browser.runtime import _tool_response
+from qwenpaw.browser_sdk._runtime import _tool_response
 from .navigation import (
     _control_remember_approved_navigation,
     _control_sync_session_navigation_scope,
