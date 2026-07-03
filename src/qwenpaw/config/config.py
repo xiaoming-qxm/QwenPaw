@@ -1903,6 +1903,12 @@ class ToolsConfig(BaseModel):
             )
             if "browser" not in self.builtin_tools:
                 self.builtin_tools["browser"] = migrated
+            else:
+                browser_tool = self.builtin_tools["browser"]
+                browser_tool.config = {
+                    **legacy_browser.config,
+                    **browser_tool.config,
+                }
         for name, tc in defaults.items():
             if name not in self.builtin_tools:
                 self.builtin_tools[name] = tc

@@ -6,15 +6,15 @@ Generated: 2026-07-03
 
 | Scenario | Expected route | Policy checkpoints | Forbidden calls | Evidence |
 | --- | --- | --- | --- | --- |
-| Public web research: search for Loop Engineering blog | `browser(code=...)` -> `Browser.connect(context="auto")` -> `isolated.playwright_legacy` | Fresh observation after open before extraction | `DesktopScreenShot`, `ViewVideo`, visible legacy browser entry | Functional contract `test_public_research_flow_routes_to_isolated_backend` |
+| Public web research: search for Loop Engineering blog | `browser(code=...)` -> `Browser.connect(context="auto")` -> `isolated.playwright` | Fresh observation after open before extraction | `DesktopScreenShot`, `ViewVideo`, visible legacy browser entry | Functional contract `test_public_research_flow_routes_to_isolated_backend` |
 | User login-state shopping/cart task | `browser(code=...)` -> `Browser.connect(context="user")` -> `user.chrome_extension` | Sensitive action policy can block clear/delete/purchase-like actions before bridge mutation | Isolated fallback when bridge is missing | Functional contract `test_user_state_flow_routes_to_chrome_extension_policy_gate` |
-| Disconnected bridge for user-state task | `browser(code=...)` or legacy control shim -> `context="user"` -> explicit block | Context acquisition must fail before browser mutation | Isolated fallback | Functional contract `test_disconnected_bridge_flow_blocks_explicitly` |
-| Unsupported legacy action | Explicit direct `browser_use` call -> SDK shim -> fail closed | No legacy dispatcher fallback | Old dispatcher execution after SDK gap | Functional contract `test_unsupported_legacy_action_reports_sdk_gap` |
-| Default tool surface | Runtime tool registry -> workspace list | N/A | `browser_use`, `python_repl`, `python_repl_reset` as normal entries | Functional contract `test_default_runtime_tool_surface_has_single_browser_entry` |
+| Disconnected bridge for user-state task | `browser(code=...)` -> `context="user"` -> explicit block | Context acquisition must fail before browser mutation | Isolated fallback | Functional contract `test_disconnected_bridge_flow_blocks_explicitly` |
+| Removed legacy browser action surface | Legacy browser action imports/tool lookup -> absent | No legacy dispatcher fallback | Old dispatcher execution after SDK gap | Legacy browser removal contract |
+| Default tool surface | Runtime tool registry -> workspace list | N/A | legacy browser tool, `python_repl`, `python_repl_reset` as normal entries | Functional contract `test_default_runtime_tool_surface_has_single_browser_entry` |
 
 ## Expected Backend Routes
 
-- Public web route: `context="auto"` with no user-state requirement selects `isolated.playwright_legacy` when available.
+- Public web route: `context="auto"` with no user-state requirement selects `isolated.playwright` when available.
 - User-state route: `context="user"` or `context="auto"` with `requires_user_state=True` selects `user.chrome_extension`.
 - Disconnected user bridge route: `user.chrome_extension` returns `browser_bridge_disconnected`; no Playwright fallback is allowed.
 
@@ -27,7 +27,7 @@ Generated: 2026-07-03
 
 - `DesktopScreenShot`
 - `ViewVideo`
-- model-visible `browser_use`
+- model-visible legacy browser tool
 - model-visible `python_repl`
 - direct Playwright routing for user-state tasks
 - repeated no-progress browser loops without a fresh observation
@@ -35,10 +35,10 @@ Generated: 2026-07-03
 ## Log Patterns That Prove Success
 
 - `browser` is the only default browser automation tool in the runtime surface.
-- Public research flow logs include `browser(code=...)`, `Browser.connect(context="auto")`, and `isolated.playwright_legacy`.
+- Public research flow logs include `browser(code=...)`, `Browser.connect(context="auto")`, and `isolated.playwright`.
 - User-state flow logs include `browser(code=...)`, `Browser.connect(context="user")`, `user.chrome_extension`, and policy evaluation before sensitive mutations.
 - Disconnected bridge logs include `browser_bridge_disconnected`.
-- Unsupported legacy calls include `sdk_gap=true`.
+- Legacy browser action imports/tool lookup are absent; there is no SDK shim.
 
 ## Observed Automated Evidence
 
@@ -60,7 +60,7 @@ Generated: 2026-07-03
 | Acceptance item | Status | Evidence / reason |
 | --- | --- | --- |
 | Latest backend/frontend deployment smoke | PASS | `uv run qwenpaw app --port 8099` reached Ready at `http://127.0.0.1:8099` from latest local code and stopped cleanly. |
-| Public research prompt: Loop Engineering blog | ROUTE-PASS / LIVE-CONTENT BLOCKED | A direct `browser(code=...)` acceptance probe printed `backend=isolated.playwright_legacy`, then timed out after 30000 ms while opening/snapshotting the public search page. Route arbitration is correct; live content extraction is blocked by the current browser/network environment and is not marked PASS. |
+| Public research prompt: Loop Engineering blog | ROUTE-PASS / LIVE-CONTENT BLOCKED | A direct `browser(code=...)` acceptance probe printed `backend=isolated.playwright`, then timed out after 30000 ms while opening/snapshotting the public search page. Route arbitration is correct; live content extraction is blocked by the current browser/network environment and is not marked PASS. |
 | User-state Taobao cart prompt | SAFETY-GATED BLOCKED | With Browser Control user backend registered, a safe non-mutating `Browser.connect(context="user")` probe returned `browser_bridge_disconnected` with `backend_id=user.chrome_extension`. No isolated fallback occurred. Real Taobao cart mutation is blocked until the Chrome Extension bridge is live and the user explicitly approves account-mutating actions. |
 | Destructive/purchase-like Taobao actions | SAFETY-GATED BLOCKED unless explicitly approved | Add-to-cart, clear cart, checkout-like, delete, submit, purchase, or account-changing actions require approval before bridge mutation. |
 

@@ -64,6 +64,7 @@ class IsolatedBrowserBackend:
     ) -> "IsolatedBrowserSession":
         runtime = await self._manager.connect(session_id, context)
         return IsolatedBrowserSession(
+            manager=self._manager,
             runtime=runtime,
             session_id=session_id,
             context=context,
@@ -78,10 +79,12 @@ class IsolatedBrowserSession:
     def __init__(
         self,
         *,
+        manager: Any,
         runtime: Any,
         session_id: str,
         context: ResolvedBrowserContext,
     ) -> None:
+        self._manager = manager
         self.runtime = runtime
         self.session_id = session_id
         self.context = context
@@ -94,6 +97,16 @@ class IsolatedBrowserSession:
                 await result
 
     async def stop(self) -> None:
+        manager_stop = getattr(self._manager, "stop_session", None) or getattr(
+            self._manager,
+            "stop",
+            None,
+        )
+        if callable(manager_stop):
+            result = manager_stop(self.session_id)
+            if hasattr(result, "__await__"):
+                await result
+            return
         stop = getattr(self.runtime, "stop", None)
         if callable(stop):
             result = stop()
@@ -183,6 +196,10 @@ class IsolatedPlaywrightRuntimeManager:
         runtime = self._runtimes.pop(key, None)
         if runtime is not None:
             await runtime.stop()
+
+    async def stop_session(self, session_id: str) -> None:
+        """Stop and forget one isolated browser runtime session."""
+        await self.stop(session_id)
 
     async def stop_all(self) -> None:
         runtimes = list(self._runtimes.values())
