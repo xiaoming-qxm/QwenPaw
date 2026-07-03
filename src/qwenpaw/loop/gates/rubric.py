@@ -168,6 +168,8 @@ class PrematureStopGate(StopGate):
         self._prompt = prompt
         self._max = max_interventions
         self._count = 0
+        self._ever_used_tools = False
+        self._last_iteration: int | None = None
 
     @property
     def name(self) -> str:
@@ -183,12 +185,20 @@ class PrematureStopGate(StopGate):
     ) -> Optional[StopHandlerResult]:
         """Return CONTINUE up to max_interventions.
 
-        Only triggers on text-only responses
-        (no tool calls).
+        Only triggers on text-only responses after the
+        current loop cycle has used tools.
         """
+        self._reset_cycle_if_needed(ctx)
         if isinstance(ctx, dict) and ctx.get(
             "has_tool_calls",
         ):
+            self._ever_used_tools = True
+            return None
+
+        # Pure dialogue can legitimately finish with text immediately.
+        # Only intervene after the agent has already used tools in this
+        # loop cycle and then tries to stop with a text-only response.
+        if not self._ever_used_tools:
             return None
 
         if self._count >= self._max:
@@ -206,6 +216,21 @@ class PrematureStopGate(StopGate):
             continuation_message=self._prompt,
             reason="premature text-only stop re-prompt",
         )
+
+    def _reset_cycle_if_needed(self, ctx: Any) -> None:
+        """Reset per-cycle state when the ReAct iteration counter restarts."""
+        if not isinstance(ctx, dict):
+            return
+        iteration = ctx.get("iteration")
+        if not isinstance(iteration, int):
+            return
+        if (
+            self._last_iteration is not None
+            and iteration <= self._last_iteration
+        ):
+            self._count = 0
+            self._ever_used_tools = False
+        self._last_iteration = iteration
 
 
 __all__ = [
