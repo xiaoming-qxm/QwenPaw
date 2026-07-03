@@ -210,7 +210,10 @@ def _workspace_dir_key(workspace_dir: str | Path) -> str:
         return str(path.absolute())
 
 
-@tool_descriptor(async_execution=True)
+@tool_descriptor(
+    async_execution=True,
+    superseded_by_skills=("browser-control",),
+)
 async def browser_use(  # pylint: disable=R0911,R0912
     action: str,
     mode: str = "",

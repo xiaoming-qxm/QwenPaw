@@ -107,6 +107,9 @@ class ToolRegistry:
           still pass.
         * ``requires_*`` gates apply as documented on
           :class:`ToolDescriptor`.
+        * ``metadata["superseded_by_skills"]`` allows newer skill-backed
+          capabilities to hide older overlapping tools while that skill is
+          active.
         """
         modes = set(active_modes or ())
         skills = set(active_skills or ())
@@ -122,6 +125,11 @@ class ToolRegistry:
                 continue
             if not d.enabled_by_default and d.name not in allow:
                 continue
+            superseded_by = _metadata_name_set(
+                d.metadata.get("superseded_by_skills"),
+            )
+            if superseded_by and superseded_by & skills:
+                continue
             if d.requires_modes and not set(d.requires_modes) & modes:
                 continue
             if d.requires_skills and not set(d.requires_skills) & skills:
@@ -132,6 +140,19 @@ class ToolRegistry:
                 continue
             out.append(d)
         return out
+
+
+def _metadata_name_set(value: Any) -> set[str]:
+    """Normalize a descriptor metadata value into a set of names."""
+    if value is None:
+        return set()
+    if isinstance(value, str):
+        values = [value]
+    elif isinstance(value, (list, tuple, set, frozenset)):
+        values = list(value)
+    else:
+        return set()
+    return {str(item).strip() for item in values if str(item).strip()}
 
 
 # ---------------------------------------------------------------------------
