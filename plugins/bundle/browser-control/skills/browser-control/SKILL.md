@@ -38,8 +38,12 @@ Common hot-path calls are:
 tab = await browser.tabs.open("https://example.com")
 
 # Inspect tabs only when the task asks for existing browser state.
-owned_tabs = await browser.tabs.list()
-all_tabs = await browser.tabs.list(all=True)
+owned_infos = await browser.tabs.list()
+all_infos = await browser.tabs.list(all=True)
+for info in all_infos:
+    print(info.id, info.title, info.url)
+
+# Attach to an existing tab only when you need Tab methods.
 tab = await browser.tabs.get(tab_id)
 
 # Observe, read metadata, and close.

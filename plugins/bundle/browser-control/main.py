@@ -48,7 +48,8 @@ _PYTHON_REPL_DESCRIPTION = (
     "Execute Python code in the Browser Control SDK REPL. The REPL "
     "preloads `browser`; do not import `browser_sdk`. Use "
     "`await browser.tabs.open(...)`, "
-    "`await browser.tabs.list(all=True)`, `await tab.snapshot()`, and "
+    "`await browser.tabs.list(all=True)` for TabInfo records "
+    "(.id/.title/.url), `await tab.snapshot()`, and "
     "`print(await browser.documentation())` for API help."
 )
 

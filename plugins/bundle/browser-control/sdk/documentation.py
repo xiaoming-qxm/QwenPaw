@@ -106,7 +106,10 @@ managed by this SDK session. Use browser.tabs.list(all=True) only when the
 user asks you to use, inspect, clean up, or continue existing browser state.
 This includes continuing work in a specific existing tab. Do not mine
 unrelated old tabs to answer a new task unless the user asked to reuse
-existing browser state.
+existing browser state. browser.tabs.list(...) returns TabInfo records; read
+their .id, .title, and .url fields directly. Call browser.tabs.get(tab_id)
+only when you need an attached Tab object with methods such as snapshot(),
+page_info(), click(), or close().
 
 Keep each browser cell narrow: perform at most one mutating browser action,
 optionally wait for it to settle, then take a fresh snapshot. Do not batch
