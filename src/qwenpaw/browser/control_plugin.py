@@ -78,13 +78,24 @@ def load_browser_control_submodule(name: str) -> ModuleType:
     if cached is not None:
         return cached
 
-    module_path = parent_dir / f"{parts[-1]}.py"
-    spec = importlib.util.spec_from_file_location(module_name, module_path)
+    final_name = parts[-1]
+    package_dir = parent_dir / final_name
+    init_path = package_dir / "__init__.py"
+    is_package = init_path.exists()
+    if is_package:
+        spec = importlib.util.spec_from_file_location(
+            module_name,
+            init_path,
+            submodule_search_locations=[str(package_dir)],
+        )
+    else:
+        module_path = parent_dir / f"{final_name}.py"
+        spec = importlib.util.spec_from_file_location(module_name, module_path)
     if spec is None or spec.loader is None:
         raise ImportError(f"Could not load browser control module: {name}")
 
     module = importlib.util.module_from_spec(spec)
-    module.__package__ = parent_name
+    module.__package__ = module_name if is_package else parent_name
     sys.modules[module_name] = module
     spec.loader.exec_module(module)
     return module

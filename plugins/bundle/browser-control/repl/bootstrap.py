@@ -3,26 +3,28 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 
 def get_bootstrap_code(ws_url: str, token: str, sdk_path: str) -> str:
     """Return Python code that preloads the Browser SDK into a kernel."""
-    sdk_dir = Path(sdk_path)
+    _ = sdk_path  # Kept for KernelManager API compatibility.
     return f"""
 import sys
-from pathlib import Path
+from qwenpaw.browser.control_plugin import load_browser_control_submodule
 
-_qwenpaw_browser_sdk_path = Path({str(sdk_dir)!r})
-_qwenpaw_browser_sdk_parent = _qwenpaw_browser_sdk_path.parent
-for _qwenpaw_browser_path in (
-    str(_qwenpaw_browser_sdk_parent),
-    str(_qwenpaw_browser_sdk_path),
-):
-    if _qwenpaw_browser_path not in sys.path:
-        sys.path.insert(0, _qwenpaw_browser_path)
-
-from sdk import Browser
+_qwenpaw_browser_sdk = load_browser_control_submodule("sdk")
+_qwenpaw_browser_sdk_prefix = _qwenpaw_browser_sdk.__name__
+for _qwenpaw_browser_name, _qwenpaw_browser_module in list(sys.modules.items()):
+    if (
+        _qwenpaw_browser_name == _qwenpaw_browser_sdk_prefix
+        or _qwenpaw_browser_name.startswith(_qwenpaw_browser_sdk_prefix + ".")
+    ):
+        _qwenpaw_browser_alias = _qwenpaw_browser_name.replace(
+            _qwenpaw_browser_sdk_prefix,
+            "sdk",
+            1,
+        )
+        sys.modules.setdefault(_qwenpaw_browser_alias, _qwenpaw_browser_module)
+Browser = _qwenpaw_browser_sdk.Browser
 
 browser = await Browser.connect(
     ws_url={ws_url!r},

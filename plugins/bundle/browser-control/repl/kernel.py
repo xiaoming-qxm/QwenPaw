@@ -15,7 +15,6 @@ import traceback
 from types import CodeType
 from typing import Any
 
-
 _RETURN_NAME = "__qwenpaw_repl_return__"
 _MAX_PREBOUND_REF_INDEX = 10000
 
@@ -98,7 +97,11 @@ class ReplKernel:
         context = dict(request_context or {})
         self._namespace["__qwenpaw_request_context__"] = context
         try:
-            from sdk import browser as browser_module
+            from qwenpaw.browser.control_plugin import (
+                load_browser_control_submodule,
+            )
+
+            browser_module = load_browser_control_submodule("sdk.browser")
 
             set_request_context = getattr(
                 browser_module,
@@ -165,9 +168,12 @@ def _execution_result(
 
 def _drain_artifacts() -> list[dict[str, Any]]:
     try:
-        from sdk.artifacts import drain_artifacts
+        from qwenpaw.browser.control_plugin import (
+            load_browser_control_submodule,
+        )
 
-        return drain_artifacts()
+        artifacts = load_browser_control_submodule("sdk.artifacts")
+        return artifacts.drain_artifacts()
     except Exception:  # noqa: BLE001
         return []
 
