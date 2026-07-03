@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Read-only inspection helpers for Browser Control SDK tabs."""
+
 # pylint: disable=too-many-branches
 
 from __future__ import annotations
@@ -301,6 +302,9 @@ def contains_assignment_or_update(cleaned: str) -> bool:
             if prev_char in {"=", "!", "<", ">"} or next_char == "=":
                 index += 1
                 continue
+            if _is_variable_declaration_initializer(cleaned, index):
+                index += 1
+                continue
             return True
         if (
             char in {"+", "-", "*", "/", "%", "|", "&", "^"}
@@ -313,6 +317,23 @@ def contains_assignment_or_update(cleaned: str) -> bool:
             return True
         index += 1
     return False
+
+
+def _is_variable_declaration_initializer(cleaned: str, index: int) -> bool:
+    """Return true for the ``=`` in simple ``const name =`` declarations."""
+
+    statement_start = max(
+        cleaned.rfind(";", 0, index),
+        cleaned.rfind("{", 0, index),
+        cleaned.rfind("\n", 0, index),
+    )
+    segment = cleaned[statement_start + 1 : index].strip()
+    return bool(
+        re.fullmatch(
+            r"(?:const|let|var)\s+[A-Za-z_$][\w$]*",
+            segment,
+        ),
+    )
 
 
 def runtime_value(payload: dict[str, Any]) -> Any:
