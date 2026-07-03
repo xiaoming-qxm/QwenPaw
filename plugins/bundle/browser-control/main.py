@@ -44,6 +44,14 @@ _BROWSER_PREMATURE_STOP_PROMPT = (
     "the current state. Do not stop without verifying."
 )
 
+_PYTHON_REPL_DESCRIPTION = (
+    "Execute Python code in the Browser Control SDK REPL. The REPL "
+    "preloads `browser`; do not import `browser_sdk`. Use "
+    "`await browser.tabs.open(...)`, "
+    "`await browser.tabs.list(all=True)`, `await tab.snapshot()`, and "
+    "`print(await browser.documentation())` for API help."
+)
+
 _premature_stop_gate = PrematureStopGate(
     prompt=_BROWSER_PREMATURE_STOP_PROMPT,
     max_interventions=2,
@@ -131,7 +139,7 @@ class BrowserControlPlugin:
         api.register_tool(
             tool_name="python_repl",
             tool_func=python_repl,
-            description=("Execute Python code in a Browser Control SDK REPL"),
+            description=_PYTHON_REPL_DESCRIPTION,
             icon="🐍",
             enabled=True,
         )
