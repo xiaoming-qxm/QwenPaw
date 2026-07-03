@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
 """Browser Control session lifecycle helpers."""
+# pylint: disable=too-many-branches
 
 from __future__ import annotations
 
 from typing import Any
 
-from ..runtime import logger
+from qwenpaw.agents.tools.browser.runtime import logger
 from .errors import RECOVERABLE_CONTROL_EXCEPTIONS
 
 
@@ -289,7 +290,7 @@ async def _control_get_session(
     bridge: Any,
     request_context: dict[str, Any] | None = None,
 ) -> Any:
-    from qwenpaw.agents.tools.cdp_relay import CDPRelaySession
+    from .cdp_relay import CDPRelaySession
 
     sessions = _control_sessions(state)
     key = str(tab_id)

@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Typed state container for Browser Control runtime data."""
+# pylint: disable=too-many-branches
 
 from __future__ import annotations
 

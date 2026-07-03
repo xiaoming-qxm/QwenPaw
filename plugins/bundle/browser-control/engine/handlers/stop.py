@@ -5,7 +5,7 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
-from ...runtime import _tool_response
+from qwenpaw.agents.tools.browser.runtime import _tool_response
 from ..state import ControlState
 from ..tab_manager import (
     _control_cleanup_extension_created_tabs,

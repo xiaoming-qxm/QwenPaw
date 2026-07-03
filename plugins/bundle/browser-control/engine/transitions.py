@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Browser Control action transition helpers."""
+# pylint: disable=consider-using-in,too-many-return-statements
 
 from __future__ import annotations
 
@@ -9,7 +10,10 @@ import time
 from collections.abc import Callable
 from typing import Any
 
-from ..runtime import _CONTROL_BANNER_TIMEOUT_SECONDS, logger
+from qwenpaw.agents.tools.browser.runtime import (
+    _CONTROL_BANNER_TIMEOUT_SECONDS,
+    logger,
+)
 from .errors import RECOVERABLE_CONTROL_EXCEPTIONS
 from .inference import _control_jsonrpc_error
 from .navigation import (

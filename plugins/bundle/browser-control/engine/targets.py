@@ -8,8 +8,11 @@ import json
 import re
 from typing import Any
 
-from ..runtime import _CONTROL_BANNER_TIMEOUT_SECONDS, logger
-from ...cdp_relay import CDPRelayError
+from qwenpaw.agents.tools.browser.runtime import (
+    _CONTROL_BANNER_TIMEOUT_SECONDS,
+    logger,
+)
+from .cdp_relay import CDPRelayError
 from .errors import RECOVERABLE_CONTROL_EXCEPTIONS, TargetResolutionFailed
 from .navigation import _control_same_site, _control_url_key
 

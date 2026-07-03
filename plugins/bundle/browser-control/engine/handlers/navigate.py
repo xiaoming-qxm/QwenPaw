@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=protected-access
 from __future__ import annotations
 
 import asyncio
@@ -6,7 +7,7 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
-from ...runtime import _tool_response
+from qwenpaw.agents.tools.browser.runtime import _tool_response
 from ..claiming import claim_control_tab
 from ..errors import BrowserControlRecoverableError, NavigationFailed
 from .. import navigation as control_navigation

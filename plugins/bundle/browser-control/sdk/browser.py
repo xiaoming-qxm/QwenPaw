@@ -544,7 +544,7 @@ def _created_tab_id(response: dict[str, Any]) -> int:
 
 def _remember_approved_navigation(state: dict[str, Any], url: str) -> None:
     try:
-        from qwenpaw.agents.tools.browser.control.navigation import (
+        from ..engine.navigation import (
             _control_remember_approved_navigation,
         )
     except (ImportError, RuntimeError):
@@ -554,7 +554,7 @@ def _remember_approved_navigation(state: dict[str, Any], url: str) -> None:
 
 def _url_key(url: str) -> str:
     try:
-        from qwenpaw.agents.tools.browser.control.navigation import (
+        from ..engine.navigation import (
             _control_url_key,
         )
     except (ImportError, RuntimeError):

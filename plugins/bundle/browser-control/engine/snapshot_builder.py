@@ -1,5 +1,8 @@
 # -*- coding: utf-8 -*-
 """Structured snapshot builders for Browser Control."""
+# pylint: disable=implicit-str-concat,too-many-boolean-expressions
+# pylint: disable=too-many-branches,too-many-return-statements
+# pylint: disable=too-many-statements
 
 from __future__ import annotations
 
@@ -12,7 +15,7 @@ from typing import cast
 from agentscope.message import DataBlock, URLSource
 from pydantic import AnyUrl
 
-from ..runtime import logger
+from qwenpaw.agents.tools.browser.runtime import logger
 from .errors import BrowserControlRecoverableError
 
 _DOM_TREE_FALLBACK_DEPTH = 8

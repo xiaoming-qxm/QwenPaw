@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Browser Control observe-before-act helpers."""
+# pylint: disable=too-many-return-statements
 
 from __future__ import annotations
 
@@ -12,7 +13,7 @@ from typing import Any
 
 from agentscope.tool import ToolChunk
 
-from ..runtime import _tool_response
+from qwenpaw.agents.tools.browser.runtime import _tool_response
 from .tab_manager import _CONTROL_MUTATING_ACTIONS
 
 _ASYNC_WRITE_GUARD_TEMPLATE_PATH = (

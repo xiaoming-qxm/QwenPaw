@@ -28,8 +28,9 @@ from .backends.playwright_basic import *
 from .backends.playwright_advanced import *
 from .backends.playwright_interactions import *
 from .backends.playwright_batch_cdp import *
-from .backends.control import _ACTION_HANDLERS, _action_control
-from .control.session_manager import _control_request_context
+from qwenpaw.browser.control_engine import get_control_engine
+
+from .backends.control import _action_control
 
 
 def _coordinate_validation_error(name: str, value: Any) -> ToolChunk:
@@ -90,13 +91,16 @@ _CONTROL_BLOCKED_LEGACY_ACTIONS = {
 
 
 def _has_control_session(state: dict[str, Any]) -> bool:
-    tabs = state.get("control_tabs")
-    return isinstance(tabs, dict) and bool(tabs)
+    engine = get_control_engine()
+    return bool(engine and engine.has_active_session(state))
 
 
 def _browser_control_invocation_context() -> dict[str, Any]:
+    engine = get_control_engine()
+    if engine is None:
+        return {}
     try:
-        return _control_request_context()
+        return engine.get_request_context()
     except Exception:  # pragma: no cover - defensive boundary
         return {}
 
@@ -107,13 +111,17 @@ def _should_use_control_mode(
     action: str,
     state: dict[str, Any],
 ) -> bool:
+    engine = get_control_engine()
+    if engine is None:
+        return False
+
     requested_mode = str(mode or "").strip().lower()
     if requested_mode == "control":
         return True
     if requested_mode:
         return False
 
-    control_action = action in _ACTION_HANDLERS
+    control_action = action in engine.supported_actions()
     browser_control_context = bool(
         _browser_control_invocation_context().get(
             "browser_control_invocation",

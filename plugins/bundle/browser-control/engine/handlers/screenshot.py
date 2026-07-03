@@ -12,8 +12,11 @@ from typing import Any
 
 from agentscope.message import DataBlock
 
-from ...runtime import _resolve_output_path, _tool_response
-from ...runtime import _tool_response_with_blocks
+from qwenpaw.agents.tools.browser.runtime import (
+    _resolve_output_path,
+    _tool_response,
+)
+from qwenpaw.agents.tools.browser.runtime import _tool_response_with_blocks
 from ..navigation import _control_tab_id
 from ..coordinates import (
     _control_coordinate_space_payload,

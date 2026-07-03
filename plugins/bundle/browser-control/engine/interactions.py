@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Interaction helpers for Browser Control typed handlers."""
+# pylint: disable=too-many-branches,too-many-statements
 
 from __future__ import annotations
 
@@ -7,7 +8,7 @@ import json
 from typing import Any
 from urllib.parse import urljoin
 
-from ..runtime import _tool_response
+from qwenpaw.agents.tools.browser.runtime import _tool_response
 from .navigation import (
     _control_remember_approved_navigation,
     _control_sync_session_navigation_scope,

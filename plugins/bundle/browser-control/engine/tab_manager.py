@@ -7,7 +7,11 @@ import contextlib
 from collections.abc import Callable
 from typing import Any
 
-from ..runtime import _get_workspace_state, _workspace_states, logger
+from qwenpaw.agents.tools.browser.runtime import (
+    _get_workspace_state,
+    _workspace_states,
+    logger,
+)
 from .errors import (
     NMBridgeDisconnectedError,
     RECOVERABLE_CONTROL_EXCEPTIONS,

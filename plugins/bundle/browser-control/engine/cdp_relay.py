@@ -50,7 +50,7 @@ class CDPRelaySession:
         self.approval_callback = approval_callback
         self.request_context = request_context or {}
         if permissions_config is None:
-            from .cdp_permissions import load_permissions
+            from qwenpaw.agents.tools.cdp_permissions import load_permissions
 
             permissions_config = load_permissions()
         self.permissions_config = permissions_config
@@ -179,7 +179,7 @@ class CDPRelaySession:
         method: str,
         params: dict[str, Any],
     ) -> None:
-        from .cdp_permissions import check_permission
+        from qwenpaw.agents.tools.cdp_permissions import check_permission
 
         target_url = str(params.get("url") or "") or None
         result = check_permission(method, target_url, self.permissions_config)

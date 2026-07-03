@@ -12,7 +12,7 @@ from typing import cast
 from agentscope.message import DataBlock, TextBlock, ToolResultState, URLSource
 from agentscope.tool import ToolChunk
 from pydantic import AnyUrl
-from qwenpaw.agents.tools.browser.control.session_manager import (
+from .engine.session_manager import (
     _control_request_context,
 )
 

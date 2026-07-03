@@ -7,7 +7,11 @@ import asyncio
 import json
 from typing import Any
 
-from ..runtime import _CONTROL_BANNER_TIMEOUT_SECONDS, _tool_response, logger
+from qwenpaw.agents.tools.browser.runtime import (
+    _CONTROL_BANNER_TIMEOUT_SECONDS,
+    _tool_response,
+    logger,
+)
 from .errors import BrowserControlRecoverableError, CDPCommandFailed
 from .inference import (
     _control_claim_success_payload,

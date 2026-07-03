@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from ...runtime import _tool_response
+from qwenpaw.agents.tools.browser.runtime import _tool_response
 
 
 def unsupported_control_action_response(action: str):

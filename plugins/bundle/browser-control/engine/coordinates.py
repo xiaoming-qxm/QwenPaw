@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Coordinate helpers for Browser Control viewport actions."""
+# pylint: disable=consider-using-f-string
 
 from __future__ import annotations
 

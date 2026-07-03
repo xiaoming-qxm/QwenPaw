@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Reload Browser Control action handler."""
+# pylint: disable=protected-access
 
 from __future__ import annotations
 

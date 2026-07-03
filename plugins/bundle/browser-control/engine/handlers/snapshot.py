@@ -5,7 +5,10 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
-from ...runtime import _tool_response, _tool_response_with_blocks
+from qwenpaw.agents.tools.browser.runtime import (
+    _tool_response,
+    _tool_response_with_blocks,
+)
 from ..network_settle import _network_quiescence_wait
 from ..observation import (
     _click_effect_check,

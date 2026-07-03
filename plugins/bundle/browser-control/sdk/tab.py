@@ -8,40 +8,38 @@ import json
 from pathlib import Path
 from typing import Any, cast
 
-from qwenpaw.agents.tools.browser.control import (
-    navigation as control_navigation,
-)
-from qwenpaw.agents.tools.browser.control.handlers import ACTION_HANDLERS
-from qwenpaw.agents.tools.browser.control.handlers.dispatcher import dispatch
-from qwenpaw.agents.tools.browser.control.handlers.misc import (
+from ..engine import navigation as control_navigation
+from ..engine.handlers import ACTION_HANDLERS
+from ..engine.handlers.dispatcher import dispatch
+from ..engine.handlers.misc import (
     unsupported_control_action_response,
 )
-from qwenpaw.agents.tools.browser.control.interactions import (
+from ..engine.interactions import (
     click_control,
     press_key_control,
     set_network_quiescence_wait,
     type_control,
 )
-from qwenpaw.agents.tools.browser.control.errors import TargetResolutionFailed
-from qwenpaw.agents.tools.browser.control.navigation import (
+from ..engine.errors import TargetResolutionFailed
+from ..engine.navigation import (
     _CONTROL_NAVIGATE_LOAD_TIMEOUT_SECONDS,
     _CONTROL_NAVIGATE_NETWORK_TIMEOUT_SECONDS,
     _control_remember_approved_navigation,
     _control_url_key,
 )
-from qwenpaw.agents.tools.browser.control.network_settle import (
+from ..engine.network_settle import (
     _network_quiescence_wait,
 )
-from qwenpaw.agents.tools.browser.control.ref_scope import (
+from ..engine.ref_scope import (
     _control_scope_snapshot_refs,
 )
-from qwenpaw.agents.tools.browser.control.session_manager import (
+from ..engine.session_manager import (
     _control_get_session,
 )
-from qwenpaw.agents.tools.browser.control.snapshot_builder import (
+from ..engine.snapshot_builder import (
     build_control_snapshot,
 )
-from qwenpaw.agents.tools.browser.control.state import ControlState
+from ..engine.state import ControlState
 
 from .errors import BrowserSDKError
 from .guard import ObserveActGuard

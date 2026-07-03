@@ -13,9 +13,14 @@ from qwenpaw.browser.connection_manager import (
     clear_bridge_connection_manager,
     set_bridge_connection_manager,
 )
+from qwenpaw.browser.control_engine import (
+    clear_control_engine,
+    register_control_engine,
+)
 from qwenpaw.loop.gates.rubric import PrematureStopGate
 from qwenpaw.plugins.api import PluginApi
 
+from .engine_impl import ControlEngineImpl
 from .nm_bridge import get_nm_bridge
 from .routes import (
     api_router,
@@ -71,6 +76,7 @@ class BrowserControlPlugin:
 
     def __init__(self) -> None:
         self._manifest_entry_id: str | None = None
+        self._control_engine: ControlEngineImpl | None = None
 
     def startup(self) -> None:
         """Register this QwenPaw backend in the browser-bridge manifest."""
@@ -92,11 +98,15 @@ class BrowserControlPlugin:
             self._manifest_entry_id = None
         await shutdown_nm_bridge()
         clear_bridge_connection_manager()
+        clear_control_engine()
+        self._control_engine = None
 
     def register(self, api: PluginApi) -> None:
         """Register backend integrations."""
         bridge = get_nm_bridge()
         set_bridge_connection_manager(bridge)
+        self._control_engine = ControlEngineImpl()
+        register_control_engine(self._control_engine)
         api.register_http_router(
             api_router,
             prefix="/extension",

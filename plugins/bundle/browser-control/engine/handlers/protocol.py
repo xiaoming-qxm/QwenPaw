@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Browser Control action handler protocol."""
+# pylint: disable=unnecessary-ellipsis
 
 from __future__ import annotations
 
