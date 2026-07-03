@@ -57,7 +57,12 @@ class IsolatedBrowserSession:
 
     backend_id = BACKEND_ID
 
-    def __init__(self, *, adapter: Any, context: ResolvedBrowserContext) -> None:
+    def __init__(
+        self,
+        *,
+        adapter: Any,
+        context: ResolvedBrowserContext,
+    ) -> None:
         self._adapter = adapter
         self.context = context
 
@@ -84,7 +89,10 @@ class IsolatedBrowserSession:
         return coerce_observation(tab_id, await self._adapter.snapshot(tab_id))
 
     async def screenshot(self, tab_id: str) -> BrowserScreenshot:
-        return coerce_screenshot(tab_id, await self._adapter.screenshot(tab_id))
+        return coerce_screenshot(
+            tab_id,
+            await self._adapter.screenshot(tab_id),
+        )
 
     async def evaluate(
         self,
@@ -232,7 +240,9 @@ def _action_result(payload: Any, name: str) -> BrowserActionResult:
     if isinstance(payload, dict):
         return BrowserActionResult(
             ok=bool(payload.get("ok", True)),
-            message=str(payload.get("message") or payload.get("error") or name),
+            message=str(
+                payload.get("message") or payload.get("error") or name,
+            ),
             needs_observation=bool(payload.get("needs_observation", True)),
             data=dict(payload.get("data") or {}),
         )

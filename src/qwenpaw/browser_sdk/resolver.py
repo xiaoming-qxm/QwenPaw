@@ -114,10 +114,9 @@ class BrowserContextResolver:
         if user is not None:
             return ("user", "isolated_unavailable_user_available", user)
 
-        fallback = (
-            self._registry.first_for_context("isolated")
-            or self._registry.first_for_context("user")
-        )
+        fallback = self._registry.first_for_context(
+            "isolated",
+        ) or self._registry.first_for_context("user")
         if fallback is not None:
             caps = fallback.capabilities()
             return (
@@ -126,7 +125,7 @@ class BrowserContextResolver:
                 fallback,
             )
         raise BrowserContextUnavailable(
-            "No browser backend is registered for context=\"auto\"",
+            'No browser backend is registered for context="auto"',
         )
 
     def _require_backend(
@@ -135,8 +134,12 @@ class BrowserContextResolver:
     ) -> BrowserBackend:
         backend = self._registry.first_for_context(browser_context)
         if backend is None:
+            message = (
+                "No browser backend is registered for "
+                f'context="{browser_context}"'
+            )
             raise BrowserContextUnavailable(
-                f'No browser backend is registered for context="{browser_context}"',
+                message,
             )
         return backend
 
@@ -147,8 +150,8 @@ class BrowserContextResolver:
     ) -> None:
         if requested == "isolated" and requires_user_state:
             raise BrowserContextConflict(
-                "User browser state requires context=\"user\" or "
-                "context=\"auto\" with requires_user_state=True.",
+                'User browser state requires context="user" or '
+                'context="auto" with requires_user_state=True.',
             )
 
     @staticmethod

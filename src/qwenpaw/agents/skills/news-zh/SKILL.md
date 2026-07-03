@@ -1,6 +1,6 @@
 ---
 name: news
-description: "为用户从指定新闻网站查找最新新闻。提供政治、财经、社会、国际、科技、体育和娱乐类别的权威 URL。使用 browser_use 打开每个 URL 并通过 snapshot 获取内容，然后为用户总结。"
+description: "为用户从指定新闻网站查找最新新闻。提供政治、财经、社会、国际、科技、体育和娱乐类别的权威 URL。使用 browser(code=...) 和 Browser SDK 打开每个 URL、获取 snapshot，然后为用户总结。"
 metadata:
   builtin_skill_version: "1.2"
   qwenpaw:
@@ -10,7 +10,7 @@ metadata:
 
 # 新闻参考
 
-当用户询问"最新新闻"、"今天有什么新闻"或"某某类别的新闻"时，使用 **browser_use** 工具配合以下类别和 URL：打开页面，截取快照，然后从页面内容中提取标题和要点并回复用户。
+当用户询问"最新新闻"、"今天有什么新闻"或"某某类别的新闻"时，使用 **browser(code=...)** 配合以下类别和 URL：通过 Browser SDK 打开页面、获取快照，然后从页面内容中提取标题和要点并回复用户。
 
 ## 类别和来源
 
@@ -24,24 +24,22 @@ metadata:
 | **体育**  | 央视体育                 | https://sports.cctv.com/ |
 | **娱乐**  | 新浪娱乐                 | https://ent.sina.com.cn/ |
 
-## 使用方法（browser_use）
+## 使用方法
 
 1. **明确用户需求**：确定用户需要哪个或哪些类别（政治 / 财经 / 社会 / 国际 / 科技 / 体育 / 娱乐），或选择 1-2 个进行获取。
 2. **选择 URL**：使用表格中对应类别的 URL；如需多个类别，对每个 URL 重复以下步骤。
-3. **打开页面**：调用 **browser_use**：
-   ```json
-   {"action": "open", "url": "https://www.chinanews.com/society/"}
+3. **打开并观察页面**：调用 **browser(code=...)** 执行 Browser SDK 代码：
+   ```python
+   browser = await Browser.connect(context="auto")
+   tab = await browser.tabs.open("https://www.chinanews.com/society/")
+   snapshot = await tab.snapshot()
+   print(snapshot.text)
    ```
    将 `url` 替换为表格中对应的 URL。
-4. **截取快照**：在同一会话中，再次调用 **browser_use**：
-   ```json
-   {"action": "snapshot"}
-   ```
-   从返回的页面内容中提取标题、日期和摘要。
-5. **总结回复**：按时间或重要性组织一个简短列表（标题 + 一两句话 + 来源）；如果网站无法访问或超时，请说明并建议其他来源。
+4. **总结回复**：从返回的页面内容中提取标题、日期和摘要。按时间或重要性组织一个简短列表（标题 + 一两句话 + 来源）；如果网站无法访问或超时，请说明并建议其他来源。
 
 ## 注意事项
 
 - 网站更新时页面结构可能会变化；如果提取失败，请说明并建议用户直接打开链接。
-- 访问多个类别时，对每个 URL 分别执行 `open` 和 `snapshot`，避免混淆不同页面的内容。
+- 访问多个类别时，用 Browser SDK 为每个 URL 打开独立标签页并获取新快照，避免混淆不同页面的内容。
 - 可以在回复中包含原始链接，方便用户打开查看。

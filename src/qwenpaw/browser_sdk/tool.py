@@ -22,7 +22,7 @@ register_isolated_backend_once()
     async_execution=True,
     description=(
         "Execute Python code in the unified Browser SDK. Use "
-        "`browser = await Browser.connect(context=\"auto\")` inside code."
+        '`browser = await Browser.connect(context="auto")` inside code.'
     ),
 )
 async def browser(
@@ -80,8 +80,9 @@ def _metadata(
     }
     if result.error:
         metadata["error_type"] = result.error.get("type", "")
-        metadata["error_code"] = (
-            result.error.get("code") or result.error.get("type", "")
+        metadata["error_code"] = result.error.get("code") or result.error.get(
+            "type",
+            "",
         )
         metadata["error_message"] = result.error.get("message", "")
         for key in ("backend_id", "action", "metadata"):

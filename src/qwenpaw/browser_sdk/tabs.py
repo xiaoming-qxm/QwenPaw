@@ -25,42 +25,50 @@ class Tabs:
         else:
             tabs = await self.list()
             raw = tabs[0] if tabs else {"id": "default"}
-        return self._remember(tab_from_backend(
-            raw,
-            session=self._session,
-            context=self._context,
-        ))
+        return self._remember(
+            tab_from_backend(
+                raw,
+                session=self._session,
+                context=self._context,
+            ),
+        )
 
     async def open(self, url: str | None = None) -> Tab:
         """Open a tab and mark it as needing observation before mutation."""
         raw = await self._session.open_tab(url)
-        return self._remember(tab_from_backend(
-            raw,
-            session=self._session,
-            context=self._context,
-            observation_required=True,
-        ))
+        return self._remember(
+            tab_from_backend(
+                raw,
+                session=self._session,
+                context=self._context,
+                observation_required=True,
+            ),
+        )
 
     async def list(self) -> list[Tab]:
         """List browser tabs."""
         raw_tabs = await self._session.list_tabs()
         return [
-            self._remember(tab_from_backend(
-                raw,
-                session=self._session,
-                context=self._context,
-            ))
+            self._remember(
+                tab_from_backend(
+                    raw,
+                    session=self._session,
+                    context=self._context,
+                ),
+            )
             for raw in raw_tabs
         ]
 
     async def select(self, tab_id: str) -> Tab:
         """Select a tab by id."""
         raw = await self._session.select_tab(str(tab_id))
-        return self._remember(tab_from_backend(
-            raw,
-            session=self._session,
-            context=self._context,
-        ))
+        return self._remember(
+            tab_from_backend(
+                raw,
+                session=self._session,
+                context=self._context,
+            ),
+        )
 
     def _remember(self, tab: Tab) -> Tab:
         existing = self._cache.get(tab.id)

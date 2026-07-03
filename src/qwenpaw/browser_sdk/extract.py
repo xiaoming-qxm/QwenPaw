@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Lightweight extraction helpers for Browser SDK tabs."""
+# pylint: disable=redefined-builtin
 
 from __future__ import annotations
 

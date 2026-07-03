@@ -42,6 +42,10 @@ Generated: 2026-07-03
 
 ## Observed Automated Evidence
 
+- `uv run python -m pytest tests/local/unit/browser_sdk/test_browser_sdk_skill_docs.py -v`
+- Result: 7 passed. This covers all built-in model-visible skills,
+  Browser Control plugin skills, plugin manifest tool metadata, SDK reference
+  text, guard text, and user-facing runtime payload names.
 - `uv run python -m pytest tests/local/functional/test_browser_sdk_unified_flows.py tests/local/functional/test_browser_sdk_tool_surface.py -v`
 - Result: 5 passed.
 - `uv run qwenpaw app`
@@ -53,4 +57,14 @@ Generated: 2026-07-03
 
 ## Manual Acceptance Status
 
-Manual live prompts that operate on real user Chrome and Taobao remain gated by a live Chrome Extension bridge and explicit user approval for destructive or purchase-like actions. Automated contracts prove routing, fail-closed behavior, and tool-surface constraints without modifying a real user account.
+| Acceptance item | Status | Evidence / reason |
+| --- | --- | --- |
+| Latest backend/frontend deployment smoke | PASS | `uv run qwenpaw app --port 8099` reached Ready at `http://127.0.0.1:8099` from latest local code and stopped cleanly. |
+| Public research prompt: Loop Engineering blog | ROUTE-PASS / LIVE-CONTENT BLOCKED | A direct `browser(code=...)` acceptance probe printed `backend=isolated.playwright_legacy`, then timed out after 30000 ms while opening/snapshotting the public search page. Route arbitration is correct; live content extraction is blocked by the current browser/network environment and is not marked PASS. |
+| User-state Taobao cart prompt | SAFETY-GATED BLOCKED | With Browser Control user backend registered, a safe non-mutating `Browser.connect(context="user")` probe returned `browser_bridge_disconnected` with `backend_id=user.chrome_extension`. No isolated fallback occurred. Real Taobao cart mutation is blocked until the Chrome Extension bridge is live and the user explicitly approves account-mutating actions. |
+| Destructive/purchase-like Taobao actions | SAFETY-GATED BLOCKED unless explicitly approved | Add-to-cart, clear cart, checkout-like, delete, submit, purchase, or account-changing actions require approval before bridge mutation. |
+
+Manual live prompts that operate on real user Chrome and Taobao remain gated
+by a live Chrome Extension bridge and explicit user approval for destructive
+or purchase-like actions. Automated contracts prove routing, fail-closed
+behavior, and tool-surface constraints without modifying a real user account.

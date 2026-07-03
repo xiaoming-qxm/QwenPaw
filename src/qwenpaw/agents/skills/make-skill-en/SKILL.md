@@ -265,8 +265,8 @@ in sequence** should go into the batch.
 
   `${steps.<index>.<path>}` is not limited to script calls — any tool's
   arguments can reference previous steps' output. For example, pass
-  `read_file` results to `write_file`, or feed a `browser_use` snapshot
-  into `execute_shell_command`.
+  `read_file` results to `write_file`, or feed Browser SDK snapshot text
+  from a `browser` tool step into `execute_shell_command`.
 
   Example — take a browser snapshot, extract keyword-matching content
   with a standalone Python script, and write the result to a file.
@@ -295,8 +295,10 @@ in sequence** should go into the batch.
   ```json
   [
     {
-      "tool_name": "browser_use",
-      "arguments": {"action": "snapshot"}
+      "tool_name": "browser",
+      "arguments": {
+        "code": "browser = await Browser.connect(context=\"auto\")\ntab = await browser.tabs.active()\nsnapshot = await tab.snapshot()\nprint(snapshot.text)"
+      }
     },
     {
       "tool_name": "write_file",

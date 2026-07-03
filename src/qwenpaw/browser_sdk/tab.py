@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Tab facade for the unified Browser SDK."""
+# pylint: disable=redefined-builtin
 
 from __future__ import annotations
 

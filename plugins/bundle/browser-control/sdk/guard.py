@@ -38,7 +38,7 @@ class ObserveActGuard:
                 "correct targeting."
                 f"{previous} Each observation supports only one mutating "
                 "browser action. Put the next state-changing action in a "
-                "new python_repl call after observing; do not batch "
-                "click/type/select/delete/confirm sequences in one cell.",
+                "new browser(code=...) call after observing; do not batch "
+                "click/type/select/delete/confirm sequences in one call.",
             )
         self.consume_observation(action_name)

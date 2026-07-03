@@ -271,8 +271,8 @@ class CDPRelaySession:
             channel=str(self.request_context.get("channel") or ""),
             agent_id=str(self.request_context.get("agent_id") or "unknown"),
             summary=ApprovalRequestSummary(
-                source_type="browser_control_cdp",
-                name="browser_use.control",
+                source_type="browser_sdk_cdp",
+                name="browser",
                 severity="medium",
                 findings_count=1,
                 result_summary=self._approval_summary(request),
@@ -282,7 +282,7 @@ class CDPRelaySession:
             extra={
                 "tool_call": {
                     "id": str(self.request_context.get("tool_call_id") or ""),
-                    "name": "browser_use",
+                    "name": "browser",
                     "input": request,
                 },
             },

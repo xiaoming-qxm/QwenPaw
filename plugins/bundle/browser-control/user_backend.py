@@ -15,7 +15,6 @@ from qwenpaw.browser_sdk import (
     BrowserContextRequest,
     BrowserContextUnavailable,
     BrowserPolicy,
-    BrowserPolicyDecision,
     BrowserPolicyDenied,
     DefaultBrowserPolicy,
     ResolvedBrowserContext,
@@ -83,7 +82,7 @@ class ChromeExtensionBrowserBackend:
             return False
         is_connected = getattr(bridge, "is_connected", None)
         if callable(is_connected):
-            return bool(is_connected())
+            return bool(is_connected())  # pylint: disable=not-callable
         return bool(getattr(bridge, "connected", False))
 
     def unavailable_error(self) -> BrowserContextUnavailable:
@@ -141,7 +140,7 @@ class ChromeExtensionBrowserBackend:
             return None
         get_connection = getattr(manager, "get_connection", None)
         if callable(get_connection):
-            return get_connection()
+            return get_connection()  # pylint: disable=not-callable
         return manager
 
     def _engine(self) -> Any | None:
@@ -197,7 +196,7 @@ class ChromeExtensionBrowserSession:
 
     async def select_tab(self, tab_id: str) -> dict[str, Any]:
         await self._claim(tab_id)
-        await self._bridge_or_engine_action("select", tab_id, tab_id=tab_id)
+        await self._bridge_or_engine_action("select", tab_id)
         return {"id": str(tab_id)}
 
     async def snapshot(self, tab_id: str) -> BrowserObservation:
@@ -280,7 +279,11 @@ class ChromeExtensionBrowserSession:
         **kwargs: Any,
     ) -> Any:
         if self._control_engine is not None:
-            supported = getattr(self._control_engine, "supported_actions", None)
+            supported = getattr(
+                self._control_engine,
+                "supported_actions",
+                None,
+            )
             actions = supported() if callable(supported) else frozenset()
             if name in actions:
                 chunk = await self._control_engine.dispatch(

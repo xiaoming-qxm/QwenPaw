@@ -35,12 +35,14 @@ class DefaultBrowserPolicy:
         self,
         request: BrowserContextRequest,
     ) -> BrowserPolicyDecision:
+        _ = request
         return BrowserPolicyDecision(allowed=True, reason="allowed")
 
     def allow_action(
         self,
         request: BrowserActionRequest,
     ) -> BrowserPolicyDecision:
+        _ = request
         return BrowserPolicyDecision(allowed=True, reason="allowed")
 
 

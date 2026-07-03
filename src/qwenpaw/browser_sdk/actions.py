@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Structured browser actions for the unified Browser SDK."""
+# pylint: disable=protected-access
 
 from __future__ import annotations
 
@@ -21,13 +22,12 @@ class BrowserActions:
         engine: str = "google",
     ) -> BrowserActionResult:
         """Search the public web using the selected backend."""
-        return _coerce_action_result(
-            await self._browser._call_browser_action(  # pylint: disable=protected-access
-                "search",
-                query=query,
-                engine=engine,
-            ),
+        result = await self._browser._call_browser_action(
+            "search",
+            query=query,
+            engine=engine,
         )
+        return _coerce_action_result(result)
 
 
 class TabActions:
@@ -92,12 +92,12 @@ class TabActions:
         **kwargs: Any,
     ) -> BrowserActionResult:
         if mutating:
-            self._tab._ensure_can_mutate(name)  # pylint: disable=protected-access
+            self._tab._ensure_can_mutate(name)
         result = _coerce_action_result(
-            await self._tab._call_action(name, **kwargs),  # pylint: disable=protected-access
+            await self._tab._call_action(name, **kwargs),
         )
         if mutating:
-            self._tab._mark_mutated()  # pylint: disable=protected-access
+            self._tab._mark_mutated()
         return result
 
 

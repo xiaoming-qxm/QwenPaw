@@ -340,14 +340,14 @@ def _current_bridge() -> Any | None:
 
 
 def set_request_context(request_context: dict[str, Any] | None) -> None:
-    """Refresh the Browser SDK request context for the current REPL call."""
+    """Refresh the Browser SDK request context for the current tool call."""
 
     global _REQUEST_CONTEXT  # pylint: disable=global-statement
     _REQUEST_CONTEXT = dict(request_context or {})
 
 
 def get_request_context() -> dict[str, Any]:
-    """Return the Browser SDK request context for the current REPL call."""
+    """Return the Browser SDK request context for the current tool call."""
 
     return dict(_REQUEST_CONTEXT)
 
@@ -366,7 +366,7 @@ def _session_holder_id(request_context: dict[str, Any]) -> str:
     if holder_id:
         return holder_id
     suffix = key if key != "default" else uuid.uuid4().hex
-    holder_id = f"python_repl:{suffix}"
+    holder_id = f"browser_sdk:{suffix}"
     _SESSION_HOLDER_IDS[key] = holder_id
     return holder_id
 
@@ -375,7 +375,7 @@ def _session_state(request_context: dict[str, Any]) -> dict[str, Any]:
     key = _request_context_key(request_context)
     state = _SESSION_STATES.get(key)
     if state is None:
-        state = {"workspace_id": "python_repl"}
+        state = {"workspace_id": "browser_sdk"}
         _SESSION_STATES[key] = state
     _set_state_request_context(state, request_context)
     return state

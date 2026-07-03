@@ -116,8 +116,8 @@ async def _control_request_domain_approval(
         channel=str(request_context.get("channel") or ""),
         agent_id=str(request_context.get("agent_id") or "unknown"),
         summary=ApprovalRequestSummary(
-            source_type="browser_control_cdp",
-            name="python_repl",
+            source_type="browser_sdk_cdp",
+            name="browser",
             severity="medium",
             findings_count=1,
             result_summary=(
@@ -130,7 +130,7 @@ async def _control_request_domain_approval(
         extra={
             "tool_call": {
                 "id": str(request_context.get("tool_call_id") or ""),
-                "name": "python_repl",
+                "name": "browser",
                 "input": request,
             },
         },
