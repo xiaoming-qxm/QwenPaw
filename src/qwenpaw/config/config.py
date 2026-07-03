@@ -1066,7 +1066,7 @@ class IterationGateConfig(BaseModel):
 
 
 class RubricGateConfig(BaseModel):
-    """Completion check gate configuration.
+    """Premature stop prevention gate configuration.
 
     Prevents premature agent stop when the LLM
     outputs text-only responses without tool calls.
@@ -1117,7 +1117,7 @@ class LoopConfig(BaseModel):
     )
     rubric: RubricGateConfig = Field(
         default_factory=RubricGateConfig,
-        description="Completion check settings",
+        description="Premature stop prevention settings",
     )
 
 

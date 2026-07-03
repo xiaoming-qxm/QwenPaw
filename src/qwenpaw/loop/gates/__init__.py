@@ -3,7 +3,7 @@
 
 Public API:
     StopAction, StopGate, LoopGate, FileLoopGate,
-    IterationGate, BudgetGate, DoomLoopGate,
+    IterationGate, BudgetGate, DoomLoopGate, PrematureStopGate,
     StopHandler, StopHandlerResult, StopHandlerRegistration,
     RubricStrategy, GoalStatusRubric, RubricVerdict,
     RubricEvaluation, DefaultRubric, SubAgentRubric.
@@ -22,7 +22,7 @@ from .iteration import IterationGate
 from .runner import run_stop_handlers
 from .loop_gate import LoopGate
 from .rubric import (
-    StandaloneRubricGate,
+    PrematureStopGate,
     DefaultRubric,
     GoalStatusRubric,
     RubricEvaluation,
@@ -33,7 +33,7 @@ from .rubric import (
 
 __all__ = [
     "BudgetGate",
-    "StandaloneRubricGate",
+    "PrematureStopGate",
     "DefaultRubric",
     "DoomLoopGate",
     "FileLoopGate",

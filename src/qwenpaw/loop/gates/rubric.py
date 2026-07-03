@@ -151,7 +151,7 @@ class SubAgentRubric(RubricStrategy):
         )
 
 
-class StandaloneRubricGate(StopGate):
+class PrematureStopGate(StopGate):
     """Re-prompt on text-only responses.
 
     Prevents premature stop when the LLM outputs text
@@ -171,7 +171,7 @@ class StandaloneRubricGate(StopGate):
 
     @property
     def name(self) -> str:
-        return "standalone_rubric"
+        return "premature_stop"
 
     @property
     def priority(self) -> int:
@@ -197,19 +197,19 @@ class StandaloneRubricGate(StopGate):
 
         self._count += 1
         logger.debug(
-            "StandaloneRubricGate: intervene %d/%d",
+            "PrematureStopGate: intervene %d/%d",
             self._count,
             self._max,
         )
         return StopHandlerResult(
             action=StopAction.CONTINUE,
             continuation_message=self._prompt,
-            reason="text-only response re-prompt",
+            reason="premature text-only stop re-prompt",
         )
 
 
 __all__ = [
-    "StandaloneRubricGate",
+    "PrematureStopGate",
     "DefaultRubric",
     "GoalStatusRubric",
     "RubricEvaluation",

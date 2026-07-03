@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Any
 from .gates import StopHandler
 from .gates.doom_loop import DoomLoopGate
 from .gates.iteration import IterationGate
-from .gates.rubric import StandaloneRubricGate
+from .gates.rubric import PrematureStopGate
 from .handler_registry import (
     get_or_create_stop_handler,
 )
@@ -89,15 +89,15 @@ def register_react_gates(
         handler.register(gate)
         logger.debug("ReactGates: DoomLoopGate registered")
 
-    # 3. Rubric Gate (completion check)
+    # 3. Premature Stop Gate (text-only completion check)
     if loop_cfg.rubric.enabled:
-        gate = StandaloneRubricGate(
+        gate = PrematureStopGate(
             prompt=loop_cfg.rubric.prompt,
             max_interventions=(loop_cfg.rubric.max_interventions),
         )
         handler.register(gate)
         logger.debug(
-            "ReactGates: StandaloneRubricGate registered",
+            "ReactGates: PrematureStopGate registered",
         )
 
     setattr(
