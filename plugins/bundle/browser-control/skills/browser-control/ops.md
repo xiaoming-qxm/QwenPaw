@@ -2,201 +2,59 @@
 
 ## Observe, Act, Verify
 
-- Use `python_repl` and the preloaded `browser` SDK for real Chrome work.
-- For a new user task, start with
-  `tab = await browser.tabs.open(url_or_search_page)` and then observe with
-  `await tab.snapshot()`.
-- Opening a new tab is not an observation. After
-  `browser.tabs.open(...)`, call `await tab.snapshot()` before scrolling,
-  clicking, typing, or selecting.
-- `await browser.tabs.list()` returns tabs already managed by this SDK
-  session. Use `await browser.tabs.list(all=True)` and
-  `await browser.tabs.get(tab_id)` only when the user asks you to use,
-  inspect, clean up, or continue work in a specific existing tab. Do not reuse
-  unrelated old tabs to answer a new task.
-- If you are unsure about SDK signatures, call
-  `print(await browser.documentation())` in `python_repl`; do not guess.
-- Common calls:
-  `tab = await browser.tabs.open(url)`,
-  `snap = await tab.snapshot()`,
-  `await tab.click(ref="r1_e22")`,
-  `await tab.scroll(direction="down", amount="page")`,
-  `await tab.scroll(direction="up", amount="top")`,
-  `await tab.wait_for(2)`,
-  `snap = await tab.snapshot()`.
-- Prefer a direct, browser-visible URL when the user intent can be expressed
-  as a page route, search URL, list URL, detail URL, cart URL, or status URL.
-  Do not start from a homepage and type into a search box when an equivalent
-  URL route is available.
-- `snapshot()` takes no arguments. Do not call `snapshot(full=True)`.
-- `scroll` only accepts keyword arguments such as `direction` and `amount`.
-  Use `amount="top"` or `amount="bottom"` for absolute page jumps when the
-  needed control is expected near the start or end of a long page.
-- For metadata or small structured reads, use read-only helpers:
-  `await tab.page_info()` for URL/title/viewport/scroll state and
-  `await tab.evaluate("...")` for bounded JSON-serializable extraction.
-  `tab.evaluate` is protected by a conservative read-only policy that rejects
-  assignment, user-event, network, storage, history/location mutation,
-  dynamic code execution, and document-write APIs before sending code to
-  Chrome. These helpers do not satisfy the observe-before-act guard and must
-  not mutate page state, submit forms, click controls, rewrite DOM, or
-  replace snapshot refs before a mutating action.
-- `wait_for` is a synchronization action. It may follow a click, navigation,
-  type, or scroll without another snapshot first, but it makes previous
-  observations stale. Always observe after `wait_for` before the next
-  mutating action.
+- Use `browser(code=...)` and Browser SDK calls for Chrome work.
+- For a new user task, connect with `Browser.connect(context="user")`, open or
+  select the relevant tab, then observe with `await tab.snapshot()`.
+- Opening a tab is not an observation. After `browser.tabs.open(...)`, call
+  `await tab.snapshot()` before scrolling, clicking, typing, or selecting.
+- Prefer refs from the latest snapshot. Snapshot refs are scoped to the
+  observation that produced them; do not reuse refs from older snapshots.
+- Use semantic targets before coordinates: refs, visible text, stable
+  selectors, then coordinates only when SDK evidence identifies the target.
+- Do not convert screenshots into coordinates for state-changing actions such
+  as add-to-cart, checkout, confirm, delete, or select-all.
+- `tab.evaluate(..., read_only=True)` is a read helper. It does not satisfy
+  the observe-before-act guard and must not mutate page state.
 - After each navigation, click, type, selection, reload, scroll, or wait,
   observe again before the next mutating action.
-- Prefer refs from the latest snapshot. If the target label is known but
-  missing because the snapshot is truncated, generic, or AX-only, use
-  `await tab.click(text="visible label")`; the SDK can locate visible DOM
-  text and scroll offscreen controls into view. Use CSS selectors only for
-  stable semantic selectors, not guessed class names.
-- Snapshot refs are snapshot-scoped string identifiers. Use the complete
-  quoted ref exactly as shown in the latest snapshot, such as
-  `await tab.click(ref="r3_e22")`; do not strip the `r3_` prefix, invent
-  shorter `e22` refs, or reuse refs copied from older snapshots.
-- Link refs may include an `href`; clicking that ref uses SDK-managed
-  same-tab navigation when possible, so prefer the fresh ref over coordinate
-  clicks for search results and product links.
-- `action_target` lines summarize visible controls that modern pages expose
-  poorly through accessibility trees. If an action target has a `[ref=...]`
-  value such as `[ref=r4_e17]`, click that complete quoted ref first. If it
-  has no ref, prefer
-  `tab.click(text="...")`; use x/y coordinates only when ref and text
-  targeting both fail.
-- Icon-only controls may appear with synthesized labels such as `add cart`,
-  `cart`, or `buy` when the DOM exposes that semantic through stable
-  attributes. Prefer those refs over visual coordinate guesses. If a
-  synthesized icon label appears without a ref, use text targeting such as
-  `await tab.click(text="add cart")`; the SDK resolves that label from stable
-  element attributes instead of guessed coordinates.
-- Use an action candidate budget: once the current page exposes a plausible
-  next action such as add-to-cart, buy, checkout, confirm, delete, or search,
-  try the strongest ref/text candidate within the next browser action. If it
-  fails after one fresh observation, try a different real candidate or route.
-  Do not keep inspecting listings, screenshots, or broad page snapshots while
-  a page-level action target already matches the task.
-- If visual or semantic evidence already reveals a cart action on a product
-  page, do not take another screenshot or scroll to find a ref. In the next
-  browser action, try the strongest add-cart semantic action, such as
-  `await tab.click(text="add cart")` or a fresh `加入购物车`/add-cart ref.
-  Prefer add-cart semantics over generic cart or buy: plain `cart` may mean
-  opening the cart page, and `buy` may mean checkout. Use generic `cart` only
-  when the latest observation or screenshot clearly shows it is the
-  product-page add-to-cart control.
-- Use coordinates only after SDK evidence identifies the target's position;
-  do not guess page coordinates from a generic layout.
-- Do not convert screenshots into coordinates for state-changing actions such
-  as add-to-cart, checkout, confirm, delete, or select-all. Treat screenshots
-  as observation only, then return to a ref/text/semantic action target or
-  report a blocker if the SDK cannot expose a real target. The runtime
-  rejects screenshot-derived raw coordinate clicks.
-- If a click appears unchanged, re-observe or screenshot before trying
-  another route.
-- Snapshot output starts with `page_state` when scroll metrics are available.
-  Use `at_top`, `at_bottom`, and `scroll_percent` to decide whether another
-  scroll is meaningful; do not repeat page scrolls once the expected boundary is
-  reached.
-- Keep each `python_repl` browser cell narrow: perform at most one mutating
-  browser action, optionally wait for it to settle, then take a fresh
-  snapshot. Do not batch click/type/click sequences in one cell.
-- Treat select-all, delete, and confirm as separate browser writes in
-  separate python_repl turns. If `ObservationRequired` appears, do not retry
-  the same multi-action cell; observe once, then issue exactly one next
-  state-changing action in a new python_repl turn.
-- If a click, type, selection, or form-submit action times out or leaves the
-  page unchanged, retry that exact action sequence at most once after a fresh
-  snapshot. On the next failure, change route: use a direct URL, a canonical
-  list/detail/status page, a different visible control, or report a real
-  blocker when the page evidence requires it.
+
+Common calls inside `browser(code=...)`:
+
+```python
+browser = await Browser.connect(context="user")
+tab = await browser.tabs.open("https://example.com")
+snapshot = await tab.snapshot()
+await tab.actions.click({"ref": "r1_e22"})
+snapshot = await tab.snapshot()
+```
 
 ## Read-After-Write Verification
 
-- After submitting, saving, adding, removing, selecting, following, or
-  updating settings, read the resulting state back.
-- Treat an authoritative state page as a subtask boundary. For example, if a
-  cart/status/list page shows an item or setting that satisfies the user's
-  requested quantity/category, advance to the next requested subtask; do not
-  add another item, repeat the same write, or return to search unless the user
-  explicitly asked for more.
-- State-based completion beats provenance. If a page already proves the
-  requested state, count that subtask as satisfied even if you are unsure
-  whether the current run created it.
-- In cart/list cleanup workflows, if a cart page already shows a matching
-  requested item or category, do not leave the cart to add another matching
-  item. Print/read the current cart contents, then continue to the requested
-  clear/delete/final-state subtasks.
-- If an authoritative cart, list, status, or detail page contains the
-  requested item/category terms or a clear synonym, treat that subtask as
-  satisfied. Leaving that page to search for another matching item is a
-  failure, not extra diligence.
-- Treat a single requested write, such as adding one product, selecting one
-  option, deleting one matching row, or saving one setting, as complete after
-  the first authoritative read-back proves the requested item/category/count is
-  present; adding another matching item is incorrect unless the user
-  explicitly asked for multiple items or a different item.
-- If async network activity happened but a badge, counter, button, or
-  page fragment still shows the old value, treat the page as stale.
-- Verification ladder: `wait_for` then `snapshot`; if stale, `reload` then
-  `snapshot`; if needed, open the canonical list/detail/status/cart page.
+- After submitting, saving, adding, removing, selecting, or updating settings,
+  read the resulting state back.
+- If an authoritative cart, list, status, or detail page already proves the
+  requested state, advance to the next subtask instead of repeating the write.
 - Never repeat the same state-changing click before authoritative read-back.
 
 ## Tab And Navigation Rules
 
-- A successful `claim_tab` response means the tab is ready; observe it
-  instead of opening duplicates when the user explicitly selected that tab.
-- Keep one claimed tab per target unless the user asks for multiple tabs.
-- Keep `allow_new_context` false unless a separate tab/window is required.
+- Keep one claimed or opened tab per target unless the user asks for multiple
+  tabs.
+- Use existing tabs only when the user asks to inspect, clean up, or continue
+  work in a specific user browser state.
+- Do not reuse unrelated old tabs to answer a new task.
 
 ## Visual Fallback
 
-- Use `snapshot` first. Use `screenshot` when snapshot is empty, generic,
-  visual/canvas based, or misses key state. Trust the freshest observation.
-- Do not inspect screenshot file paths with local file/media tools. If the
-  Browser SDK observations are insufficient, report a blocker instead of
+- Use `snapshot` first. Use `screenshot` when the snapshot is empty, generic,
+  visual/canvas based, or misses key state.
+- Do not inspect screenshot file paths with local file/media tools.
+- If Browser SDK observations are insufficient, report a blocker instead of
   leaving the SDK loop.
-- If a web search result page returns a degraded snapshot after one
-  wait/reload, switch to another browser-accessible web UI route, such as a
-  different search provider or the site's own search page. Do not repeat the
-  same degraded snapshot loop.
-
-## Supported Actions
-
-Use SDK methods such as `browser.tabs.list()`, `browser.tabs.list(all=True)`,
-`browser.tabs.get(tab_id)`,
-`tab.snapshot()`, `tab.click(...)`, `tab.type(...)`, `tab.press_key(...)`,
-`tab.navigate(...)`, `tab.hover(...)`, `tab.scroll(...)`,
-`tab.select_option(...)`, `tab.page_info()`, `tab.evaluate(...)`,
-`tab.back()`, `tab.forward()`, `tab.reload()`, `tab.wait_for(...)`,
-`tab.close()`, `browser.tabs.close(tab_id)`, and `browser.close()`.
-
-## Task Discipline
-
-- Keep a compact checklist for the current browser task. After each browser
-  observation, mark completed subtasks and move to the next unmet subtask;
-  do not restart from the first subtask.
-- Before starting any new action, audit the latest page state. If it already
-  proves the requested outcome, advance to the next subtask instead of
-  repeating the same action.
-- State-based completion beats provenance. If a page already proves the
-  requested state, count that subtask as satisfied even if you are unsure
-  whether the current run created that state.
-- Keep SDK cells narrow: at most one mutating browser action per python_repl
-  call, optionally followed by a wait and a fresh observation.
-- Treat select-all, delete, and confirm as separate browser writes in
-  separate python_repl turns. If ObservationRequired appears, observe once,
-  then issue exactly one next state-changing action in a new turn.
-- If a plausible action target cannot be activated after one fresh
-  observation, choose a different real target or route. Do not loop on the
-  same action.
 
 ## Completion Rules
 
-- Do NOT stop with a text-only response while a browser task is active.
-  Always verify the final state with a fresh `tab.snapshot()` before
-  reporting the result.
-- When the task is confirmed complete, call `await browser.close()` to
-  release resources, then report the result to the user.
-- If stuck after two fresh observations with no progress, change approach
-  or report a blocker. Do not loop on the same failing action.
+- Do not stop with a text-only response while a browser task is active.
+- Verify the final state with a fresh `tab.snapshot()` before reporting.
+- If stuck after two fresh observations with no progress, change approach or
+  report a blocker.

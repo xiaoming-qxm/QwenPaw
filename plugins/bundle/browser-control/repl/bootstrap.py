@@ -13,7 +13,8 @@ from qwenpaw.browser.control_plugin import load_browser_control_submodule
 
 _qwenpaw_browser_sdk = load_browser_control_submodule("sdk")
 _qwenpaw_browser_sdk_prefix = _qwenpaw_browser_sdk.__name__
-for _qwenpaw_browser_name, _qwenpaw_browser_module in list(sys.modules.items()):
+_qwenpaw_browser_modules = list(sys.modules.items())
+for _qwenpaw_browser_name, _qwenpaw_browser_module in _qwenpaw_browser_modules:
     if (
         _qwenpaw_browser_name == _qwenpaw_browser_sdk_prefix
         or _qwenpaw_browser_name.startswith(_qwenpaw_browser_sdk_prefix + ".")

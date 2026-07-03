@@ -8,6 +8,8 @@ import json
 from pathlib import Path
 from typing import Any, cast
 
+from qwenpaw.browser_sdk import Tab as CoreTab
+
 from ..engine import navigation as control_navigation
 from ..engine.handlers import ACTION_HANDLERS
 from ..engine.handlers.dispatcher import dispatch
@@ -670,4 +672,4 @@ def _raise_for_failed_payload(payload: dict[str, Any]) -> None:
     raise BrowserSDKError(message)
 
 
-__all__ = ["Tab"]
+__all__ = ["CoreTab", "Tab"]

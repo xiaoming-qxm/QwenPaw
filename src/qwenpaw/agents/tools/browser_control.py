@@ -6,6 +6,7 @@ from qwenpaw.browser.control_plugin import load_browser_control_submodule
 from .browser import entry as _entry
 
 browser_use = getattr(_entry, "browser_use")
+legacy_browser_use_bypass = getattr(_entry, "legacy_browser_use_bypass")
 stop_all_browsers = getattr(_entry, "stop_all_browsers")
 stop_browsers_for_workspace_dirs = getattr(
     _entry,
@@ -32,6 +33,7 @@ async def release_control_sessions_for_request(**kwargs):
 
 __all__ = [
     "browser_use",
+    "legacy_browser_use_bypass",
     "cleanup_control_sessions_for_request",
     "release_control_sessions_for_request",
     "stop_all_browsers",

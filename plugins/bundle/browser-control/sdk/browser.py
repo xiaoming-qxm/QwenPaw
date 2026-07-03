@@ -8,6 +8,9 @@ import contextlib
 import uuid
 from typing import Any
 
+from qwenpaw.browser_sdk import Browser as CoreBrowser
+from qwenpaw.browser_sdk import Tabs as CoreTabs
+
 from .errors import BridgeDisconnected, BrowserSDKError
 from .remote_bridge import RemoteBridge
 from .tab import Tab
@@ -562,4 +565,11 @@ def _url_key(url: str) -> str:
     return _control_url_key(url) if url else ""
 
 
-__all__ = ["Browser", "Tabs", "get_request_context", "set_request_context"]
+__all__ = [
+    "Browser",
+    "CoreBrowser",
+    "CoreTabs",
+    "Tabs",
+    "get_request_context",
+    "set_request_context",
+]

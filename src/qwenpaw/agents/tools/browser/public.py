@@ -4,6 +4,8 @@
 """Public browser tool entry points."""
 
 import math
+from contextvars import ContextVar
+from dataclasses import asdict, is_dataclass
 from typing import Any
 
 from .runtime import (
@@ -31,6 +33,22 @@ from .backends.playwright_batch_cdp import *
 from qwenpaw.browser.control_engine import get_control_engine
 
 from .backends.control import _action_control
+
+_BROWSER_USE_LEGACY_BYPASS: ContextVar[bool] = ContextVar(
+    "qwenpaw_browser_use_legacy_bypass",
+    default=False,
+)
+
+
+class legacy_browser_use_bypass:
+    """Temporarily route browser_use calls to the legacy dispatcher."""
+
+    def __enter__(self):
+        self._token = _BROWSER_USE_LEGACY_BYPASS.set(True)
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        _BROWSER_USE_LEGACY_BYPASS.reset(self._token)
 
 
 def _coordinate_validation_error(name: str, value: Any) -> ToolChunk:
@@ -89,6 +107,36 @@ _CONTROL_BLOCKED_LEGACY_ACTIONS = {
     "list_cdp_targets",
 }
 
+_CONTROL_LIFECYCLE_LEGACY_ACTIONS = {
+    "start",
+    "stop",
+}
+
+_SDK_SUPPORTED_LEGACY_ACTIONS = {
+    "open",
+    "navigate",
+    "back",
+    "forward",
+    "reload",
+    "navigate_back",
+    "navigate_forward",
+    "snapshot",
+    "screenshot",
+    "take_screenshot",
+    "click",
+    "type",
+    "press_key",
+    "scroll",
+    "hover",
+    "select_option",
+    "wait_for",
+    "tabs",
+    "evaluate",
+    "eval",
+    "run_code",
+    "close",
+}
+
 
 def _has_control_session(state: dict[str, Any]) -> bool:
     engine = get_control_engine()
@@ -132,6 +180,235 @@ def _should_use_control_mode(
     ):
         return True
     return control_action and _has_control_session(state)
+
+
+def _should_preserve_legacy_control_lifecycle(
+    *,
+    mode: str,
+    action: str,
+) -> bool:
+    requested_mode = str(mode or "").strip().lower()
+    return (
+        requested_mode == "control"
+        and action in _CONTROL_LIFECYCLE_LEGACY_ACTIONS
+    )
+
+
+async def _browser_use_sdk_shim(**kwargs: Any) -> ToolChunk:
+    action = str(kwargs.get("action") or "").strip().lower()
+    if action not in _SDK_SUPPORTED_LEGACY_ACTIONS:
+        return _sdk_gap_response(action)
+
+    try:
+        from qwenpaw.browser_sdk import Browser, BrowserSDKError
+
+        context = _legacy_context(kwargs)
+        browser = await Browser.connect(
+            context=context,
+            requires_user_state=(context == "user"),
+        )
+        result = await _run_sdk_legacy_action(browser, action, kwargs)
+        return _tool_response(
+            json.dumps(
+                {
+                    "ok": True,
+                    "action": action,
+                    "sdk_backend": browser.context.backend_id,
+                    "result": _jsonable(result),
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+        )
+    except BrowserSDKError as exc:
+        return _tool_response(
+            json.dumps(exc.to_dict(), ensure_ascii=False, indent=2),
+        )
+    except Exception as exc:  # noqa: BLE001
+        return _tool_response(
+            json.dumps(
+                {
+                    "ok": False,
+                    "error": type(exc).__name__,
+                    "message": str(exc),
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+        )
+
+
+def _legacy_context(kwargs: dict[str, Any]) -> str:
+    mode = str(kwargs.get("mode") or "").strip().lower()
+    return "user" if mode == "control" else "isolated"
+
+
+async def _run_sdk_legacy_action(
+    browser: Any,
+    action: str,
+    kwargs: dict[str, Any],
+) -> Any:
+    if action == "open":
+        return await browser.tabs.open(str(kwargs.get("url") or ""))
+
+    tab = await _sdk_tab(browser, kwargs)
+    if action == "navigate":
+        return await tab.actions.open(str(kwargs.get("url") or ""))
+    if action in {"back", "navigate_back"}:
+        return await tab._call_action(
+            "back",
+        )  # pylint: disable=protected-access
+    if action in {"forward", "navigate_forward"}:
+        return await tab._call_action(
+            "forward",
+        )  # pylint: disable=protected-access
+    if action == "reload":
+        return await tab._call_action(
+            "reload",
+        )  # pylint: disable=protected-access
+    if action == "snapshot":
+        return await tab.snapshot()
+    if action in {"screenshot", "take_screenshot"}:
+        return await tab.screenshot()
+    if action == "click":
+        return await tab.actions.click(_legacy_target(kwargs))
+    if action == "type":
+        return await tab.actions.type(
+            _legacy_target(kwargs),
+            str(kwargs.get("text") or ""),
+        )
+    if action == "press_key":
+        return await tab.actions.press(str(kwargs.get("key") or ""))
+    if action == "scroll":
+        return await tab.actions.scroll(
+            direction=str(kwargs.get("direction") or "down"),
+            amount=kwargs.get("amount"),
+        )
+    if action == "hover":
+        return await tab._call_action(  # pylint: disable=protected-access
+            "hover",
+            **_legacy_target(kwargs),
+        )
+    if action == "select_option":
+        return await tab.actions.select(
+            _legacy_target(kwargs),
+            _legacy_select_value(kwargs),
+        )
+    if action == "wait_for":
+        instruction = str(
+            kwargs.get("text")
+            or kwargs.get("text_gone")
+            or kwargs.get("wait_time")
+            or "",
+        )
+        timeout_ms = int(float(kwargs.get("wait_time") or 10) * 1000)
+        return await tab.actions.wait_for(instruction, timeout_ms=timeout_ms)
+    if action == "tabs":
+        return await _run_sdk_tabs_action(browser, tab, kwargs)
+    if action in {"evaluate", "eval"}:
+        return await tab.evaluate(
+            str(kwargs.get("code") or ""),
+            read_only=True,
+        )
+    if action == "run_code":
+        return await tab.evaluate(
+            str(kwargs.get("code") or ""),
+            read_only=False,
+        )
+    if action == "close":
+        return await tab.close()
+    return _sdk_gap_payload(action)
+
+
+async def _sdk_tab(browser: Any, kwargs: dict[str, Any]) -> Any:
+    page_id = str(kwargs.get("page_id") or "default")
+    if page_id and page_id != "default":
+        return await browser.tabs.select(page_id)
+    return await browser.tabs.active()
+
+
+async def _run_sdk_tabs_action(
+    browser: Any,
+    tab: Any,
+    kwargs: dict[str, Any],
+) -> Any:
+    tab_action = str(kwargs.get("tab_action") or "list").strip().lower()
+    if tab_action in {"", "list"}:
+        return await browser.tabs.list()
+    if tab_action in {"new", "open"}:
+        return await browser.tabs.open(str(kwargs.get("url") or "about:blank"))
+    if tab_action == "select":
+        index = int(kwargs.get("index") or 0)
+        tabs = await browser.tabs.list()
+        if 0 <= index < len(tabs):
+            return await browser.tabs.select(tabs[index].id)
+        return tab
+    if tab_action == "close":
+        return await tab.close()
+    return _sdk_gap_payload(f"tabs.{tab_action}")
+
+
+def _legacy_target(kwargs: dict[str, Any]) -> dict[str, Any]:
+    target: dict[str, Any] = {}
+    for key in ("ref", "selector", "element", "text", "x", "y"):
+        value = kwargs.get(key)
+        if value not in (None, ""):
+            target[key] = value
+    return target or {"target": ""}
+
+
+def _legacy_select_value(kwargs: dict[str, Any]) -> Any:
+    values_json = str(kwargs.get("values_json") or "")
+    if not values_json:
+        return ""
+    try:
+        values = json.loads(values_json)
+    except (TypeError, ValueError):
+        return values_json
+    if isinstance(values, list) and values:
+        return values[0]
+    return values
+
+
+def _sdk_gap_response(action: str) -> ToolChunk:
+    return _tool_response(
+        json.dumps(
+            _sdk_gap_payload(action),
+            ensure_ascii=False,
+            indent=2,
+        ),
+    )
+
+
+def _sdk_gap_payload(action: str) -> dict[str, Any]:
+    return {
+        "ok": False,
+        "error": "browser_sdk_gap",
+        "sdk_gap": True,
+        "action": action,
+        "message": (
+            "Legacy browser_use action is not supported by the Browser SDK "
+            "compatibility shim. Request a Browser SDK capability instead."
+        ),
+    }
+
+
+def _jsonable(value: Any) -> Any:
+    if hasattr(value, "id") and hasattr(value, "context"):
+        return {
+            "id": str(getattr(value, "id", "")),
+            "url": str(getattr(value, "url", "")),
+            "title": str(getattr(value, "title", "")),
+        }
+    if is_dataclass(value):
+        return asdict(value)
+    if isinstance(value, list):
+        return [_jsonable(item) for item in value]
+    if isinstance(value, tuple):
+        return [_jsonable(item) for item in value]
+    if isinstance(value, dict):
+        return {str(key): _jsonable(item) for key, item in value.items()}
+    return value
 
 
 async def stop_all_browsers() -> None:
@@ -211,7 +488,9 @@ def _workspace_dir_key(workspace_dir: str | Path) -> str:
 
 
 @tool_descriptor(
+    enabled_by_default=False,
     async_execution=True,
+    legacy=True,
     superseded_by_skills=("browser-control",),
 )
 async def browser_use(  # pylint: disable=R0911,R0912
@@ -506,6 +785,38 @@ async def browser_use(  # pylint: disable=R0911,R0912
         pages = state.get("pages") or {}
         if page_id == "default" and current and current in pages:
             page_id = current
+
+        if not _BROWSER_USE_LEGACY_BYPASS.get() and not (
+            _should_preserve_legacy_control_lifecycle(
+                mode=mode,
+                action=action,
+            )
+        ):
+            return await _browser_use_sdk_shim(
+                action=action,
+                mode=mode,
+                url=url,
+                page_id=page_id,
+                selector=selector,
+                text=text,
+                code=code,
+                path=path,
+                wait=wait,
+                full_page=full_page,
+                ref=ref,
+                element=element,
+                x=x,
+                y=y,
+                key=key,
+                filename=filename,
+                direction=direction,
+                amount=amount,
+                tab_action=tab_action,
+                index=index,
+                wait_time=wait_time,
+                text_gone=text_gone,
+                values_json=values_json,
+            )
 
         if _should_use_control_mode(mode=mode, action=action, state=state):
             return await _action_control(

@@ -1,0 +1,244 @@
+# -*- coding: utf-8 -*-
+"""Session-scoped Python kernel for the browser(code=...) tool."""
+
+from __future__ import annotations
+
+import ast
+import asyncio
+import contextlib
+import inspect
+import io
+import traceback
+from contextvars import ContextVar, Token
+from dataclasses import dataclass
+from types import CodeType
+from typing import Any
+
+from .types import BrowserContext
+
+_RETURN_NAME = "__qwenpaw_browser_return__"
+_MAX_PREBOUND_REF_INDEX = 10000
+
+
+@dataclass(frozen=True)
+class BrowserExecutionContext:
+    """Context inherited by SDK calls during one browser tool execution."""
+
+    session_id: str
+    context: BrowserContext
+    requires_user_state: bool | None = None
+
+
+@dataclass(frozen=True)
+class BrowserKernelResult:
+    """Execution result returned by the in-process browser kernel."""
+
+    output: str
+    return_value: str | None
+    error: dict[str, Any] | None
+
+
+_CURRENT_EXECUTION_CONTEXT: ContextVar[
+    BrowserExecutionContext | None
+] = ContextVar("qwenpaw_browser_execution_context", default=None)
+
+
+def get_current_execution_context() -> BrowserExecutionContext | None:
+    """Return the current browser tool execution context, if any."""
+    return _CURRENT_EXECUTION_CONTEXT.get()
+
+
+def set_current_execution_context(
+    context: BrowserExecutionContext,
+) -> Token[BrowserExecutionContext | None]:
+    """Install the current browser execution context."""
+    return _CURRENT_EXECUTION_CONTEXT.set(context)
+
+
+def reset_current_execution_context(
+    token: Token[BrowserExecutionContext | None],
+) -> None:
+    """Restore the previous browser execution context."""
+    _CURRENT_EXECUTION_CONTEXT.reset(token)
+
+
+class BrowserKernel:
+    """Execute snippets in a durable per-session namespace."""
+
+    def __init__(self) -> None:
+        self._namespace = _new_namespace()
+
+    async def execute(
+        self,
+        code: str,
+        *,
+        timeout_ms: int,
+        execution_context: BrowserExecutionContext,
+    ) -> BrowserKernelResult:
+        """Execute Python code with top-level await support."""
+        stdout_capture = io.StringIO()
+        token = set_current_execution_context(execution_context)
+        try:
+            with contextlib.redirect_stdout(stdout_capture):
+                result = await asyncio.wait_for(
+                    self._execute_code(code),
+                    timeout=timeout_ms / 1000,
+                )
+            return BrowserKernelResult(
+                output=stdout_capture.getvalue(),
+                return_value=repr(result) if result is not None else None,
+                error=None,
+            )
+        except asyncio.TimeoutError:
+            return BrowserKernelResult(
+                output=stdout_capture.getvalue(),
+                return_value=None,
+                error={
+                    "type": "TimeoutError",
+                    "code": "browser_kernel_timeout",
+                    "message": f"Execution timed out after {timeout_ms}ms",
+                    "traceback": "",
+                },
+            )
+        except Exception as exc:  # noqa: BLE001
+            return BrowserKernelResult(
+                output=stdout_capture.getvalue(),
+                return_value=None,
+                error=_error_payload(exc),
+            )
+        finally:
+            reset_current_execution_context(token)
+
+    async def _execute_code(self, code: str) -> Any:
+        namespace = self._namespace
+        namespace.pop(_RETURN_NAME, None)
+        compiled = _compile_code(code)
+        maybe_awaitable = eval(compiled, namespace)  # noqa: S307
+        if inspect.isawaitable(maybe_awaitable):
+            await maybe_awaitable
+        return namespace.pop(_RETURN_NAME, None)
+
+
+class BrowserKernelManager:
+    """Manage durable browser kernels keyed by session id."""
+
+    def __init__(self) -> None:
+        self._kernels: dict[str, BrowserKernel] = {}
+
+    async def execute(
+        self,
+        *,
+        session_id: str,
+        code: str,
+        timeout_ms: int,
+        context: BrowserContext,
+        requires_user_state: bool | None = None,
+    ) -> BrowserKernelResult:
+        """Execute code in the session-scoped browser kernel."""
+        kernel = self._kernels.setdefault(session_id, BrowserKernel())
+        return await kernel.execute(
+            code,
+            timeout_ms=timeout_ms,
+            execution_context=BrowserExecutionContext(
+                session_id=session_id,
+                context=context,
+                requires_user_state=requires_user_state,
+            ),
+        )
+
+    async def reset(self, session_id: str) -> None:
+        """Reset one session kernel."""
+        self._kernels.pop(session_id, None)
+
+    async def reset_all(self) -> None:
+        """Reset all session kernels."""
+        self._kernels.clear()
+
+
+_DEFAULT_KERNEL_MANAGER = BrowserKernelManager()
+
+
+def get_default_kernel_manager() -> BrowserKernelManager:
+    """Return the process-global browser kernel manager."""
+    return _DEFAULT_KERNEL_MANAGER
+
+
+def _compile_code(code: str) -> CodeType:
+    tree = ast.parse(str(code or ""), mode="exec")
+    if tree.body and isinstance(tree.body[-1], ast.Expr):
+        last_expr = tree.body[-1]
+        tree.body[-1] = ast.Assign(
+            targets=[ast.Name(id=_RETURN_NAME, ctx=ast.Store())],
+            value=last_expr.value,
+        )
+        ast.fix_missing_locations(tree)
+    return compile(
+        tree,
+        "<browser>",
+        "exec",
+        flags=ast.PyCF_ALLOW_TOP_LEVEL_AWAIT,
+    )
+
+
+def _new_namespace() -> dict[str, Any]:
+    from .browser import Browser, connect_browser
+    from .errors import (
+        BrowserContextConflict,
+        BrowserContextUnavailable,
+        BrowserObservationRequired,
+        BrowserPolicyDenied,
+        BrowserSDKError,
+        BrowserSDKGap,
+    )
+
+    namespace: dict[str, Any] = {"__builtins__": __builtins__}
+    namespace.update(
+        {
+            "Browser": Browser,
+            "BrowserSDKError": BrowserSDKError,
+            "BrowserContextUnavailable": BrowserContextUnavailable,
+            "BrowserContextConflict": BrowserContextConflict,
+            "BrowserPolicyDenied": BrowserPolicyDenied,
+            "BrowserSDKGap": BrowserSDKGap,
+            "BrowserObservationRequired": BrowserObservationRequired,
+            "connect_browser": connect_browser,
+        },
+    )
+    namespace.update(
+        {
+            f"e{index}": f"e{index}"
+            for index in range(1, _MAX_PREBOUND_REF_INDEX + 1)
+        },
+    )
+    return namespace
+
+
+def _error_payload(exc: Exception) -> dict[str, Any]:
+    from .errors import BrowserSDKError
+
+    payload: dict[str, Any] = {
+        "type": type(exc).__name__,
+        "message": str(exc),
+        "traceback": traceback.format_exc(),
+    }
+    if isinstance(exc, BrowserSDKError):
+        payload["code"] = exc.code
+        if exc.backend_id:
+            payload["backend_id"] = exc.backend_id
+        if exc.action:
+            payload["action"] = exc.action
+        if exc.metadata:
+            payload["metadata"] = exc.metadata
+    return payload
+
+
+__all__ = [
+    "BrowserExecutionContext",
+    "BrowserKernel",
+    "BrowserKernelManager",
+    "BrowserKernelResult",
+    "get_current_execution_context",
+    "get_default_kernel_manager",
+    "reset_current_execution_context",
+    "set_current_execution_context",
+]

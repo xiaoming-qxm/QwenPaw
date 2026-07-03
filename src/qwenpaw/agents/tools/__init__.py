@@ -21,6 +21,8 @@ from __future__ import annotations
 
 from typing import Callable
 
+from qwenpaw.browser_sdk.tool import browser
+
 # Each import triggers the @tool_descriptor decorator, which auto-
 # collects the function into the global registry.
 from .file_io import read_file, write_file, edit_file, append_file
@@ -70,6 +72,7 @@ __all__ = [
     "desktop_screenshot",
     "view_image",
     "view_video",
+    "browser",
     "browser_use",
     "get_current_time",
     "set_user_timezone",

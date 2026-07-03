@@ -162,10 +162,13 @@ def _metadata_name_set(value: Any) -> set[str]:
 _REGISTERED_TOOL_FUNCS: list[Callable[..., Any]] = []
 _REGISTERED_IDS: set[int] = set()
 
-# Built-in tools live under this package prefix.  Functions decorated
-# outside this prefix (e.g. in tests) are silently ignored by
+# Built-in tools live under these package prefixes.  Functions decorated
+# outside these prefixes (e.g. in tests) are silently ignored by
 # ``get_builtin_tool_funcs()``.
-_BUILTIN_TOOLS_PREFIX = "qwenpaw.agents.tools."
+_BUILTIN_TOOLS_PREFIXES = (
+    "qwenpaw.agents.tools.",
+    "qwenpaw.browser_sdk.tool",
+)
 
 
 def get_builtin_tool_funcs() -> list[Callable[..., Any]]:
@@ -179,7 +182,7 @@ def get_builtin_tool_funcs() -> list[Callable[..., Any]]:
     return [
         fn
         for fn in _REGISTERED_TOOL_FUNCS
-        if getattr(fn, "__module__", "").startswith(_BUILTIN_TOOLS_PREFIX)
+        if getattr(fn, "__module__", "").startswith(_BUILTIN_TOOLS_PREFIXES)
     ]
 
 

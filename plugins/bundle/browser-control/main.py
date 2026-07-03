@@ -30,10 +30,8 @@ from .routes import (
     shutdown_nm_bridge,
     ws_router,
 )
-from .tool_repl import (
-    python_repl,
-    python_repl_reset,
-)
+from .tool_repl import shutdown_python_repl
+from .user_backend import register_user_backend_once
 
 logger = logging.getLogger(__name__)
 
@@ -106,6 +104,7 @@ class BrowserControlPlugin:
             _manifest_deregister_instance(self._manifest_entry_id)
             self._manifest_entry_id = None
         await shutdown_nm_bridge()
+        await shutdown_python_repl()
         clear_bridge_connection_manager()
         clear_control_engine()
         self._control_engine = None
@@ -116,6 +115,7 @@ class BrowserControlPlugin:
         set_bridge_connection_manager(bridge)
         self._control_engine = ControlEngineImpl()
         register_control_engine(self._control_engine)
+        register_user_backend_once()
         api.register_http_router(
             api_router,
             prefix="/extension",
@@ -136,20 +136,6 @@ class BrowserControlPlugin:
             hook_name="browser_control_register_manifest",
             callback=self.startup,
             priority=110,
-        )
-        api.register_tool(
-            tool_name="python_repl",
-            tool_func=python_repl,
-            description=_PYTHON_REPL_DESCRIPTION,
-            icon="🐍",
-            enabled=True,
-        )
-        api.register_tool(
-            tool_name="python_repl_reset",
-            tool_func=python_repl_reset,
-            description="Reset the Browser Control Python REPL environment",
-            icon="↻",
-            enabled=True,
         )
         api.register_skill_provider(
             skills_dir=Path(__file__).parent / "skills",
