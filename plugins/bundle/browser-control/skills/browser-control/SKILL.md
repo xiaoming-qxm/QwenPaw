@@ -31,6 +31,27 @@ browser = await browser.connect()
 Do not instantiate `Browser()` directly. If reconnecting still fails, stop
 and report the bridge as blocked instead of repeating the same operation.
 
+Common hot-path calls are:
+
+```python
+# Open a fresh SDK-owned tab for a new task.
+tab = await browser.tabs.open("https://example.com")
+
+# Inspect tabs only when the task asks for existing browser state.
+owned_tabs = await browser.tabs.list()
+all_tabs = await browser.tabs.list(all=True)
+tab = await browser.tabs.get(tab_id)
+
+# Observe, read metadata, and close.
+snap = await tab.snapshot()
+info = await tab.page_info()
+await tab.close()
+```
+
+Do not call `browser.tabs()` or private attributes such as `browser._state`.
+If a common API is unclear, run `print(await browser.documentation())` once
+instead of probing private state or guessing method names.
+
 Use SDK code inside `python_repl` to inspect tabs, take snapshots, act on refs,
 and verify the result. Call `await browser.documentation()` when you need the
 API reference.
