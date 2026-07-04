@@ -20,6 +20,8 @@ modules. V4 work should build on the new package shape instead of restoring
 - Expand user-state acceptance coverage around approval-gated sensitive actions
   once a live Chrome Extension bridge and explicit account-operation approval
   are available.
-- Review whether plugin SDK REPL modules should remain plugin-owned or gain a
-  separate SDK-facing facade; this must not reintroduce backend implementation
-  imports through compatibility re-export paths.
+- Unify the Browser Control REPL/OOP SDK package shape, including
+  `plugins/bundle/browser-control/sdk/browser.py` and
+  `plugins/bundle/browser-control/sdk/tab.py`. This is V4 scope, not V3 scope:
+  V3 intentionally migrates backend package shape only, and must not move or
+  redesign the plugin REPL/OOP SDK facade.
