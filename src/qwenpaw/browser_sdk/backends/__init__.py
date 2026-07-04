@@ -1,7 +1,10 @@
 # -*- coding: utf-8 -*-
 """Browser SDK backend implementations."""
 
-from qwenpaw.browser_sdk.backend_protocols import BrowserBackend, BrowserSession
+from qwenpaw.browser_sdk.backend_protocols import (
+    BrowserBackend,
+    BrowserSession,
+)
 from qwenpaw.browser_sdk.backends.isolated import (
     IsolatedBrowserBackend,
     IsolatedBrowserSession,

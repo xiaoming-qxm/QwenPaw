@@ -10,7 +10,8 @@ Generated: 2026-07-03
 | User login-state shopping/cart task | `browser(code=...)` -> `Browser.connect(context="user")` -> `user.chrome_extension` | Sensitive action policy can block clear/delete/purchase-like actions before bridge mutation | Isolated fallback when bridge is missing | Functional contract `test_user_state_flow_routes_to_chrome_extension_policy_gate` |
 | Disconnected bridge for user-state task | `browser(code=...)` -> `context="user"` -> explicit block | Context acquisition must fail before browser mutation | Isolated fallback | Functional contract `test_disconnected_bridge_flow_blocks_explicitly` |
 | Removed legacy browser action surface | Legacy browser action imports/tool lookup -> absent | No legacy dispatcher fallback | Old dispatcher execution after SDK gap | Legacy browser removal contract |
-| Default tool surface | Runtime tool registry -> workspace list | N/A | legacy browser tool, `python_repl`, `python_repl_reset` as normal entries | Functional contract `test_default_runtime_tool_surface_has_single_browser_entry` |
+| Default tool surface | Runtime tool registry -> workspace list | N/A | legacy browser tool or legacy REPL tools as normal entries | Functional contract `test_default_runtime_tool_surface_has_single_browser_entry` |
+| V4 hard removal | Runtime source scan and import checks | `/ws/nm-bridge` remains the Chrome Extension bridge route | old plugin SDK, old remote bridge class, and old SDK websocket route | Contract `test_browser_sdk_v4_legacy_removal` |
 
 ## Expected Backend Routes
 
@@ -28,7 +29,7 @@ Generated: 2026-07-03
 - `DesktopScreenShot`
 - `ViewVideo`
 - model-visible legacy browser tool
-- model-visible `python_repl`
+- model-visible legacy REPL tools
 - direct Playwright routing for user-state tasks
 - repeated no-progress browser loops without a fresh observation
 
@@ -39,6 +40,25 @@ Generated: 2026-07-03
 - User-state flow logs include `browser(code=...)`, `Browser.connect(context="user")`, `user.chrome_extension`, and policy evaluation before sensitive mutations.
 - Disconnected bridge logs include `browser_bridge_disconnected`.
 - Legacy browser action imports/tool lookup are absent; there is no SDK shim.
+- V4 hard removal leaves `/ws/nm-bridge` as the Chrome Extension bridge route
+  and removes the old plugin SDK, old remote bridge class, and old SDK
+  websocket route.
+
+## V4 Public SDK Contract
+
+```python
+browser = await Browser.connect(context="auto")
+tab = await browser.tabs.active()
+await tab.actions.navigate("https://example.com")
+snapshot = await tab.snapshot()
+info = await tab.page_info()
+diagnostics = await Browser.diagnostics(context="auto")
+```
+
+Use `context="user"` for user Chrome state and `context="isolated"` for
+public isolated work. After `tab.actions.click(...)`, navigation, typing,
+selection, scroll, reload, or wait transitions, take a fresh observation before
+the next mutation.
 
 ## Observed Automated Evidence
 

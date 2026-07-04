@@ -25,6 +25,7 @@ from ..observation import coerce_observation, coerce_screenshot
 from ..types import (
     BrowserBackendCapabilities,
     BrowserObservation,
+    BrowserPageInfo,
     BrowserScreenshot,
     ResolvedBrowserContext,
 )
@@ -56,6 +57,10 @@ class IsolatedBrowserBackend:
         if callable(available):
             return bool(available())
         return is_playwright_available()
+
+    def diagnostics(self) -> dict[str, Any]:
+        """Return isolated backend diagnostic metadata without connecting."""
+        return {"playwright_available": self.is_available()}
 
     async def connect(
         self,
@@ -130,6 +135,23 @@ class IsolatedBrowserSession:
 
     async def screenshot(self, tab_id: str) -> BrowserScreenshot:
         return coerce_screenshot(tab_id, await self.runtime.screenshot(tab_id))
+
+    async def page_info(self, tab_id: str) -> BrowserPageInfo:
+        raw = await self.runtime.page_info(tab_id)
+        if isinstance(raw, BrowserPageInfo):
+            return raw
+        if isinstance(raw, dict):
+            return BrowserPageInfo(
+                tab_id=str(raw.get("tab_id") or raw.get("id") or tab_id),
+                url=str(raw.get("url") or ""),
+                title=str(raw.get("title") or ""),
+                metadata={
+                    key: value
+                    for key, value in raw.items()
+                    if key not in {"tab_id", "id", "url", "title"}
+                },
+            )
+        return BrowserPageInfo(tab_id=str(tab_id))
 
     async def evaluate(
         self,
@@ -348,6 +370,15 @@ class IsolatedPlaywrightRuntime:
             title=await _safe_title(page),
         )
 
+    async def page_info(self, tab_id: str) -> BrowserPageInfo:
+        page_id = str(tab_id)
+        page = await self._page(page_id)
+        return BrowserPageInfo(
+            tab_id=page_id,
+            url=str(getattr(page, "url", "") or ""),
+            title=await _safe_title(page),
+        )
+
     async def evaluate(
         self,
         tab_id: str,
@@ -386,6 +417,7 @@ class IsolatedPlaywrightRuntime:
         )
 
     # pylint: disable=too-many-return-statements,too-many-branches
+    # pylint: disable=too-many-statements
     async def action(
         self,
         tab_id: str,
@@ -401,6 +433,15 @@ class IsolatedPlaywrightRuntime:
                 return BrowserActionResult(ok=False, message="url required")
             await page.goto(url)
             return BrowserActionResult(ok=True, message=f"Opened {url}")
+        if action == "back":
+            await page.go_back()
+            return BrowserActionResult(ok=True, message="back")
+        if action == "forward":
+            await page.go_forward()
+            return BrowserActionResult(ok=True, message="forward")
+        if action == "reload":
+            await page.reload()
+            return BrowserActionResult(ok=True, message="reload")
         if action == "click":
             locator = self._locator_for_target(page, page_id, kwargs)
             if locator is not None:

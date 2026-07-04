@@ -37,7 +37,19 @@ class TabActions:
         self._tab = tab
 
     async def open(self, url: str) -> BrowserActionResult:
-        return await self._mutate("open", url=url)
+        return await self.navigate(url)
+
+    async def navigate(self, url: str) -> BrowserActionResult:
+        return await self._mutate("navigate", url=url)
+
+    async def back(self) -> BrowserActionResult:
+        return await self._mutate("back")
+
+    async def forward(self) -> BrowserActionResult:
+        return await self._mutate("forward")
+
+    async def reload(self) -> BrowserActionResult:
+        return await self._mutate("reload")
 
     async def click(self, target: Any) -> BrowserActionResult:
         return await self._mutate("click", **_target_kwargs(target))
@@ -69,6 +81,9 @@ class TabActions:
             value=value,
         )
 
+    async def hover(self, target: Any) -> BrowserActionResult:
+        return await self._mutate("hover", **_target_kwargs(target))
+
     async def wait_for(
         self,
         instruction: str,
@@ -77,6 +92,7 @@ class TabActions:
         return await self._run(
             "wait_for",
             mutating=False,
+            transition=True,
             instruction=instruction,
             timeout_ms=timeout_ms,
         )
@@ -89,6 +105,7 @@ class TabActions:
         name: str,
         *,
         mutating: bool,
+        transition: bool = False,
         **kwargs: Any,
     ) -> BrowserActionResult:
         if mutating:
@@ -96,7 +113,7 @@ class TabActions:
         result = _coerce_action_result(
             await self._tab._call_action(name, **kwargs),
         )
-        if mutating:
+        if mutating or (transition and result.ok):
             self._tab._mark_mutated()
         return result
 

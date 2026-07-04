@@ -31,7 +31,6 @@ from .routes import (
     shutdown_nm_bridge,
     ws_router,
 )
-from .tool_repl import shutdown_python_repl
 
 logger = logging.getLogger(__name__)
 
@@ -40,15 +39,6 @@ _BROWSER_PREMATURE_STOP_PROMPT = (
     "text-only response. If the browser task is not verified "
     "complete, continue with a fresh tab.snapshot() to check "
     "the current state. Do not stop without verifying."
-)
-
-_PYTHON_REPL_DESCRIPTION = (
-    "Execute Python code in the Browser Control SDK REPL. The REPL "
-    "preloads `browser`; do not import `browser_sdk`. Use "
-    "`await browser.tabs.open(...)`, "
-    "`await browser.tabs.list(all=True)` for TabInfo records "
-    "(.id/.title/.url), `await tab.snapshot()`, and "
-    "`print(await browser.documentation())` for API help."
 )
 
 _premature_stop_gate = PrematureStopGate(
@@ -104,7 +94,6 @@ class BrowserControlPlugin:
             _manifest_deregister_instance(self._manifest_entry_id)
             self._manifest_entry_id = None
         await shutdown_nm_bridge()
-        await shutdown_python_repl()
         clear_bridge_connection_manager()
         clear_control_engine()
         self._control_engine = None

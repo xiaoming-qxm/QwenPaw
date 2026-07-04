@@ -5,16 +5,20 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from .actions import TabActions
 from .errors import BrowserObservationRequired
 from .extract import extract_from_tab
+from .kernel import record_browser_artifact
 from .observation import coerce_observation, coerce_screenshot
 from .types import (
     BrowserActionResult,
+    BrowserArtifact,
     BrowserExtractionResult,
     BrowserObservation,
+    BrowserPageInfo,
     BrowserScreenshot,
     ExtractionFormat,
     ResolvedBrowserContext,
@@ -60,7 +64,24 @@ class Tab:
         )
         self._sync_metadata(result.url, result.title)
         self._mark_observed()
+        if result.path:
+            record_browser_artifact(_artifact_from_screenshot(result))
         return result
+
+    async def page_info(self) -> BrowserPageInfo:
+        """Read tab metadata without satisfying the observation guard."""
+        page_info = getattr(self._session, "page_info", None)
+        if callable(page_info):
+            raw = await page_info(self.id)
+            info = _coerce_page_info(self.id, raw)
+        else:
+            info = BrowserPageInfo(
+                tab_id=self.id,
+                url=self.url,
+                title=self.title,
+            )
+        self._sync_metadata(info.url, info.title)
+        return info
 
     async def evaluate(
         self,
@@ -172,6 +193,58 @@ def _coerce_action_result(value: Any) -> BrowserActionResult:
             data=dict(value.get("data") or {}),
         )
     return BrowserActionResult(ok=True, message=str(value or ""))
+
+
+def _coerce_page_info(tab_id: str, value: Any) -> BrowserPageInfo:
+    if isinstance(value, BrowserPageInfo):
+        return value
+    if isinstance(value, dict):
+        metadata = {
+            key: item
+            for key, item in value.items()
+            if key not in {"id", "tab_id", "tabId", "url", "title"}
+        }
+        return BrowserPageInfo(
+            tab_id=str(
+                value.get("tab_id")
+                or value.get("tabId")
+                or value.get("id")
+                or tab_id,
+            ),
+            url=str(value.get("url") or ""),
+            title=str(value.get("title") or ""),
+            metadata=metadata,
+        )
+    return BrowserPageInfo(
+        tab_id=str(
+            getattr(value, "tab_id", None)
+            or getattr(value, "id", None)
+            or tab_id,
+        ),
+        url=str(getattr(value, "url", "") or ""),
+        title=str(getattr(value, "title", "") or ""),
+    )
+
+
+def _artifact_from_screenshot(
+    screenshot: BrowserScreenshot,
+) -> BrowserArtifact:
+    raw_path = str(screenshot.path or "").strip()
+    try:
+        url = Path(raw_path).expanduser().resolve().as_uri()
+    except (OSError, ValueError):
+        url = raw_path
+    return BrowserArtifact(
+        kind="screenshot",
+        url=url,
+        media_type=screenshot.media_type,
+        name=Path(raw_path).name or "screenshot",
+        metadata={
+            "tab_id": screenshot.tab_id,
+            "path": raw_path,
+            **screenshot.metadata,
+        },
+    )
 
 
 __all__ = ["Tab", "tab_from_backend"]

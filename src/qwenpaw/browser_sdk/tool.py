@@ -4,9 +4,11 @@
 from __future__ import annotations
 
 from typing import Any
+from typing import cast
 
-from agentscope.message import TextBlock, ToolResultState
+from agentscope.message import DataBlock, TextBlock, ToolResultState, URLSource
 from agentscope.tool import ToolChunk
+from pydantic import AnyUrl
 
 from qwenpaw.runtime.tool_registry import tool_descriptor
 
@@ -40,8 +42,12 @@ async def browser(
     )
     ok = result.error is None
     metadata = _metadata(result, ok=ok, session_id=session_id, context=context)
+    content: list[TextBlock | DataBlock] = [
+        TextBlock(type="text", text=_summary_text(result)),
+    ]
+    content.extend(_artifact_blocks(result))
     return ToolChunk(
-        content=[TextBlock(type="text", text=_summary_text(result))],
+        content=content,
         state=ToolResultState.SUCCESS if ok else ToolResultState.ERROR,
         is_last=True,
         metadata=metadata,
@@ -88,7 +94,35 @@ def _metadata(
         for key in ("backend_id", "action", "metadata"):
             if key in result.error:
                 metadata[key] = result.error[key]
+    if result.artifacts:
+        metadata["artifacts"] = [
+            {
+                "kind": artifact.kind,
+                "url": artifact.url,
+                "media_type": artifact.media_type,
+                "name": artifact.name,
+                "metadata": dict(artifact.metadata),
+            }
+            for artifact in result.artifacts
+        ]
     return metadata
+
+
+def _artifact_blocks(result: BrowserKernelResult) -> list[DataBlock]:
+    blocks: list[DataBlock] = []
+    for artifact in result.artifacts:
+        if not artifact.url or not artifact.media_type:
+            continue
+        blocks.append(
+            DataBlock(
+                source=URLSource(
+                    url=cast(AnyUrl, artifact.url),
+                    media_type=artifact.media_type,
+                ),
+                name=artifact.name,
+            ),
+        )
+    return blocks
 
 
 def _summary_text(result: BrowserKernelResult) -> str:

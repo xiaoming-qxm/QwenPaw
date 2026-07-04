@@ -29,13 +29,21 @@ primitive 操作和结构化 actions 是同级能力：
 ```python
 browser = await Browser.connect(context="auto")
 tab = await browser.tabs.active()
-await tab.actions.open("https://example.com")
+await tab.actions.navigate("https://example.com")
 snapshot = await tab.snapshot()
+info = await tab.page_info()
 await tab.actions.click({"ref": "r1_e3"})
 ```
 
 每次改变页面状态后，下一次 mutation 前必须重新调用 `tab.snapshot()` 或
 `tab.screenshot()`。`tab.evaluate(..., read_only=True)` 只是读取辅助，不算新的观察。
+`tab.page_info()` 只读取页面元信息，也不算新的观察。
+
+不打开浏览器时检查后端可用性：
+
+```python
+diagnostics = await Browser.diagnostics(context="auto")
+```
 
 轻量提取使用：
 

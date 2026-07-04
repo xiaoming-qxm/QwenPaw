@@ -3,8 +3,9 @@
 ## Observe, Act, Verify
 
 - Use `browser(code=...)` and Browser SDK calls for Chrome work.
-- For a new user task, connect with `Browser.connect(context="user")`, open or
-  select the relevant tab, then observe with `await tab.snapshot()`.
+- For a new user task, connect with
+  `Browser.connect(context="user", requires_user_state=True)`, open or select
+  the relevant tab, then observe with `await tab.snapshot()`.
 - Opening a tab is not an observation. After `browser.tabs.open(...)`, call
   `await tab.snapshot()` before scrolling, clicking, typing, or selecting.
 - Prefer refs from the latest snapshot. Snapshot refs are scoped to the
@@ -21,8 +22,9 @@
 Common calls inside `browser(code=...)`:
 
 ```python
-browser = await Browser.connect(context="user")
-tab = await browser.tabs.open("https://example.com")
+browser = await Browser.connect(context="user", requires_user_state=True)
+tab = await browser.tabs.active()
+await tab.actions.navigate("https://example.com")
 snapshot = await tab.snapshot()
 await tab.actions.click({"ref": "r1_e22"})
 snapshot = await tab.snapshot()

@@ -2,8 +2,9 @@
 
 ## Use The Chrome Extension Bridge
 
-- Use `browser(code=...)` with `Browser.connect(context="user")` for tasks
-  that require the user's Chrome profile, login state, cart, account pages, or
+- Use `browser(code=...)` with
+  `Browser.connect(context="user", requires_user_state=True)` for tasks that
+  require the user's Chrome profile, login state, cart, account pages, or
   existing tabs.
 - Do not use legacy browser tools, shell commands, HTTP clients, local files,
   screenshots outside the SDK, or headless browser substitutes to inspect user
@@ -25,7 +26,8 @@
 ## Stop And Release
 
 If the user asks to stop, cancel, end, or release Chrome control, run a
-`browser(code=...)` call that connects with `context="user"` and releases the
+`browser(code=...)` call that connects with
+`Browser.connect(context="user", requires_user_state=True)` and releases the
 browser session, then report release.
 
 ## Goal Mode Execution

@@ -23,12 +23,19 @@ from qwenpaw.browser_sdk.types import (
     BrowserActionResult,
     BrowserBackendCapabilities,
     BrowserContextRequest,
+    BrowserPageInfo,
     ResolvedBrowserContext,
 )
 from qwenpaw.browser_sdk.types import BrowserObservation, BrowserScreenshot
 
 BACKEND_ID = "user.chrome_extension"
 _BROWSER_SENTINEL_TAB_ID = "__browser__"
+_ENGINE_ACTION_ALIASES = {
+    "back": "navigate_back",
+    "forward": "navigate_forward",
+    "press": "press_key",
+    "select": "select_option",
+}
 
 _SENSITIVE_ACTIONS = {
     "clear",
@@ -93,6 +100,10 @@ class ChromeExtensionBrowserBackend:
             code="browser_bridge_disconnected",
             backend_id=self.backend_id,
         )
+
+    def diagnostics(self) -> dict[str, Any]:
+        """Return user backend diagnostic metadata without connecting."""
+        return {"bridge_connected": self.is_available()}
 
     async def connect(
         self,
@@ -198,8 +209,23 @@ class ChromeExtensionBrowserSession:
 
     async def select_tab(self, tab_id: str) -> dict[str, Any]:
         await self._claim(tab_id)
-        await self._bridge_or_engine_action("select", tab_id)
+        await self.bridge.request(
+            "tab.attach",
+            {"tabId": int(tab_id), "holderId": self.holder_id},
+        )
         return {"id": str(tab_id)}
+
+    async def page_info(self, tab_id: str) -> BrowserPageInfo:
+        page_id = str(tab_id)
+        for tab in await self.list_tabs():
+            if str(tab.get("id") or "") == page_id:
+                return BrowserPageInfo(
+                    tab_id=page_id,
+                    url=str(tab.get("url") or ""),
+                    title=str(tab.get("title") or ""),
+                    metadata={"active": bool(tab.get("active", False))},
+                )
+        return BrowserPageInfo(tab_id=page_id)
 
     async def snapshot(self, tab_id: str) -> BrowserObservation:
         payload = await self._bridge_or_engine_action("snapshot", tab_id)
@@ -278,19 +304,26 @@ class ChromeExtensionBrowserSession:
         self,
         name: str,
         tab_id: str,
+        *,
+        apply_aliases: bool = True,
         **kwargs: Any,
     ) -> Any:
         if self._control_engine is not None:
+            engine_name = (
+                _ENGINE_ACTION_ALIASES.get(name, name)
+                if apply_aliases
+                else name
+            )
             supported = getattr(
                 self._control_engine,
                 "supported_actions",
                 None,
             )
             actions = supported() if callable(supported) else frozenset()
-            if name in actions:
+            if engine_name in actions:
                 chunk = await self._control_engine.dispatch(
                     self._state,
-                    name,
+                    engine_name,
                     page_id=str(tab_id),
                     **kwargs,
                 )

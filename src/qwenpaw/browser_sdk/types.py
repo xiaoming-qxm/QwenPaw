@@ -35,6 +35,28 @@ class BrowserBackendCapabilities:
 
 
 @dataclass(frozen=True)
+class BrowserBackendDiagnostic:
+    """Availability diagnostic for one Browser SDK backend."""
+
+    backend_id: str
+    browser_context: ConcreteBrowserContext
+    available: bool
+    code: str = ""
+    reason: str = ""
+    features: frozenset[str] = field(default_factory=frozenset)
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class BrowserDiagnostics:
+    """Availability diagnostics for registered Browser SDK backends."""
+
+    requested_context: BrowserContext
+    selected_backend_id: str = ""
+    backends: tuple[BrowserBackendDiagnostic, ...] = ()
+
+
+@dataclass(frozen=True)
 class BrowserContextRequest:
     """Policy input for acquiring a browser context."""
 
@@ -92,6 +114,27 @@ class BrowserScreenshot:
 
 
 @dataclass(frozen=True)
+class BrowserPageInfo:
+    """Read-only browser page metadata for a tab."""
+
+    tab_id: str
+    url: str = ""
+    title: str = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class BrowserArtifact:
+    """Browser SDK artifact emitted by a browser tool execution."""
+
+    kind: str
+    url: str
+    media_type: str
+    name: str = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
 class BrowserActionResult:
     """Result of a primitive or structured browser action."""
 
@@ -116,11 +159,15 @@ class BrowserExtractionResult:
 __all__ = [
     "BrowserActionRequest",
     "BrowserActionResult",
+    "BrowserArtifact",
     "BrowserBackendCapabilities",
+    "BrowserBackendDiagnostic",
     "BrowserContext",
     "BrowserContextRequest",
+    "BrowserDiagnostics",
     "BrowserExtractionResult",
     "BrowserObservation",
+    "BrowserPageInfo",
     "BrowserPolicyDecision",
     "BrowserScreenshot",
     "ConcreteBrowserContext",

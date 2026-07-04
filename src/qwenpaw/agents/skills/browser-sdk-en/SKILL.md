@@ -30,14 +30,23 @@ Primitive operations and structured actions are peer capabilities:
 ```python
 browser = await Browser.connect(context="auto")
 tab = await browser.tabs.active()
-await tab.actions.open("https://example.com")
+await tab.actions.navigate("https://example.com")
 snapshot = await tab.snapshot()
+info = await tab.page_info()
 await tab.actions.click({"ref": "r1_e3"})
 ```
 
 After a state-changing operation, take a fresh `tab.snapshot()` or
 `tab.screenshot()` before the next mutation. `tab.evaluate(..., read_only=True)`
 is a read helper and does not satisfy that observation requirement.
+`tab.page_info()` is metadata only; it does not satisfy the observation
+requirement either.
+
+Check backend availability without opening a browser:
+
+```python
+diagnostics = await Browser.diagnostics(context="auto")
+```
 
 Use light extraction for compact reads:
 

@@ -8,7 +8,7 @@ PYTEST := python -m pytest
 
 # Default: run all tests
 test:
-	$(PYTEST) tests/ -v --tb=short -q
+	$(PYTEST) tests/ --ignore=tests/local -v --tb=short -q
 
 # Unit tests only
 test-unit:

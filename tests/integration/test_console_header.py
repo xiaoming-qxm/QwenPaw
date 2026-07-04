@@ -30,11 +30,12 @@ def test_console_chat_stop_header_returns_stopped_false_for_unknown_chat_id(
     - Verify POST /api/console/chat/stop returns 200 + ``stopped=false``
       when the supplied chat_id is not tracked. Console's "停止生成"
       button must succeed quietly when no task is running (otherwise
-      every idle-state click would surface as an error toast).
+      every idle-state click would surface as an error toast), while still
+      reporting the browser-control cleanup result.
 
     Test flow:
     1. POST /api/console/chat/stop?chat_id=<synthetic-unknown>.
-    2. Assert 200 + response body ``{"stopped": false}``.
+    2. Assert 200 + ``stopped=false`` + zero browser-control cleanup counts.
 
     API endpoints:
     - POST /api/console/chat/stop
@@ -46,7 +47,14 @@ def test_console_chat_stop_header_returns_stopped_false_for_unknown_chat_id(
         timeout=_CONSOLE_HTTP_TIMEOUT,
     )
     assert resp.status_code == 200, app_server.logs_tail()
-    assert resp.json() == {"stopped": False}
+    assert resp.json() == {
+        "stopped": False,
+        "control_cleanup": {
+            "closed_tabs": 0,
+            "matched_tabs": 0,
+            "released_tabs": 0,
+        },
+    }
 
 
 @pytest.mark.integration

@@ -9,17 +9,22 @@ activation:
 
 Browser Control is now reached through the core Browser SDK. Use
 `browser(code=...)` and connect to the user's Chrome session with
-`Browser.connect(context="user")`.
+`Browser.connect(context="user", requires_user_state=True)`.
 
 ```python
-browser = await Browser.connect(context="user")
-tab = await browser.tabs.open("https://example.com")
+browser = await Browser.connect(context="user", requires_user_state=True)
+tab = await browser.tabs.active()
+await tab.actions.navigate("https://example.com")
 snapshot = await tab.snapshot()
+info = await tab.page_info()
 ```
 
 The Chrome Extension bridge is required for user-state work. If the bridge is
 disconnected, stop and ask the user to enable or refresh the extension. Do not
 reroute logged-in or existing-tab tasks to the isolated backend.
+
+Use `await Browser.diagnostics(context="user")` to report bridge availability
+without opening or mutating a page.
 
 Use observe-act-verify discipline: after each navigation, click, type,
 selection, scroll, or destructive action, take a fresh `tab.snapshot()` or

@@ -13,7 +13,12 @@ from .resolver import BrowserContextResolver
 from .actions import BrowserActions
 from .tabs import Tabs
 from .types import BrowserActionResult
-from .types import BrowserContext, ResolvedBrowserContext
+from .types import (
+    BrowserBackendDiagnostic,
+    BrowserContext,
+    BrowserDiagnostics,
+    ResolvedBrowserContext,
+)
 
 
 @dataclass
@@ -102,6 +107,27 @@ class Browser:
         session = await backend.connect(effective_session_id, resolved)
         return cls(session=session, context=resolved)
 
+    @classmethod
+    async def diagnostics(
+        cls,
+        context: BrowserContext = "auto",
+    ) -> BrowserDiagnostics:
+        """Return backend availability diagnostics without connecting."""
+        del cls
+        requested = _normalize_context(context)
+        registry = get_default_backend_registry()
+        diagnostics = tuple(
+            _backend_diagnostic(backend) for backend in registry.all()
+        )
+        return BrowserDiagnostics(
+            requested_context=requested,
+            selected_backend_id=_selected_diagnostic_backend_id(
+                requested,
+                diagnostics,
+            ),
+            backends=diagnostics,
+        )
+
     async def _call_browser_action(
         self,
         name: str,
@@ -140,6 +166,80 @@ def _effective_context(
     if context == "auto" and execution_context is not None:
         return execution_context.context
     return context
+
+
+def _normalize_context(context: str) -> BrowserContext:
+    value = str(context or "auto").strip().lower()
+    if value in {"auto", "user", "isolated"}:
+        return value  # type: ignore[return-value]
+    return "auto"
+
+
+def _backend_diagnostic(backend: Any) -> BrowserBackendDiagnostic:
+    capabilities = backend.capabilities()
+    metadata: dict[str, Any] = {}
+    backend_diagnostics = getattr(backend, "diagnostics", None)
+    if callable(backend_diagnostics):
+        raw_metadata = backend_diagnostics()
+        if isinstance(raw_metadata, dict):
+            metadata.update(raw_metadata)
+    try:
+        available = bool(backend.is_available())
+    except Exception as exc:  # pragma: no cover - defensive diagnostics
+        return BrowserBackendDiagnostic(
+            backend_id=capabilities.backend_id,
+            browser_context=capabilities.browser_context,
+            available=False,
+            code=type(exc).__name__,
+            reason=str(exc),
+            features=capabilities.features,
+            metadata=metadata,
+        )
+    code = ""
+    reason = ""
+    if not available:
+        unavailable_error = getattr(backend, "unavailable_error", None)
+        if callable(unavailable_error):
+            error = unavailable_error()
+            code = str(getattr(error, "code", "") or type(error).__name__)
+            reason = str(error)
+            metadata.update(dict(getattr(error, "metadata", {}) or {}))
+    return BrowserBackendDiagnostic(
+        backend_id=capabilities.backend_id,
+        browser_context=capabilities.browser_context,
+        available=available,
+        code=code,
+        reason=reason,
+        features=capabilities.features,
+        metadata=metadata,
+    )
+
+
+def _selected_diagnostic_backend_id(
+    context: BrowserContext,
+    diagnostics: tuple[BrowserBackendDiagnostic, ...],
+) -> str:
+    if context == "isolated":
+        return _first_available_backend_id(diagnostics, "isolated")
+    if context == "user":
+        return _first_available_backend_id(diagnostics, "user")
+    return _first_available_backend_id(
+        diagnostics,
+        "isolated",
+    ) or _first_available_backend_id(diagnostics, "user")
+
+
+def _first_available_backend_id(
+    diagnostics: tuple[BrowserBackendDiagnostic, ...],
+    browser_context: str,
+) -> str:
+    for diagnostic in diagnostics:
+        if (
+            diagnostic.browser_context == browser_context
+            and diagnostic.available
+        ):
+            return diagnostic.backend_id
+    return ""
 
 
 __all__ = ["Browser", "connect_browser"]

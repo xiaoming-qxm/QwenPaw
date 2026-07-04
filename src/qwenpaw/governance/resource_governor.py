@@ -176,6 +176,8 @@ class ResourceGovernor:
             decision.action is GovernanceAction.SANDBOX_FALLBACK
             and not self._sandbox_available
         ):
+            capability = self._sandbox_capability
+            reason = capability.reason if capability is not None else "unknown"
             logger.info(
                 "ResourceGovernor: sandbox unavailable, escalating "
                 "SANDBOX_FALLBACK to ASK for tool '%s'",
@@ -183,10 +185,7 @@ class ResourceGovernor:
             )
             decision = GovernanceDecision(
                 action=GovernanceAction.ASK,
-                reason=(
-                    f"sandbox unavailable "
-                    f"({self._sandbox_capability.reason}), ask user"
-                ),
+                reason=(f"sandbox unavailable ({reason}), ask user"),
             )
 
         # compile sandbox config

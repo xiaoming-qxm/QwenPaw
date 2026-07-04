@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from types import CodeType
 from typing import Any
 
-from .types import BrowserContext
+from .types import BrowserArtifact, BrowserContext
 
 _RETURN_NAME = "__qwenpaw_browser_return__"
 _MAX_PREBOUND_REF_INDEX = 10000
@@ -36,11 +36,16 @@ class BrowserKernelResult:
     output: str
     return_value: str | None
     error: dict[str, Any] | None
+    artifacts: tuple[BrowserArtifact, ...] = ()
 
 
 _CURRENT_EXECUTION_CONTEXT: ContextVar[
     BrowserExecutionContext | None
 ] = ContextVar("qwenpaw_browser_execution_context", default=None)
+_CURRENT_ARTIFACTS: ContextVar[list[BrowserArtifact] | None] = ContextVar(
+    "qwenpaw_browser_artifacts",
+    default=None,
+)
 
 
 def get_current_execution_context() -> BrowserExecutionContext | None:
@@ -62,6 +67,23 @@ def reset_current_execution_context(
     _CURRENT_EXECUTION_CONTEXT.reset(token)
 
 
+def record_browser_artifact(artifact: BrowserArtifact) -> None:
+    """Record one artifact for the current browser tool execution."""
+    artifacts = _CURRENT_ARTIFACTS.get()
+    if artifacts is not None:
+        artifacts.append(artifact)
+
+
+def drain_browser_artifacts() -> tuple[BrowserArtifact, ...]:
+    """Return and clear artifacts for the current browser tool execution."""
+    artifacts = _CURRENT_ARTIFACTS.get()
+    if artifacts is None:
+        return ()
+    drained = tuple(artifacts)
+    artifacts.clear()
+    return drained
+
+
 class BrowserKernel:
     """Execute snippets in a durable per-session namespace."""
 
@@ -78,6 +100,7 @@ class BrowserKernel:
         """Execute Python code with top-level await support."""
         stdout_capture = io.StringIO()
         token = set_current_execution_context(execution_context)
+        artifacts_token = _CURRENT_ARTIFACTS.set([])
         try:
             with contextlib.redirect_stdout(stdout_capture):
                 result = await asyncio.wait_for(
@@ -88,6 +111,7 @@ class BrowserKernel:
                 output=stdout_capture.getvalue(),
                 return_value=repr(result) if result is not None else None,
                 error=None,
+                artifacts=drain_browser_artifacts(),
             )
         except asyncio.TimeoutError:
             return BrowserKernelResult(
@@ -99,14 +123,17 @@ class BrowserKernel:
                     "message": f"Execution timed out after {timeout_ms}ms",
                     "traceback": "",
                 },
+                artifacts=drain_browser_artifacts(),
             )
         except Exception as exc:  # noqa: BLE001
             return BrowserKernelResult(
                 output=stdout_capture.getvalue(),
                 return_value=None,
                 error=_error_payload(exc),
+                artifacts=drain_browser_artifacts(),
             )
         finally:
+            _CURRENT_ARTIFACTS.reset(artifacts_token)
             reset_current_execution_context(token)
 
     async def _execute_code(self, code: str) -> Any:

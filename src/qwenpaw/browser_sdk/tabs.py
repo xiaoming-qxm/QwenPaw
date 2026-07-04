@@ -70,6 +70,10 @@ class Tabs:
             ),
         )
 
+    async def get(self, tab_id: str) -> Tab:
+        """Return an existing tab by id using the backend select contract."""
+        return await self.select(str(tab_id))
+
     def _remember(self, tab: Tab) -> Tab:
         existing = self._cache.get(tab.id)
         if existing is not None:
