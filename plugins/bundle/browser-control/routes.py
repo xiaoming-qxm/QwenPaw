@@ -472,13 +472,13 @@ async def _handle_sdk_ws_message(
     request_id = message.get("id")
     if request_id is None:
         return None
+    raw_params = message.get("params")
+    params = raw_params if isinstance(raw_params, dict) else {}
     try:
         result = await _execute_sdk_bridge_method(
             bridge,
             str(message.get("method") or ""),
-            message.get("params")
-            if isinstance(message.get("params"), dict)
-            else {},
+            params,
         )
         return {"jsonrpc": "2.0", "id": request_id, "result": result}
     except Exception as exc:  # noqa: BLE001
@@ -530,8 +530,10 @@ async def _execute_sdk_bridge_method(
         )
         return {"ok": True}
     if method == "bridge.release_all":
-        holder_id = params.get("holder_id")
-        await bridge.release_all(None if holder_id is None else str(holder_id))
+        raw_holder_id = params.get("holder_id")
+        await bridge.release_all(
+            None if raw_holder_id is None else str(raw_holder_id),
+        )
         return {"ok": True}
     if method == "bridge.request":
         request_method = str(params.get("method") or "")

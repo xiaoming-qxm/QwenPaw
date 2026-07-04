@@ -17,6 +17,7 @@ from qwenpaw.browser.control_engine import (
     clear_control_engine,
     register_control_engine,
 )
+from qwenpaw.browser_sdk.backends.user import register_user_backend_once
 from qwenpaw.loop.gates.rubric import PrematureStopGate
 from qwenpaw.plugins.api import PluginApi
 
@@ -31,7 +32,6 @@ from .routes import (
     ws_router,
 )
 from .tool_repl import shutdown_python_repl
-from .user_backend import register_user_backend_once
 
 logger = logging.getLogger(__name__)
 

@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import contextlib
 import uuid
-from typing import Any
+from typing import Any, TypeAlias
 
 from qwenpaw.browser_sdk import Browser as CoreBrowser
 from qwenpaw.browser_sdk import Tabs as CoreTabs
@@ -15,6 +15,8 @@ from .errors import BridgeDisconnected, BrowserSDKError
 from .remote_bridge import RemoteBridge
 from .tab import Tab
 from .types import TabInfo
+
+TabInfoList: TypeAlias = list[TabInfo]
 
 _REQUEST_CONTEXT: dict[str, Any] = {}
 _SESSION_STATES: dict[str, dict[str, Any]] = {}
@@ -133,12 +135,14 @@ class Tabs:
         force: bool = False,
     ):
         """Close or release a tab without changing its creation metadata."""
+        tab: Tab
         if isinstance(tab_id, Tab):
             tab = tab_id
         elif tab_id is None:
-            tab = await self.current()
-            if tab is None:
+            current = await self.current()
+            if current is None:
                 raise BrowserSDKError("No current browser tab is available")
+            tab = current
         else:
             tab = Tab(int(tab_id), self._bridge, self._holder_id, self._state)
         result = await tab.close(force=force)
@@ -208,8 +212,8 @@ class Tabs:
 
     def _controlled_tab_infos(
         self,
-        visible_tabs: list[TabInfo],
-    ) -> list[TabInfo]:
+        visible_tabs: TabInfoList,
+    ) -> TabInfoList:
         try:
             tabs = self._state.get("control_tabs", {})
         except AttributeError:
@@ -248,7 +252,7 @@ class Tabs:
 class _BrowserConnect:
     """Descriptor that supports class and instance Browser.connect calls."""
 
-    def __get__(self, instance: Any, owner: type) -> Any:
+    def __get__(self, instance: Any, owner: type["Browser"]) -> Any:
         async def connect(ws_url: str = "", token: str = "") -> Browser:
             if instance is None:
                 return await owner._connect_new(ws_url, token)

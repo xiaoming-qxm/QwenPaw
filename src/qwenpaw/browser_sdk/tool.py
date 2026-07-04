@@ -11,7 +11,7 @@ from agentscope.tool import ToolChunk
 from qwenpaw.runtime.tool_registry import tool_descriptor
 
 from .kernel import BrowserKernelResult, get_default_kernel_manager
-from .isolated_backend import register_isolated_backend_once
+from .backends.isolated import register_isolated_backend_once
 
 register_isolated_backend_once()
 

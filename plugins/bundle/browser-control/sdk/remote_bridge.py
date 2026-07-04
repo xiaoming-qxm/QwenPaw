@@ -308,7 +308,12 @@ class RemoteBridge:
         }
         try:
             async with self._send_lock:
-                await self._ws.send(json.dumps(message))
+                ws = self._ws
+                if ws is None:
+                    raise BridgeDisconnected(
+                        "Browser Control SDK bridge is not connected",
+                    )
+                await ws.send(json.dumps(message))
             response = await asyncio.wait_for(future, timeout=timeout)
         finally:
             self._pending.pop(request_id, None)
@@ -335,7 +340,10 @@ class RemoteBridge:
 
     async def _receive_loop(self) -> None:
         try:
-            async for raw in self._ws:
+            ws = self._ws
+            if ws is None:
+                return
+            async for raw in ws:
                 message = _loads(raw)
                 if not isinstance(message, dict):
                     continue

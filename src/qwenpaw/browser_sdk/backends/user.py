@@ -8,21 +8,22 @@ from typing import Any
 
 from qwenpaw.browser.connection_manager import get_bridge_connection_manager
 from qwenpaw.browser.control_engine import get_control_engine
-from qwenpaw.browser_sdk import (
-    BrowserActionRequest,
-    BrowserActionResult,
-    BrowserBackendCapabilities,
-    BrowserContextRequest,
+from qwenpaw.browser_sdk.backend_registry import get_default_backend_registry
+from qwenpaw.browser_sdk.errors import (
     BrowserContextUnavailable,
-    BrowserPolicy,
     BrowserPolicyDenied,
-    DefaultBrowserPolicy,
-    ResolvedBrowserContext,
-    get_default_backend_registry,
 )
 from qwenpaw.browser_sdk.observation import (
     coerce_observation,
     coerce_screenshot,
+)
+from qwenpaw.browser_sdk.policy import BrowserPolicy, DefaultBrowserPolicy
+from qwenpaw.browser_sdk.types import (
+    BrowserActionRequest,
+    BrowserActionResult,
+    BrowserBackendCapabilities,
+    BrowserContextRequest,
+    ResolvedBrowserContext,
 )
 from qwenpaw.browser_sdk.types import BrowserObservation, BrowserScreenshot
 
@@ -188,9 +189,10 @@ class ChromeExtensionBrowserSession:
         return [_normalize_tab(tab) for tab in tabs if isinstance(tab, dict)]
 
     async def open_tab(self, url: str | None = None) -> dict[str, Any]:
-        payload = {"url": url or "about:blank", "active": True}
+        target_url = url or "about:blank"
+        payload = {"url": target_url, "active": True}
         response = await self.bridge.request("tab.create", payload)
-        tab = _tab_from_create_response(response, fallback_url=payload["url"])
+        tab = _tab_from_create_response(response, fallback_url=target_url)
         await self._claim(tab["id"])
         return tab
 

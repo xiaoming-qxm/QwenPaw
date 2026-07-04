@@ -8,7 +8,7 @@ import time
 from typing import Any
 from urllib.parse import quote_plus
 
-from ._runtime import (
+from .._runtime import (
     _chromium_launch_args,
     _ensure_playwright_async,
     _parse_browser_args,
@@ -18,11 +18,11 @@ from ._runtime import (
     is_playwright_available,
     logger,
 )
-from ._snapshot import build_role_snapshot_from_aria
-from .actions import BrowserActionResult
-from .backend_registry import get_default_backend_registry
-from .observation import coerce_observation, coerce_screenshot
-from .types import (
+from .._snapshot import build_role_snapshot_from_aria
+from ..actions import BrowserActionResult
+from ..backend_registry import get_default_backend_registry
+from ..observation import coerce_observation, coerce_screenshot
+from ..types import (
     BrowserBackendCapabilities,
     BrowserObservation,
     BrowserScreenshot,

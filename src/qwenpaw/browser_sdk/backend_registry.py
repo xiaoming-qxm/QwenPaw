@@ -6,7 +6,7 @@ from __future__ import annotations
 from collections import OrderedDict
 from collections.abc import Iterable
 
-from .backends import BrowserBackend
+from .backend_protocols import BrowserBackend
 from .types import ConcreteBrowserContext
 
 

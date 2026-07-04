@@ -159,7 +159,7 @@ class KernelManager:
         except asyncio.TimeoutError as exc:
             raise _KernelResponseTimeout from exc
         _, result = parse_response(line.decode("utf-8"))
-        payload = {
+        payload: dict[str, Any] = {
             "output": result.output,
             "return_value": result.return_value,
             "error": result.error,

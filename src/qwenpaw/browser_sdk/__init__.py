@@ -5,12 +5,16 @@ from .backend_registry import (
     BrowserBackendRegistry,
     get_default_backend_registry,
 )
-from .backends import BrowserBackend, BrowserSession
+from .backend_protocols import BrowserBackend, BrowserSession
 from .browser import Browser, connect_browser
 from .actions import BrowserActions, TabActions
-from .isolated_backend import (
+from .backends.isolated import (
     IsolatedBrowserBackend,
     register_isolated_backend_once,
+)
+from .backends.user import (
+    ChromeExtensionBrowserBackend,
+    register_user_backend_once,
 )
 from .errors import (
     BrowserContextConflict,
@@ -62,6 +66,7 @@ __all__ = [
     "BrowserSDKGap",
     "BrowserScreenshot",
     "BrowserSession",
+    "ChromeExtensionBrowserBackend",
     "ConcreteBrowserContext",
     "DefaultBrowserPolicy",
     "ExtractionFormat",
@@ -73,4 +78,5 @@ __all__ = [
     "connect_browser",
     "get_default_backend_registry",
     "register_isolated_backend_once",
+    "register_user_backend_once",
 ]

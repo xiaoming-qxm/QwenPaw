@@ -88,6 +88,7 @@ repos:
           --disable=C0103,
           --disable=R0913,
           --disable=E0401,
+          --disable=E0402,
           --disable=E1101,
           --disable=C0415,
           --disable=W0603,

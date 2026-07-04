@@ -9,7 +9,7 @@ from .backend_registry import (
     BrowserBackendRegistry,
     get_default_backend_registry,
 )
-from .backends import BrowserBackend
+from .backend_protocols import BrowserBackend
 from .errors import (
     BrowserContextConflict,
     BrowserContextUnavailable,
