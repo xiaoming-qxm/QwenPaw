@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>QwenPaw Browser Control Cart Fixture</title>
+    <style>
+      body {
+        font-family:
+          Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        margin: 0;
+        color: #17202a;
+        background: #f6f7f9;
+      }
+
+      main {
+        max-width: 880px;
+        margin: 0 auto;
+        padding: 32px 20px;
+      }
+
+      h1 {
+        margin: 0 0 24px;
+        font-size: 28px;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 16px;
+      }
+
+      .product,
+      .cart {
+        border: 1px solid #d7dde5;
+        border-radius: 8px;
+        background: #fff;
+        padding: 16px;
+      }
+
+      button {
+        border: 0;
+        border-radius: 6px;
+        background: #1769aa;
+        color: white;
+        cursor: pointer;
+        font-weight: 600;
+        padding: 8px 12px;
+      }
+
+      button.secondary {
+        background: #5d6d7e;
+      }
+
+      .cart {
+        margin-top: 20px;
+      }
+
+      .cart-row {
+        display: flex;
+        justify-content: space-between;
+        border-bottom: 1px solid #e5e9ef;
+        padding: 8px 0;
+      }
+
+      .empty {
+        color: #5d6d7e;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Deterministic Cart Fixture</h1>
+
+      <section class="grid" aria-label="Products">
+        <article class="product" data-testid="product-men-shampoo">
+          <h2>Men Shampoo</h2>
+          <p>Daily clean shampoo, 400 ml.</p>
+          <button data-testid="add-men-shampoo" data-sku="men-shampoo">
+            Add Men Shampoo
+          </button>
+        </article>
+
+        <article class="product" data-testid="product-travel-comb">
+          <h2>Travel Comb</h2>
+          <p>Compact comb for travel kits.</p>
+          <button data-testid="add-travel-comb" data-sku="travel-comb">
+            Add Travel Comb
+          </button>
+        </article>
+      </section>
+
+      <section class="cart" aria-label="Shopping cart">
+        <h2>Cart</h2>
+        <div data-testid="cart-list" id="cart-list"></div>
+        <p class="empty" data-testid="empty-cart" id="empty-cart">
+          Cart is empty.
+        </p>
+        <button data-testid="clear-cart" id="clear-cart">Clear Cart</button>
+        <button
+          class="secondary"
+          data-testid="reset-fixture"
+          id="reset-fixture"
+        >
+          Reset Fixture
+        </button>
+      </section>
+    </main>
+
+    <script>
+      const STORAGE_KEY = "qwenpaw-v6-cart";
+      const PRODUCTS = {
+        "men-shampoo": { name: "Men Shampoo", price: 8 },
+        "travel-comb": { name: "Travel Comb", price: 4 },
+      };
+
+      function loadCart() {
+        try {
+          return JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+        } catch (_error) {
+          return [];
+        }
+      }
+
+      function saveCart(cart) {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(cart));
+      }
+
+      function addToCart(sku) {
+        const cart = loadCart();
+        const existing = cart.find((item) => item.sku === sku);
+        if (existing) {
+          existing.quantity += 1;
+        } else {
+          cart.push({ sku, quantity: 1 });
+        }
+        saveCart(cart);
+        renderCart();
+      }
+
+      function clearCart() {
+        saveCart([]);
+        renderCart();
+      }
+
+      function resetFixture() {
+        localStorage.removeItem(STORAGE_KEY);
+        renderCart();
+      }
+
+      function renderCart() {
+        const cart = loadCart();
+        const list = document.getElementById("cart-list");
+        const empty = document.getElementById("empty-cart");
+        list.innerHTML = "";
+        empty.hidden = cart.length > 0;
+        cart.forEach((item) => {
+          const product = PRODUCTS[item.sku];
+          const row = document.createElement("div");
+          row.className = "cart-row";
+          row.dataset.testid = `cart-row-${item.sku}`;
+          row.textContent = `${product.name} x ${item.quantity}`;
+          const price = document.createElement("strong");
+          price.textContent = `$${product.price * item.quantity}`;
+          row.appendChild(price);
+          list.appendChild(row);
+        });
+      }
+
+      document.querySelectorAll("[data-sku]").forEach((button) => {
+        button.addEventListener("click", () => addToCart(button.dataset.sku));
+      });
+      document
+        .getElementById("clear-cart")
+        .addEventListener("click", clearCart);
+      document
+        .getElementById("reset-fixture")
+        .addEventListener("click", resetFixture);
+      renderCart();
+    </script>
+  </body>
+</html>

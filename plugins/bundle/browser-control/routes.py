@@ -12,12 +12,13 @@ from typing import Any, cast
 
 from pydantic import BaseModel, Field
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 from starlette.responses import JSONResponse
 
 from qwenpaw.browser.connection_manager import get_bridge_connection_manager
 from qwenpaw.browser.nm_bridge_state import get_nm_bridge_route_state
 from qwenpaw.browser_sdk import Browser
+from qwenpaw.browser_sdk.trace import get_browser_trace_store
 from qwenpaw.browser_sdk.types import (
     BrowserBackendDiagnostic,
     BrowserContext,
@@ -280,6 +281,22 @@ async def get_extension_status() -> dict[str, Any]:
 @api_router.get("/status")
 async def extension_status() -> dict[str, Any]:
     return await get_extension_status()
+
+
+@api_router.get("/traces")
+async def extension_traces(
+    session_id: str = "",
+    limit: int = Query(default=100, ge=0, le=1000),
+) -> dict[str, Any]:
+    events = get_browser_trace_store().list(
+        session_id=session_id or None,
+        limit=limit,
+    )
+    return {
+        "session_id": session_id,
+        "limit": limit,
+        "events": [event.to_dict() for event in events],
+    }
 
 
 @api_router.post("/setup")

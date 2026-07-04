@@ -27,6 +27,13 @@ from .errors import (
 from .policy import BrowserPolicy, DefaultBrowserPolicy
 from .resolver import BrowserContextResolver
 from .risk import classify_browser_action
+from .trace import (
+    BrowserTraceEvent,
+    BrowserTraceStore,
+    get_browser_trace_store,
+    record_browser_trace_event,
+    reset_browser_trace_store_for_tests,
+)
 from .types import (
     BrowserActionRequest,
     BrowserActionResult,
@@ -83,6 +90,8 @@ __all__ = [
     "BrowserSDKGap",
     "BrowserScreenshot",
     "BrowserSession",
+    "BrowserTraceEvent",
+    "BrowserTraceStore",
     "ChromeExtensionBrowserBackend",
     "ConcreteBrowserContext",
     "DefaultBrowserPolicy",
@@ -94,7 +103,10 @@ __all__ = [
     "Tabs",
     "connect_browser",
     "classify_browser_action",
+    "get_browser_trace_store",
     "get_default_backend_registry",
+    "record_browser_trace_event",
     "register_isolated_backend_once",
     "register_user_backend_once",
+    "reset_browser_trace_store_for_tests",
 ]

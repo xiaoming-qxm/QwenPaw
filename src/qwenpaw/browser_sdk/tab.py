@@ -6,13 +6,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+from time import perf_counter
 from typing import Any
+from urllib.parse import urlparse
 
 from .actions import TabActions
 from .errors import BrowserObservationRequired
 from .extract import extract_from_tab
 from .kernel import record_browser_artifact
 from .observation import coerce_observation, coerce_screenshot
+from .trace import record_browser_trace_event
 from .types import (
     BrowserActionResult,
     BrowserArtifact,
@@ -32,6 +35,7 @@ class Tab:
     id: str
     session: Any
     context: ResolvedBrowserContext
+    session_id: str = ""
     url: str = ""
     title: str = ""
     _observation_required: bool = False
@@ -48,24 +52,62 @@ class Tab:
 
     async def snapshot(self) -> BrowserObservation:
         """Observe the tab and satisfy the fresh-observation guard."""
-        result = coerce_observation(
-            self.id,
-            await self._session.snapshot(self.id),
+        started = perf_counter()
+        try:
+            result = coerce_observation(
+                self.id,
+                await self._session.snapshot(self.id),
+            )
+            self._sync_metadata(result.url, result.title)
+            self._mark_observed()
+        except Exception as exc:
+            self._trace(
+                phase="observe",
+                action="snapshot",
+                status="error",
+                duration_ms=_duration_ms(started),
+                error_code=_error_code(exc),
+                metadata={"error_type": type(exc).__name__},
+            )
+            raise
+        self._trace(
+            phase="observe",
+            action="snapshot",
+            status="ok",
+            duration_ms=_duration_ms(started),
+            url=result.url,
         )
-        self._sync_metadata(result.url, result.title)
-        self._mark_observed()
         return result
 
     async def screenshot(self) -> BrowserScreenshot:
         """Capture a visual observation and satisfy the guard."""
-        result = coerce_screenshot(
-            self.id,
-            await self._session.screenshot(self.id),
+        started = perf_counter()
+        try:
+            result = coerce_screenshot(
+                self.id,
+                await self._session.screenshot(self.id),
+            )
+            self._sync_metadata(result.url, result.title)
+            self._mark_observed()
+            if result.path:
+                record_browser_artifact(_artifact_from_screenshot(result))
+        except Exception as exc:
+            self._trace(
+                phase="screenshot",
+                action="screenshot",
+                status="error",
+                duration_ms=_duration_ms(started),
+                error_code=_error_code(exc),
+                metadata={"error_type": type(exc).__name__},
+            )
+            raise
+        self._trace(
+            phase="screenshot",
+            action="screenshot",
+            status="ok",
+            duration_ms=_duration_ms(started),
+            url=result.url,
         )
-        self._sync_metadata(result.url, result.title)
-        self._mark_observed()
-        if result.path:
-            record_browser_artifact(_artifact_from_screenshot(result))
         return result
 
     async def page_info(self) -> BrowserPageInfo:
@@ -120,10 +162,82 @@ class Tab:
         format: ExtractionFormat = "text",
     ) -> BrowserExtractionResult:
         """Extract lightweight text or JSON from the tab."""
-        return await extract_from_tab(self, instruction, format=format)
+        started = perf_counter()
+        try:
+            result = await extract_from_tab(self, instruction, format=format)
+        except Exception as exc:
+            self._trace(
+                phase="extraction",
+                action="extract",
+                status="error",
+                duration_ms=_duration_ms(started),
+                error_code=_error_code(exc),
+                metadata={
+                    "error_type": type(exc).__name__,
+                    "format": format,
+                },
+            )
+            raise
+        self._trace(
+            phase="extraction",
+            action="extract",
+            status="ok" if result.ok else "error",
+            duration_ms=_duration_ms(started),
+            error_code=result.error,
+            metadata={"format": format},
+        )
+        return result
 
     async def _call_action(self, name: str, **kwargs: Any) -> Any:
-        return await self._session.action(self.id, name, **kwargs)
+        started = perf_counter()
+        try:
+            result = await self._session.action(self.id, name, **kwargs)
+        except Exception as exc:
+            self._trace(
+                phase="action",
+                action=name,
+                status="error",
+                duration_ms=_duration_ms(started),
+                error_code=_error_code(exc),
+                metadata={"kwargs": kwargs, "error_type": type(exc).__name__},
+            )
+            raise
+        self._trace(
+            phase="action",
+            action=name,
+            status=_result_status(result),
+            duration_ms=_duration_ms(started),
+            metadata={"kwargs": kwargs},
+        )
+        return result
+
+    def _trace(
+        self,
+        *,
+        phase: str,
+        action: str,
+        status: str,
+        duration_ms: float,
+        url: str = "",
+        error_code: str = "",
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        effective_url = url or self.url
+        record_browser_trace_event(
+            session_id=self.session_id,
+            phase=phase,
+            backend_id=self.context.backend_id,
+            requested_context=self.context.requested,
+            selected_context=self.context.selected,
+            action=action,
+            tab_id=self.id,
+            url=effective_url,
+            domain=_domain_from_url(effective_url),
+            status=status,
+            duration_ms=duration_ms,
+            error_code=error_code,
+            metadata=metadata,
+        )
 
     def _ensure_can_mutate(self, action_name: str) -> None:
         if not self._observation_required:
@@ -154,6 +268,7 @@ def tab_from_backend(
     *,
     session: Any,
     context: ResolvedBrowserContext,
+    session_id: str = "",
     observation_required: bool = False,
 ) -> Tab:
     """Create a Tab facade from backend tab metadata."""
@@ -176,6 +291,7 @@ def tab_from_backend(
         id=tab_id,
         session=session,
         context=context,
+        session_id=session_id,
         url=url,
         title=title,
         _observation_required=observation_required,
@@ -224,6 +340,30 @@ def _coerce_page_info(tab_id: str, value: Any) -> BrowserPageInfo:
         url=str(getattr(value, "url", "") or ""),
         title=str(getattr(value, "title", "") or ""),
     )
+
+
+def _duration_ms(started: float) -> float:
+    return round((perf_counter() - started) * 1000, 3)
+
+
+def _error_code(exc: Exception) -> str:
+    return str(getattr(exc, "code", "") or type(exc).__name__)
+
+
+def _result_status(result: Any) -> str:
+    ok = getattr(result, "ok", None)
+    if ok is not None:
+        return "ok" if bool(ok) else "error"
+    if isinstance(result, dict) and result.get("ok") is False:
+        return "error"
+    return "ok"
+
+
+def _domain_from_url(url: str) -> str:
+    try:
+        return (urlparse(str(url or "")).hostname or "").lower()
+    except ValueError:
+        return ""
 
 
 def _artifact_from_screenshot(

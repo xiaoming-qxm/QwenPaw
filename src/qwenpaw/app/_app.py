@@ -5,6 +5,7 @@ import asyncio
 import json
 import mimetypes
 import os
+import subprocess
 import sys
 import time
 import uuid
@@ -514,11 +515,13 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
         if workspace_registry is not None:
             runner.set_workspace_registry(workspace_registry)
 
-    async def _get_agent_by_id(agent_id: str = None):
+    async def _get_agent_by_id(agent_id: str | None = None):
         """Get agent instance by ID, or active agent if not specified."""
         if agent_id is None:
             config = load_config(get_config_path())
             agent_id = config.agents.active_agent or "default"
+        if workspace_registry is None:
+            raise RuntimeError("Workspace registry is not initialized")
         return await workspace_registry.get_agent(agent_id)
 
     app.state.get_agent_by_id = _get_agent_by_id
@@ -897,7 +900,51 @@ def get_version():
     """Return the current application version (public-safe payload)."""
     return {
         "version": __version__,
+        **_freshness_payload(),
     }
+
+
+def _freshness_payload() -> dict[str, Any]:
+    return {
+        "git_commit": _git_output("rev-parse", "--short", "HEAD"),
+        "repo_dirty": bool(_git_output("status", "--short")),
+        "frontend_fingerprint": _frontend_fingerprint(),
+    }
+
+
+def _git_output(*args: str) -> str:
+    try:
+        result = subprocess.run(
+            ("git", *args),
+            cwd=Path(__file__).resolve().parents[3],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=0.5,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    if result.returncode != 0:
+        return ""
+    return result.stdout.strip()
+
+
+def _frontend_fingerprint() -> str:
+    static_dir = Path(_CONSOLE_STATIC_DIR)
+    index_path = static_dir / "index.html"
+    assets_dir = static_dir / "assets"
+    if assets_dir.is_dir():
+        names = sorted(
+            path.name
+            for path in assets_dir.iterdir()
+            if path.is_file() and path.suffix in {".js", ".css"}
+        )
+        if names:
+            return ",".join(names[:20])
+    if index_path.exists():
+        stat = index_path.stat()
+        return f"index:{int(stat.st_mtime)}:{stat.st_size}"
+    return ""
 
 
 @app.get("/api/doctor/runtime")

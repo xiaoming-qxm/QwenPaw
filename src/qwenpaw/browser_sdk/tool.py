@@ -14,6 +14,7 @@ from qwenpaw.runtime.tool_registry import tool_descriptor
 
 from .kernel import BrowserKernelResult, get_default_kernel_manager
 from .backends.isolated import register_isolated_backend_once
+from .trace import get_browser_trace_store
 
 register_isolated_backend_once()
 
@@ -50,6 +51,8 @@ async def browser(
 ) -> ToolChunk:
     """Execute Browser SDK Python code in a session-scoped kernel."""
     session_id = _current_session_id()
+    trace_store = get_browser_trace_store()
+    trace_start_index = len(trace_store.list(session_id))
     result = await get_default_kernel_manager().execute(
         session_id=session_id,
         code=code,
@@ -57,7 +60,14 @@ async def browser(
         context=context,  # type: ignore[arg-type]
     )
     ok = result.error is None
-    metadata = _metadata(result, ok=ok, session_id=session_id, context=context)
+    trace_events = trace_store.list(session_id)[trace_start_index:]
+    metadata = _metadata(
+        result,
+        ok=ok,
+        session_id=session_id,
+        context=context,
+        browser_trace=[event.to_dict() for event in trace_events],
+    )
     content: list[TextBlock | DataBlock] = [
         TextBlock(type="text", text=_summary_text(result)),
     ]
@@ -92,6 +102,7 @@ def _metadata(
     ok: bool,
     session_id: str,
     context: str,
+    browser_trace: list[dict[str, Any]],
 ) -> dict[str, Any]:
     metadata: dict[str, Any] = {
         "ok": ok,
@@ -99,6 +110,7 @@ def _metadata(
         "context": context,
         "output": result.output,
         "return_value": result.return_value,
+        "browser_trace": browser_trace,
     }
     if result.error:
         metadata["error_type"] = result.error.get("type", "")

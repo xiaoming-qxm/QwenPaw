@@ -2,6 +2,12 @@
 
 Generated: 2026-07-03
 
+## V6 Product Readiness
+
+See `docs/browser-sdk-v6-product-readiness.md` for the current V6 evidence
+harness, freshness gates, deterministic fixture, report fields, blocked
+outcome semantics, and opt-in live acceptance policy.
+
 ## V5 Operational Readiness
 
 See `docs/browser-sdk-v5-operational-readiness.md` for the current V5

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import inspect
+from time import perf_counter
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -14,6 +15,7 @@ from .kernel import get_current_execution_context
 from .resolver import BrowserContextResolver
 from .actions import BrowserActions
 from .tabs import Tabs
+from .trace import record_browser_trace_event
 from .types import BrowserActionResult
 from .types import (
     BrowserBackendDiagnostic,
@@ -35,6 +37,7 @@ class Browser:
 
     session: Any
     context: ResolvedBrowserContext
+    session_id: str = ""
     tabs: Tabs = field(init=False)
     actions: BrowserActions = field(init=False)
 
@@ -49,11 +52,27 @@ class Browser:
 
     async def close(self) -> None:
         """Release browser session resources through the selected backend."""
+        started = perf_counter()
         close = getattr(self.session, "close", None)
-        if callable(close):
-            result = close()
-            if hasattr(result, "__await__"):
-                await result
+        try:
+            if callable(close):
+                result = close()
+                if hasattr(result, "__await__"):
+                    await result
+        except Exception as exc:
+            self._trace(
+                phase="close",
+                status="error",
+                duration_ms=_duration_ms(started),
+                error_code=_error_code(exc),
+                metadata={"error_type": type(exc).__name__},
+            )
+            raise
+        self._trace(
+            phase="close",
+            status="ok",
+            duration_ms=_duration_ms(started),
+        )
 
     async def stop(self) -> None:
         """Destroy the backend runtime for this browser session."""
@@ -95,21 +114,46 @@ class Browser:
             or "default"
         )
 
-        resolved = BrowserContextResolver().resolve(
-            session_id=effective_session_id,
-            context=effective_context,
-            requires_user_state=effective_requires_user_state,
-        )
-        registry = get_default_backend_registry()
-        backend = registry.get(resolved.backend_id)
-        if backend is None:
-            raise BrowserContextUnavailable(
-                f"Resolved browser backend is not registered: "
-                f"{resolved.backend_id}",
-                backend_id=resolved.backend_id,
+        started = perf_counter()
+        try:
+            resolved = BrowserContextResolver().resolve(
+                session_id=effective_session_id,
+                context=effective_context,
+                requires_user_state=effective_requires_user_state,
             )
-        session = await backend.connect(effective_session_id, resolved)
-        return cls(session=session, context=resolved)
+            registry = get_default_backend_registry()
+            backend = registry.get(resolved.backend_id)
+            if backend is None:
+                raise BrowserContextUnavailable(
+                    f"Resolved browser backend is not registered: "
+                    f"{resolved.backend_id}",
+                    backend_id=resolved.backend_id,
+                )
+            session = await backend.connect(effective_session_id, resolved)
+        except Exception as exc:
+            record_browser_trace_event(
+                session_id=effective_session_id,
+                phase="connect",
+                backend_id=str(getattr(exc, "backend_id", "") or ""),
+                requested_context=str(effective_context or ""),
+                status="error",
+                duration_ms=_duration_ms(started),
+                error_code=_error_code(exc),
+                metadata={"error_type": type(exc).__name__},
+            )
+            raise
+        browser = cls(
+            session=session,
+            context=resolved,
+            session_id=effective_session_id,
+        )
+        browser._trace(
+            phase="connect",
+            status="ok",
+            duration_ms=_duration_ms(started),
+            metadata={"reason": resolved.reason},
+        )
+        return browser
 
     @classmethod
     async def diagnostics(
@@ -138,16 +182,70 @@ class Browser:
         name: str,
         **kwargs: Any,
     ) -> BrowserActionResult | Any:
-        action = getattr(self.session, "action", None)
-        if callable(action):
-            return await action("__browser__", name, **kwargs)
-        browser_action = getattr(self.session, "browser_action", None)
-        if callable(browser_action):
-            return await browser_action(name, **kwargs)
-        return {
-            "ok": False,
-            "message": f"Backend does not support browser action: {name}",
-        }
+        started = perf_counter()
+        try:
+            action = getattr(self.session, "action", None)
+            if callable(action):
+                result = await action("__browser__", name, **kwargs)
+            else:
+                browser_action = getattr(self.session, "browser_action", None)
+                if callable(browser_action):
+                    result = await browser_action(name, **kwargs)
+                else:
+                    result = {
+                        "ok": False,
+                        "message": (
+                            "Backend does not support browser action: "
+                            f"{name}"
+                        ),
+                    }
+        except Exception as exc:
+            self._trace(
+                phase="action",
+                action=name,
+                status="error",
+                duration_ms=_duration_ms(started),
+                error_code=_error_code(exc),
+                metadata={"kwargs": kwargs, "error_type": type(exc).__name__},
+            )
+            raise
+        self._trace(
+            phase="action",
+            action=name,
+            status=_result_status(result),
+            duration_ms=_duration_ms(started),
+            metadata={"kwargs": kwargs},
+        )
+        return result
+
+    def _trace(
+        self,
+        *,
+        phase: str,
+        status: str,
+        duration_ms: float,
+        action: str = "",
+        tab_id: str = "",
+        url: str = "",
+        error_code: str = "",
+        approval_state: str = "",
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        record_browser_trace_event(
+            session_id=self.session_id,
+            phase=phase,
+            backend_id=self.context.backend_id,
+            requested_context=self.context.requested,
+            selected_context=self.context.selected,
+            action=action,
+            tab_id=tab_id,
+            url=url,
+            status=status,
+            duration_ms=duration_ms,
+            error_code=error_code,
+            approval_state=approval_state,
+            metadata=metadata,
+        )
 
 
 async def connect_browser(
@@ -178,6 +276,23 @@ def _normalize_context(context: str) -> BrowserContext:
     if value in {"auto", "user", "isolated"}:
         return value  # type: ignore[return-value]
     return "auto"
+
+
+def _duration_ms(started: float) -> float:
+    return round((perf_counter() - started) * 1000, 3)
+
+
+def _error_code(exc: Exception) -> str:
+    return str(getattr(exc, "code", "") or type(exc).__name__)
+
+
+def _result_status(result: Any) -> str:
+    ok = getattr(result, "ok", None)
+    if ok is not None:
+        return "ok" if bool(ok) else "error"
+    if isinstance(result, dict) and result.get("ok") is False:
+        return "error"
+    return "ok"
 
 
 async def _backend_diagnostic(backend: Any) -> BrowserBackendDiagnostic:

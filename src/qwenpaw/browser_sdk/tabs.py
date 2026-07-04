@@ -30,6 +30,7 @@ class Tabs:
                 raw,
                 session=self._session,
                 context=self._context,
+                session_id=self._browser.session_id,
             ),
         )
 
@@ -41,6 +42,7 @@ class Tabs:
                 raw,
                 session=self._session,
                 context=self._context,
+                session_id=self._browser.session_id,
                 observation_required=True,
             ),
         )
@@ -54,6 +56,7 @@ class Tabs:
                     raw,
                     session=self._session,
                     context=self._context,
+                    session_id=self._browser.session_id,
                 ),
             )
             for raw in raw_tabs
@@ -67,6 +70,7 @@ class Tabs:
                 raw,
                 session=self._session,
                 context=self._context,
+                session_id=self._browser.session_id,
             ),
         )
 
