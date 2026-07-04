@@ -42,6 +42,7 @@ class ToolCallContext:
 
     offload_reason: OffloadReason | None = None
     extra: dict[str, Any] = field(default_factory=dict)
+    request_context: dict[str, Any] = field(default_factory=dict)
     governance_metadata: dict[str, Any] = field(default_factory=dict)
 
     @property

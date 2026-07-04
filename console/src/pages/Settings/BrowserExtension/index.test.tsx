@@ -4,15 +4,17 @@ import userEvent from "@testing-library/user-event";
 import { renderWithProviders } from "@/test/common_setup";
 import BrowserExtensionPage from "./index";
 
-const { mockGetStatus, mockSetup } = vi.hoisted(() => ({
+const { mockGetStatus, mockSetup, mockSelfTest } = vi.hoisted(() => ({
   mockGetStatus: vi.fn(),
   mockSetup: vi.fn(),
+  mockSelfTest: vi.fn(),
 }));
 
 vi.mock("@/api/modules/extension", () => ({
   extensionApi: {
     getStatus: mockGetStatus,
     setup: mockSetup,
+    selfTest: mockSelfTest,
   },
 }));
 
@@ -30,7 +32,33 @@ const baseStatus = {
   cws_url:
     "https://chromewebstore.google.com/detail/qwenpaw-browser-bridge/nflcgkfjgoiipklkpenmbiificbakoch",
   version: null,
+  extension_version: "0.1.0",
   connected_since: null,
+  bridge_lifecycle: {
+    connected: false,
+    connected_since: null,
+    last_connected_at: null,
+    last_disconnected_at: null,
+    last_disconnect_reason: "",
+    reconnect_count: 0,
+  },
+  build_fingerprint: {
+    git_commit: "abc123",
+    repo_dirty: false,
+    frontend_fingerprint: "main.js",
+  },
+  trace_summary: {
+    event_count: 3,
+    session_count: 1,
+    latest_event: {
+      event_id: "trace-1",
+      session_id: "session-1",
+      phase: "observe",
+      action: "snapshot",
+      status: "ok",
+    },
+  },
+  last_self_test: null,
   sdk_diagnostics: {
     requested_context: "user",
     selected_backend_id: null,
@@ -66,6 +94,19 @@ describe("BrowserExtensionPage", () => {
       connected: false,
       installed: true,
       install_mode: "cws",
+    });
+    mockSelfTest.mockResolvedValue({
+      status: "passed",
+      checked_at: "2026-07-05T01:00:00+00:00",
+      duration_ms: 5,
+      checks: [
+        {
+          name: "trace_store",
+          passed: true,
+          code: "trace_store_roundtrip",
+          message: "Trace store write-read check passed.",
+        },
+      ],
     });
     vi.spyOn(window, "open").mockImplementation(() => null);
   });
@@ -187,6 +228,24 @@ describe("BrowserExtensionPage", () => {
     expect(
       screen.getByText("Click the next actionable button on this page."),
     ).toBeInTheDocument();
+    expect(screen.getByText("Extension version")).toBeInTheDocument();
+    expect(screen.getByText("Trace events")).toBeInTheDocument();
+    expect(screen.getByText("3 across 1 session")).toBeInTheDocument();
+  });
+
+  it("runs browser control self-test from the shared readiness panel", async () => {
+    renderWithProviders(<BrowserExtensionPage />, {
+      initialEntries: ["/browser-extension"],
+    });
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Run Self-Test" }),
+    );
+
+    await waitFor(() => {
+      expect(mockSelfTest).toHaveBeenCalledTimes(1);
+    });
+    expect(await screen.findByText("Self-test passed")).toBeInTheDocument();
   });
 
   it("keeps paths and reset actions inside collapsed developer options", async () => {

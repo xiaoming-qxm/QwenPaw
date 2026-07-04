@@ -23,6 +23,12 @@ class NMBridgeRouteState:
     config_path: Path | None = None
     connected: Any | None = None
     connected_since: datetime | None = None
+    extension_version: str = ""
+    last_connected_at: datetime | None = None
+    last_disconnected_at: datetime | None = None
+    last_disconnect_reason: str = ""
+    reconnect_count: int = 0
+    last_self_test: dict[str, Any] | None = None
 
 
 _state = NMBridgeRouteState()

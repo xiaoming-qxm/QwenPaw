@@ -377,7 +377,7 @@ def _get_text(block: Any) -> str:
 
 def _copy_text_block(block: Any, text: str) -> Any:
     if isinstance(block, dict):
-        copied = dict(block)
+        copied: Any = dict(block)
         copied["text"] = text
         return copied
     if hasattr(block, "model_copy"):

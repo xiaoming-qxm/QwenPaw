@@ -313,7 +313,7 @@ def _local_git_commit() -> str:
 
 
 def _start_qwenpaw_app() -> None:
-    subprocess.Popen(  # noqa: S603
+    subprocess.Popen(  # noqa: S603  # pylint: disable=consider-using-with
         ("qwenpaw", "app"),
         cwd=_repo_root(),
         stdout=subprocess.DEVNULL,
@@ -337,7 +337,9 @@ def _backend_route(status: dict[str, Any]) -> str:
                 context = str(backend.get("browser_context") or "")
                 break
     if selected:
-        return f'browser(code=...) -> context="{context or "auto"}" -> {selected}'
+        return (
+            f'browser(code=...) -> context="{context or "auto"}" -> {selected}'
+        )
     return 'browser(code=...) -> context="auto" -> unavailable'
 
 

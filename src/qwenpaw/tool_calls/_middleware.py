@@ -52,6 +52,7 @@ class ToolCoordinatorMiddleware(MiddlewareBase):
             session_id=session_id,
             agent_id=agent_id,
             root_session_id=root_session_id,
+            request_context=request_context,
             result_finalizer=(
                 self._result_limiter.limit_async
                 if self._result_limiter is not None

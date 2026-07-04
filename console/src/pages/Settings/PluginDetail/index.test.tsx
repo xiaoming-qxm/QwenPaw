@@ -10,11 +10,13 @@ const {
   mockFetchPluginDetail,
   mockUpdatePluginEnabled,
   mockSetup,
+  mockSelfTest,
   mockOpenChromeExtensionsPage,
 } = vi.hoisted(() => ({
   mockFetchPluginDetail: vi.fn(),
   mockUpdatePluginEnabled: vi.fn(),
   mockSetup: vi.fn(),
+  mockSelfTest: vi.fn(),
   mockOpenChromeExtensionsPage: vi.fn(),
 }));
 
@@ -32,6 +34,7 @@ vi.mock("@/api/modules/plugin", async () => {
 vi.mock("@/api/modules/extension", () => ({
   extensionApi: {
     setup: mockSetup,
+    selfTest: mockSelfTest,
     openChromeExtensionsPage: mockOpenChromeExtensionsPage,
   },
 }));
@@ -48,7 +51,33 @@ const runtimeStatus = {
   ws_url: "ws://127.0.0.1:8088/ws/nm-bridge",
   chrome_extensions_url: "chrome://extensions",
   version: null,
+  extension_version: "0.1.0",
   connected_since: null,
+  bridge_lifecycle: {
+    connected: false,
+    connected_since: null,
+    last_connected_at: null,
+    last_disconnected_at: null,
+    last_disconnect_reason: "",
+    reconnect_count: 0,
+  },
+  build_fingerprint: {
+    git_commit: "abc123",
+    repo_dirty: false,
+    frontend_fingerprint: "main.js",
+  },
+  trace_summary: {
+    event_count: 4,
+    session_count: 2,
+    latest_event: {
+      event_id: "trace-1",
+      session_id: "session-1",
+      phase: "observe",
+      action: "snapshot",
+      status: "ok",
+    },
+  },
+  last_self_test: null,
   sdk_diagnostics: {
     requested_context: "user",
     selected_backend_id: null,
@@ -151,6 +180,19 @@ describe("PluginDetailPage browser control setup", () => {
       installed: true,
       connected: false,
     });
+    mockSelfTest.mockResolvedValue({
+      status: "passed",
+      checked_at: "2026-07-05T01:00:00+00:00",
+      duration_ms: 5,
+      checks: [
+        {
+          name: "trace_store",
+          passed: true,
+          code: "trace_store_roundtrip",
+          message: "Trace store write-read check passed.",
+        },
+      ],
+    });
     mockOpenChromeExtensionsPage.mockResolvedValue({
       opened: true,
       url: "chrome://extensions",
@@ -219,6 +261,20 @@ describe("PluginDetailPage browser control setup", () => {
     );
 
     expect(mockOpenChromeExtensionsPage).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders shared readiness details and runs self-test", async () => {
+    renderPluginDetail();
+
+    expect(await screen.findByText("Extension version")).toBeInTheDocument();
+    expect(screen.getByText("Trace events")).toBeInTheDocument();
+    expect(screen.getByText("4 across 2 sessions")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Run Self-Test" }));
+
+    await waitFor(() => {
+      expect(mockSelfTest).toHaveBeenCalledTimes(1);
+    });
   });
 
   it("copies chrome://extensions when the backend cannot open Chrome", async () => {

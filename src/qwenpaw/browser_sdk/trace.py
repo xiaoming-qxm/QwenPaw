@@ -105,7 +105,8 @@ class BrowserTraceStore:
                     for event in session_events
                 ]
         if limit is not None and limit >= 0:
-            events = events[-limit:] if limit else []
+            limit_value = int(limit)
+            events = events[-limit_value:] if limit_value else []
         return tuple(events)
 
     def clear(self) -> None:
@@ -188,7 +189,9 @@ def _redact(value: Any) -> Any:
         redacted: dict[str, Any] = {}
         for key, item in value.items():
             key_text = str(key)
-            if any(token in key_text.casefold() for token in _SENSITIVE_KEY_TOKENS):
+            if any(
+                token in key_text.casefold() for token in _SENSITIVE_KEY_TOKENS
+            ):
                 redacted[key_text] = _REDACTED
             else:
                 redacted[key_text] = _redact(item)

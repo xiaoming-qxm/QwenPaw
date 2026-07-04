@@ -180,6 +180,63 @@
   }
 }
 
+.browserApproval {
+  border: 1px solid #eef0f3;
+  border-radius: 6px;
+  padding: 10px 12px;
+  background: #fff;
+}
+
+.browserApprovalTitle {
+  font-size: 12px;
+  font-weight: 600;
+  color: #1a1a1a;
+  margin-bottom: 8px;
+}
+
+.browserApprovalGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px 12px;
+}
+
+.browserField {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.browserFieldLabel {
+  color: #8c8c8c;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.browserFieldValue {
+  color: #1a1a1a;
+  font-family: "SF Mono", "Monaco", "Consolas", monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.browserKwargs {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #eef0f3;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px 12px;
+}
+
+.browserKwargsTitle {
+  grid-column: 1 / -1;
+  color: #555;
+  font-size: 12px;
+  font-weight: 600;
+}
+
 .copyButton {
   position: absolute;
   top: 8px;

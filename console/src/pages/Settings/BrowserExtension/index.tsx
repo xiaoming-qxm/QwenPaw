@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
-import { useTranslation } from "react-i18next";
 import { Button, Spin } from "antd";
 import { ChevronDown, Copy, RefreshCw } from "lucide-react";
 import {
@@ -9,11 +8,7 @@ import {
   type ExtensionStatus,
 } from "@/api/modules/extension";
 import { useAppMessage } from "@/hooks/useAppMessage";
-import {
-  browserDiagnosticHint,
-  browserDiagnosticStatusLabel,
-  browserDiagnosticsRows,
-} from "../browserDiagnostics";
+import { BrowserControlReadiness } from "../browserControlReadiness";
 
 const CWS_FALLBACK_URL =
   "https://chromewebstore.google.com/detail/qwenpaw-browser-bridge/nflcgkfjgoiipklkpenmbiificbakoch";
@@ -59,51 +54,6 @@ function currentBridgeWsUrl() {
 
 function cwsUrl(status: ExtensionStatus | null) {
   return status?.cws_url || CWS_FALLBACK_URL;
-}
-
-function DiagnosticsRows({ status }: { status: ExtensionStatus | null }) {
-  const { t } = useTranslation();
-  const rows = browserDiagnosticsRows(status?.sdk_diagnostics);
-
-  if (!rows.length) {
-    return null;
-  }
-
-  return (
-    <div style={{ ...panelStyle, padding: 16 }}>
-      <div style={{ fontWeight: 600, marginBottom: 10 }}>
-        {t("browserControl.diagnostics.title", "SDK diagnostics")}
-      </div>
-      <div style={rowListStyle}>
-        {rows.map((backend) => (
-          <div
-            key={`${backend.backend_id}:${backend.code || backend.status}`}
-            style={{
-              display: "grid",
-              gridTemplateColumns: "minmax(140px, 1fr) minmax(0, 2fr)",
-              gap: 10,
-              alignItems: "start",
-            }}
-          >
-            <div>
-              <div style={{ fontWeight: 500 }}>{backend.backend_id}</div>
-              <div style={{ color: "rgba(0,0,0,0.56)", fontSize: 12 }}>
-                {browserDiagnosticStatusLabel(t, backend)}
-              </div>
-            </div>
-            <div>
-              {backend.code ? (
-                <div style={codeStyle}>{backend.code}</div>
-              ) : null}
-              <div style={{ color: "rgba(0,0,0,0.68)" }}>
-                {browserDiagnosticHint(t, backend)}
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
 }
 
 function DeveloperOptions({
@@ -193,6 +143,7 @@ export default function BrowserExtensionPage() {
   const [status, setStatus] = useState<ExtensionStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [setupLoading, setSetupLoading] = useState(false);
+  const [selfTestLoading, setSelfTestLoading] = useState(false);
   const [developerOpen, setDeveloperOpen] = useState(false);
   const [showTips, setShowTips] = useState(false);
 
@@ -270,6 +221,36 @@ export default function BrowserExtensionPage() {
   const handleCopy = async (value: string) => {
     await navigator.clipboard?.writeText(value);
     message.success("Copied");
+  };
+
+  const handleCopyDiagnostics = async () => {
+    await handleCopy(JSON.stringify(status ?? {}, null, 2));
+  };
+
+  const handleOpenChrome = async () => {
+    try {
+      const result = await extensionApi.openChromeExtensionsPage();
+      if (!result.opened && result.url) {
+        await handleCopy(result.url);
+      }
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const handleRunSelfTest = async () => {
+    setSelfTestLoading(true);
+    try {
+      const result = await extensionApi.selfTest();
+      setStatus((current) =>
+        current ? { ...current, last_self_test: result } : current,
+      );
+      message.success("Self-test complete");
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSelfTestLoading(false);
+    }
   };
 
   const content = useMemo(() => {
@@ -376,7 +357,15 @@ export default function BrowserExtensionPage() {
     <div style={pageStyle}>
       <div style={shellStyle}>
         {content}
-        <DiagnosticsRows status={status} />
+        <BrowserControlReadiness
+          loading={loading}
+          onCopyDiagnostics={() => void handleCopyDiagnostics()}
+          onOpenChrome={() => void handleOpenChrome()}
+          onRefresh={() => void loadStatus()}
+          onRunSelfTest={() => void handleRunSelfTest()}
+          selfTestLoading={selfTestLoading}
+          status={status}
+        />
         <DeveloperOptions
           onCopy={(value) => void handleCopy(value)}
           onRegenerate={() => void handleRegenerate()}

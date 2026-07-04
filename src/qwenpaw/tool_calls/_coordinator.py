@@ -73,6 +73,7 @@ class ToolCoordinator:
         session_id: str,
         agent_id: str,
         root_session_id: str,
+        request_context: dict[str, Any] | None = None,
         deadline_override: float | None = None,
         result_finalizer: ResultFinalizer | None = None,
     ) -> AsyncGenerator[Any, None]:
@@ -81,6 +82,7 @@ class ToolCoordinator:
             session_id,
             agent_id,
             root_session_id,
+            request_context,
             deadline_override,
             result_finalizer,
         )
@@ -136,6 +138,7 @@ class ToolCoordinator:
         session_id: str,
         agent_id: str,
         root_session_id: str,
+        request_context: dict[str, Any] | None,
         deadline_override: float | None,
         result_finalizer: ResultFinalizer | None,
     ) -> ToolCallEntry:
@@ -155,6 +158,7 @@ class ToolCoordinator:
             started_at=now,
             deadline=now + timeout if timeout is not None else None,
             cancel_event=asyncio.Event(),
+            request_context=dict(request_context or {}),
         )
         return ToolCallEntry(
             ctx=ctx,

@@ -55,8 +55,9 @@ class QwenPawBrowserApprovalPolicy:
         self,
         request: BrowserActionRequest,
     ) -> BrowserPolicyDecision:
-        if not request.sensitive:
-            return BrowserPolicyDecision(allowed=True, reason="allowed")
+        preapproved = _preapproved_decision(request)
+        if preapproved is not None:
+            return preapproved
 
         context = _approval_context(request)
         cache_key = _approval_cache_key(request, context["root_session_id"])
@@ -178,6 +179,28 @@ def _call_context() -> Any | None:
         return get_call_context()
     except Exception:  # pragma: no cover - defensive runtime fallback
         return None
+
+
+def _preapproved_decision(
+    request: BrowserActionRequest,
+) -> BrowserPolicyDecision | None:
+    if not request.sensitive:
+        return BrowserPolicyDecision(allowed=True, reason="allowed")
+    if _request_approval_level() == "off":
+        return BrowserPolicyDecision(
+            allowed=True,
+            reason="browser_action_approval_level_off",
+            metadata={"approval_level": "OFF"},
+        )
+    return None
+
+
+def _request_approval_level() -> str:
+    call_context = _call_context()
+    request_context = getattr(call_context, "request_context", {}) or {}
+    if not isinstance(request_context, dict):
+        return ""
+    return str(request_context.get("approval_level") or "").strip().casefold()
 
 
 def _agent_context_value(function_name: str) -> str:

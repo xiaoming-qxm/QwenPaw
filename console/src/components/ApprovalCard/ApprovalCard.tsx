@@ -7,6 +7,17 @@ import { getAgentDisplayName } from "../../utils/agentDisplayName";
 import styles from "./ApprovalCard.module.less";
 
 const { Text } = Typography;
+const REDACTED = "[REDACTED]";
+const SENSITIVE_PARAM_KEYS = [
+  "authorization",
+  "cookie",
+  "credential",
+  "otp",
+  "password",
+  "secret",
+  "token",
+  "value",
+];
 
 export interface ApprovalCardProps {
   requestId: string;
@@ -68,6 +79,14 @@ export function ApprovalCard({
   >(null);
   const [remaining, setRemaining] = useState<number>(timeoutSeconds);
   const [copiedField, setCopiedField] = useState<string | null>(null);
+  const redactedToolParams = useMemo(
+    () => redactSensitiveParams(toolParams),
+    [toolParams],
+  );
+  const browserApproval = useMemo(
+    () => browserApprovalSummary(toolParams),
+    [toolParams],
+  );
 
   const handleCopy = useCallback(async (text: string, field: string) => {
     try {
@@ -122,16 +141,9 @@ export function ApprovalCard({
   const handleApprove = async (scope?: "exact" | "similar") => {
     const loadingKey =
       scope === "similar" ? "approve-pattern" : "approve-exact";
-    console.log(
-      "[ApprovalCard] Approve button clicked:",
-      requestId,
-      "scope:",
-      scope,
-    );
     setLoading(loadingKey);
     try {
       await onApprove(requestId, scope);
-      console.log("[ApprovalCard] onApprove completed");
     } catch (err) {
       console.error("[ApprovalCard] onApprove failed:", err);
     } finally {
@@ -293,6 +305,52 @@ export function ApprovalCard({
           </div>
         )}
 
+        {browserApproval ? (
+          <div className={styles.browserApproval}>
+            <div className={styles.browserApprovalTitle}>
+              {t("approval.browserAction", "Browser action")}
+            </div>
+            <div className={styles.browserApprovalGrid}>
+              <BrowserField
+                label={t("approval.browserDomain", "Domain")}
+                value={browserApproval.domain}
+              />
+              <BrowserField
+                label={t("approval.browserUrl", "URL")}
+                value={browserApproval.url}
+              />
+              <BrowserField
+                label={t("approval.browserActionName", "Action")}
+                value={browserApproval.action}
+              />
+              <BrowserField
+                label={t("approval.browserRisk", "Risk")}
+                value={`${browserApproval.riskKind} / ${browserApproval.riskLevel}`}
+              />
+            </div>
+            {browserApproval.title ? (
+              <BrowserField
+                label={t("approval.browserTitle", "Title")}
+                value={browserApproval.title}
+              />
+            ) : null}
+            {browserApproval.kwargsRows.length ? (
+              <div className={styles.browserKwargs}>
+                <div className={styles.browserKwargsTitle}>
+                  {t("approval.browserArguments", "Arguments")}
+                </div>
+                {browserApproval.kwargsRows.map((row) => (
+                  <BrowserField
+                    key={row.path}
+                    label={row.path}
+                    value={row.value}
+                  />
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
         {toolParams && Object.keys(toolParams).length > 0 && (
           <details className={styles.paramsDetails}>
             <summary className={styles.paramsSummary}>
@@ -300,14 +358,17 @@ export function ApprovalCard({
             </summary>
             <div className={styles.paramsCodeWrapper}>
               <pre className={styles.paramsCode}>
-                {JSON.stringify(toolParams, null, 2)}
+                {JSON.stringify(redactedToolParams, null, 2)}
               </pre>
               <button
                 className={`${styles.copyButton} ${
                   copiedField === "params" ? styles.copied : ""
                 }`}
                 onClick={() =>
-                  handleCopy(JSON.stringify(toolParams, null, 2), "params")
+                  handleCopy(
+                    JSON.stringify(redactedToolParams, null, 2),
+                    "params",
+                  )
                 }
                 title={t("common.copy", "Copy")}
               >
@@ -341,7 +402,6 @@ export function ApprovalCard({
               <Button
                 type="default"
                 onClick={() => {
-                  console.log("[ApprovalCard] Cancel task button clicked");
                   onCancel();
                 }}
                 disabled={loading !== null}
@@ -395,4 +455,101 @@ export function ApprovalCard({
       </div>
     </Card>
   );
+}
+
+function BrowserField({ label, value }: { label: string; value: string }) {
+  return (
+    <div className={styles.browserField}>
+      <span className={styles.browserFieldLabel}>{label}</span>
+      <span className={styles.browserFieldValue}>{value || "-"}</span>
+    </div>
+  );
+}
+
+interface BrowserApprovalSummary {
+  domain: string;
+  url: string;
+  title: string;
+  action: string;
+  riskKind: string;
+  riskLevel: string;
+  kwargsRows: { path: string; value: string }[];
+}
+
+function browserApprovalSummary(
+  params: Record<string, unknown>,
+): BrowserApprovalSummary | null {
+  const action = asString(params.action);
+  const risk = isRecord(params.risk) ? params.risk : {};
+  if (!action || !Object.keys(risk).length) {
+    return null;
+  }
+  const kwargs = isRecord(params.kwargs)
+    ? redactSensitiveParams(params.kwargs)
+    : {};
+  return {
+    domain: asString(params.domain),
+    url: asString(params.url),
+    title: asString(params.title),
+    action,
+    riskKind: asString(risk.kind) || "unknown_sensitive",
+    riskLevel: asString(risk.level) || "unknown",
+    kwargsRows: flattenPreviewRows(kwargs),
+  };
+}
+
+function flattenPreviewRows(
+  value: unknown,
+  prefix = "",
+): { path: string; value: string }[] {
+  if (!isRecord(value)) {
+    return prefix ? [{ path: prefix, value: previewValue(value) }] : [];
+  }
+  return Object.entries(value).flatMap(([key, item]) => {
+    const path = prefix ? `${prefix}.${key}` : key;
+    if (isRecord(item)) {
+      return flattenPreviewRows(item, path);
+    }
+    if (Array.isArray(item)) {
+      return [{ path, value: item.map(previewValue).join(", ") }];
+    }
+    return [{ path, value: previewValue(item) }];
+  });
+}
+
+function previewValue(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  return JSON.stringify(value);
+}
+
+function redactSensitiveParams(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(redactSensitiveParams);
+  }
+  if (!isRecord(value)) {
+    return value;
+  }
+  return Object.fromEntries(
+    Object.entries(value).map(([key, item]) => [
+      key,
+      isSensitiveParamKey(key) ? REDACTED : redactSensitiveParams(item),
+    ]),
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function isSensitiveParamKey(key: string): boolean {
+  const lowered = key.toLowerCase();
+  return SENSITIVE_PARAM_KEYS.some((token) => lowered.includes(token));
+}
+
+function asString(value: unknown): string {
+  return typeof value === "string" ? value : "";
 }

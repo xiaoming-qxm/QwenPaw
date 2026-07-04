@@ -84,6 +84,50 @@ export interface BrowserDiagnostics {
   backends: BrowserBackendDiagnostic[];
 }
 
+export interface BrowserControlBridgeLifecycle {
+  connected?: boolean;
+  connected_since?: string | null;
+  last_connected_at?: string | null;
+  last_disconnected_at?: string | null;
+  last_disconnect_reason?: string;
+  reconnect_count?: number;
+}
+
+export interface BrowserControlBuildFingerprint {
+  git_commit?: string;
+  repo_dirty?: boolean;
+  frontend_fingerprint?: string;
+}
+
+export interface BrowserControlTraceSummary {
+  event_count: number;
+  session_count: number;
+  latest_event?: {
+    event_id?: string;
+    session_id?: string;
+    phase?: string;
+    action?: string;
+    status?: string;
+    backend_id?: string;
+    domain?: string;
+  } | null;
+}
+
+export interface BrowserControlSelfTestCheck {
+  name: string;
+  passed: boolean;
+  code: string;
+  message: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface BrowserControlSelfTestResult {
+  status: "passed" | "failed";
+  checked_at: string;
+  duration_ms?: number;
+  checks: BrowserControlSelfTestCheck[];
+}
+
 export interface PluginManifest {
   id: string;
   name: string;
@@ -101,7 +145,12 @@ export interface PluginRuntimeStatus {
   installed?: boolean;
   connected?: boolean;
   version?: string | null;
+  extension_version?: string | null;
   connected_since?: string | null;
+  bridge_lifecycle?: BrowserControlBridgeLifecycle;
+  build_fingerprint?: BrowserControlBuildFingerprint;
+  trace_summary?: BrowserControlTraceSummary;
+  last_self_test?: BrowserControlSelfTestResult | null;
   install_mode?: string | null;
   extension_id?: string;
   extension_dir?: string;

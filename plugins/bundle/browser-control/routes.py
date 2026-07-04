@@ -6,6 +6,8 @@ from __future__ import annotations
 import json
 import secrets
 import contextlib
+import subprocess
+from time import perf_counter
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
@@ -17,8 +19,12 @@ from starlette.responses import JSONResponse
 
 from qwenpaw.browser.connection_manager import get_bridge_connection_manager
 from qwenpaw.browser.nm_bridge_state import get_nm_bridge_route_state
+from qwenpaw.browser.approval_policy import QwenPawBrowserApprovalPolicy
 from qwenpaw.browser_sdk import Browser
-from qwenpaw.browser_sdk.trace import get_browser_trace_store
+from qwenpaw.browser_sdk.trace import (
+    BrowserTraceEvent,
+    get_browser_trace_store,
+)
 from qwenpaw.browser_sdk.types import (
     BrowserBackendDiagnostic,
     BrowserContext,
@@ -38,6 +44,13 @@ api_router = APIRouter(tags=["nm-bridge"])
 router = api_router
 
 DEFAULT_CONFIG_PATH = Path.home() / ".qwenpaw" / "nm-bridge.json"
+EXTENSION_MANIFEST_PATH = (
+    Path(__file__).parent
+    / "assets"
+    / "extensions"
+    / "qwenpaw-browser-bridge"
+    / "manifest.json"
+)
 
 _bridge_state = get_nm_bridge_route_state()
 if not _bridge_state.ws_url:
@@ -140,7 +153,11 @@ def _default_bridge() -> Any | None:
     return get_nm_bridge()
 
 
-async def _drop_connected_websocket(bridge: Any | None) -> None:
+async def _drop_connected_websocket(
+    bridge: Any | None,
+    *,
+    reason: str = "replaced",
+) -> None:
     websocket = _bridge_state.connected
     if websocket is None:
         return
@@ -154,12 +171,14 @@ async def _drop_connected_websocket(bridge: Any | None) -> None:
     if _bridge_state.connected is websocket:
         _bridge_state.connected = None
         _bridge_state.connected_since = None
+        _bridge_state.last_disconnected_at = datetime.now(UTC)
+        _bridge_state.last_disconnect_reason = reason
 
 
 async def shutdown_nm_bridge() -> None:
     """Close the active native bridge connection before plugin unload."""
     bridge = _default_bridge()
-    await _drop_connected_websocket(bridge)
+    await _drop_connected_websocket(bridge, reason="shutdown")
     try:
         from .nm_bridge import shutdown_nm_bridge as shutdown_global_bridge
     except ImportError:
@@ -181,11 +200,15 @@ async def nm_bridge_ws(websocket: WebSocket) -> None:
 
     bridge = _resolve_bridge(websocket)
     if _bridge_state.connected is not None:
-        await _drop_connected_websocket(bridge)
+        await _drop_connected_websocket(bridge, reason="replaced")
 
     await websocket.accept()
+    now = datetime.now(UTC)
+    if _bridge_state.last_connected_at is not None:
+        _bridge_state.reconnect_count += 1
     _bridge_state.connected = websocket
-    _bridge_state.connected_since = datetime.now(UTC)
+    _bridge_state.connected_since = now
+    _bridge_state.last_connected_at = now
 
     if bridge is not None and hasattr(bridge, "attach_websocket"):
         await bridge.attach_websocket(websocket)
@@ -193,6 +216,7 @@ async def nm_bridge_ws(websocket: WebSocket) -> None:
     try:
         while True:
             message = await websocket.receive_json()
+            _observe_bridge_message(message)
             if bridge is not None and hasattr(bridge, "handle_ws_message"):
                 response = await bridge.handle_ws_message(message)
                 if response is not None:
@@ -205,6 +229,37 @@ async def nm_bridge_ws(websocket: WebSocket) -> None:
         if _bridge_state.connected is websocket:
             _bridge_state.connected = None
             _bridge_state.connected_since = None
+            _bridge_state.last_disconnected_at = datetime.now(UTC)
+            _bridge_state.last_disconnect_reason = "websocket_disconnect"
+
+
+def _observe_bridge_message(message: dict[str, Any]) -> None:
+    if message.get("type") == "hello":
+        _store_extension_version(message)
+        return
+
+    method = str(message.get("method") or "")
+    params = message.get("params")
+    payload = params if isinstance(params, dict) else {}
+    if method == "bridge.connected":
+        _store_extension_version(payload)
+        return
+    if method == "bridge.disconnected":
+        _bridge_state.last_disconnected_at = datetime.now(UTC)
+        _bridge_state.last_disconnect_reason = str(
+            payload.get("reason") or "",
+        )
+
+
+def _store_extension_version(payload: dict[str, Any]) -> None:
+    version = (
+        payload.get("extension_version")
+        or payload.get("extensionVersion")
+        or payload.get("version")
+    )
+    version_text = str(version or "").strip()
+    if version_text:
+        _bridge_state.extension_version = version_text
 
 
 async def _sdk_diagnostics_snapshot(context: str) -> BrowserDiagnostics:
@@ -258,22 +313,240 @@ def _serialize_diagnostic_check(
     }
 
 
-async def get_extension_status() -> dict[str, Any]:
+def _bridge_connected() -> bool:
     bridge = _default_bridge()
     connected = _bridge_state.connected is not None
     if bridge is not None and hasattr(bridge, "is_connected"):
         connected = connected or bool(bridge.is_connected())
+    return connected
+
+
+def _iso_or_none(value: datetime | None) -> str | None:
+    return value.isoformat() if value is not None else None
+
+
+def _extension_version() -> str:
+    if _bridge_state.extension_version:
+        return _bridge_state.extension_version
+    try:
+        raw = json.loads(EXTENSION_MANIFEST_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return ""
+    return str(raw.get("version") or "")
+
+
+def _bridge_lifecycle(connected: bool) -> dict[str, Any]:
+    return {
+        "connected": connected,
+        "connected_since": (
+            _iso_or_none(_bridge_state.connected_since) if connected else None
+        ),
+        "last_connected_at": _iso_or_none(_bridge_state.last_connected_at),
+        "last_disconnected_at": _iso_or_none(
+            _bridge_state.last_disconnected_at,
+        ),
+        "last_disconnect_reason": _bridge_state.last_disconnect_reason,
+        "reconnect_count": _bridge_state.reconnect_count,
+    }
+
+
+def _trace_summary() -> dict[str, Any]:
+    events = get_browser_trace_store().list()
+    latest = events[-1] if events else None
+    return {
+        "event_count": len(events),
+        "session_count": len({event.session_id for event in events}),
+        "latest_event": (
+            {
+                "event_id": latest.event_id,
+                "session_id": latest.session_id,
+                "phase": latest.phase,
+                "action": latest.action,
+                "status": latest.status,
+                "backend_id": latest.backend_id,
+                "domain": latest.domain,
+            }
+            if latest is not None
+            else None
+        ),
+    }
+
+
+def _build_fingerprint() -> dict[str, Any]:
+    return {
+        "git_commit": _git_output("rev-parse", "--short", "HEAD"),
+        "repo_dirty": bool(_git_output("status", "--short")),
+        "frontend_fingerprint": _frontend_fingerprint(),
+    }
+
+
+def _git_output(*args: str) -> str:
+    try:
+        result = subprocess.run(
+            ("git", *args),
+            cwd=Path(__file__).resolve().parents[3],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=0.5,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    if result.returncode != 0:
+        return ""
+    return result.stdout.strip()
+
+
+def _frontend_fingerprint() -> str:
+    static_dir = Path(__file__).resolve().parents[3] / "console" / "dist"
+    index_path = static_dir / "index.html"
+    assets_dir = static_dir / "assets"
+    if assets_dir.is_dir():
+        names = sorted(
+            path.name
+            for path in assets_dir.iterdir()
+            if path.is_file() and path.suffix in {".js", ".css"}
+        )
+        if names:
+            return ",".join(names[:20])
+    if index_path.exists():
+        stat = index_path.stat()
+        return f"index:{int(stat.st_mtime)}:{stat.st_size}"
+    return ""
+
+
+def _check_payload(
+    *,
+    name: str,
+    passed: bool,
+    code: str,
+    message: str,
+    metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return {
+        "name": name,
+        "passed": passed,
+        "code": code,
+        "message": message,
+        "metadata": dict(metadata or {}),
+    }
+
+
+def _diagnostics_check(
+    *,
+    name: str,
+    diagnostics: BrowserDiagnostics,
+) -> dict[str, Any]:
+    available = any(item.available for item in diagnostics.backends)
+    first = diagnostics.backends[0] if diagnostics.backends else None
+    code = "available" if available else (first.code if first else "missing")
+    message = (
+        first.message
+        if first and first.message
+        else ("Backend available" if available else "Backend unavailable")
+    )
+    return _check_payload(
+        name=name,
+        passed=available,
+        code=code or ("available" if available else "unavailable"),
+        message=message,
+        metadata={
+            "requested_context": diagnostics.requested_context,
+            "selected_backend_id": diagnostics.selected_backend_id,
+        },
+    )
+
+
+async def run_extension_self_test() -> dict[str, Any]:
+    started = perf_counter()
+    checked_at = datetime.now(UTC).isoformat()
+    user_diagnostics = await _sdk_diagnostics_snapshot("user")
+    isolated_diagnostics = await _sdk_diagnostics_snapshot("isolated")
+
+    trace_event = BrowserTraceEvent(
+        event_id=f"self-test-{int(started * 1000)}",
+        session_id="browser-control-self-test",
+        phase="self-test",
+        action="trace_store",
+        status="ok",
+    )
+    recorded = get_browser_trace_store().record(trace_event)
+    trace_found = any(
+        event.event_id == recorded.event_id
+        for event in get_browser_trace_store().list(
+            session_id="browser-control-self-test",
+        )
+    )
+    connected = _bridge_connected()
+    checks = [
+        _check_payload(
+            name="bridge",
+            passed=connected,
+            code="bridge_connected" if connected else "bridge_disconnected",
+            message=(
+                "Native Messaging bridge is connected."
+                if connected
+                else "Native Messaging bridge is not connected."
+            ),
+        ),
+        _diagnostics_check(
+            name="user_backend",
+            diagnostics=user_diagnostics,
+        ),
+        _diagnostics_check(
+            name="isolated_backend",
+            diagnostics=isolated_diagnostics,
+        ),
+        _check_payload(
+            name="approval_policy",
+            passed=isinstance(
+                QwenPawBrowserApprovalPolicy(),
+                QwenPawBrowserApprovalPolicy,
+            ),
+            code="approval_policy_available",
+            message="Browser approval policy is available.",
+        ),
+        _check_payload(
+            name="trace_store",
+            passed=trace_found,
+            code="trace_store_roundtrip" if trace_found else "trace_missing",
+            message=(
+                "Trace store write-read check passed."
+                if trace_found
+                else "Trace store write-read check failed."
+            ),
+        ),
+    ]
+    status = "passed" if all(check["passed"] for check in checks) else "failed"
+    result = {
+        "status": status,
+        "checked_at": checked_at,
+        "duration_ms": round((perf_counter() - started) * 1000, 3),
+        "checks": checks,
+    }
+    _bridge_state.last_self_test = result
+    return result
+
+
+async def get_extension_status() -> dict[str, Any]:
+    connected = _bridge_connected()
     diagnostics = await _sdk_diagnostics_snapshot("user")
+    extension_version = _extension_version()
 
     return {
         **extension_install_status(),
         "connected": connected,
-        "version": None,
+        "version": extension_version,
+        "extension_version": extension_version,
         "connected_since": (
             _bridge_state.connected_since.isoformat()
             if connected and _bridge_state.connected_since is not None
             else None
         ),
+        "bridge_lifecycle": _bridge_lifecycle(connected),
+        "build_fingerprint": _build_fingerprint(),
+        "last_self_test": _bridge_state.last_self_test,
+        "trace_summary": _trace_summary(),
         "sdk_diagnostics": _serialize_diagnostics(diagnostics),
     }
 
@@ -281,6 +554,11 @@ async def get_extension_status() -> dict[str, Any]:
 @api_router.get("/status")
 async def extension_status() -> dict[str, Any]:
     return await get_extension_status()
+
+
+@api_router.post("/self-test")
+async def extension_self_test() -> dict[str, Any]:
+    return await run_extension_self_test()
 
 
 @api_router.get("/traces")

@@ -25,11 +25,7 @@ import {
   type PluginRuntimeStatus,
   type PluginSetupStep,
 } from "@/api/modules/plugin";
-import {
-  browserDiagnosticHint,
-  browserDiagnosticStatusLabel,
-  browserDiagnosticsRows,
-} from "../browserDiagnostics";
+import { BrowserControlReadiness } from "../browserControlReadiness";
 import styles from "./index.module.less";
 
 const capabilityIcons = [Eye, MousePointerClick, Monitor, Code2];
@@ -38,89 +34,6 @@ function stepClass(stepIndex: number, steps: PluginSetupStep[]) {
   if (stepIndex === 0) return "process";
   if (steps.length === 1) return "process";
   return "wait";
-}
-
-function browserControlStatusKey(
-  installed: boolean,
-  connected: boolean,
-): "connected" | "waiting" | "notStarted" {
-  if (connected) return "connected";
-  if (installed) return "waiting";
-  return "notStarted";
-}
-
-function BrowserControlStatusPanel({
-  installed,
-  connected,
-  runtime,
-  onOpenChrome,
-}: {
-  installed: boolean;
-  connected: boolean;
-  runtime: PluginRuntimeStatus;
-  onOpenChrome: () => void;
-}) {
-  const { t } = useTranslation();
-  const statusKey = browserControlStatusKey(installed, connected);
-  const diagnostics = browserDiagnosticsRows(runtime.sdk_diagnostics);
-  const statusClass =
-    statusKey === "connected"
-      ? styles["status-connected"]
-      : statusKey === "waiting"
-      ? styles["status-waiting"]
-      : styles["status-notStarted"];
-
-  return (
-    <div className={styles.setupSection}>
-      <div className={styles.browserStatus}>
-        <div>
-          <div className={`${styles.browserStatusBadge} ${statusClass}`}>
-            {t(`browserControl.status.${statusKey}`)}
-          </div>
-          <div className={styles.browserStatusDesc}>
-            {connected
-              ? t("browserControl.status.connected", "Chrome connected")
-              : t(
-                  "browserControl.status.waitingDesc",
-                  "Open or reload the Chrome extension.",
-                )}
-          </div>
-        </div>
-        <Button type="primary" onClick={onOpenChrome}>
-          {t("browserControl.actions.openChrome", "Open Chrome")}
-        </Button>
-      </div>
-
-      {diagnostics.length ? (
-        <div className={styles.diagnosticsList}>
-          <div className={styles.diagnosticsTitle}>
-            {t("browserControl.diagnostics.title", "SDK diagnostics")}
-          </div>
-          {diagnostics.map((backend) => (
-            <div
-              className={styles.diagnosticRow}
-              key={`${backend.backend_id}:${backend.code || backend.status}`}
-            >
-              <div>
-                <div className={styles.diagnosticBackend}>
-                  {backend.backend_id}
-                </div>
-                <div className={styles.diagnosticStatus}>
-                  {browserDiagnosticStatusLabel(t, backend)}
-                </div>
-              </div>
-              <div className={styles.diagnosticMessage}>
-                {backend.code ? (
-                  <code className={styles.diagnosticCode}>{backend.code}</code>
-                ) : null}
-                <span>{browserDiagnosticHint(t, backend)}</span>
-              </div>
-            </div>
-          ))}
-        </div>
-      ) : null}
-    </div>
-  );
 }
 
 export default function PluginDetailPage() {
@@ -133,6 +46,7 @@ export default function PluginDetailPage() {
   > | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [selfTestLoading, setSelfTestLoading] = useState(false);
   const [devOpen, setDevOpen] = useState(false);
 
   const isBrowserControl = detail?.id === "browser-control";
@@ -222,6 +136,31 @@ export default function PluginDetailPage() {
     } catch {
       await copyValue(runtime.chrome_extensions_url);
     }
+  };
+
+  const handleRunSelfTest = async () => {
+    setSelfTestLoading(true);
+    try {
+      const result = await extensionApi.selfTest();
+      setDetail((current) =>
+        current
+          ? {
+              ...current,
+              runtime_status: {
+                ...(current.runtime_status ?? {}),
+                last_self_test: result,
+              },
+            }
+          : current,
+      );
+      await loadDetail(false);
+    } finally {
+      setSelfTestLoading(false);
+    }
+  };
+
+  const handleCopyDiagnostics = async () => {
+    await copyValue(JSON.stringify(detail?.runtime_status ?? {}, null, 2));
   };
 
   if (loading) {
@@ -350,11 +289,18 @@ export default function PluginDetailPage() {
         ) : null}
 
         {isBrowserControl ? (
-          <BrowserControlStatusPanel
-            connected={connected}
-            installed={installed}
+          <BrowserControlReadiness
+            loading={refreshing}
+            onCopyDiagnostics={() => void handleCopyDiagnostics()}
             onOpenChrome={() => void handleOpenChromeExtensions()}
-            runtime={runtime}
+            onRefresh={() => void handleRefreshStatus()}
+            onRunSelfTest={() => void handleRunSelfTest()}
+            selfTestLoading={selfTestLoading}
+            status={{
+              ...runtime,
+              connected,
+              installed,
+            }}
           />
         ) : null}
 
