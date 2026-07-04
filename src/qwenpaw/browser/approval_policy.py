@@ -9,9 +9,9 @@ from typing import Any
 from urllib.parse import urlparse
 
 from qwenpaw.app.approvals.models import ApprovalRequestSummary
-from qwenpaw.browser_sdk.policy import DefaultBrowserPolicy
 from qwenpaw.browser_sdk.types import (
     BrowserActionRequest,
+    BrowserContextRequest,
     BrowserPolicyDecision,
 )
 from qwenpaw.constant import TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS
@@ -29,7 +29,7 @@ _REDACT_KEYS = {
 }
 
 
-class QwenPawBrowserApprovalPolicy(DefaultBrowserPolicy):
+class QwenPawBrowserApprovalPolicy:
     """Route sensitive Browser SDK actions through QwenPaw approvals."""
 
     def __init__(
@@ -43,6 +43,13 @@ class QwenPawBrowserApprovalPolicy(DefaultBrowserPolicy):
         self._now = now or time.time
         self._cache_ttl_seconds = float(cache_ttl_seconds)
         self._approved_cache: dict[tuple[Hashable, ...], float] = {}
+
+    def allow_context_acquisition(
+        self,
+        request: BrowserContextRequest,
+    ) -> BrowserPolicyDecision:
+        del request
+        return BrowserPolicyDecision(allowed=True, reason="allowed")
 
     async def allow_action(
         self,
@@ -220,7 +227,7 @@ def _approval_cache_key(
     risk_kind = str(request.risk.kind) if request.risk else "unknown_sensitive"
     return (
         root_session_id,
-        _domain(request.metadata),
+        _approval_domain_scope(request.metadata),
         risk_kind,
         str(request.action or "").strip().casefold(),
     )
@@ -246,6 +253,19 @@ def _domain(metadata: dict[str, Any]) -> str:
         return (urlparse(url).hostname or "").lower()
     except ValueError:
         return ""
+
+
+def _approval_domain_scope(metadata: dict[str, Any]) -> str:
+    domain = _domain(metadata)
+    if domain:
+        return domain
+    tab_id = str(metadata.get("tab_id") or "").strip()
+    if tab_id:
+        return f"tab:{tab_id}"
+    url = str(metadata.get("url") or "").strip()
+    if url:
+        return f"url:{url}"
+    return "unknown"
 
 
 def _redact(value: Any) -> Any:

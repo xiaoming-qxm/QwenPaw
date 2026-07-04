@@ -8,7 +8,7 @@ import secrets
 import contextlib
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from pydantic import BaseModel, Field
 
@@ -17,9 +17,10 @@ from starlette.responses import JSONResponse
 
 from qwenpaw.browser.connection_manager import get_bridge_connection_manager
 from qwenpaw.browser.nm_bridge_state import get_nm_bridge_route_state
-from qwenpaw.browser_sdk import get_default_backend_registry
+from qwenpaw.browser_sdk import Browser
 from qwenpaw.browser_sdk.types import (
     BrowserBackendDiagnostic,
+    BrowserContext,
     BrowserDiagnosticCheck,
     BrowserDiagnostics,
 )
@@ -205,75 +206,9 @@ async def nm_bridge_ws(websocket: WebSocket) -> None:
             _bridge_state.connected_since = None
 
 
-def _sdk_diagnostics_snapshot(context: str) -> BrowserDiagnostics:
+async def _sdk_diagnostics_snapshot(context: str) -> BrowserDiagnostics:
     requested = context if context in {"auto", "user", "isolated"} else "auto"
-    registry = get_default_backend_registry()
-    backends = tuple(
-        _backend_diagnostic_snapshot(backend) for backend in registry.all()
-    )
-    return BrowserDiagnostics(
-        requested_context=requested,  # type: ignore[arg-type]
-        selected_backend_id=_selected_backend_id(requested, backends),
-        backends=backends,
-    )
-
-
-def _backend_diagnostic_snapshot(backend: Any) -> BrowserBackendDiagnostic:
-    diagnose = getattr(backend, "diagnose", None)
-    if callable(diagnose):
-        diagnostic = diagnose()
-        if isinstance(diagnostic, BrowserBackendDiagnostic):
-            return diagnostic
-    capabilities = backend.capabilities()
-    try:
-        available = bool(backend.is_available())
-    except Exception as exc:  # pragma: no cover - defensive status fallback
-        return BrowserBackendDiagnostic(
-            backend_id=capabilities.backend_id,
-            browser_context=capabilities.browser_context,
-            available=False,
-            code=type(exc).__name__,
-            reason=str(exc),
-            status="unavailable",
-            message=str(exc),
-            hint_key="browser_backend_unavailable",
-            message_fallback=str(exc),
-            features=capabilities.features,
-        )
-    status = "available" if available else "unavailable"
-    return BrowserBackendDiagnostic(
-        backend_id=capabilities.backend_id,
-        browser_context=capabilities.browser_context,
-        available=available,
-        status=status,  # type: ignore[arg-type]
-        message="Available" if available else "Unavailable",
-        message_fallback="Available" if available else "Unavailable",
-        features=capabilities.features,
-    )
-
-
-def _selected_backend_id(
-    context: str,
-    backends: tuple[BrowserBackendDiagnostic, ...],
-) -> str:
-    if context == "user":
-        return _first_available_backend_id(backends, "user")
-    if context == "isolated":
-        return _first_available_backend_id(backends, "isolated")
-    return _first_available_backend_id(
-        backends,
-        "isolated",
-    ) or _first_available_backend_id(backends, "user")
-
-
-def _first_available_backend_id(
-    backends: tuple[BrowserBackendDiagnostic, ...],
-    browser_context: str,
-) -> str:
-    for backend in backends:
-        if backend.browser_context == browser_context and backend.available:
-            return backend.backend_id
-    return ""
+    return await Browser.diagnostics(context=cast(BrowserContext, requested))
 
 
 def _serialize_diagnostics(diagnostics: BrowserDiagnostics) -> dict[str, Any]:
@@ -322,11 +257,12 @@ def _serialize_diagnostic_check(
     }
 
 
-def get_extension_status() -> dict[str, Any]:
+async def get_extension_status() -> dict[str, Any]:
     bridge = _default_bridge()
     connected = _bridge_state.connected is not None
     if bridge is not None and hasattr(bridge, "is_connected"):
         connected = connected or bool(bridge.is_connected())
+    diagnostics = await _sdk_diagnostics_snapshot("user")
 
     return {
         **extension_install_status(),
@@ -337,15 +273,13 @@ def get_extension_status() -> dict[str, Any]:
             if connected and _bridge_state.connected_since is not None
             else None
         ),
-        "sdk_diagnostics": _serialize_diagnostics(
-            _sdk_diagnostics_snapshot("user"),
-        ),
+        "sdk_diagnostics": _serialize_diagnostics(diagnostics),
     }
 
 
 @api_router.get("/status")
 async def extension_status() -> dict[str, Any]:
-    return get_extension_status()
+    return await get_extension_status()
 
 
 @api_router.post("/setup")
@@ -359,7 +293,8 @@ async def extension_setup(request: ExtensionSetupRequest) -> dict[str, Any]:
         ws_url=str(result["ws_url"]),
         config_path=str(result["config_path"]),
     )
-    return {**result, **get_extension_status()}
+    status = await get_extension_status()
+    return {**result, **status}
 
 
 @api_router.post("/open-chrome-extensions")

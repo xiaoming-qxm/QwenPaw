@@ -258,13 +258,14 @@ def _sync_plugin_tools_to_agents(loader, plugin_id: str) -> None:
         for agent_id in config.agents.profiles:
             try:
                 agent_cfg = load_agent_config(agent_id)
+                tools_config = agent_cfg.tools
+                if tools_config is None:
+                    continue
                 changed = False
                 for tool_name in tool_names:
-                    if tool_name in agent_cfg.tools.builtin_tools:
+                    if tool_name in tools_config.builtin_tools:
                         continue
-                    agent_cfg.tools.builtin_tools[
-                        tool_name
-                    ] = BuiltinToolConfig(
+                    tools_config.builtin_tools[tool_name] = BuiltinToolConfig(
                         name=tool_name,
                         enabled=False,
                         config={},
@@ -311,10 +312,13 @@ def _remove_plugin_tools_from_agents(plugin_id: str, meta: dict) -> None:
         for agent_id in config.agents.profiles:
             try:
                 agent_cfg = load_agent_config(agent_id)
+                tools_config = agent_cfg.tools
+                if tools_config is None:
+                    continue
                 changed = False
                 for tool_name in tool_names:
-                    if tool_name in agent_cfg.tools.builtin_tools:
-                        del agent_cfg.tools.builtin_tools[tool_name]
+                    if tool_name in tools_config.builtin_tools:
+                        del tools_config.builtin_tools[tool_name]
                         changed = True
                 if changed:
                     save_agent_config(agent_id, agent_cfg)
@@ -505,11 +509,13 @@ def _manifest_payload(manifest) -> dict[str, Any]:
     }
 
 
-def _runtime_status(record) -> dict[str, Any]:
+async def _runtime_status(record) -> dict[str, Any]:
     """Return plugin runtime status, falling back for disabled plugins."""
     instance = record.instance
     if instance is not None and hasattr(instance, "get_runtime_status"):
         status = instance.get_runtime_status()
+        if inspect.isawaitable(status):
+            status = await status
         if isinstance(status, dict):
             return status
     return {"installed": record.enabled, "connected": False}
@@ -817,7 +823,7 @@ async def get_plugin_detail(plugin_id: str, request: Request):
         "setup": record.manifest.setup,
         "meta": record.manifest.meta,
         "manifest": manifest,
-        "runtime_status": _runtime_status(record),
+        "runtime_status": await _runtime_status(record),
     }
 
 

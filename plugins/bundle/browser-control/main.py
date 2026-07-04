@@ -139,9 +139,9 @@ class BrowserControlPlugin:
         )
         logger.info("Browser Control plugin registered: %s", api.plugin_id)
 
-    def get_runtime_status(self) -> dict:
+    async def get_runtime_status(self) -> dict:
         """Return Browser Control runtime status for plugin detail pages."""
-        return get_extension_status()
+        return await get_extension_status()
 
 
 plugin = BrowserControlPlugin()

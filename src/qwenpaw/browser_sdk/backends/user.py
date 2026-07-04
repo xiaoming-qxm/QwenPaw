@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 from typing import Any
+from urllib.parse import urlparse
 
 from qwenpaw.browser.connection_manager import get_bridge_connection_manager
 from qwenpaw.browser.control_engine import get_control_engine
@@ -342,7 +343,8 @@ class ChromeExtensionBrowserSession:
         name: str,
         **kwargs: Any,
     ) -> BrowserActionResult:
-        risk = classify_browser_action(name, kwargs)
+        metadata = await self._action_metadata(tab_id, kwargs)
+        risk = classify_browser_action(name, metadata)
         decision = await maybe_await_policy_decision(
             self._policy.allow_action(
                 BrowserActionRequest(
@@ -351,7 +353,7 @@ class ChromeExtensionBrowserSession:
                     context=self.context,
                     sensitive=risk.sensitive,
                     risk=risk,
-                    metadata=dict(kwargs),
+                    metadata=metadata,
                 ),
             ),
         )
@@ -420,6 +422,33 @@ class ChromeExtensionBrowserSession:
         params = {"tab_id": int(tab_id), **kwargs}
         return await self.bridge.request(name, params)
 
+    async def _action_metadata(
+        self,
+        tab_id: str,
+        kwargs: dict[str, Any],
+    ) -> dict[str, Any]:
+        metadata = dict(kwargs)
+        if tab_id == _BROWSER_SENTINEL_TAB_ID:
+            return metadata
+
+        metadata["tab_id"] = str(tab_id)
+        try:
+            page = await self.page_info(tab_id)
+        except (AttributeError, RuntimeError, TypeError, ValueError):
+            return metadata
+
+        if page.url and not metadata.get("url"):
+            metadata["url"] = page.url
+        if page.title and not metadata.get("title"):
+            metadata["title"] = page.title
+
+        url = str(metadata.get("url") or "")
+        if url and not metadata.get("domain"):
+            domain = _domain_from_url(url)
+            if domain:
+                metadata["domain"] = domain
+        return metadata
+
 
 def register_user_backend_once(
     *,
@@ -475,6 +504,13 @@ def _action_result(payload: Any, name: str) -> BrowserActionResult:
             data=dict(payload.get("data") or {}),
         )
     return BrowserActionResult(ok=True, message=str(payload or name))
+
+
+def _domain_from_url(url: str) -> str:
+    try:
+        return (urlparse(url).hostname or "").lower()
+    except ValueError:
+        return ""
 
 
 def _chunk_payload(chunk: Any) -> dict[str, Any]:
