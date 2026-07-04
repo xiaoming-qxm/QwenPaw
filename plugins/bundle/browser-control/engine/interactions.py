@@ -265,7 +265,7 @@ def _control_click_feedback_payload(
     else:
         message = (
             "Click completed, but no navigation was detected. If the target "
-            "destination is known, use the Browser Control Python REPL SDK "
+            "destination is known, use browser(code=...) with the Browser SDK "
             "to navigate directly instead "
             "of repeating the same click."
         )

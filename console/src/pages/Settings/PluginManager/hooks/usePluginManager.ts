@@ -3,7 +3,11 @@ import { useTranslation } from "react-i18next";
 import { Modal } from "antd";
 import { useRequest } from "ahooks";
 import { useAppMessage } from "@/hooks/useAppMessage";
-import { fetchPlugins, installPlugin, uninstallPlugin } from "@/api/modules/plugin";
+import {
+  fetchPlugins,
+  installPlugin,
+  uninstallPlugin,
+} from "@/api/modules/plugin";
 import type { PluginInfo } from "@/api/modules/plugin";
 
 export function usePluginManager() {

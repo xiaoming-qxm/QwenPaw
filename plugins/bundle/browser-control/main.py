@@ -17,6 +17,7 @@ from qwenpaw.browser.control_engine import (
     clear_control_engine,
     register_control_engine,
 )
+from qwenpaw.browser.approval_policy import QwenPawBrowserApprovalPolicy
 from qwenpaw.browser_sdk.backends.user import register_user_backend_once
 from qwenpaw.loop.gates.rubric import PrematureStopGate
 from qwenpaw.plugins.api import PluginApi
@@ -104,7 +105,7 @@ class BrowserControlPlugin:
         set_bridge_connection_manager(bridge)
         self._control_engine = ControlEngineImpl()
         register_control_engine(self._control_engine)
-        register_user_backend_once()
+        register_user_backend_once(policy=QwenPawBrowserApprovalPolicy())
         api.register_http_router(
             api_router,
             prefix="/extension",

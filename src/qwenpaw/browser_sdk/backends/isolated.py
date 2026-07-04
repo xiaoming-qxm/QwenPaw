@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import time
+from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import quote_plus
 
@@ -24,6 +25,9 @@ from ..backend_registry import get_default_backend_registry
 from ..observation import coerce_observation, coerce_screenshot
 from ..types import (
     BrowserBackendCapabilities,
+    BrowserBackendDiagnostic,
+    BrowserDiagnosticCheck,
+    BrowserDiagnosticStatus,
     BrowserObservation,
     BrowserPageInfo,
     BrowserScreenshot,
@@ -61,6 +65,69 @@ class IsolatedBrowserBackend:
     def diagnostics(self) -> dict[str, Any]:
         """Return isolated backend diagnostic metadata without connecting."""
         return {"playwright_available": self.is_available()}
+
+    def diagnose(self) -> BrowserBackendDiagnostic:
+        """Return typed isolated backend diagnostics without connecting."""
+        runtime_manager_present = self._manager is not None
+        playwright_available = self.is_available()
+        available = runtime_manager_present and playwright_available
+        status: BrowserDiagnosticStatus = (
+            "available" if available else "unavailable"
+        )
+        code = "" if available else "isolated_backend_unavailable"
+        message = (
+            "Isolated Playwright backend is available."
+            if available
+            else "Isolated Playwright backend is unavailable."
+        )
+        hint_key = "" if available else "isolated_backend_unavailable"
+        return BrowserBackendDiagnostic(
+            backend_id=self.backend_id,
+            browser_context="isolated",
+            available=available,
+            code=code,
+            reason="" if available else message,
+            status=status,
+            message=message,
+            hint_key=hint_key,
+            message_fallback=message,
+            checks=(
+                BrowserDiagnosticCheck(
+                    name="runtime_manager",
+                    status="available"
+                    if runtime_manager_present
+                    else "unavailable",
+                    code="" if runtime_manager_present else code,
+                    message=(
+                        "Runtime manager is configured."
+                        if runtime_manager_present
+                        else "Runtime manager is missing."
+                    ),
+                    hint_key="" if runtime_manager_present else hint_key,
+                    metadata={"backend_id": self.backend_id},
+                ),
+                BrowserDiagnosticCheck(
+                    name="playwright",
+                    status="available"
+                    if playwright_available
+                    else "unavailable",
+                    code="" if playwright_available else code,
+                    message=(
+                        "Playwright is available."
+                        if playwright_available
+                        else "Playwright is unavailable."
+                    ),
+                    hint_key="" if playwright_available else hint_key,
+                    metadata={"backend_id": self.backend_id},
+                ),
+            ),
+            observed_at=_diagnostic_observed_at(),
+            features=self.capabilities().features,
+            metadata={
+                "runtime_manager_present": runtime_manager_present,
+                "playwright_available": playwright_available,
+            },
+        )
 
     async def connect(
         self,
@@ -704,6 +771,10 @@ def _search_url(query: str, engine: str) -> str:
     if engine in {"duckduckgo", "ddg"}:
         return f"https://duckduckgo.com/?q={encoded}"
     return f"https://www.google.com/search?q={encoded}"
+
+
+def _diagnostic_observed_at() -> str:
+    return datetime.now(UTC).isoformat()
 
 
 __all__ = [

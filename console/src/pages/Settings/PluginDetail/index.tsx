@@ -18,11 +18,18 @@ import {
 } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { useAppMessage } from "@/hooks/useAppMessage";
+import { extensionApi } from "@/api/modules/extension";
 import {
   fetchPluginDetail,
   type PluginCapability,
+  type PluginRuntimeStatus,
   type PluginSetupStep,
 } from "@/api/modules/plugin";
+import {
+  browserDiagnosticHint,
+  browserDiagnosticStatusLabel,
+  browserDiagnosticsRows,
+} from "../browserDiagnostics";
 import styles from "./index.module.less";
 
 const capabilityIcons = [Eye, MousePointerClick, Monitor, Code2];
@@ -31,6 +38,89 @@ function stepClass(stepIndex: number, steps: PluginSetupStep[]) {
   if (stepIndex === 0) return "process";
   if (steps.length === 1) return "process";
   return "wait";
+}
+
+function browserControlStatusKey(
+  installed: boolean,
+  connected: boolean,
+): "connected" | "waiting" | "notStarted" {
+  if (connected) return "connected";
+  if (installed) return "waiting";
+  return "notStarted";
+}
+
+function BrowserControlStatusPanel({
+  installed,
+  connected,
+  runtime,
+  onOpenChrome,
+}: {
+  installed: boolean;
+  connected: boolean;
+  runtime: PluginRuntimeStatus;
+  onOpenChrome: () => void;
+}) {
+  const { t } = useTranslation();
+  const statusKey = browserControlStatusKey(installed, connected);
+  const diagnostics = browserDiagnosticsRows(runtime.sdk_diagnostics);
+  const statusClass =
+    statusKey === "connected"
+      ? styles["status-connected"]
+      : statusKey === "waiting"
+      ? styles["status-waiting"]
+      : styles["status-notStarted"];
+
+  return (
+    <div className={styles.setupSection}>
+      <div className={styles.browserStatus}>
+        <div>
+          <div className={`${styles.browserStatusBadge} ${statusClass}`}>
+            {t(`browserControl.status.${statusKey}`)}
+          </div>
+          <div className={styles.browserStatusDesc}>
+            {connected
+              ? t("browserControl.status.connected", "Chrome connected")
+              : t(
+                  "browserControl.status.waitingDesc",
+                  "Open or reload the Chrome extension.",
+                )}
+          </div>
+        </div>
+        <Button type="primary" onClick={onOpenChrome}>
+          {t("browserControl.actions.openChrome", "Open Chrome")}
+        </Button>
+      </div>
+
+      {diagnostics.length ? (
+        <div className={styles.diagnosticsList}>
+          <div className={styles.diagnosticsTitle}>
+            {t("browserControl.diagnostics.title", "SDK diagnostics")}
+          </div>
+          {diagnostics.map((backend) => (
+            <div
+              className={styles.diagnosticRow}
+              key={`${backend.backend_id}:${backend.code || backend.status}`}
+            >
+              <div>
+                <div className={styles.diagnosticBackend}>
+                  {backend.backend_id}
+                </div>
+                <div className={styles.diagnosticStatus}>
+                  {browserDiagnosticStatusLabel(t, backend)}
+                </div>
+              </div>
+              <div className={styles.diagnosticMessage}>
+                {backend.code ? (
+                  <code className={styles.diagnosticCode}>{backend.code}</code>
+                ) : null}
+                <span>{browserDiagnosticHint(t, backend)}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 export default function PluginDetailPage() {
@@ -44,6 +134,8 @@ export default function PluginDetailPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [devOpen, setDevOpen] = useState(false);
+
+  const isBrowserControl = detail?.id === "browser-control";
 
   const loadDetail = useCallback(
     async (showLoading = true) => {
@@ -71,10 +163,25 @@ export default function PluginDetailPage() {
     loadDetail();
   }, [loadDetail]);
 
-  const setupSteps = useMemo(
-    () => detail?.setup?.steps ?? detail?.manifest.setup?.steps ?? [],
-    [detail],
-  );
+  const setupSteps = useMemo(() => {
+    if (isBrowserControl) {
+      return [
+        {
+          id: "prepare",
+          title: t("browserControl.setup.prepare", "Prepare bridge files"),
+        },
+        {
+          id: "install",
+          title: t("browserControl.setup.install", "Install Chrome extension"),
+        },
+        {
+          id: "connect",
+          title: t("browserControl.setup.connect", "Wait for Chrome"),
+        },
+      ];
+    }
+    return detail?.setup?.steps ?? detail?.manifest.setup?.steps ?? [];
+  }, [detail, isBrowserControl, t]);
 
   const capabilities: PluginCapability[] = useMemo(
     () =>
@@ -105,6 +212,18 @@ export default function PluginDetailPage() {
     }
   };
 
+  const handleOpenChromeExtensions = async () => {
+    const runtime: PluginRuntimeStatus = detail?.runtime_status ?? {};
+    try {
+      const result = await extensionApi.openChromeExtensionsPage();
+      if (!result.opened) {
+        await copyValue(result.url || runtime.chrome_extensions_url);
+      }
+    } catch {
+      await copyValue(runtime.chrome_extensions_url);
+    }
+  };
+
   if (loading) {
     return (
       <div className={styles.loading}>
@@ -117,9 +236,15 @@ export default function PluginDetailPage() {
     return <Empty className={styles.empty} />;
   }
 
-  const runtime = detail.runtime_status ?? {};
+  const runtime: PluginRuntimeStatus = detail.runtime_status ?? {};
   const connected = Boolean(runtime.connected);
-  const installed = detail.installed ?? true;
+  const installed = Boolean(runtime.installed ?? detail.installed ?? true);
+  const displayName = isBrowserControl
+    ? t("browserControl.name", detail.name)
+    : detail.name;
+  const displayDescription = isBrowserControl
+    ? t("browserControl.description", detail.description)
+    : detail.description;
   const hasFrontendEntry = Boolean(detail.frontend_entry);
   const devRows = [
     [t("pluginDetail.dev.installMode", "Install mode"), runtime.install_mode],
@@ -156,7 +281,7 @@ export default function PluginDetailPage() {
               </button>
             ),
           },
-          { title: detail.name },
+          { title: displayName },
         ]}
         extra={
           <div className={styles.headerExtra}>
@@ -183,8 +308,8 @@ export default function PluginDetailPage() {
             <Globe size={28} />
           </div>
           <div className={styles.pluginMeta}>
-            <div className={styles.pluginName}>{detail.name}</div>
-            <div className={styles.pluginDesc}>{detail.description}</div>
+            <div className={styles.pluginName}>{displayName}</div>
+            <div className={styles.pluginDesc}>{displayDescription}</div>
             <div className={styles.pluginTags}>
               <span className={`${styles.tag} ${styles.tagVersion}`}>
                 v{detail.version}
@@ -222,6 +347,15 @@ export default function PluginDetailPage() {
               </Button>
             </div>
           </div>
+        ) : null}
+
+        {isBrowserControl ? (
+          <BrowserControlStatusPanel
+            connected={connected}
+            installed={installed}
+            onOpenChrome={() => void handleOpenChromeExtensions()}
+            runtime={runtime}
+          />
         ) : null}
 
         {setupSteps.length ? (

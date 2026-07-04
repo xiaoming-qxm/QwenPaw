@@ -11,7 +11,7 @@ from qwenpaw.browser_sdk._runtime import _tool_response
 
 def unsupported_control_action_response(action: str):
     guidance = (
-        "Raw evaluate actions are not available through the legacy control "
+        "Raw evaluate actions are not available through the direct control "
         "action path. Use browser(code=...) with Browser SDK helpers such as "
         "tab.page_info(), tab.evaluate(...) for bounded read-only extraction, "
         "and snapshot or screenshot to observe page state before choosing the "

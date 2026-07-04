@@ -17,6 +17,22 @@ from .backends.isolated import register_isolated_backend_once
 
 register_isolated_backend_once()
 
+_ERROR_HINTS = {
+    "browser_bridge_disconnected": (
+        "Reload the extension or reopen the target browser tab."
+    ),
+    "browser_backend_unavailable": (
+        "Refresh the status after the backend is available."
+    ),
+    "browser_control_engine_missing": (
+        "Restart QwenPaw or reload the Browser Control plugin."
+    ),
+    "isolated_backend_unavailable": (
+        "Install or restart the isolated browser runtime."
+    ),
+    "browser_kernel_timeout": "Reduce the browser task size and retry.",
+}
+
 
 @tool_descriptor(
     name="browser",
@@ -91,6 +107,7 @@ def _metadata(
             "",
         )
         metadata["error_message"] = result.error.get("message", "")
+        metadata["traceback"] = result.error.get("traceback", "")
         for key in ("backend_id", "action", "metadata"):
             if key in result.error:
                 metadata[key] = result.error[key]
@@ -127,13 +144,7 @@ def _artifact_blocks(result: BrowserKernelResult) -> list[DataBlock]:
 
 def _summary_text(result: BrowserKernelResult) -> str:
     if result.error:
-        error = result.error
-        code = error.get("code") or error.get("type") or "Error"
-        lines = [f"Error ({code}): {error.get('message', '')}"]
-        traceback_text = str(error.get("traceback") or "").strip()
-        if traceback_text:
-            lines.append(traceback_text)
-        return "\n".join(lines)
+        return _error_summary_text(result.error)
 
     parts = []
     if result.output:
@@ -141,6 +152,83 @@ def _summary_text(result: BrowserKernelResult) -> str:
     if result.return_value is not None:
         parts.append(result.return_value)
     return "\n".join(parts) or "(no output)"
+
+
+def _error_summary_text(error: dict[str, Any]) -> str:
+    code = str(error.get("code") or error.get("type") or "Error")
+    message = str(error.get("message") or "").strip()
+    lines = [f"Error: {code}"]
+    if message:
+        lines.append(f"Message: {message}")
+
+    hint = _error_hint(error, code)
+    if hint:
+        lines.append(f"Hint: {hint}")
+
+    diagnostics = _error_diagnostics_summary(error, code)
+    if diagnostics:
+        lines.append(f"Diagnostics: {diagnostics}")
+
+    return "\n".join(lines)
+
+
+def _error_hint(error: dict[str, Any], code: str) -> str:
+    metadata = error.get("metadata")
+    if isinstance(metadata, dict):
+        for key in ("hint", "message_fallback"):
+            value = metadata.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        hint_key = metadata.get("hint_key")
+        if isinstance(hint_key, str) and hint_key in _ERROR_HINTS:
+            return _ERROR_HINTS[hint_key]
+    return _ERROR_HINTS.get(code, "")
+
+
+def _error_diagnostics_summary(error: dict[str, Any], code: str) -> str:
+    metadata = error.get("metadata")
+    if isinstance(metadata, dict):
+        diagnostics = metadata.get("diagnostics")
+        if isinstance(diagnostics, str) and diagnostics.strip():
+            return diagnostics.strip()
+        if isinstance(diagnostics, dict):
+            summary = _diagnostics_dict_summary(diagnostics)
+            if summary:
+                return summary
+
+    backend_id = str(error.get("backend_id") or "").strip()
+    if not backend_id:
+        return ""
+    status = "unavailable" if _looks_unavailable(code) else "error"
+    return f"{backend_id} {status} ({code})"
+
+
+def _diagnostics_dict_summary(diagnostics: dict[str, Any]) -> str:
+    backend_id = str(
+        diagnostics.get("backend_id")
+        or diagnostics.get("selected_backend_id")
+        or "",
+    ).strip()
+    status = str(diagnostics.get("status") or "unavailable").strip()
+    code = str(diagnostics.get("code") or "").strip()
+    if not backend_id and not code:
+        return ""
+    if backend_id and code:
+        return f"{backend_id} {status} ({code})"
+    return backend_id or code
+
+
+def _looks_unavailable(code: str) -> bool:
+    lowered = code.lower()
+    return any(
+        marker in lowered
+        for marker in (
+            "disconnected",
+            "unavailable",
+            "missing",
+            "timeout",
+        )
+    )
 
 
 __all__ = ["browser"]

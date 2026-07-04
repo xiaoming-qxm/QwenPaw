@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+import inspect
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Any
 
 from .backend_registry import get_default_backend_registry
@@ -16,6 +18,8 @@ from .types import BrowserActionResult
 from .types import (
     BrowserBackendDiagnostic,
     BrowserContext,
+    BrowserDiagnosticCheck,
+    BrowserDiagnosticStatus,
     BrowserDiagnostics,
     ResolvedBrowserContext,
 )
@@ -116,9 +120,10 @@ class Browser:
         del cls
         requested = _normalize_context(context)
         registry = get_default_backend_registry()
-        diagnostics = tuple(
-            _backend_diagnostic(backend) for backend in registry.all()
-        )
+        diagnostic_items: list[BrowserBackendDiagnostic] = []
+        for backend in registry.all():
+            diagnostic_items.append(await _backend_diagnostic(backend))
+        diagnostics = tuple(diagnostic_items)
         return BrowserDiagnostics(
             requested_context=requested,
             selected_backend_id=_selected_diagnostic_backend_id(
@@ -175,7 +180,15 @@ def _normalize_context(context: str) -> BrowserContext:
     return "auto"
 
 
-def _backend_diagnostic(backend: Any) -> BrowserBackendDiagnostic:
+async def _backend_diagnostic(backend: Any) -> BrowserBackendDiagnostic:
+    diagnose = getattr(backend, "diagnose", None)
+    if callable(diagnose):
+        raw_diagnostic = diagnose()
+        if inspect.isawaitable(raw_diagnostic):
+            raw_diagnostic = await raw_diagnostic
+        if isinstance(raw_diagnostic, BrowserBackendDiagnostic):
+            return raw_diagnostic
+
     capabilities = backend.capabilities()
     metadata: dict[str, Any] = {}
     backend_diagnostics = getattr(backend, "diagnostics", None)
@@ -186,12 +199,28 @@ def _backend_diagnostic(backend: Any) -> BrowserBackendDiagnostic:
     try:
         available = bool(backend.is_available())
     except Exception as exc:  # pragma: no cover - defensive diagnostics
+        message = str(exc)
         return BrowserBackendDiagnostic(
             backend_id=capabilities.backend_id,
             browser_context=capabilities.browser_context,
             available=False,
             code=type(exc).__name__,
-            reason=str(exc),
+            reason=message,
+            status="unavailable",
+            message=message,
+            hint_key="browser_backend_unavailable",
+            message_fallback=message,
+            checks=(
+                _diagnostic_check(
+                    name="availability",
+                    status="unavailable",
+                    code=type(exc).__name__,
+                    message=message,
+                    hint_key="browser_backend_unavailable",
+                    backend_id=capabilities.backend_id,
+                ),
+            ),
+            observed_at=_observed_at(),
             features=capabilities.features,
             metadata=metadata,
         )
@@ -204,15 +233,60 @@ def _backend_diagnostic(backend: Any) -> BrowserBackendDiagnostic:
             code = str(getattr(error, "code", "") or type(error).__name__)
             reason = str(error)
             metadata.update(dict(getattr(error, "metadata", {}) or {}))
+    status: BrowserDiagnosticStatus = (
+        "available" if available else "unavailable"
+    )
+    message = (
+        reason if reason else ("Available" if available else "Unavailable")
+    )
+    hint_key = "" if available else "browser_backend_unavailable"
     return BrowserBackendDiagnostic(
         backend_id=capabilities.backend_id,
         browser_context=capabilities.browser_context,
         available=available,
         code=code,
         reason=reason,
+        status=status,
+        message=message,
+        hint_key=hint_key,
+        message_fallback=message,
+        checks=(
+            _diagnostic_check(
+                name="availability",
+                status=status,
+                code=code,
+                message=message,
+                hint_key=hint_key,
+                backend_id=capabilities.backend_id,
+            ),
+        ),
+        observed_at=_observed_at(),
         features=capabilities.features,
         metadata=metadata,
     )
+
+
+def _diagnostic_check(
+    *,
+    name: str,
+    status: BrowserDiagnosticStatus,
+    code: str,
+    message: str,
+    hint_key: str,
+    backend_id: str,
+) -> BrowserDiagnosticCheck:
+    return BrowserDiagnosticCheck(
+        name=name,
+        status=status,
+        code=code,
+        message=message,
+        hint_key=hint_key,
+        metadata={"backend_id": backend_id},
+    )
+
+
+def _observed_at() -> str:
+    return datetime.now(UTC).isoformat()
 
 
 def _selected_diagnostic_backend_id(

@@ -17,6 +17,12 @@ from starlette.responses import JSONResponse
 
 from qwenpaw.browser.connection_manager import get_bridge_connection_manager
 from qwenpaw.browser.nm_bridge_state import get_nm_bridge_route_state
+from qwenpaw.browser_sdk import get_default_backend_registry
+from qwenpaw.browser_sdk.types import (
+    BrowserBackendDiagnostic,
+    BrowserDiagnosticCheck,
+    BrowserDiagnostics,
+)
 
 from .extension_setup import (
     extension_install_status,
@@ -199,6 +205,123 @@ async def nm_bridge_ws(websocket: WebSocket) -> None:
             _bridge_state.connected_since = None
 
 
+def _sdk_diagnostics_snapshot(context: str) -> BrowserDiagnostics:
+    requested = context if context in {"auto", "user", "isolated"} else "auto"
+    registry = get_default_backend_registry()
+    backends = tuple(
+        _backend_diagnostic_snapshot(backend) for backend in registry.all()
+    )
+    return BrowserDiagnostics(
+        requested_context=requested,  # type: ignore[arg-type]
+        selected_backend_id=_selected_backend_id(requested, backends),
+        backends=backends,
+    )
+
+
+def _backend_diagnostic_snapshot(backend: Any) -> BrowserBackendDiagnostic:
+    diagnose = getattr(backend, "diagnose", None)
+    if callable(diagnose):
+        diagnostic = diagnose()
+        if isinstance(diagnostic, BrowserBackendDiagnostic):
+            return diagnostic
+    capabilities = backend.capabilities()
+    try:
+        available = bool(backend.is_available())
+    except Exception as exc:  # pragma: no cover - defensive status fallback
+        return BrowserBackendDiagnostic(
+            backend_id=capabilities.backend_id,
+            browser_context=capabilities.browser_context,
+            available=False,
+            code=type(exc).__name__,
+            reason=str(exc),
+            status="unavailable",
+            message=str(exc),
+            hint_key="browser_backend_unavailable",
+            message_fallback=str(exc),
+            features=capabilities.features,
+        )
+    status = "available" if available else "unavailable"
+    return BrowserBackendDiagnostic(
+        backend_id=capabilities.backend_id,
+        browser_context=capabilities.browser_context,
+        available=available,
+        status=status,  # type: ignore[arg-type]
+        message="Available" if available else "Unavailable",
+        message_fallback="Available" if available else "Unavailable",
+        features=capabilities.features,
+    )
+
+
+def _selected_backend_id(
+    context: str,
+    backends: tuple[BrowserBackendDiagnostic, ...],
+) -> str:
+    if context == "user":
+        return _first_available_backend_id(backends, "user")
+    if context == "isolated":
+        return _first_available_backend_id(backends, "isolated")
+    return _first_available_backend_id(
+        backends,
+        "isolated",
+    ) or _first_available_backend_id(backends, "user")
+
+
+def _first_available_backend_id(
+    backends: tuple[BrowserBackendDiagnostic, ...],
+    browser_context: str,
+) -> str:
+    for backend in backends:
+        if backend.browser_context == browser_context and backend.available:
+            return backend.backend_id
+    return ""
+
+
+def _serialize_diagnostics(diagnostics: BrowserDiagnostics) -> dict[str, Any]:
+    return {
+        "requested_context": diagnostics.requested_context,
+        "selected_backend_id": diagnostics.selected_backend_id,
+        "backends": [
+            _serialize_backend_diagnostic(item)
+            for item in diagnostics.backends
+        ],
+    }
+
+
+def _serialize_backend_diagnostic(
+    diagnostic: BrowserBackendDiagnostic,
+) -> dict[str, Any]:
+    return {
+        "backend_id": diagnostic.backend_id,
+        "browser_context": diagnostic.browser_context,
+        "available": diagnostic.available,
+        "status": diagnostic.status,
+        "code": diagnostic.code,
+        "reason": diagnostic.reason,
+        "message": diagnostic.message,
+        "hint_key": diagnostic.hint_key,
+        "message_fallback": diagnostic.message_fallback,
+        "checks": [
+            _serialize_diagnostic_check(check) for check in diagnostic.checks
+        ],
+        "observed_at": diagnostic.observed_at,
+        "features": sorted(diagnostic.features),
+        "metadata": dict(diagnostic.metadata),
+    }
+
+
+def _serialize_diagnostic_check(
+    check: BrowserDiagnosticCheck,
+) -> dict[str, Any]:
+    return {
+        "name": check.name,
+        "status": check.status,
+        "code": check.code,
+        "message": check.message,
+        "hint_key": check.hint_key,
+        "metadata": dict(check.metadata),
+    }
+
+
 def get_extension_status() -> dict[str, Any]:
     bridge = _default_bridge()
     connected = _bridge_state.connected is not None
@@ -213,6 +336,9 @@ def get_extension_status() -> dict[str, Any]:
             _bridge_state.connected_since.isoformat()
             if connected and _bridge_state.connected_since is not None
             else None
+        ),
+        "sdk_diagnostics": _serialize_diagnostics(
+            _sdk_diagnostics_snapshot("user"),
         ),
     }
 

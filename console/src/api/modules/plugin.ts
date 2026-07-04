@@ -51,6 +51,39 @@ export interface PluginSetup {
   [key: string]: unknown;
 }
 
+export type BrowserDiagnosticStatus = "available" | "degraded" | "unavailable";
+
+export interface BrowserDiagnosticCheck {
+  name: string;
+  status: BrowserDiagnosticStatus;
+  message: string;
+  hint_key?: string | null;
+  message_fallback?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+export interface BrowserBackendDiagnostic {
+  backend_id: string;
+  browser_context: "auto" | "isolated" | "user";
+  available: boolean;
+  status: BrowserDiagnosticStatus;
+  code?: string | null;
+  reason?: string | null;
+  message: string;
+  hint_key?: string | null;
+  message_fallback?: string | null;
+  features: string[];
+  checks?: BrowserDiagnosticCheck[];
+  observed_at?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+export interface BrowserDiagnostics {
+  requested_context: "auto" | "isolated" | "user";
+  selected_backend_id?: string | null;
+  backends: BrowserBackendDiagnostic[];
+}
+
 export interface PluginManifest {
   id: string;
   name: string;
@@ -77,6 +110,7 @@ export interface PluginRuntimeStatus {
   config_path?: string;
   ws_url?: string;
   chrome_extensions_url?: string;
+  sdk_diagnostics?: BrowserDiagnostics;
   [key: string]: unknown;
 }
 

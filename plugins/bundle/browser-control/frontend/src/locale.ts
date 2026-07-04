@@ -53,6 +53,19 @@ const messages = {
     installFailed: "Extension setup failed",
     copy: "Copy",
     copied: "Copied",
+    diagnosticsTitle: "SDK diagnostics",
+    diagnosticBackend: "Backend",
+    diagnosticAvailable: "Available",
+    diagnosticDegraded: "Degraded",
+    diagnosticUnavailable: "Unavailable",
+    browser_bridge_disconnected:
+      "Reload the extension or reopen the target browser tab.",
+    browser_backend_unavailable:
+      "Refresh the status after the backend is available.",
+    browser_control_engine_missing:
+      "Restart QwenPaw or reload the Browser Control plugin.",
+    isolated_backend_unavailable:
+      "Install or restart the isolated browser runtime.",
   },
   zh: {
     routeLabel: "浏览器控制",
@@ -105,6 +118,16 @@ const messages = {
     installFailed: "扩展设置失败",
     copy: "复制",
     copied: "已复制",
+    diagnosticsTitle: "SDK 诊断",
+    diagnosticBackend: "后端",
+    diagnosticAvailable: "可用",
+    diagnosticDegraded: "降级",
+    diagnosticUnavailable: "不可用",
+    browser_bridge_disconnected: "重载扩展，或重新打开目标浏览器标签页。",
+    browser_backend_unavailable: "后端可用后刷新状态。",
+    browser_control_engine_missing:
+      "重启 QwenPaw，或重新加载 Browser Control 插件。",
+    isolated_backend_unavailable: "安装或重启隔离浏览器运行时。",
   },
 } as const;
 

@@ -6,6 +6,7 @@ import {
   resolveBrowserControlLocale,
   t as translate,
   type BrowserControlLocale,
+  type MessageKey,
 } from "./locale";
 
 const host = window.QwenPaw.host;
@@ -52,6 +53,40 @@ interface ExtensionStatus {
   version?: string | null;
   connected_since?: string | null;
   cws_url?: string;
+  sdk_diagnostics?: BrowserDiagnostics;
+}
+
+type BrowserDiagnosticStatus = "available" | "degraded" | "unavailable";
+
+interface BrowserDiagnosticCheck {
+  name: string;
+  status: BrowserDiagnosticStatus;
+  message: string;
+  hint_key?: string | null;
+  message_fallback?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+interface BrowserBackendDiagnostic {
+  backend_id: string;
+  browser_context: "auto" | "isolated" | "user";
+  available: boolean;
+  status: BrowserDiagnosticStatus;
+  code?: string | null;
+  reason?: string | null;
+  message: string;
+  hint_key?: string | null;
+  message_fallback?: string | null;
+  features: string[];
+  checks?: BrowserDiagnosticCheck[];
+  observed_at?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+interface BrowserDiagnostics {
+  requested_context: "auto" | "isolated" | "user";
+  selected_backend_id?: string | null;
+  backends: BrowserBackendDiagnostic[];
 }
 
 interface ExtensionSetupRequest {
@@ -240,6 +275,43 @@ const styles: Record<string, ReactNS.CSSProperties> = {
     borderRadius: 8,
     background: "rgba(0,0,0,0.02)",
   },
+  diagnosticsPanel: {
+    width: "min(100%, 720px)",
+    margin: "0 auto",
+    borderRadius: 8,
+  },
+  diagnosticsList: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 10,
+  },
+  diagnosticRow: {
+    display: "grid",
+    gridTemplateColumns: "minmax(140px, 1fr) minmax(0, 2fr)",
+    gap: 10,
+    padding: 10,
+    border: "1px solid rgba(0,0,0,0.06)",
+    borderRadius: 8,
+    background: "rgba(0,0,0,0.02)",
+  },
+  diagnosticCode: {
+    display: "inline-block",
+    maxWidth: "100%",
+    overflowWrap: "anywhere",
+    fontFamily:
+      "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+    fontSize: 12,
+    borderRadius: 4,
+    padding: "2px 6px",
+    background: "rgba(0,0,0,0.05)",
+    color: "rgba(0,0,0,0.76)",
+  },
+  diagnosticMessage: {
+    display: "flex",
+    minWidth: 0,
+    flexDirection: "column",
+    gap: 4,
+  },
 };
 
 function authHeaders(): Record<string, string> {
@@ -302,6 +374,51 @@ function getCwsUrl(status: ExtensionStatus | null) {
   return status?.cws_url || CWS_FALLBACK_URL;
 }
 
+const diagnosticHintKeys = new Set<MessageKey>([
+  "browser_bridge_disconnected",
+  "browser_backend_unavailable",
+  "browser_control_engine_missing",
+  "isolated_backend_unavailable",
+]);
+
+function diagnosticRows(
+  status: ExtensionStatus | null,
+): BrowserBackendDiagnostic[] {
+  return (status?.sdk_diagnostics?.backends ?? []).filter(
+    (backend) => backend.code || backend.status !== "available",
+  );
+}
+
+function diagnosticHint(
+  backend: BrowserBackendDiagnostic,
+  locale: BrowserControlLocale,
+) {
+  const hintKey = backend.hint_key || backend.code;
+  if (hintKey && diagnosticHintKeys.has(hintKey as MessageKey)) {
+    return translate(locale, hintKey as MessageKey);
+  }
+  return (
+    backend.message_fallback ||
+    backend.message ||
+    backend.reason ||
+    backend.code ||
+    backend.backend_id
+  );
+}
+
+function diagnosticStatusLabel(
+  status: BrowserDiagnosticStatus,
+  locale: BrowserControlLocale,
+) {
+  if (status === "available") {
+    return translate(locale, "diagnosticAvailable");
+  }
+  if (status === "degraded") {
+    return translate(locale, "diagnosticDegraded");
+  }
+  return translate(locale, "diagnosticUnavailable");
+}
+
 function normalizeCollapseKeys(keys: unknown) {
   return Array.isArray(keys) ? keys : keys ? [String(keys)] : [];
 }
@@ -335,6 +452,50 @@ function BrowserControlLogo({ size = 38 }: { size?: number }) {
         fill="currentColor"
       />
     </svg>
+  );
+}
+
+function DiagnosticsPanel({
+  locale,
+  status,
+}: {
+  locale: BrowserControlLocale;
+  status: ExtensionStatus | null;
+}) {
+  const rows = diagnosticRows(status);
+
+  if (!rows.length) {
+    return null;
+  }
+
+  return (
+    <Card style={styles.diagnosticsPanel}>
+      <Space direction="vertical" size={12} style={{ width: "100%" }}>
+        <Text strong>{translate(locale, "diagnosticsTitle")}</Text>
+        <div style={styles.diagnosticsList}>
+          {rows.map((backend) => (
+            <div
+              key={`${backend.backend_id}:${backend.code || backend.status}`}
+              style={styles.diagnosticRow}
+            >
+              <div>
+                <Text strong>{backend.backend_id}</Text>
+                <br />
+                <Text type="secondary">
+                  {diagnosticStatusLabel(backend.status, locale)}
+                </Text>
+              </div>
+              <div style={styles.diagnosticMessage}>
+                {backend.code ? (
+                  <code style={styles.diagnosticCode}>{backend.code}</code>
+                ) : null}
+                <Text>{diagnosticHint(backend, locale)}</Text>
+              </div>
+            </div>
+          ))}
+        </div>
+      </Space>
+    </Card>
   );
 }
 
@@ -858,6 +1019,7 @@ function BrowserControlSetupPage() {
       <div style={styles.content}>
         {error ? <Alert type="error" showIcon message={error} /> : null}
         {currentView}
+        <DiagnosticsPanel locale={locale} status={effectiveStatus} />
         <div ref={developerRef}>
           <DeveloperOptions
             activeKey={developerActiveKey}

@@ -2,11 +2,17 @@
 
 Generated: 2026-07-03
 
+## V5 Operational Readiness
+
+See `docs/browser-sdk-v5-operational-readiness.md` for the current V5
+acceptance matrix covering diagnostics, approval, user Chrome status,
+model-facing error recovery, and manual live acceptance gates.
+
 ## Scenario Matrix
 
 | Scenario | Expected route | Policy checkpoints | Forbidden calls | Evidence |
 | --- | --- | --- | --- | --- |
-| Public web research: search for Loop Engineering blog | `browser(code=...)` -> `Browser.connect(context="auto")` -> `isolated.playwright` | Fresh observation after open before extraction | `DesktopScreenShot`, `ViewVideo`, visible legacy browser entry | Functional contract `test_public_research_flow_routes_to_isolated_backend` |
+| Public web research: search for Loop Engineering blog | `browser(code=...)` -> `Browser.connect(context="auto")` -> `isolated.playwright` | Fresh observation after open before extraction | desktop/media inspection tools, visible legacy browser entry | Functional contract `test_public_research_flow_routes_to_isolated_backend` |
 | User login-state shopping/cart task | `browser(code=...)` -> `Browser.connect(context="user")` -> `user.chrome_extension` | Sensitive action policy can block clear/delete/purchase-like actions before bridge mutation | Isolated fallback when bridge is missing | Functional contract `test_user_state_flow_routes_to_chrome_extension_policy_gate` |
 | Disconnected bridge for user-state task | `browser(code=...)` -> `context="user"` -> explicit block | Context acquisition must fail before browser mutation | Isolated fallback | Functional contract `test_disconnected_bridge_flow_blocks_explicitly` |
 | Removed legacy browser action surface | Legacy browser action imports/tool lookup -> absent | No legacy dispatcher fallback | Old dispatcher execution after SDK gap | Legacy browser removal contract |
@@ -26,8 +32,7 @@ Generated: 2026-07-03
 
 ## Forbidden Tool Calls
 
-- `DesktopScreenShot`
-- `ViewVideo`
+- desktop/media inspection tools outside the Browser SDK
 - model-visible legacy browser tool
 - model-visible legacy REPL tools
 - direct Playwright routing for user-state tasks

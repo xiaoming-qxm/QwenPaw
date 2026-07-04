@@ -1,0 +1,268 @@
+# -*- coding: utf-8 -*-
+"""QwenPaw approval-backed Browser SDK policy."""
+
+from __future__ import annotations
+
+import time
+from collections.abc import Callable, Hashable
+from typing import Any
+from urllib.parse import urlparse
+
+from qwenpaw.app.approvals.models import ApprovalRequestSummary
+from qwenpaw.browser_sdk.policy import DefaultBrowserPolicy
+from qwenpaw.browser_sdk.types import (
+    BrowserActionRequest,
+    BrowserPolicyDecision,
+)
+from qwenpaw.constant import TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS
+from qwenpaw.security.tool_guard.approval import ApprovalDecision
+
+_DEFAULT_CACHE_TTL_SECONDS = 120.0
+_REDACTED = "[REDACTED]"
+_REDACT_KEYS = {
+    "credential",
+    "otp",
+    "password",
+    "secret",
+    "token",
+    "value",
+}
+
+
+class QwenPawBrowserApprovalPolicy(DefaultBrowserPolicy):
+    """Route sensitive Browser SDK actions through QwenPaw approvals."""
+
+    def __init__(
+        self,
+        *,
+        approval_service: Any | None = None,
+        now: Callable[[], float] | None = None,
+        cache_ttl_seconds: float = _DEFAULT_CACHE_TTL_SECONDS,
+    ) -> None:
+        self._approval_service = approval_service
+        self._now = now or time.time
+        self._cache_ttl_seconds = float(cache_ttl_seconds)
+        self._approved_cache: dict[tuple[Hashable, ...], float] = {}
+
+    async def allow_action(
+        self,
+        request: BrowserActionRequest,
+    ) -> BrowserPolicyDecision:
+        if not request.sensitive:
+            return BrowserPolicyDecision(allowed=True, reason="allowed")
+
+        context = _approval_context(request)
+        cache_key = _approval_cache_key(request, context["root_session_id"])
+        if self._cache_hit(cache_key):
+            return BrowserPolicyDecision(
+                allowed=True,
+                reason="browser_action_approval_cache",
+                metadata={"approval_cache": "hit"},
+            )
+
+        try:
+            service = self._service()
+            summary = ApprovalRequestSummary(
+                source_type="browser_sdk_action",
+                name="browser",
+                severity=_severity(request),
+                findings_count=1,
+                result_summary=_approval_summary(request),
+                payload=_approval_payload(request),
+            )
+            pending = await service.create_pending_summary(
+                session_id=context["session_id"],
+                root_session_id=context["root_session_id"],
+                owner_agent_id=context["owner_agent_id"],
+                user_id=context["user_id"],
+                channel=context["channel"],
+                agent_id=context["agent_id"],
+                summary=summary,
+                timeout_seconds=TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS,
+                extra={
+                    "tool_call": {
+                        "id": context["tool_call_id"],
+                        "name": "browser",
+                        "input": summary.payload,
+                    },
+                },
+            )
+            decision = await service.wait_for_approval(
+                pending.request_id,
+                TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS,
+            )
+        except Exception as exc:  # noqa: BLE001
+            return BrowserPolicyDecision(
+                allowed=False,
+                reason="browser_action_approval_error",
+                metadata={"error": str(exc)},
+            )
+
+        if decision == ApprovalDecision.APPROVED:
+            self._approved_cache[cache_key] = (
+                self._now() + self._cache_ttl_seconds
+            )
+            return BrowserPolicyDecision(
+                allowed=True,
+                reason="browser_action_approved",
+                metadata={"approval_request_id": pending.request_id},
+            )
+        if decision == ApprovalDecision.TIMEOUT:
+            return BrowserPolicyDecision(
+                allowed=False,
+                reason="browser_action_approval_timeout",
+                metadata={"approval_request_id": pending.request_id},
+            )
+        return BrowserPolicyDecision(
+            allowed=False,
+            reason="browser_action_denied",
+            metadata={"approval_request_id": pending.request_id},
+        )
+
+    def _service(self) -> Any:
+        if self._approval_service is not None:
+            return self._approval_service
+        from qwenpaw.app.approvals import get_approval_service
+
+        return get_approval_service()
+
+    def _cache_hit(self, key: tuple[Hashable, ...]) -> bool:
+        expires_at = self._approved_cache.get(key)
+        if expires_at is None:
+            return False
+        if expires_at <= self._now():
+            self._approved_cache.pop(key, None)
+            return False
+        return True
+
+
+def _approval_context(request: BrowserActionRequest) -> dict[str, str]:
+    call_context = _call_context()
+    session_id = (
+        str(getattr(call_context, "session_id", "") or "")
+        or request.session_id
+        or "default"
+    )
+    root_session_id = (
+        str(getattr(call_context, "root_session_id", "") or "")
+        or _agent_context_value("get_current_root_session_id")
+        or session_id
+    )
+    agent_id = (
+        str(getattr(call_context, "agent_id", "") or "")
+        or _agent_context_value("get_current_agent_id")
+        or "unknown"
+    )
+    return {
+        "session_id": session_id,
+        "root_session_id": root_session_id,
+        "owner_agent_id": agent_id,
+        "user_id": _agent_context_value("get_current_user_id"),
+        "channel": _agent_context_value("get_current_channel"),
+        "agent_id": agent_id,
+        "tool_call_id": str(getattr(call_context, "tool_call_id", "") or ""),
+    }
+
+
+def _call_context() -> Any | None:
+    try:
+        from qwenpaw.tool_calls import get_call_context
+
+        return get_call_context()
+    except Exception:  # pragma: no cover - defensive runtime fallback
+        return None
+
+
+def _agent_context_value(function_name: str) -> str:
+    try:
+        from qwenpaw.app import agent_context
+
+        value = getattr(agent_context, function_name)()
+        return str(value or "")
+    except Exception:  # pragma: no cover - defensive runtime fallback
+        return ""
+
+
+def _approval_payload(request: BrowserActionRequest) -> dict[str, Any]:
+    metadata = dict(request.metadata)
+    risk = request.risk
+    return {
+        "tab_id": str(metadata.get("tab_id") or ""),
+        "url": str(metadata.get("url") or ""),
+        "domain": _domain(metadata),
+        "title": str(metadata.get("title") or ""),
+        "action": request.action,
+        "risk": {
+            "sensitive": bool(risk.sensitive) if risk else request.sensitive,
+            "level": str(risk.level) if risk else "unknown",
+            "kind": str(risk.kind) if risk else "unknown_sensitive",
+            "reason": str(risk.reason) if risk else "",
+            "matched": list(risk.matched) if risk else [],
+        },
+        "kwargs": _redact(metadata),
+    }
+
+
+def _approval_summary(request: BrowserActionRequest) -> str:
+    payload = _approval_payload(request)
+    risk = payload["risk"]
+    domain = payload["domain"] or "unknown domain"
+    return (
+        "Browser SDK wants to run a sensitive Chrome action "
+        f"`{request.action}` on {domain} ({risk['kind']})."
+    )
+
+
+def _approval_cache_key(
+    request: BrowserActionRequest,
+    root_session_id: str,
+) -> tuple[Hashable, ...]:
+    risk_kind = str(request.risk.kind) if request.risk else "unknown_sensitive"
+    return (
+        root_session_id,
+        _domain(request.metadata),
+        risk_kind,
+        str(request.action or "").strip().casefold(),
+    )
+
+
+def _severity(request: BrowserActionRequest) -> str:
+    risk = request.risk
+    if risk is None:
+        return "medium"
+    if risk.level == "high":
+        return "high"
+    if risk.level == "medium":
+        return "medium"
+    return "low"
+
+
+def _domain(metadata: dict[str, Any]) -> str:
+    domain = str(metadata.get("domain") or "").strip().lower()
+    if domain:
+        return domain
+    url = str(metadata.get("url") or "")
+    try:
+        return (urlparse(url).hostname or "").lower()
+    except ValueError:
+        return ""
+
+
+def _redact(value: Any) -> Any:
+    if isinstance(value, dict):
+        redacted: dict[str, Any] = {}
+        for key, item in value.items():
+            key_text = str(key)
+            if any(token in key_text.casefold() for token in _REDACT_KEYS):
+                redacted[key_text] = _REDACTED
+            else:
+                redacted[key_text] = _redact(item)
+        return redacted
+    if isinstance(value, list):
+        return [_redact(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_redact(item) for item in value)
+    return value
+
+
+__all__ = ["QwenPawBrowserApprovalPolicy"]

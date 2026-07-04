@@ -26,18 +26,24 @@ from .errors import (
 )
 from .policy import BrowserPolicy, DefaultBrowserPolicy
 from .resolver import BrowserContextResolver
+from .risk import classify_browser_action
 from .types import (
     BrowserActionRequest,
     BrowserActionResult,
+    BrowserActionRisk,
     BrowserBackendCapabilities,
     BrowserBackendDiagnostic,
     BrowserContext,
     BrowserContextRequest,
+    BrowserDiagnosticCheck,
+    BrowserDiagnosticStatus,
     BrowserDiagnostics,
     BrowserExtractionResult,
     BrowserObservation,
     BrowserPageInfo,
     BrowserPolicyDecision,
+    BrowserRiskKind,
+    BrowserRiskLevel,
     BrowserScreenshot,
     ConcreteBrowserContext,
     ExtractionFormat,
@@ -49,6 +55,7 @@ from .tabs import Tabs
 __all__ = [
     "BrowserActionRequest",
     "BrowserActionResult",
+    "BrowserActionRisk",
     "Browser",
     "BrowserActions",
     "BrowserBackend",
@@ -60,6 +67,8 @@ __all__ = [
     "BrowserContextRequest",
     "BrowserContextResolver",
     "BrowserContextUnavailable",
+    "BrowserDiagnosticCheck",
+    "BrowserDiagnosticStatus",
     "BrowserDiagnostics",
     "BrowserExtractionResult",
     "BrowserObservation",
@@ -68,6 +77,8 @@ __all__ = [
     "BrowserPolicy",
     "BrowserPolicyDecision",
     "BrowserPolicyDenied",
+    "BrowserRiskKind",
+    "BrowserRiskLevel",
     "BrowserSDKError",
     "BrowserSDKGap",
     "BrowserScreenshot",
@@ -82,6 +93,7 @@ __all__ = [
     "TabActions",
     "Tabs",
     "connect_browser",
+    "classify_browser_action",
     "get_default_backend_registry",
     "register_isolated_backend_once",
     "register_user_backend_once",

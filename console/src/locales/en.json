@@ -33,6 +33,82 @@
     "yes": "Yes",
     "no": "No"
   },
+  "browserControl": {
+    "name": "Browser Control",
+    "description": "Let QwenPaw inspect and operate your active Chrome tab through a local extension.",
+    "status": {
+      "connected": "Chrome connected",
+      "waiting": "Waiting for Chrome",
+      "notStarted": "Ready to configure",
+      "waitingDesc": "Open or reload the Chrome extension."
+    },
+    "actions": {
+      "openChrome": "Open Chrome",
+      "prepareBridge": "Prepare bridge"
+    },
+    "setup": {
+      "prepare": "Prepare bridge files",
+      "install": "Install Chrome extension",
+      "connect": "Chrome connection"
+    },
+    "diagnostics": {
+      "title": "SDK diagnostics",
+      "backend": "Backend",
+      "browser_bridge_disconnected": "Reload the extension or reopen the target browser tab.",
+      "browser_backend_unavailable": "Refresh the status after the backend is available.",
+      "browser_control_engine_missing": "Restart QwenPaw or reload the Browser Control plugin.",
+      "isolated_backend_unavailable": "Install or restart the isolated browser runtime.",
+      "status": {
+        "available": "Available",
+        "degraded": "Degraded",
+        "unavailable": "Unavailable"
+      }
+    }
+  },
+  "pluginDetail": {
+    "manager": "Plugin Manager",
+    "advanced": "Advanced information",
+    "capabilities": "Capabilities",
+    "capabilitiesNone": "No capabilities",
+    "capabilitiesNoneDesc": "This plugin does not declare capability metadata.",
+    "status": {
+      "installed": "Installed",
+      "notInstalled": "Not installed",
+      "connected": "Connected"
+    },
+    "actions": {
+      "refresh": "Refresh"
+    },
+    "messages": {
+      "loadFailed": "Failed to load",
+      "copied": "Copied",
+      "copyFailed": "Copy failed",
+      "setupFailed": "Setup failed"
+    },
+    "frontend": {
+      "title": "Frontend entry",
+      "open": "Open"
+    },
+    "dev": {
+      "runtime": "Runtime",
+      "noRuntime": "No runtime details",
+      "installMode": "Install mode",
+      "extensionId": "Extension ID",
+      "extensionDir": "Extension folder",
+      "nativeManifest": "Native manifest",
+      "nativeHost": "Native host",
+      "config": "Config",
+      "wsUrl": "Bridge endpoint",
+      "chromeUrl": "Chrome extensions URL"
+    },
+    "footer": {
+      "id": "ID",
+      "author": "Author",
+      "unknown": "Unknown",
+      "updated": "Updated",
+      "type": "Type"
+    }
+  },
   "desktop": {
     "closeWindow": {
       "title": "Close Window",

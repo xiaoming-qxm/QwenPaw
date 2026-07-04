@@ -33,6 +33,82 @@
     "yes": "是",
     "no": "否"
   },
+  "browserControl": {
+    "name": "浏览器控制",
+    "description": "通过本地扩展让 QwenPaw 读取并操作当前 Chrome 标签页。",
+    "status": {
+      "connected": "Chrome 已连接",
+      "waiting": "等待 Chrome",
+      "notStarted": "等待配置",
+      "waitingDesc": "打开或重载 Chrome 扩展。"
+    },
+    "actions": {
+      "openChrome": "打开 Chrome",
+      "prepareBridge": "准备桥接"
+    },
+    "setup": {
+      "prepare": "准备桥接文件",
+      "install": "安装 Chrome 扩展",
+      "connect": "Chrome 连接"
+    },
+    "diagnostics": {
+      "title": "SDK 诊断",
+      "backend": "后端",
+      "browser_bridge_disconnected": "重载扩展，或重新打开目标浏览器标签页。",
+      "browser_backend_unavailable": "后端可用后刷新状态。",
+      "browser_control_engine_missing": "重启 QwenPaw，或重新加载 Browser Control 插件。",
+      "isolated_backend_unavailable": "安装或重启隔离浏览器运行时。",
+      "status": {
+        "available": "可用",
+        "degraded": "降级",
+        "unavailable": "不可用"
+      }
+    }
+  },
+  "pluginDetail": {
+    "manager": "插件管理",
+    "advanced": "高级信息",
+    "capabilities": "能力",
+    "capabilitiesNone": "暂无能力",
+    "capabilitiesNoneDesc": "此插件没有声明能力元数据。",
+    "status": {
+      "installed": "已安装",
+      "notInstalled": "未安装",
+      "connected": "已连接"
+    },
+    "actions": {
+      "refresh": "刷新"
+    },
+    "messages": {
+      "loadFailed": "加载失败",
+      "copied": "已复制",
+      "copyFailed": "复制失败",
+      "setupFailed": "设置失败"
+    },
+    "frontend": {
+      "title": "前端入口",
+      "open": "打开"
+    },
+    "dev": {
+      "runtime": "运行时",
+      "noRuntime": "暂无运行时详情",
+      "installMode": "安装模式",
+      "extensionId": "扩展 ID",
+      "extensionDir": "扩展目录",
+      "nativeManifest": "Native Manifest",
+      "nativeHost": "Native Host",
+      "config": "配置",
+      "wsUrl": "桥接端点",
+      "chromeUrl": "Chrome 扩展页面"
+    },
+    "footer": {
+      "id": "ID",
+      "author": "作者",
+      "unknown": "未知",
+      "updated": "更新",
+      "type": "类型"
+    }
+  },
   "desktop": {
     "closeWindow": {
       "title": "关闭窗口",

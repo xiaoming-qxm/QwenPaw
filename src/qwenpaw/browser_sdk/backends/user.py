@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from typing import Any
 
 from qwenpaw.browser.connection_manager import get_bridge_connection_manager
@@ -17,12 +18,20 @@ from qwenpaw.browser_sdk.observation import (
     coerce_observation,
     coerce_screenshot,
 )
-from qwenpaw.browser_sdk.policy import BrowserPolicy, DefaultBrowserPolicy
+from qwenpaw.browser_sdk.policy import (
+    BrowserPolicy,
+    DefaultBrowserPolicy,
+    maybe_await_policy_decision,
+)
+from qwenpaw.browser_sdk.risk import classify_browser_action
 from qwenpaw.browser_sdk.types import (
     BrowserActionRequest,
     BrowserActionResult,
     BrowserBackendCapabilities,
+    BrowserBackendDiagnostic,
     BrowserContextRequest,
+    BrowserDiagnosticCheck,
+    BrowserDiagnosticStatus,
     BrowserPageInfo,
     ResolvedBrowserContext,
 )
@@ -35,29 +44,6 @@ _ENGINE_ACTION_ALIASES = {
     "forward": "navigate_forward",
     "press": "press_key",
     "select": "select_option",
-}
-
-_SENSITIVE_ACTIONS = {
-    "clear",
-    "delete",
-    "download",
-    "purchase",
-    "submit",
-    "upload",
-}
-_SENSITIVE_KEYWORDS = {
-    "buy",
-    "cart",
-    "checkout",
-    "clear",
-    "delete",
-    "download",
-    "pay",
-    "purchase",
-    "remove",
-    "reveal",
-    "submit",
-    "upload",
 }
 
 
@@ -104,6 +90,106 @@ class ChromeExtensionBrowserBackend:
     def diagnostics(self) -> dict[str, Any]:
         """Return user backend diagnostic metadata without connecting."""
         return {"bridge_connected": self.is_available()}
+
+    def set_policy(self, policy: BrowserPolicy) -> None:
+        """Replace the action/context policy used by new sessions."""
+        self._policy = policy
+
+    def diagnose(self) -> BrowserBackendDiagnostic:
+        """Return typed Chrome Extension backend diagnostics."""
+        bridge = self._bridge()
+        bridge_manager_present = bridge is not None
+        bridge_connected = False
+        if bridge is not None:
+            is_connected = getattr(bridge, "is_connected", None)
+            if callable(is_connected):
+                bridge_connected = bool(
+                    is_connected(),
+                )  # pylint: disable=not-callable
+            else:
+                bridge_connected = bool(getattr(bridge, "connected", False))
+        control_engine_registered = self._engine() is not None
+        available = bridge_connected
+        if not bridge_connected:
+            status: BrowserDiagnosticStatus = "unavailable"
+            code = "browser_bridge_disconnected"
+            message = "Chrome Extension browser bridge is not connected."
+            hint_key = code
+        elif not control_engine_registered:
+            status = "degraded"
+            code = "browser_control_engine_missing"
+            message = "Browser Control engine is not registered."
+            hint_key = code
+        else:
+            status = "available"
+            code = ""
+            message = "Chrome Extension browser backend is available."
+            hint_key = ""
+        return BrowserBackendDiagnostic(
+            backend_id=self.backend_id,
+            browser_context="user",
+            available=available,
+            code=code,
+            reason="" if available and status == "available" else message,
+            status=status,
+            message=message,
+            hint_key=hint_key,
+            message_fallback=message,
+            checks=(
+                BrowserDiagnosticCheck(
+                    name="bridge_manager",
+                    status="available"
+                    if bridge_manager_present
+                    else "unavailable",
+                    code="" if bridge_manager_present else code,
+                    message=(
+                        "Bridge manager is configured."
+                        if bridge_manager_present
+                        else "Bridge manager is missing."
+                    ),
+                    hint_key="" if bridge_manager_present else hint_key,
+                    metadata={"backend_id": self.backend_id},
+                ),
+                BrowserDiagnosticCheck(
+                    name="bridge_connection",
+                    status="available" if bridge_connected else "unavailable",
+                    code="" if bridge_connected else code,
+                    message=(
+                        "Chrome Extension bridge is connected."
+                        if bridge_connected
+                        else "Chrome Extension bridge is disconnected."
+                    ),
+                    hint_key="" if bridge_connected else hint_key,
+                    metadata={"backend_id": self.backend_id},
+                ),
+                BrowserDiagnosticCheck(
+                    name="control_engine",
+                    status="available"
+                    if control_engine_registered
+                    else "degraded",
+                    code=""
+                    if control_engine_registered
+                    else "browser_control_engine_missing",
+                    message=(
+                        "Browser Control engine is registered."
+                        if control_engine_registered
+                        else "Browser Control engine is not registered."
+                    ),
+                    hint_key=""
+                    if control_engine_registered
+                    else "browser_control_engine_missing",
+                    metadata={"backend_id": self.backend_id},
+                ),
+            ),
+            observed_at=_diagnostic_observed_at(),
+            features=self.capabilities().features,
+            metadata={
+                "bridge_manager_present": bridge_manager_present,
+                "bridge_connected": bridge_connected,
+                "control_engine_registered": control_engine_registered,
+                "selected_backend_id": self.backend_id,
+            },
+        )
 
     async def connect(
         self,
@@ -256,14 +342,17 @@ class ChromeExtensionBrowserSession:
         name: str,
         **kwargs: Any,
     ) -> BrowserActionResult:
-        sensitive = _is_sensitive_action(name, kwargs)
-        decision = self._policy.allow_action(
-            BrowserActionRequest(
-                session_id=self.session_id,
-                action=name,
-                context=self.context,
-                sensitive=sensitive,
-                metadata=dict(kwargs),
+        risk = classify_browser_action(name, kwargs)
+        decision = await maybe_await_policy_decision(
+            self._policy.allow_action(
+                BrowserActionRequest(
+                    session_id=self.session_id,
+                    action=name,
+                    context=self.context,
+                    sensitive=risk.sensitive,
+                    risk=risk,
+                    metadata=dict(kwargs),
+                ),
             ),
         )
         if not decision.allowed:
@@ -340,6 +429,8 @@ def register_user_backend_once(
     registry = get_default_backend_registry()
     existing = registry.get(BACKEND_ID)
     if isinstance(existing, ChromeExtensionBrowserBackend):
+        if policy is not None:
+            existing.set_policy(policy)
         return existing
     backend = ChromeExtensionBrowserBackend(policy=policy)
     if existing is None:
@@ -373,29 +464,6 @@ def _tab_from_create_response(
     }
 
 
-def _is_sensitive_action(name: str, kwargs: dict[str, Any]) -> bool:
-    action = str(name or "").casefold()
-    if action in _SENSITIVE_ACTIONS:
-        return True
-    haystack = " ".join([action, *_flatten_values(kwargs)]).casefold()
-    return any(keyword in haystack for keyword in _SENSITIVE_KEYWORDS)
-
-
-def _flatten_values(value: Any) -> list[str]:
-    if isinstance(value, dict):
-        out: list[str] = []
-        for key, item in value.items():
-            out.append(str(key))
-            out.extend(_flatten_values(item))
-        return out
-    if isinstance(value, (list, tuple, set, frozenset)):
-        out = []
-        for item in value:
-            out.extend(_flatten_values(item))
-        return out
-    return [str(value)]
-
-
 def _action_result(payload: Any, name: str) -> BrowserActionResult:
     if isinstance(payload, BrowserActionResult):
         return payload
@@ -423,6 +491,10 @@ def _chunk_payload(chunk: Any) -> dict[str, Any]:
     except (TypeError, ValueError):
         return {"ok": False, "message": str(text or "")}
     return parsed if isinstance(parsed, dict) else {"ok": False}
+
+
+def _diagnostic_observed_at() -> str:
+    return datetime.now(UTC).isoformat()
 
 
 __all__ = [

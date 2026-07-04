@@ -49,6 +49,31 @@ const runtimeStatus = {
   chrome_extensions_url: "chrome://extensions",
   version: null,
   connected_since: null,
+  sdk_diagnostics: {
+    requested_context: "user",
+    selected_backend_id: null,
+    backends: [
+      {
+        backend_id: "user.chrome_extension",
+        browser_context: "user",
+        available: false,
+        status: "unavailable",
+        code: "browser_bridge_disconnected",
+        message: "Browser bridge is not connected.",
+        hint_key: "browser_bridge_disconnected",
+        message_fallback:
+          "Reload the extension or reopen the target browser tab.",
+        features: ["snapshot", "click"],
+        checks: [
+          {
+            name: "bridge_connection",
+            status: "unavailable",
+            message: "Browser bridge is not connected.",
+          },
+        ],
+      },
+    ],
+  },
 };
 
 const browserControlDetail = {
@@ -145,6 +170,10 @@ describe("PluginDetailPage browser control setup", () => {
 
     expect(await screen.findAllByText("浏览器控制")).toHaveLength(2);
     expect(screen.getByText("等待 Chrome")).toBeInTheDocument();
+    expect(screen.getByText("browser_bridge_disconnected")).toBeInTheDocument();
+    expect(
+      screen.getByText("重载扩展，或重新打开目标浏览器标签页。"),
+    ).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "打开 Chrome" }),
     ).toBeInTheDocument();

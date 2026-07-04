@@ -105,7 +105,7 @@ export function usePluginColumns({
       title: "",
       key: "actions",
       width: 100,
-      render: (_: unknown, record: PluginInfo) => (
+      render: (_: unknown, record: PluginInfo) =>
         record.installed === false ? (
           <Tooltip title={t("pluginManager.install", "Install")}>
             <Button
@@ -133,8 +133,7 @@ export function usePluginColumns({
               }}
             />
           </Tooltip>
-        )
-      ),
+        ),
     },
   ];
 }

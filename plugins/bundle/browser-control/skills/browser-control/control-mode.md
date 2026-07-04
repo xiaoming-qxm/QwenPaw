@@ -6,12 +6,9 @@
   `Browser.connect(context="user", requires_user_state=True)` for tasks that
   require the user's Chrome profile, login state, cart, account pages, or
   existing tabs.
-- Do not use legacy browser tools, shell commands, HTTP clients, local files,
-  screenshots outside the SDK, or headless browser substitutes to inspect user
-  browser state.
-- Do not use `read_file`, `grep_search`, `glob_search`, `view_image`,
-  `view_video`, `desktop_screenshot`, `Read`, `Grep`, `Glob`, `ViewImage`,
-  `ViewVideo`, or `DesktopScreenshot` to inspect browser pages or screenshots.
+- Do not use non-SDK browser tools, shell commands, HTTP clients, local files,
+  desktop/media inspection tools, screenshots outside the SDK, or headless
+  browser substitutes to inspect user browser state.
 - If `tab.screenshot()` returns a file path, treat it as Browser SDK evidence
   only. Do not inspect that file through non-SDK tools.
 - The Chrome Extension bridge must be connected. If it is disconnected, ask

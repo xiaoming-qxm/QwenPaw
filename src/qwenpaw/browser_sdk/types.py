@@ -9,6 +9,25 @@ from typing import Any, Literal
 BrowserContext = Literal["auto", "user", "isolated"]
 ConcreteBrowserContext = Literal["user", "isolated"]
 ExtractionFormat = Literal["text", "json"]
+BrowserDiagnosticStatus = Literal[
+    "available",
+    "unavailable",
+    "degraded",
+    "unknown",
+]
+BrowserRiskLevel = Literal["none", "low", "medium", "high"]
+BrowserRiskKind = Literal[
+    "read",
+    "navigation",
+    "destructive",
+    "purchase",
+    "payment",
+    "submission",
+    "upload",
+    "download",
+    "credential",
+    "unknown_sensitive",
+]
 
 
 @dataclass(frozen=True)
@@ -35,6 +54,18 @@ class BrowserBackendCapabilities:
 
 
 @dataclass(frozen=True)
+class BrowserDiagnosticCheck:
+    """One diagnostic check contributing to backend availability."""
+
+    name: str
+    status: BrowserDiagnosticStatus
+    code: str = ""
+    message: str = ""
+    hint_key: str = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
 class BrowserBackendDiagnostic:
     """Availability diagnostic for one Browser SDK backend."""
 
@@ -43,6 +74,12 @@ class BrowserBackendDiagnostic:
     available: bool
     code: str = ""
     reason: str = ""
+    status: BrowserDiagnosticStatus = "unknown"
+    message: str = ""
+    hint_key: str = ""
+    message_fallback: str = ""
+    checks: tuple[BrowserDiagnosticCheck, ...] = ()
+    observed_at: str = ""
     features: frozenset[str] = field(default_factory=frozenset)
     metadata: dict[str, Any] = field(default_factory=dict)
 
@@ -54,6 +91,17 @@ class BrowserDiagnostics:
     requested_context: BrowserContext
     selected_backend_id: str = ""
     backends: tuple[BrowserBackendDiagnostic, ...] = ()
+
+
+@dataclass(frozen=True)
+class BrowserActionRisk:
+    """Structured risk classification for one browser action."""
+
+    sensitive: bool
+    level: BrowserRiskLevel
+    kind: BrowserRiskKind
+    reason: str = ""
+    matched: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -76,6 +124,7 @@ class BrowserActionRequest:
     action: str
     context: ResolvedBrowserContext
     sensitive: bool = False
+    risk: BrowserActionRisk | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
@@ -159,16 +208,21 @@ class BrowserExtractionResult:
 __all__ = [
     "BrowserActionRequest",
     "BrowserActionResult",
+    "BrowserActionRisk",
     "BrowserArtifact",
     "BrowserBackendCapabilities",
     "BrowserBackendDiagnostic",
     "BrowserContext",
     "BrowserContextRequest",
+    "BrowserDiagnosticCheck",
+    "BrowserDiagnosticStatus",
     "BrowserDiagnostics",
     "BrowserExtractionResult",
     "BrowserObservation",
     "BrowserPageInfo",
     "BrowserPolicyDecision",
+    "BrowserRiskKind",
+    "BrowserRiskLevel",
     "BrowserScreenshot",
     "ConcreteBrowserContext",
     "ExtractionFormat",

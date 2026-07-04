@@ -31,6 +31,31 @@ const baseStatus = {
     "https://chromewebstore.google.com/detail/qwenpaw-browser-bridge/nflcgkfjgoiipklkpenmbiificbakoch",
   version: null,
   connected_since: null,
+  sdk_diagnostics: {
+    requested_context: "user",
+    selected_backend_id: null,
+    backends: [
+      {
+        backend_id: "user.chrome_extension",
+        browser_context: "user",
+        available: false,
+        status: "unavailable",
+        code: "browser_bridge_disconnected",
+        message: "Browser bridge is not connected.",
+        hint_key: "browser_bridge_disconnected",
+        message_fallback:
+          "Reload the extension or reopen the target browser tab.",
+        features: ["snapshot", "click"],
+        checks: [
+          {
+            name: "bridge_connection",
+            status: "unavailable",
+            message: "Browser bridge is not connected.",
+          },
+        ],
+      },
+    ],
+  },
 };
 
 describe("BrowserExtensionPage", () => {
@@ -67,6 +92,12 @@ describe("BrowserExtensionPage", () => {
     expect(
       screen.queryByText("ws://127.0.0.1:8088/ws/nm-bridge"),
     ).not.toBeInTheDocument();
+    expect(screen.getByText("browser_bridge_disconnected")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Reload the extension or reopen the target browser tab.",
+      ),
+    ).toBeInTheDocument();
   });
 
   it("prepares CWS native messaging and opens Chrome Web Store from the primary CTA", async () => {
