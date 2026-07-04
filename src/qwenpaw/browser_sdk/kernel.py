@@ -114,12 +114,20 @@ class BrowserKernel:
                 artifacts=drain_browser_artifacts(),
             )
         except asyncio.TimeoutError:
+            from .error_codes import BrowserErrorCode, classify_browser_error
+
+            error_info = classify_browser_error(
+                BrowserErrorCode.NETWORK_TIMEOUT,
+            )
             return BrowserKernelResult(
                 output=stdout_capture.getvalue(),
                 return_value=None,
                 error={
                     "type": "TimeoutError",
-                    "code": "browser_kernel_timeout",
+                    "code": error_info.code.value,
+                    "legacy_code": "browser_kernel_timeout",
+                    "outcome": error_info.outcome.value,
+                    "recovery_hint": error_info.recovery_hint,
                     "message": f"Execution timed out after {timeout_ms}ms",
                     "traceback": "",
                 },
@@ -242,20 +250,32 @@ def _new_namespace() -> dict[str, Any]:
 
 def _error_payload(exc: Exception) -> dict[str, Any]:
     from .errors import BrowserSDKError
+    from .error_codes import classify_browser_error
 
+    error_info = classify_browser_error(exc)
     payload: dict[str, Any] = {
         "type": type(exc).__name__,
+        "code": error_info.code.value,
+        "outcome": error_info.outcome.value,
+        "recovery_hint": error_info.recovery_hint,
         "message": str(exc),
         "traceback": traceback.format_exc(),
     }
     if isinstance(exc, BrowserSDKError):
-        payload["code"] = exc.code
+        payload["legacy_code"] = exc.code
+        payload["browser_error_code"] = exc.browser_error_code
+        payload["recovery_hint"] = exc.recovery_hint
         if exc.backend_id:
             payload["backend_id"] = exc.backend_id
         if exc.action:
             payload["action"] = exc.action
-        if exc.metadata:
-            payload["metadata"] = exc.metadata
+        metadata = dict(exc.metadata)
+        if exc.code:
+            metadata.setdefault("legacy_code", exc.code)
+        if exc.recovery_hint:
+            metadata.setdefault("recovery_hint", exc.recovery_hint)
+        if metadata:
+            payload["metadata"] = metadata
     return payload
 
 

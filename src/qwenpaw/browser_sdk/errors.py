@@ -5,6 +5,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from .error_codes import classify_browser_error
+
 
 class BrowserSDKError(Exception):
     """Base error with a stable machine-readable code."""
@@ -25,12 +27,23 @@ class BrowserSDKError(Exception):
         self.backend_id = backend_id
         self.action = action
         self.metadata = dict(metadata or {})
+        error_info = classify_browser_error(self.code)
+        self.browser_error_code = error_info.code.value
+        self.browser_outcome = error_info.outcome.value
+        self.recovery_hint = str(
+            self.metadata.get("recovery_hint") or error_info.recovery_hint,
+        )
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-friendly error payload."""
         payload: dict[str, Any] = {
             "ok": False,
-            "error": self.code,
+            "error": self.browser_error_code,
+            "legacy_error": self.code,
+            "code": self.browser_error_code,
+            "legacy_code": self.code,
+            "outcome": self.browser_outcome,
+            "recovery_hint": self.recovery_hint,
             "message": str(self),
         }
         if self.backend_id:

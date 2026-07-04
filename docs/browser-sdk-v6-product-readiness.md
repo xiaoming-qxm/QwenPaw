@@ -44,13 +44,75 @@ Each verifier scenario writes a JSON-compatible report with:
 - `backend_route`
 - `forbidden_tools`
 - `trace_event_count`
+- `error_code`
 - `blocked_reason`
+- `failure_reason`
 - `artifact_paths`
 
 `blocked` means the harness reached a safety or environment gate without
 proving the scenario. It is not a pass. `failed` means a required invariant was
 violated, such as stale service code, forbidden tools in evidence, or user
 state routed to isolated backend.
+
+V6-C requires every `blocked` report to include `blocked_reason` and every
+`failed` report to include `failure_reason`. A blocked live condition must not
+be rewritten as `passed` merely because automation stopped safely.
+
+## Runtime Stability Contract
+
+Browser SDK runtime failures use the shared `BrowserErrorCode` taxonomy for
+model-visible recovery and verifier classification:
+
+- `bridge_disconnected`: Chrome Extension bridge is unavailable or closed.
+- `approval_denied`: user or policy denied a sensitive browser action.
+- `approval_required`: sensitive browser action is waiting on approval.
+- `login_required`: authenticated user state is missing.
+- `captcha_or_risk_control`: CAPTCHA, verification, or risk-control gate.
+- `network_timeout`: backend, bridge, kernel, or page operation timed out.
+- `observation_stale`: mutating action was attempted without a fresh
+  observation.
+- `capability_missing`: the requested behavior is a generic SDK capability
+  gap, not a reason for site-specific patches.
+
+Legacy exception codes may remain on exception objects for compatibility, but
+`browser(code=...)` tool output and verifier reports must expose the V6 code,
+`recovery_hint`, and trace event id where available.
+
+## Bridge Lifecycle Evidence
+
+`/api/extension/status` exposes bridge lifecycle metadata from the shared
+Native Messaging route state:
+
+- `connected_since`
+- `last_connected_at`
+- `last_disconnected_at`
+- `last_disconnect_reason`
+- `last_error_code`
+- `last_error_message`
+- `last_request_timeout_at`
+- `reconnect_count`
+
+`NMBridge` records trace events for connect, reconnect, disconnect, request
+timeout, and close. Disconnects and request timeouts must leave pending
+requests failed fast, not unresolved.
+
+## No-Progress Rule
+
+The browser tool includes `progress_decision` metadata from
+`detect_no_progress()`. The detector blocks only repeated failed action traces
+with the same structural signature: action, tab id, URL, error code, action
+kwargs digest, and `observation_digest`. Changed URL or changed observation
+digest means the page state moved and no no-progress hint is emitted.
+
+When `progress_decision.blocked` is true, model-visible text includes a
+`No progress:` recovery hint before another retry. Successful repeated
+read-only observations must not be blocked.
+
+## Capability Gap Rule
+
+When Browser SDK reports `capability_missing`, the repair path is to add or use
+a generic Browser SDK capability. Site-specific patches are not the default
+answer and must not be used to bypass SDK ownership boundaries.
 
 ## Forbidden Tool Rules
 
@@ -84,9 +146,9 @@ before bridge mutation. `approval_level OFF` may be used only as an explicit
 operator choice for deterministic local fixture validation, and the report must
 record that bypass.
 
-Live Taobao validation must not automate purchase, payment, or order
-submission. Add-to-cart, clear-cart, checkout-like, delete, submit, purchase,
-payment, and account-changing actions remain safety gated.
+Live Taobao validation must not automate purchase, payment, or order submission.
+Add-to-cart, clear-cart, checkout-like, delete, submit, purchase, payment, and
+account-changing actions remain safety gated.
 
 ## Live Taobao Guardrails
 
@@ -111,3 +173,21 @@ correct outcome is `blocked`.
 - Missing trace evidence: inspect `/api/extension/traces?session_id=<id>` and
   rerun the scenario from `browser(code=...)`.
 - Forbidden tools: discard the run and rerun through Browser SDK only.
+
+## Final Verification
+
+Run the V6-C focused gates and repository gates before closeout:
+
+```bash
+python -m pytest tests/local/unit/browser_sdk/test_browser_sdk_v6_error_taxonomy.py -v
+python -m pytest tests/local/unit/plugins/browser_control/test_nm_bridge_v6_lifecycle.py -v
+python -m pytest tests/local/unit/browser_sdk/test_browser_sdk_v6_action_failures.py -v
+python -m pytest tests/local/unit/browser_sdk/test_browser_sdk_v6_no_progress.py -v
+python -m pytest tests/local/functional/test_browser_control_v6_verify_outcomes.py -v
+python -m pytest tests/local/unit/browser_sdk/test_browser_sdk_v6_hardening_docs.py -v
+mypy --ignore-missing-imports src/qwenpaw/browser_sdk src/qwenpaw/browser plugins/bundle/browser-control
+make quick
+pre-commit run --all-files
+pre-commit run --all-files
+make quick
+```

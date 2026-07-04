@@ -21,6 +21,7 @@ from qwenpaw.browser.connection_manager import get_bridge_connection_manager
 from qwenpaw.browser.nm_bridge_state import get_nm_bridge_route_state
 from qwenpaw.browser.approval_policy import QwenPawBrowserApprovalPolicy
 from qwenpaw.browser_sdk import Browser
+from qwenpaw.browser_sdk.error_codes import BrowserErrorCode
 from qwenpaw.browser_sdk.trace import (
     BrowserTraceEvent,
     get_browser_trace_store,
@@ -173,6 +174,10 @@ async def _drop_connected_websocket(
         _bridge_state.connected_since = None
         _bridge_state.last_disconnected_at = datetime.now(UTC)
         _bridge_state.last_disconnect_reason = reason
+        _bridge_state.last_error_code = str(
+            BrowserErrorCode.BRIDGE_DISCONNECTED,
+        )
+        _bridge_state.last_error_message = "NM bridge disconnected"
 
 
 async def shutdown_nm_bridge() -> None:
@@ -231,6 +236,10 @@ async def nm_bridge_ws(websocket: WebSocket) -> None:
             _bridge_state.connected_since = None
             _bridge_state.last_disconnected_at = datetime.now(UTC)
             _bridge_state.last_disconnect_reason = "websocket_disconnect"
+            _bridge_state.last_error_code = str(
+                BrowserErrorCode.BRIDGE_DISCONNECTED,
+            )
+            _bridge_state.last_error_message = "NM bridge disconnected"
 
 
 def _observe_bridge_message(message: dict[str, Any]) -> None:
@@ -249,6 +258,10 @@ def _observe_bridge_message(message: dict[str, Any]) -> None:
         _bridge_state.last_disconnect_reason = str(
             payload.get("reason") or "",
         )
+        _bridge_state.last_error_code = str(
+            BrowserErrorCode.BRIDGE_DISCONNECTED,
+        )
+        _bridge_state.last_error_message = "NM bridge disconnected"
 
 
 def _store_extension_version(payload: dict[str, Any]) -> None:
@@ -346,6 +359,11 @@ def _bridge_lifecycle(connected: bool) -> dict[str, Any]:
             _bridge_state.last_disconnected_at,
         ),
         "last_disconnect_reason": _bridge_state.last_disconnect_reason,
+        "last_error_code": _bridge_state.last_error_code,
+        "last_error_message": _bridge_state.last_error_message,
+        "last_request_timeout_at": _iso_or_none(
+            _bridge_state.last_request_timeout_at,
+        ),
         "reconnect_count": _bridge_state.reconnect_count,
     }
 

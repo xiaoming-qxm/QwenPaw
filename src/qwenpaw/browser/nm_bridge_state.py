@@ -27,6 +27,9 @@ class NMBridgeRouteState:
     last_connected_at: datetime | None = None
     last_disconnected_at: datetime | None = None
     last_disconnect_reason: str = ""
+    last_error_code: str = ""
+    last_error_message: str = ""
+    last_request_timeout_at: datetime | None = None
     reconnect_count: int = 0
     last_self_test: dict[str, Any] | None = None
 

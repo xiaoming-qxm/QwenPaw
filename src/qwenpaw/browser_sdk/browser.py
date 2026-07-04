@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from .backend_registry import get_default_backend_registry
+from .error_codes import classify_browser_error
 from .errors import BrowserContextUnavailable
 from .kernel import get_current_execution_context
 from .resolver import BrowserContextResolver
@@ -283,7 +284,7 @@ def _duration_ms(started: float) -> float:
 
 
 def _error_code(exc: Exception) -> str:
-    return str(getattr(exc, "code", "") or type(exc).__name__)
+    return classify_browser_error(exc).code.value
 
 
 def _result_status(result: Any) -> str:

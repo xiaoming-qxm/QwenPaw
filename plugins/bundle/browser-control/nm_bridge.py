@@ -12,10 +12,13 @@ import time
 from collections import defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any
 
 from qwenpaw.browser.connection_manager import BridgeConnectionManager
 from qwenpaw.browser.nm_bridge_state import get_nm_bridge_route_state
+from qwenpaw.browser_sdk.error_codes import BrowserErrorCode
+from qwenpaw.browser_sdk.trace import record_browser_trace_event
 
 JSONRPC_VERSION = "2.0"
 LEASE_TTL_SECONDS = 30.0
@@ -80,11 +83,35 @@ class NMBridge(BridgeConnectionManager):
             raise NMBridgeDisconnectedError("NM bridge is closed")
         self._ws = websocket
         self.connected = True
+        route_state = get_nm_bridge_route_state()
+        now = datetime.now(UTC)
+        is_reconnect = (
+            route_state.last_connected_at is not None
+            and route_state.connected is not websocket
+        )
+        route_state.connected = websocket
+        route_state.connected_since = now
+        route_state.last_connected_at = now
+        if is_reconnect:
+            route_state.reconnect_count += 1
+        _record_lifecycle_trace(
+            "reconnect" if is_reconnect else "connect",
+            status="ok",
+        )
 
-    async def detach_websocket(self, websocket: Any | None = None) -> None:
+    async def detach_websocket(
+        self,
+        websocket: Any | None = None,
+        *,
+        reason: str = "disconnected",
+    ) -> None:
         if websocket is not None and websocket is not self._ws:
             return
-        _clear_route_state_for_websocket(websocket or self._ws)
+        _mark_disconnected(
+            websocket or self._ws,
+            reason=reason,
+            message="NM bridge disconnected",
+        )
         self._ws = None
         self.connected = False
         for future in list(self._pending.values()):
@@ -107,10 +134,15 @@ class NMBridge(BridgeConnectionManager):
         self._pending.clear()
         websocket = self._ws
         if websocket is not None:
-            await self.detach_websocket(websocket)
+            await self.detach_websocket(websocket, reason="closed")
         else:
             self.connected = False
             self._leases.clear()
+            _mark_disconnected(
+                None,
+                reason="closed",
+                message="NM bridge closed",
+            )
 
     def tab_holder(self, tab_id: int) -> str | None:
         lease = self.get_lease(tab_id)
@@ -235,13 +267,14 @@ class NMBridge(BridgeConnectionManager):
             await ws.send_json(message)
             return await asyncio.wait_for(future, timeout=timeout)
         except asyncio.TimeoutError as exc:
+            _mark_request_timeout(method, timeout)
             raise NMBridgeError(
                 f"request '{method}' timed out after {timeout}s",
             ) from exc
         except NMBridgeDisconnectedError:
             raise
         except Exception as exc:
-            await self.detach_websocket(ws)
+            await self.detach_websocket(ws, reason="send_failed")
             raise NMBridgeDisconnectedError(
                 "NM bridge disconnected",
             ) from exc
@@ -315,6 +348,7 @@ class NMBridge(BridgeConnectionManager):
         """Return hello_ack for browser-bridge backend handshakes."""
         if message.get("type") != "hello":
             return None
+        _store_extension_version(message)
         return {
             "type": "hello_ack",
             "status": "ok",
@@ -341,13 +375,76 @@ class NMBridge(BridgeConnectionManager):
             handlers.remove(handler)
 
 
-def _clear_route_state_for_websocket(websocket: Any | None) -> None:
-    if websocket is None:
-        return
+def _store_extension_version(payload: dict[str, Any]) -> None:
+    version = (
+        payload.get("extension_version")
+        or payload.get("extensionVersion")
+        or payload.get("version")
+    )
+    version_text = str(version or "").strip()
+    if version_text:
+        get_nm_bridge_route_state().extension_version = version_text
+
+
+def _mark_request_timeout(method: str, timeout: float) -> None:
     route_state = get_nm_bridge_route_state()
-    if route_state.connected is websocket:
+    now = datetime.now(UTC)
+    route_state.last_error_code = str(BrowserErrorCode.NETWORK_TIMEOUT)
+    route_state.last_error_message = (
+        f"request '{method}' timed out after {timeout}s"
+    )
+    route_state.last_request_timeout_at = now
+    _record_lifecycle_trace(
+        "request_timeout",
+        status="error",
+        error_code=BrowserErrorCode.NETWORK_TIMEOUT,
+        metadata={"method": method, "timeout": timeout},
+    )
+
+
+def _mark_disconnected(
+    websocket: Any | None,
+    *,
+    reason: str,
+    message: str,
+) -> None:
+    if websocket is None:
+        should_update = True
+    else:
+        should_update = get_nm_bridge_route_state().connected is websocket
+    route_state = get_nm_bridge_route_state()
+    if should_update:
         route_state.connected = None
         route_state.connected_since = None
+        route_state.last_disconnected_at = datetime.now(UTC)
+        route_state.last_disconnect_reason = reason
+    route_state.last_error_code = str(BrowserErrorCode.BRIDGE_DISCONNECTED)
+    route_state.last_error_message = message
+    _record_lifecycle_trace(
+        "close" if reason == "closed" else "disconnect",
+        status="error",
+        error_code=BrowserErrorCode.BRIDGE_DISCONNECTED,
+        metadata={"reason": reason},
+    )
+
+
+def _record_lifecycle_trace(
+    action: str,
+    *,
+    status: str,
+    error_code: BrowserErrorCode | str = "",
+    metadata: dict[str, Any] | None = None,
+) -> None:
+    record_browser_trace_event(
+        session_id="nm-bridge",
+        phase="bridge_lifecycle",
+        backend_id="user.chrome_extension",
+        selected_context="user",
+        action=action,
+        status=status,
+        error_code=str(error_code or ""),
+        metadata=metadata,
+    )
 
 
 _GLOBAL_BRIDGE: NMBridge | None = None

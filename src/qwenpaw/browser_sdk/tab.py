@@ -11,6 +11,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from .actions import TabActions
+from .error_codes import classify_browser_error
 from .errors import BrowserObservationRequired
 from .extract import extract_from_tab
 from .kernel import record_browser_artifact
@@ -242,13 +243,22 @@ class Tab:
     def _ensure_can_mutate(self, action_name: str) -> None:
         if not self._observation_required:
             return
-        raise BrowserObservationRequired(
+        exc = BrowserObservationRequired(
             "Must call tab.snapshot() or tab.screenshot() before "
             f"{action_name}(). Browser SDK requires a fresh observation "
             "between page mutations.",
             action=action_name,
             backend_id=self.context.backend_id,
         )
+        self._trace(
+            phase="action",
+            action=action_name,
+            status="error",
+            duration_ms=0.0,
+            error_code=_error_code(exc),
+            metadata={"error_type": type(exc).__name__},
+        )
+        raise exc
 
     def _mark_mutated(self) -> None:
         self._observation_required = True
@@ -347,7 +357,7 @@ def _duration_ms(started: float) -> float:
 
 
 def _error_code(exc: Exception) -> str:
-    return str(getattr(exc, "code", "") or type(exc).__name__)
+    return classify_browser_error(exc).code.value
 
 
 def _result_status(result: Any) -> str:

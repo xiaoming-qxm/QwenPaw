@@ -19,6 +19,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from qwenpaw.browser_sdk.error_codes import (
+    BrowserErrorCode,
+    BrowserOutcome,
+    classify_browser_error,
+)
+
 DEFAULT_BASE_URL = "http://127.0.0.1:8088"
 DEFAULT_TIMEOUT = 10.0
 FORBIDDEN_TOOLS = (
@@ -42,7 +48,9 @@ class BrowserControlReport:
     backend_route: str = ""
     forbidden_tools: list[str] = field(default_factory=list)
     trace_event_count: int = 0
+    error_code: str = ""
     blocked_reason: str = ""
+    failure_reason: str = ""
     artifact_paths: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
@@ -54,7 +62,9 @@ class BrowserControlReport:
             "backend_route": self.backend_route,
             "forbidden_tools": list(self.forbidden_tools),
             "trace_event_count": self.trace_event_count,
+            "error_code": self.error_code,
             "blocked_reason": self.blocked_reason,
+            "failure_reason": self.failure_reason,
             "artifact_paths": list(self.artifact_paths),
         }
 
@@ -85,6 +95,92 @@ def build_arg_parser() -> argparse.ArgumentParser:
 def detect_forbidden_tools(text: str | list[str]) -> list[str]:
     haystack = "\n".join(text) if isinstance(text, list) else str(text or "")
     return [tool for tool in FORBIDDEN_TOOLS if tool in haystack]
+
+
+def classify_verification_evidence(
+    *,
+    scenario: str,
+    started: float,
+    trace_events: list[dict[str, Any]] | None = None,
+    transcript: str | list[str] = "",
+    forbidden_tools: list[str] | None = None,
+    assertion_failure: str = "",
+    browser_tool_calls: int = 0,
+    backend_route: str = "",
+    artifact_paths: list[str] | None = None,
+) -> BrowserControlReport:
+    """Classify synthetic verifier evidence into a scenario report."""
+    forbidden = list(forbidden_tools or [])
+    if forbidden:
+        return _report(
+            scenario,
+            "failed",
+            started,
+            browser_tool_calls=browser_tool_calls,
+            backend_route=backend_route,
+            forbidden_tools=forbidden,
+            trace_event_count=len(trace_events or []),
+            error_code=BrowserErrorCode.CAPABILITY_MISSING.value,
+            failure_reason="forbidden_tools",
+            artifact_paths=artifact_paths,
+        )
+
+    if assertion_failure:
+        return _report(
+            scenario,
+            "failed",
+            started,
+            browser_tool_calls=browser_tool_calls,
+            backend_route=backend_route,
+            trace_event_count=len(trace_events or []),
+            error_code=BrowserErrorCode.UNKNOWN.value,
+            failure_reason=assertion_failure,
+            artifact_paths=artifact_paths,
+        )
+
+    trace_info = _trace_error_info(trace_events or [])
+    if trace_info is not None:
+        status = (
+            "blocked"
+            if trace_info.outcome == BrowserOutcome.BLOCKED
+            else "failed"
+        )
+        return _report(
+            scenario,
+            status,
+            started,
+            browser_tool_calls=browser_tool_calls,
+            backend_route=backend_route,
+            trace_event_count=len(trace_events or []),
+            error_code=trace_info.code.value,
+            blocked_reason=trace_info.blocked_reason,
+            failure_reason=trace_info.failure_reason,
+            artifact_paths=artifact_paths,
+        )
+
+    transcript_info = _transcript_error_info(transcript)
+    if transcript_info is not None:
+        return _report(
+            scenario,
+            "blocked",
+            started,
+            browser_tool_calls=browser_tool_calls,
+            backend_route=backend_route,
+            trace_event_count=len(trace_events or []),
+            error_code=transcript_info.code.value,
+            blocked_reason=transcript_info.blocked_reason,
+            artifact_paths=artifact_paths,
+        )
+
+    return _report(
+        scenario,
+        "passed",
+        started,
+        browser_tool_calls=browser_tool_calls,
+        backend_route=backend_route,
+        trace_event_count=len(trace_events or []),
+        artifact_paths=artifact_paths,
+    )
 
 
 def run_preflight(args: argparse.Namespace) -> BrowserControlReport:
@@ -181,7 +277,9 @@ def run_fixture(args: argparse.Namespace) -> BrowserControlReport:
             status=preflight.status,
             duration_ms=preflight.duration_ms,
             backend_route=preflight.backend_route,
+            error_code=preflight.error_code,
             blocked_reason=preflight.blocked_reason,
+            failure_reason=preflight.failure_reason,
         )
     fixture = Path(__file__).with_name("browser_control_cart_fixture.html")
     if not fixture.exists():
@@ -211,7 +309,9 @@ def run_public_search(args: argparse.Namespace) -> BrowserControlReport:
         status=preflight.status,
         duration_ms=preflight.duration_ms,
         backend_route=preflight.backend_route,
+        error_code=preflight.error_code,
         blocked_reason=preflight.blocked_reason,
+        failure_reason=preflight.failure_reason,
     )
 
 
@@ -263,9 +363,19 @@ def _report(
     backend_route: str = "",
     forbidden_tools: list[str] | None = None,
     trace_event_count: int = 0,
+    error_code: str = "",
     blocked_reason: str = "",
+    failure_reason: str = "",
     artifact_paths: list[str] | None = None,
 ) -> BrowserControlReport:
+    if status == "blocked" and not blocked_reason and error_code:
+        blocked_reason = classify_browser_error(error_code).blocked_reason
+    if status == "failed" and not failure_reason:
+        failure_reason = (
+            classify_browser_error(error_code).failure_reason
+            or blocked_reason
+            or "verification_failed"
+        )
     return BrowserControlReport(
         scenario=scenario,
         status=status,
@@ -274,9 +384,83 @@ def _report(
         backend_route=backend_route,
         forbidden_tools=list(forbidden_tools or []),
         trace_event_count=trace_event_count,
+        error_code=str(error_code or ""),
         blocked_reason=blocked_reason,
+        failure_reason=failure_reason,
         artifact_paths=list(artifact_paths or []),
     )
+
+
+def _trace_error_info(trace_events: list[dict[str, Any]]) -> Any | None:
+    for event in reversed(trace_events):
+        if not isinstance(event, dict):
+            continue
+        code = str(event.get("error_code") or "").strip()
+        if not code:
+            metadata = event.get("metadata")
+            if isinstance(metadata, dict):
+                code = str(
+                    metadata.get("browser_error_code")
+                    or metadata.get("error_code")
+                    or metadata.get("legacy_code")
+                    or "",
+                ).strip()
+        if code:
+            return classify_browser_error(code)
+        if str(event.get("status") or "").casefold() == "error":
+            return classify_browser_error(BrowserErrorCode.UNKNOWN)
+    return None
+
+
+def _transcript_error_info(text: str | list[str]) -> Any | None:
+    haystack = (
+        "\n".join(str(item) for item in text)
+        if isinstance(text, list)
+        else str(text or "")
+    ).casefold()
+    if not haystack:
+        return None
+    login_markers = (
+        "login",
+        "log in",
+        "sign in",
+        "sign-in",
+        "请登录",
+        "登录",
+    )
+    captcha_markers = (
+        "captcha",
+        "verification",
+        "verify you are human",
+        "risk-control",
+        "risk control",
+        "验证码",
+        "验证",
+        "风险",
+    )
+    approval_markers = (
+        "approval denied",
+        "user denied",
+        "permission denied",
+    )
+    payment_markers = (
+        "payment",
+        "pay now",
+        "submit order",
+        "place order",
+        "付款",
+        "支付",
+        "提交订单",
+    )
+    if any(marker in haystack for marker in approval_markers):
+        return classify_browser_error(BrowserErrorCode.APPROVAL_DENIED)
+    if any(marker in haystack for marker in captcha_markers):
+        return classify_browser_error(BrowserErrorCode.CAPTCHA_OR_RISK_CONTROL)
+    if any(marker in haystack for marker in login_markers):
+        return classify_browser_error(BrowserErrorCode.LOGIN_REQUIRED)
+    if any(marker in haystack for marker in payment_markers):
+        return classify_browser_error(BrowserErrorCode.APPROVAL_REQUIRED)
+    return None
 
 
 def _http_json(url: str, timeout: float = DEFAULT_TIMEOUT) -> dict[str, Any]:

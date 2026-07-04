@@ -24,7 +24,18 @@ from .errors import (
     BrowserSDKError,
     BrowserSDKGap,
 )
+from .error_codes import (
+    BrowserErrorCode,
+    BrowserErrorInfo,
+    BrowserOutcome,
+    classify_browser_error,
+)
 from .policy import BrowserPolicy, DefaultBrowserPolicy
+from .progress import (
+    BrowserActionSignature,
+    BrowserProgressDecision,
+    detect_no_progress,
+)
 from .resolver import BrowserContextResolver
 from .risk import classify_browser_action
 from .trace import (
@@ -63,6 +74,7 @@ __all__ = [
     "BrowserActionRequest",
     "BrowserActionResult",
     "BrowserActionRisk",
+    "BrowserActionSignature",
     "Browser",
     "BrowserActions",
     "BrowserBackend",
@@ -77,6 +89,8 @@ __all__ = [
     "BrowserDiagnosticCheck",
     "BrowserDiagnosticStatus",
     "BrowserDiagnostics",
+    "BrowserErrorCode",
+    "BrowserErrorInfo",
     "BrowserExtractionResult",
     "BrowserObservation",
     "BrowserObservationRequired",
@@ -84,6 +98,8 @@ __all__ = [
     "BrowserPolicy",
     "BrowserPolicyDecision",
     "BrowserPolicyDenied",
+    "BrowserProgressDecision",
+    "BrowserOutcome",
     "BrowserRiskKind",
     "BrowserRiskLevel",
     "BrowserSDKError",
@@ -103,6 +119,8 @@ __all__ = [
     "Tabs",
     "connect_browser",
     "classify_browser_action",
+    "classify_browser_error",
+    "detect_no_progress",
     "get_browser_trace_store",
     "get_default_backend_registry",
     "record_browser_trace_event",
