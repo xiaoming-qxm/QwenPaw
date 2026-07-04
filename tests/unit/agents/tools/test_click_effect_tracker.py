@@ -1,10 +1,12 @@
 # -*- coding: utf-8 -*-
 """Click effect tracker behavior."""
+# pylint: disable=protected-access
 
-from qwenpaw.agents.tools.browser.control.observation import (
-    _click_effect_check,
-    _click_effect_record_click,
-)
+from qwenpaw.browser.control_plugin import load_browser_control_submodule
+
+_observation = load_browser_control_submodule("engine.observation")
+_click_effect_check = _observation._click_effect_check
+_click_effect_record_click = _observation._click_effect_record_click
 
 
 def test_record_click_stores_pre_click_state() -> None:

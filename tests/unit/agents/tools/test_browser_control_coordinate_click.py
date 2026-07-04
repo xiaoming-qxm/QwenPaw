@@ -5,17 +5,34 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Generator
 from typing import Any
+
+import pytest
 
 from qwenpaw.agents.tools import browser_control
 from qwenpaw.browser.connection_manager import (
     clear_bridge_connection_manager,
     set_bridge_connection_manager,
 )
+from qwenpaw.browser.control_engine import (
+    clear_control_engine,
+    register_control_engine,
+)
+from qwenpaw.browser.control_plugin import load_browser_control_submodule
 
 from tests.unit.agents.tools.test_browser_control_enriched_snapshot import (
     _BridgeManager,
 )
+
+_engine_impl = load_browser_control_submodule("engine_impl")
+
+
+@pytest.fixture(autouse=True)
+def _register_control_engine() -> Generator[None, None, None]:
+    register_control_engine(_engine_impl.ControlEngineImpl())
+    yield
+    clear_control_engine()
 
 
 class _CoordinateBridge:
@@ -79,7 +96,7 @@ def _state() -> dict[str, Any]:
         "control_tabs": {
             "42": {
                 "tab_id": 42,
-                "holder_id": "browser_use:coordinate-test",
+                "holder_id": "browser_sdk:coordinate-test",
                 "url": "https://example.com/",
             },
         },

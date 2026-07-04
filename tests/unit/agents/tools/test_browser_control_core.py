@@ -14,7 +14,6 @@ from typing import Any
 import pytest
 
 from qwenpaw.agents.tools import browser_control
-from qwenpaw.agents.tools.browser_control import browser_use
 from qwenpaw.agents.tools.browser_snapshot import from_cdp_ax_tree
 from qwenpaw.agents.tools.cdp_permissions import (
     DEFAULT_POLICIES,
@@ -22,17 +21,21 @@ from qwenpaw.agents.tools.cdp_permissions import (
     check_permission,
     load_permissions,
 )
-from qwenpaw.agents.tools.cdp_relay import (
-    CDPPermissionDenied,
-    CDPRelayError,
-    CDPRelaySession,
-)
 from qwenpaw.browser.connection_manager import (
     clear_bridge_connection_manager,
     set_bridge_connection_manager,
 )
+from qwenpaw.browser.control_engine import (
+    clear_control_engine,
+    register_control_engine,
+)
 from qwenpaw.browser.control_plugin import load_browser_control_submodule
 
+_cdp_relay = load_browser_control_submodule("engine.cdp_relay")
+CDPPermissionDenied = _cdp_relay.CDPPermissionDenied
+CDPRelayError = _cdp_relay.CDPRelayError
+CDPRelaySession = _cdp_relay.CDPRelaySession
+_engine_impl = load_browser_control_submodule("engine_impl")
 _nm_bridge = load_browser_control_submodule("nm_bridge")
 LEASE_TTL_SECONDS = _nm_bridge.LEASE_TTL_SECONDS
 NMBridge = _nm_bridge.NMBridge
@@ -55,8 +58,10 @@ class _BridgeManager:
 @pytest.fixture(autouse=True)
 def _clear_bridge_manager():
     clear_bridge_connection_manager()
+    register_control_engine(_engine_impl.ControlEngineImpl())
     yield
     clear_bridge_connection_manager()
+    clear_control_engine()
 
 
 def _set_test_bridge(bridge: Any) -> None:
@@ -569,8 +574,8 @@ async def test_claim_tab_attach_rollback_releases_lease() -> None:
 
     assert payload["ok"] is False
     assert "DevTools conflict" in payload["error"]
-    assert bridge.claimed == [(7, "browser_use:workspace-1")]
-    assert bridge.released == [(7, "browser_use:workspace-1")]
+    assert bridge.claimed == [(7, "browser_sdk:workspace-1")]
+    assert bridge.released == [(7, "browser_sdk:workspace-1")]
 
 
 def test_from_cdp_ax_tree_builds_refs_and_prunes_ignored_nodes() -> None:
@@ -619,7 +624,7 @@ async def test_browser_use_routes_control_start() -> None:
 
     _set_test_bridge(Bridge())
 
-    response = await browser_use(action="start", mode="control")
+    response = await browser_control._action_control("start", mode="control")
     payload = json.loads(response.content[0].text)
 
     assert payload["ok"] is True
