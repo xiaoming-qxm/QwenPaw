@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import json
-import weakref
 from datetime import UTC, datetime
 from time import perf_counter
 from typing import Any, Literal
@@ -50,10 +49,7 @@ _ENGINE_ACTION_ALIASES = {
     "press": "press_key",
     "select": "select_option",
 }
-_USER_BROWSER_SESSIONS: dict[
-    str,
-    weakref.WeakSet["ChromeExtensionBrowserSession"],
-] = {}
+_USER_BROWSER_SESSIONS: dict[str, set["ChromeExtensionBrowserSession"]] = {}
 
 
 class ChromeExtensionBrowserBackend:
@@ -655,7 +651,7 @@ def _register_user_browser_session(
     session: ChromeExtensionBrowserSession,
 ) -> None:
     key = _normalize_session_id(session.session_id)
-    sessions = _USER_BROWSER_SESSIONS.setdefault(key, weakref.WeakSet())
+    sessions = _USER_BROWSER_SESSIONS.setdefault(key, set())
     sessions.add(session)
 
 
