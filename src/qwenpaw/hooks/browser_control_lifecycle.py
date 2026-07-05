@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import logging
 from time import perf_counter
+from typing import Any
 
 from .base import LifecycleHook
 from ..agents.tools.browser_control import cleanup_control_sessions_for_request
@@ -36,17 +37,19 @@ class BrowserControlLifecycleCleanupHook(LifecycleHook):
 
         started = perf_counter()
         try:
-            user_result = await cleanup_user_browser_sessions_for_request(
-                session_id=session_id,
-                root_session_id=root_session_id,
-            )
-            control_result = await cleanup_control_sessions_for_request(
+            result = await cleanup_browser_control_request_resources(
                 session_id=session_id,
                 root_session_id=root_session_id,
                 workspace_id=_workspace_id(ctx),
+                cleanup_reason="finally",
             )
-            result = _merge_cleanup_results(user_result, control_result)
             ctx.extras[BROWSER_CONTROL_CLEANUP_EXTRA] = dict(result or {})
+            cleanup_errors = int((result or {}).get("cleanup_errors", 0))
+            if cleanup_errors:
+                ctx.extras[BROWSER_CONTROL_CLEANUP_ERROR_EXTRA] = {
+                    "cleanup_errors": cleanup_errors,
+                    "error_code": "browser_cleanup_failed",
+                }
         except Exception as exc:  # pragma: no cover - exercised by T004 traces
             _record_cleanup_trace(
                 session_id=session_id or root_session_id,
@@ -66,17 +69,63 @@ class BrowserControlLifecycleCleanupHook(LifecycleHook):
                 exc_info=True,
             )
         else:
+            cleanup_errors = int((result or {}).get("cleanup_errors", 0))
             _record_cleanup_trace(
                 session_id=session_id or root_session_id,
-                status="ok",
+                status="error" if cleanup_errors else "ok",
                 duration_ms=_duration_ms(started),
                 cleanup_reason="finally",
                 closed_owned_tabs=int((result or {}).get("closed_tabs", 0)),
                 released_borrowed_tabs=int(
                     (result or {}).get("released_tabs", 0),
                 ),
+                error_code=(
+                    "browser_cleanup_failed" if cleanup_errors else ""
+                ),
             )
         return HookResult()
+
+
+async def cleanup_browser_control_request_resources(
+    *,
+    session_id: str,
+    root_session_id: str,
+    workspace_id: str,
+    cleanup_reason: str,
+) -> dict[str, Any]:
+    """Release Browser SDK and Browser Control engine request resources."""
+    del cleanup_reason
+    cleanup_errors = 0
+    user_result: dict[str, int] = {}
+    control_result: dict[str, int] = {}
+    try:
+        user_result = await cleanup_user_browser_sessions_for_request(
+            session_id=session_id,
+            root_session_id=root_session_id,
+        )
+    except Exception:
+        cleanup_errors += 1
+        logger.debug(
+            "browser_control_lifecycle_cleanup: user backend cleanup failed",
+            exc_info=True,
+        )
+
+    try:
+        control_result = await cleanup_control_sessions_for_request(
+            session_id=session_id,
+            root_session_id=root_session_id,
+            workspace_id=workspace_id,
+        )
+    except Exception:
+        cleanup_errors += 1
+        logger.debug(
+            "browser_control_lifecycle_cleanup: engine cleanup failed",
+            exc_info=True,
+        )
+
+    merged = _merge_cleanup_results(user_result, control_result)
+    merged["cleanup_errors"] = cleanup_errors
+    return merged
 
 
 def _workspace_id(ctx: HookContext) -> str:
@@ -96,8 +145,7 @@ def _merge_cleanup_results(
     control_result = dict(control_result or {})
     merged = dict(control_result)
     matched_user_sessions = int(user_result.get("matched_sessions") or 0)
-    if matched_user_sessions:
-        merged["user_backend_sessions"] = matched_user_sessions
+    merged["user_backend_sessions"] = matched_user_sessions
     merged["closed_tabs"] = int(control_result.get("closed_tabs") or 0) + int(
         user_result.get("closed_tabs") or 0,
     )
@@ -144,4 +192,5 @@ __all__ = [
     "BROWSER_CONTROL_CLEANUP_ERROR_EXTRA",
     "BROWSER_CONTROL_CLEANUP_EXTRA",
     "BrowserControlLifecycleCleanupHook",
+    "cleanup_browser_control_request_resources",
 ]

@@ -155,8 +155,8 @@ async def _cleanup_browser_control_for_chat(
     workspace,
     chat_or_session_id: str,
 ) -> dict[str, int]:
-    from ...agents.tools.browser_control import (
-        cleanup_control_sessions_for_request,
+    from ...hooks.browser_control_lifecycle import (
+        cleanup_browser_control_request_resources,
     )
 
     session_id = chat_or_session_id
@@ -168,10 +168,11 @@ async def _cleanup_browser_control_for_chat(
 
     workspace_dir = getattr(workspace, "workspace_dir", None)
     workspace_id = Path(workspace_dir).name if workspace_dir else ""
-    return await cleanup_control_sessions_for_request(
+    return await cleanup_browser_control_request_resources(
         session_id=session_id,
         root_session_id=session_id,
         workspace_id=workspace_id,
+        cleanup_reason="console_stop",
     )
 
 
@@ -262,7 +263,10 @@ async def post_console_chat(
     if is_reconnect:
         queue = await tracker.attach(chat.id)
         if queue is None:
-            return
+            raise HTTPException(
+                status_code=404,
+                detail="No running chat stream to reconnect.",
+            )
     else:
         queue, _ = await tracker.attach_or_start(
             chat.id,

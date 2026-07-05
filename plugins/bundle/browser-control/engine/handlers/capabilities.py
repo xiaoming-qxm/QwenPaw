@@ -364,9 +364,7 @@ def _download_artifact(
         or "download",
     )
     path = output_dir / name
-    media_type = (
-        mimetypes.guess_type(name)[0] or "application/octet-stream"
-    )
+    media_type = mimetypes.guess_type(name)[0] or "application/octet-stream"
     return {
         "kind": "download",
         "url": path.resolve().as_uri(),

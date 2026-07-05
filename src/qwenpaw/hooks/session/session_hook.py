@@ -74,7 +74,9 @@ class SessionSaveHook(LifecycleHook):
             channel = getattr(request, "channel", "") or ""
 
             proxy = StateProxy()
-            proxy.data = ctx.agent.state_dict()
+            agent = ctx.agent
+            state_dict = getattr(agent, "state_dict")
+            proxy.data = state_dict()
             await session.save_session_state(
                 session_id=ctx.session_id,
                 user_id=user_id,

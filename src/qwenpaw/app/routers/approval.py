@@ -122,6 +122,11 @@ async def post_approval_approve(
         ApprovalDecision.APPROVED,
         scope=scope,
     )
+    if resolved is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Approval request not found: {body.request_id[:16]}",
+        )
 
     logger.info(
         "Approval approved: request_id=%s session=%s tool=%s",
@@ -192,6 +197,11 @@ async def post_approval_deny(
         body.request_id,
         ApprovalDecision.DENIED,
     )
+    if resolved is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Approval request not found: {body.request_id[:16]}",
+        )
 
     logger.info(
         "Approval denied: request_id=%s session=%s tool=%s",

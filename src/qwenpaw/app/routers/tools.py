@@ -106,6 +106,8 @@ def _build_tool_info(tool_config: Any, tool_name: str) -> ToolInfo:
         description=tool_config.description,
         async_execution=tool_config.async_execution,
         icon=tool_config.icon or "",
+        config_fields=None,
+        config_values=None,
     )
 
     registry = PluginRegistry()
@@ -183,7 +185,7 @@ async def list_tools(
     all_manifests = registry.get_all_plugin_manifests()
 
     # Build tool_name -> manifest mapping
-    tool_to_manifest = {}
+    tool_to_manifest: dict[str, dict[str, Any]] = {}
     for manifest in all_manifests.values():
         meta = manifest.get("meta", {})
         # Support old format: meta.tool_name
@@ -209,12 +211,14 @@ async def list_tools(
             description=tool_config.description,
             async_execution=tool_config.async_execution,
             icon=tool_config.icon or "",
+            config_fields=None,
+            config_values=None,
         )
 
         # Add config metadata from plugin manifest (using cached mapping)
-        manifest = tool_to_manifest.get(tool_config.name)
-        if manifest and "meta" in manifest:
-            meta = manifest["meta"]
+        tool_manifest = tool_to_manifest.get(tool_config.name)
+        if tool_manifest and "meta" in tool_manifest:
+            meta = tool_manifest["meta"]
 
             # Try to get tool-specific config first (from meta.tools array)
             config_fields_data = None
@@ -266,8 +270,8 @@ async def list_tools(
 
 @router.patch("/{tool_name}/toggle", response_model=ToolInfo)
 async def toggle_tool(
+    request: Request,
     tool_name: str = Path(...),
-    request: Request = None,
 ) -> ToolInfo:
     """Toggle tool enabled status for active agent.
 
@@ -311,9 +315,9 @@ async def toggle_tool(
 
 @router.patch("/{tool_name}/async-execution", response_model=ToolInfo)
 async def update_tool_async_execution(
+    request: Request,
     tool_name: str = Path(...),
     async_execution: bool = Body(..., embed=True),
-    request: Request = None,
 ) -> ToolInfo:
     """Update tool async_execution setting for active agent.
 
@@ -358,8 +362,8 @@ async def update_tool_async_execution(
 
 @router.get("/{tool_name}/config")
 async def get_tool_config(
+    request: Request,
     tool_name: str = Path(...),
-    request: Request = None,
 ) -> dict[str, Any]:
     """Get tool configuration (sensitive fields masked).
 
@@ -417,9 +421,9 @@ async def get_tool_config(
 
 @router.post("/{tool_name}/config")
 async def update_tool_config(
+    request: Request,
     tool_name: str = Path(...),
     body: ToolConfigUpdate = Body(...),
-    request: Request = None,
 ) -> dict[str, str]:
     """Update tool configuration.
 

@@ -49,11 +49,11 @@ The removed hook residual policy applies to
 `plugins/bundle/browser-control/hooks`. The only source file expected in that
 directory is `__init__.py`.
 
-These removed modules must raise `ImportError`:
+These removed hook modules must raise `ImportError`:
 
-- `hooks.session_hook`
-- `hooks.prompt`
-- `hooks.context_handler`
+- the session-hook module
+- the prompt module
+- the context-handler module
 
 The loader must not return stale `sys.modules` entries for removed hook modules,
 and `__pycache__` must not contain stale bytecode for those removed modules.

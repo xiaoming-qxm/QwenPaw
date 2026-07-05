@@ -278,6 +278,19 @@ class ChromeExtensionBrowserSession:
         self._control_engine = control_engine
         self._state: dict[str, Any] = {"workspace_id": "browser_sdk"}
         self._tab_ownership: dict[str, _TabOwnership] = {}
+        self._registry_keys: set[str] = set()
+
+    def set_registry_keys(self, keys: set[str]) -> None:
+        """Store cleanup registry keys owned by this request session."""
+        self._registry_keys = set(keys)
+
+    def registry_keys(self) -> set[str]:
+        """Return cleanup registry keys for this request session."""
+        return set(self._registry_keys)
+
+    def clear_registry_keys(self) -> None:
+        """Clear cleanup registry keys after successful release."""
+        self._registry_keys.clear()
 
     async def close(self) -> None:
         await self._cleanup(cleanup_reason="browser_close")
@@ -483,6 +496,7 @@ class ChromeExtensionBrowserSession:
                 cleanup_reason=cleanup_reason,
                 closed_owned_tabs=0,
                 released_borrowed_tabs=0,
+                owned_tabs_remaining=self._owned_tabs_remaining(),
                 error_code="browser_cleanup_failed",
             )
             raise
@@ -494,6 +508,7 @@ class ChromeExtensionBrowserSession:
             cleanup_reason=cleanup_reason,
             closed_owned_tabs=1 if ownership == "owned" else 0,
             released_borrowed_tabs=1 if ownership == "borrowed" else 0,
+            owned_tabs_remaining=self._owned_tabs_remaining(),
         )
 
     async def _release_tab(self, tab_id: int) -> None:
@@ -513,6 +528,7 @@ class ChromeExtensionBrowserSession:
         cleanup_reason: str,
         closed_owned_tabs: int,
         released_borrowed_tabs: int,
+        owned_tabs_remaining: int,
         error_code: str = "",
     ) -> None:
         record_browser_trace_event(
@@ -529,9 +545,17 @@ class ChromeExtensionBrowserSession:
             metadata={
                 "closed_owned_tabs": closed_owned_tabs,
                 "released_borrowed_tabs": released_borrowed_tabs,
+                "owned_tabs_remaining": owned_tabs_remaining,
                 "cleanup_reason": cleanup_reason,
                 "error_code": error_code,
             },
+        )
+
+    def _owned_tabs_remaining(self) -> int:
+        return sum(
+            1
+            for ownership in self._tab_ownership.values()
+            if ownership == "owned"
         )
 
     async def _bridge_or_engine_action(
@@ -614,12 +638,13 @@ async def cleanup_user_browser_sessions_for_request(
     *,
     session_id: str = "",
     root_session_id: str = "",
+    holder_id: str = "",
     **_: Any,
 ) -> dict[str, int]:
     """Release Browser SDK user sessions for the current request."""
     session_ids = {
         _normalize_session_id(raw_session_id)
-        for raw_session_id in (session_id, root_session_id)
+        for raw_session_id in (session_id, root_session_id, holder_id)
         if str(raw_session_id or "").strip()
     }
     sessions: list[ChromeExtensionBrowserSession] = []
@@ -650,21 +675,69 @@ async def cleanup_user_browser_sessions_for_request(
 def _register_user_browser_session(
     session: ChromeExtensionBrowserSession,
 ) -> None:
-    key = _normalize_session_id(session.session_id)
-    sessions = _USER_BROWSER_SESSIONS.setdefault(key, set())
-    sessions.add(session)
+    keys = _session_registry_keys(session)
+    session.set_registry_keys(keys)
+    for key in keys:
+        sessions = _USER_BROWSER_SESSIONS.setdefault(key, set())
+        sessions.add(session)
 
 
 def _unregister_user_browser_session(
     session: ChromeExtensionBrowserSession,
 ) -> None:
-    key = _normalize_session_id(session.session_id)
-    sessions = _USER_BROWSER_SESSIONS.get(key)
-    if sessions is None:
-        return
-    sessions.discard(session)
-    if not sessions:
-        _USER_BROWSER_SESSIONS.pop(key, None)
+    keys = session.registry_keys()
+    if not keys:
+        keys.add(_normalize_session_id(session.session_id))
+    for key in keys:
+        sessions = _USER_BROWSER_SESSIONS.get(key)
+        if sessions is None:
+            continue
+        sessions.discard(session)
+        if not sessions:
+            _USER_BROWSER_SESSIONS.pop(key, None)
+    session.clear_registry_keys()
+
+
+def _session_registry_keys(
+    session: ChromeExtensionBrowserSession,
+) -> set[str]:
+    raw_ids: list[Any] = [session.session_id, session.holder_id]
+    try:
+        from qwenpaw.tool_calls import get_call_context
+
+        context = get_call_context()
+    except (ImportError, RuntimeError):
+        context = None
+    if context is not None:
+        raw_ids.extend(
+            [
+                getattr(context, "session_id", ""),
+                getattr(context, "root_session_id", ""),
+            ],
+        )
+    try:
+        from qwenpaw.app.agent_context import (
+            get_current_root_session_id,
+            get_current_session_id,
+        )
+
+        raw_ids.extend(
+            [
+                get_current_session_id(),
+                get_current_root_session_id(),
+            ],
+        )
+    except (ImportError, RuntimeError):
+        pass
+
+    keys = {
+        _normalize_session_id(raw_id)
+        for raw_id in raw_ids
+        if str(raw_id or "").strip()
+    }
+    if not keys:
+        keys.add("default")
+    return keys
 
 
 def _normalize_session_id(session_id: str) -> str:

@@ -1893,22 +1893,7 @@ class ToolsConfig(BaseModel):
         icon value.
         """
         defaults = _default_builtin_tools()
-        legacy_browser = self.builtin_tools.pop("browser_use", None)
-        if legacy_browser is not None:
-            migrated = legacy_browser.model_copy(
-                update={
-                    "name": "browser",
-                    "icon": legacy_browser.icon or defaults["browser"].icon,
-                },
-            )
-            if "browser" not in self.builtin_tools:
-                self.builtin_tools["browser"] = migrated
-            else:
-                browser_tool = self.builtin_tools["browser"]
-                browser_tool.config = {
-                    **legacy_browser.config,
-                    **browser_tool.config,
-                }
+        self.builtin_tools.pop("browser_use", None)
         for name, tc in defaults.items():
             if name not in self.builtin_tools:
                 self.builtin_tools[name] = tc

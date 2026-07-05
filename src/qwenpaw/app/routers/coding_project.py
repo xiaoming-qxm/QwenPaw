@@ -40,7 +40,8 @@ def _list_windows_drives_response() -> dict:
     """Return a browse-dirs response listing drives."""
     import ctypes
 
-    bitmask = ctypes.windll.kernel32.GetLogicalDrives()
+    windll = getattr(ctypes, "windll")
+    bitmask = windll.kernel32.GetLogicalDrives()
     dirs: list[dict] = []
     for i in range(26):
         if bitmask & (1 << i):
