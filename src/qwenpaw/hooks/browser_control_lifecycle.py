@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import logging
 from time import perf_counter
-from typing import Any
 
 from .base import LifecycleHook
 from ..agents.tools.browser_control import cleanup_control_sessions_for_request

@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>QwenPaw Complex Deterministic Browser Fixture</title>
+    <style>
+      body {
+        background: #f7f9fb;
+        color: #17202a;
+        font-family:
+          Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        margin: 0;
+      }
+
+      main {
+        max-width: 980px;
+        margin: 0 auto;
+        padding: 28px 20px 44px;
+      }
+
+      section {
+        border: 1px solid #d7dde5;
+        background: #fff;
+        margin-top: 16px;
+        padding: 16px;
+      }
+
+      button,
+      input {
+        font: inherit;
+      }
+
+      button {
+        border: 0;
+        background: #1769aa;
+        color: white;
+        cursor: pointer;
+        font-weight: 600;
+        padding: 8px 12px;
+      }
+
+      button.secondary {
+        background: #5d6d7e;
+      }
+
+      label {
+        display: block;
+        font-weight: 600;
+        margin-top: 12px;
+      }
+
+      input {
+        border: 1px solid #bac4d0;
+        padding: 8px;
+        width: min(420px, 100%);
+      }
+
+      iframe {
+        border: 1px solid #bac4d0;
+        height: 90px;
+        width: 100%;
+      }
+
+      .plans {
+        display: grid;
+        gap: 10px;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      }
+
+      .plan {
+        border: 1px solid #d7dde5;
+        padding: 12px;
+      }
+
+      .scrollbox {
+        border: 1px solid #d7dde5;
+        max-height: 150px;
+        overflow-y: auto;
+        padding: 8px;
+      }
+
+      .result-row {
+        border-bottom: 1px solid #e5e9ef;
+        padding: 8px 4px;
+      }
+
+      .status {
+        color: #2e7d32;
+        font-weight: 700;
+      }
+
+      .error {
+        color: #b00020;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Complex Deterministic Browser Fixture</h1>
+
+      <section aria-label="Fixture controls">
+        <button data-testid="reset-complex-fixture" id="reset-fixture">
+          Reset Fixture
+        </button>
+        <button
+          class="secondary"
+          data-testid="navigate-step-two"
+          id="navigate-step-two"
+        >
+          Go to step two
+        </button>
+        <p data-testid="navigation-state" id="navigation-state">Step: one</p>
+      </section>
+
+      <section aria-label="Async content">
+        <h2>Async rendering</h2>
+        <button data-testid="load-async-items" id="load-async-items">
+          Load async items
+        </button>
+        <p data-testid="delayed-status" id="delayed-status">
+          Delayed content pending.
+        </p>
+        <div
+          class="scrollbox"
+          data-testid="scrollable-results"
+          id="scrollable-results"
+          tabindex="0"
+        ></div>
+      </section>
+
+      <section aria-label="Duplicate labels">
+        <h2>Duplicate labels</h2>
+        <div class="plans">
+          <article class="plan" data-plan="primary">
+            <h3>Primary Plan</h3>
+            <button data-testid="select-primary-plan" data-select-plan="primary">
+              Select
+            </button>
+          </article>
+          <article class="plan" data-plan="secondary">
+            <h3>Secondary Plan</h3>
+            <button
+              data-testid="select-secondary-plan"
+              data-select-plan="secondary"
+            >
+              Select
+            </button>
+          </article>
+        </div>
+        <p data-testid="selected-plan" id="selected-plan">Selected: none</p>
+      </section>
+
+      <section aria-label="Form validation">
+        <h2>Validated form</h2>
+        <form data-testid="details-form" id="details-form" novalidate>
+          <label for="details-name">Name</label>
+          <input
+            data-testid="details-name"
+            id="details-name"
+            name="name"
+            required
+          />
+          <label for="details-email">Email</label>
+          <input
+            data-testid="details-email"
+            id="details-email"
+            name="email"
+            required
+            type="email"
+          />
+          <p class="error" data-testid="form-error" id="form-error"></p>
+          <button data-testid="save-details" type="submit">Save details</button>
+        </form>
+        <p data-testid="form-status" id="form-status">Form not saved.</p>
+      </section>
+
+      <section aria-label="Confirm dialog">
+        <h2>Confirmation</h2>
+        <button data-testid="open-confirm" id="open-confirm">
+          Confirm selection
+        </button>
+        <p data-testid="confirm-status" id="confirm-status">
+          Confirmation pending.
+        </p>
+      </section>
+
+      <section aria-label="Iframe and shadow DOM">
+        <h2>Embedded coverage</h2>
+        <iframe
+          data-testid="fixture-frame"
+          id="fixture-frame"
+          title="Fixture frame"
+          srcdoc="<p data-testid='frame-message'>Frame ready</p>"
+        ></iframe>
+        <div id="shadow-host"></div>
+      </section>
+    </main>
+
+    <script>
+      const STORAGE_KEY = "qwenpaw-v7-complex-fixture";
+      const DEFAULT_STATE = {
+        asyncLoaded: false,
+        confirmed: false,
+        formSaved: false,
+        route: "one",
+        selectedPlan: "none",
+      };
+
+      function loadState() {
+        try {
+          return {
+            ...DEFAULT_STATE,
+            ...JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}"),
+          };
+        } catch (_error) {
+          return { ...DEFAULT_STATE };
+        }
+      }
+
+      function saveState(nextState) {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(nextState));
+      }
+
+      function updateState(patch) {
+        const nextState = { ...loadState(), ...patch };
+        saveState(nextState);
+        renderState();
+        return nextState;
+      }
+
+      function resetFixture() {
+        localStorage.removeItem(STORAGE_KEY);
+        history.pushState({ step: "one" }, "", "#step-one");
+        renderState();
+        renderAsyncItems(false);
+      }
+
+      async function renderAsyncItems(loaded = true) {
+        const status = document.getElementById("delayed-status");
+        const list = document.getElementById("scrollable-results");
+        list.innerHTML = "";
+        status.textContent = "Loading delayed content...";
+        await new Promise((resolve) => setTimeout(resolve, 120));
+        const rows = Array.from({ length: 14 }, (_item, index) => {
+          const row = document.createElement("div");
+          row.className = "result-row";
+          row.dataset.testid = `async-row-${index + 1}`;
+          row.textContent = `Async Result ${index + 1}`;
+          return row;
+        });
+        for (const row of rows) {
+          list.appendChild(row);
+        }
+        status.textContent = loaded
+          ? "Delayed content loaded."
+          : "Delayed content reset.";
+        updateState({ asyncLoaded: loaded });
+      }
+
+      function renderState() {
+        const state = loadState();
+        document.getElementById("navigation-state").textContent =
+          `Step: ${state.route}`;
+        document.getElementById("selected-plan").textContent =
+          `Selected: ${state.selectedPlan}`;
+        document.getElementById("form-status").textContent = state.formSaved
+          ? "Form saved for deterministic user."
+          : "Form not saved.";
+        document.getElementById("confirm-status").textContent = state.confirmed
+          ? "Selection confirmed."
+          : "Confirmation pending.";
+        renderShadow(state);
+      }
+
+      function renderShadow(state) {
+        const host = document.getElementById("shadow-host");
+        const root = host.shadowRoot || host.attachShadow({ mode: "open" });
+        root.innerHTML = `
+          <p data-testid="shadow-confirmation" class="status">
+            Shadow confirmation: ${state.confirmed ? "confirmed" : "pending"}
+          </p>
+        `;
+      }
+
+      document
+        .getElementById("reset-fixture")
+        .addEventListener("click", resetFixture);
+
+      document
+        .getElementById("load-async-items")
+        .addEventListener("click", () => renderAsyncItems(true));
+
+      document.querySelectorAll("[data-select-plan]").forEach((button) => {
+        button.addEventListener("click", () => {
+          updateState({ selectedPlan: button.dataset.selectPlan });
+        });
+      });
+
+      document
+        .getElementById("details-form")
+        .addEventListener("submit", (event) => {
+          event.preventDefault();
+          const form = event.currentTarget;
+          const error = document.getElementById("form-error");
+          if (!form.checkValidity()) {
+            error.textContent = "Form validation failed.";
+            updateState({ formSaved: false });
+            return;
+          }
+          error.textContent = "";
+          updateState({ formSaved: true });
+        });
+
+      document
+        .getElementById("open-confirm")
+        .addEventListener("click", () => {
+          if (window.confirm("Confirm deterministic selection?")) {
+            updateState({ confirmed: true });
+          }
+        });
+
+      document
+        .getElementById("navigate-step-two")
+        .addEventListener("click", () => {
+          history.pushState({ step: "two" }, "", "#step-two");
+          updateState({ route: "two" });
+        });
+
+      window.addEventListener("popstate", (event) => {
+        updateState({ route: event.state?.step || "one" });
+      });
+
+      renderState();
+      if (location.hash === "#step-two") {
+        updateState({ route: "two" });
+      }
+    </script>
+  </body>
+</html>

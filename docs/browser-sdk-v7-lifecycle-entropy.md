@@ -60,6 +60,32 @@ and `__pycache__` must not contain stale bytecode for those removed modules.
 If a removed hook is needed again, it must return as a new reviewed source file,
 not through bytecode residue or implicit plugin loader behavior.
 
+## V7-C Complex Deterministic Scenario Matrix
+
+Deterministic acceptance comes from local complex fixtures, not live websites.
+The verifier owns two local V7-C commands:
+
+- `complex-isolated` runs `scripts/verify/browser_control_complex_fixture.html`
+  through `browser(code=...)` and requires `isolated.playwright` trace
+  evidence.
+- `complex-user` runs the same local fixture through `browser(code=...)`,
+  requires `user.chrome_extension` trace evidence, uses
+  `approval_level=OFF` only for deterministic local fixture mutation, and
+  requires user-backend cleanup evidence for QwenPaw-owned tabs.
+
+The fixture covers async rendering, delayed content, scrollable lists,
+duplicate labels, form validation, a confirmation dialog, navigation state,
+and embedded iframe plus shadow DOM surfaces without external network access.
+Complex verifier runs fail instead of passing when trace evidence shows stale
+observation after mutation, forbidden tool usage, repeated no-progress action
+failures, backend route mismatch, or residual QwenPaw-owned user tabs.
+
+Live field tests are opt-in only. Live sites can still provide manual field
+evidence, but they are not deterministic acceptance gates. Login, CAPTCHA,
+risk control, and payment or order-submission flows must be classified as
+blocked. The verifier must not automate purchase, payment, order submission,
+or account-changing live-site actions without explicit approval.
+
 ## V7 Backlog
 
 ### isolated-backend capability-class backlog

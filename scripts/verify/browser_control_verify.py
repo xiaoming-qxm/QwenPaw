@@ -25,6 +25,8 @@ from qwenpaw.browser_sdk.error_codes import (
     BrowserOutcome,
     classify_browser_error,
 )
+from qwenpaw.browser_sdk.progress import detect_no_progress
+from qwenpaw.browser_sdk.trace import BrowserTraceEvent
 
 DEFAULT_BASE_URL = "http://127.0.0.1:8088"
 DEFAULT_TIMEOUT = 10.0
@@ -37,6 +39,20 @@ FORBIDDEN_TOOLS = (
     "RemoteBridge",
     "/ws/browser-sdk",
 )
+MUTATING_TRACE_ACTIONS = {
+    "back",
+    "click",
+    "evaluate",
+    "forward",
+    "navigate",
+    "press",
+    "press_key",
+    "reload",
+    "scroll",
+    "select",
+    "select_option",
+    "type",
+}
 
 
 @dataclass(frozen=True)
@@ -117,6 +133,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("preflight")
     subparsers.add_parser("fixture")
     subparsers.add_parser("public-search")
+    subparsers.add_parser("complex-isolated")
+    subparsers.add_parser("complex-user")
     subparsers.add_parser("bridge-disconnected")
     taobao = subparsers.add_parser("taobao-live")
     taobao.add_argument("--live-taobao", action="store_true")
@@ -166,6 +184,20 @@ def classify_verification_evidence(
             trace_event_count=len(trace_events or []),
             error_code=BrowserErrorCode.UNKNOWN.value,
             failure_reason=assertion_failure,
+            artifact_paths=artifact_paths,
+        )
+
+    no_progress = _no_progress_failure_reason(trace_events or [])
+    if no_progress:
+        return _report(
+            scenario,
+            "failed",
+            started,
+            browser_tool_calls=browser_tool_calls,
+            backend_route=backend_route,
+            trace_event_count=len(trace_events or []),
+            error_code=BrowserErrorCode.OBSERVATION_STALE.value,
+            failure_reason=no_progress,
             artifact_paths=artifact_paths,
         )
 
@@ -377,6 +409,100 @@ def run_public_search(args: argparse.Namespace) -> BrowserControlReport:
     )
 
 
+def run_complex_isolated(args: argparse.Namespace) -> BrowserControlReport:
+    started = time.perf_counter()
+    base_url = _normalize_base_url(args.base_url)
+    fixture = Path(__file__).with_name("browser_control_complex_fixture.html")
+    if not fixture.exists():
+        return _report(
+            "complex-isolated",
+            "failed",
+            started,
+            blocked_reason=f"missing fixture: {fixture}",
+        )
+    preflight = run_preflight(args)
+    if preflight.status != "passed":
+        return _copy_report(preflight, scenario="complex-isolated")
+    session_id = f"browser-control-complex-isolated-{int(time.time() * 1000)}"
+    prompt_spec = _complex_prompt_spec(
+        fixture.resolve().as_uri(),
+        context="isolated",
+    )
+    return _run_chat_trace_scenario(
+        scenario="complex-isolated",
+        started=started,
+        base_url=base_url,
+        session_id=session_id,
+        prompt=prompt_spec.render(),
+        timeout=_task_timeout(args),
+        backend_route=preflight.backend_route,
+        artifact_paths=[str(fixture)],
+        require_user_backend=prompt_spec.require_user_backend,
+        request_context=prompt_spec.request_context,
+        required_success_marker=prompt_spec.required_success_marker,
+        required_context=prompt_spec.required_context,
+        required_backend_id=prompt_spec.required_backend_id,
+    )
+
+
+def run_complex_user(args: argparse.Namespace) -> BrowserControlReport:
+    started = time.perf_counter()
+    base_url = _normalize_base_url(args.base_url)
+    fixture = Path(__file__).with_name("browser_control_complex_fixture.html")
+    if not fixture.exists():
+        return _report(
+            "complex-user",
+            "failed",
+            started,
+            blocked_reason=f"missing fixture: {fixture}",
+        )
+    preflight = run_preflight(args)
+    if preflight.status != "passed":
+        return _copy_report(preflight, scenario="complex-user")
+    try:
+        status = _extension_status(base_url, args.timeout)
+    except RuntimeError as exc:
+        return _report(
+            "complex-user",
+            "blocked",
+            started,
+            backend_route=preflight.backend_route,
+            error_code=BrowserErrorCode.BRIDGE_DISCONNECTED.value,
+            blocked_reason=str(exc),
+            artifact_paths=[str(fixture)],
+        )
+    backend_route = _backend_route(status) or preflight.backend_route
+    if status.get("connected") is not True:
+        return _report(
+            "complex-user",
+            "blocked",
+            started,
+            backend_route=backend_route,
+            error_code=BrowserErrorCode.BRIDGE_DISCONNECTED.value,
+            artifact_paths=[str(fixture)],
+        )
+    session_id = f"browser-control-complex-user-{int(time.time() * 1000)}"
+    prompt_spec = _complex_prompt_spec(
+        fixture.resolve().as_uri(),
+        context="user",
+    )
+    return _run_chat_trace_scenario(
+        scenario="complex-user",
+        started=started,
+        base_url=base_url,
+        session_id=session_id,
+        prompt=prompt_spec.render(),
+        timeout=_task_timeout(args),
+        backend_route=backend_route,
+        artifact_paths=[str(fixture)],
+        require_user_backend=prompt_spec.require_user_backend,
+        request_context=prompt_spec.request_context,
+        required_success_marker=prompt_spec.required_success_marker,
+        required_context=prompt_spec.required_context,
+        required_backend_id=prompt_spec.required_backend_id,
+    )
+
+
 def run_bridge_disconnected(args: argparse.Namespace) -> BrowserControlReport:
     started = time.perf_counter()
     base_url = _normalize_base_url(args.base_url)
@@ -408,6 +534,8 @@ def main(argv: list[str] | None = None) -> int:
         "preflight": run_preflight,
         "fixture": run_fixture,
         "public-search": run_public_search,
+        "complex-isolated": run_complex_isolated,
+        "complex-user": run_complex_user,
         "bridge-disconnected": run_bridge_disconnected,
         "taobao-live": run_taobao_live,
     }
@@ -681,6 +809,14 @@ def _classify_completed_chat_trace_result(
         status = "failed"
         error_code = BrowserErrorCode.UNKNOWN.value
         failure_reason = "missing_user_backend_trace"
+    elif complex_failure := _complex_trace_failure_reason(
+        scenario=scenario,
+        trace_events=trace_events,
+        require_user_backend=require_user_backend,
+    ):
+        status = "failed"
+        error_code = BrowserErrorCode.UNKNOWN.value
+        failure_reason = complex_failure
 
     return _report(
         scenario,
@@ -1031,6 +1167,133 @@ def _has_required_backend_evidence(
     return False
 
 
+def _complex_trace_failure_reason(
+    *,
+    scenario: str,
+    trace_events: list[dict[str, Any]],
+    require_user_backend: bool,
+) -> str:
+    if not scenario.startswith("complex-"):
+        return ""
+    fresh_observe_failure = _fresh_observe_failure_reason(trace_events)
+    if fresh_observe_failure:
+        return fresh_observe_failure
+    if scenario == "complex-user" or require_user_backend:
+        return _user_cleanup_failure_reason(trace_events)
+    return ""
+
+
+def _fresh_observe_failure_reason(
+    trace_events: list[dict[str, Any]],
+) -> str:
+    awaiting_observe = False
+    for event in trace_events:
+        if not isinstance(event, dict):
+            continue
+        if awaiting_observe:
+            if _is_successful_observe(event):
+                awaiting_observe = False
+            elif _is_successful_mutation(event):
+                return "missing_fresh_observe_after_mutation"
+        if _is_successful_mutation(event):
+            awaiting_observe = True
+    return "missing_fresh_observe_after_mutation" if awaiting_observe else ""
+
+
+def _is_successful_observe(event: dict[str, Any]) -> bool:
+    phase = str(event.get("phase") or "").casefold()
+    status = str(event.get("status") or "").casefold()
+    return phase == "observe" and status in {"", "ok"}
+
+
+def _is_successful_mutation(event: dict[str, Any]) -> bool:
+    phase = str(event.get("phase") or "").casefold()
+    action = str(event.get("action") or "").casefold()
+    status = str(event.get("status") or "").casefold()
+    return (
+        phase == "action"
+        and action in MUTATING_TRACE_ACTIONS
+        and status in {"", "ok"}
+    )
+
+
+def _user_cleanup_failure_reason(trace_events: list[dict[str, Any]]) -> str:
+    cleanup_events = [
+        event
+        for event in trace_events
+        if isinstance(event, dict)
+        and str(event.get("phase") or "").casefold() == "cleanup"
+        and (
+            str(event.get("backend_id") or "") == "user.chrome_extension"
+            or str(event.get("selected_context") or "") == "user"
+        )
+    ]
+    if not cleanup_events:
+        return "missing_user_cleanup_evidence"
+    if any(
+        str(event.get("status") or "").casefold() == "error"
+        for event in cleanup_events
+    ):
+        return "user_cleanup_failed"
+    if any(
+        _metadata_int(event, "owned_tabs_remaining") > 0
+        for event in cleanup_events
+    ):
+        return "residual_owned_tabs"
+    closed_owned_tabs = sum(
+        _metadata_int(event, "closed_owned_tabs") for event in cleanup_events
+    )
+    if closed_owned_tabs < 1:
+        return "residual_owned_tabs"
+    return ""
+
+
+def _metadata_int(event: dict[str, Any], key: str) -> int:
+    metadata = event.get("metadata")
+    if not isinstance(metadata, dict):
+        return 0
+    try:
+        return int(metadata.get(key) or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _no_progress_failure_reason(trace_events: list[dict[str, Any]]) -> str:
+    decision = detect_no_progress(_trace_event_objects(trace_events))
+    return decision.reason if decision.blocked else ""
+
+
+def _trace_event_objects(
+    trace_events: list[dict[str, Any]],
+) -> list[BrowserTraceEvent]:
+    converted: list[BrowserTraceEvent] = []
+    for index, event in enumerate(trace_events):
+        if not isinstance(event, dict):
+            continue
+        metadata = event.get("metadata")
+        converted.append(
+            BrowserTraceEvent(
+                event_id=str(event.get("event_id") or f"synthetic-{index}"),
+                session_id=str(event.get("session_id") or "synthetic"),
+                tool_call_id=str(event.get("tool_call_id") or ""),
+                backend_id=str(event.get("backend_id") or ""),
+                requested_context=str(event.get("requested_context") or ""),
+                selected_context=str(event.get("selected_context") or ""),
+                phase=str(event.get("phase") or ""),
+                action=str(event.get("action") or ""),
+                tab_id=str(event.get("tab_id") or ""),
+                url=str(event.get("url") or ""),
+                domain=str(event.get("domain") or ""),
+                status=str(event.get("status") or ""),
+                duration_ms=float(event.get("duration_ms") or 0.0),
+                error_code=str(event.get("error_code") or ""),
+                approval_state=str(event.get("approval_state") or ""),
+                metadata=metadata if isinstance(metadata, dict) else {},
+            ),
+        )
+    return converted
+
+
 def _fixture_prompt_spec(fixture_url: str) -> HarnessPromptSpec:
     marker = "V6_FIXTURE_PASS"
     return HarnessPromptSpec(
@@ -1081,6 +1344,115 @@ def _public_search_prompt_spec() -> HarnessPromptSpec:
         required_success_marker=marker,
         required_context="isolated",
         required_backend_id="isolated.playwright",
+    )
+
+
+def _complex_prompt_spec(
+    fixture_url: str,
+    *,
+    context: str,
+) -> HarnessPromptSpec:
+    if context == "user":
+        marker = "V7_COMPLEX_USER_PASS"
+        connect = (
+            'browser = await Browser.connect(context="user", '
+            "requires_user_state=True)"
+        )
+        required_context = "user"
+        required_backend_id = "user.chrome_extension"
+        require_user_backend = True
+        request_context = {"approval_level": "OFF"}
+    else:
+        marker = "V7_COMPLEX_ISOLATED_PASS"
+        connect = 'browser = await Browser.connect(context="isolated")'
+        required_context = "isolated"
+        required_backend_id = "isolated.playwright"
+        require_user_backend = False
+        request_context = None
+
+    return HarnessPromptSpec(
+        instruction=(
+            "Use browser(code=...) to run this deterministic complex Browser "
+            "SDK fixture script, then return the script output and a one-line "
+            "summary."
+        ),
+        code=_complex_fixture_code(
+            fixture_url=fixture_url,
+            connect=connect,
+            marker=marker,
+        ),
+        required_success_marker=marker,
+        required_context=required_context,
+        required_backend_id=required_backend_id,
+        require_user_backend=require_user_backend,
+        request_context=request_context,
+    )
+
+
+def _complex_fixture_code(
+    *,
+    fixture_url: str,
+    connect: str,
+    marker: str,
+) -> str:
+    return (
+        f"{connect}\n"
+        "try:\n"
+        f'    tab = await browser.tabs.open("{fixture_url}")\n'
+        "    snapshot = await tab.snapshot()\n"
+        "    assert 'Complex Deterministic Browser Fixture' in snapshot.text\n"
+        "    await tab.actions.click({"
+        '"selector": "[data-testid=\'reset-complex-fixture\']"})\n'
+        "    snapshot = await tab.snapshot()\n"
+        "    await tab.actions.click({"
+        '"selector": "[data-testid=\'load-async-items\']"})\n'
+        "    await tab.actions.wait_for('Delayed content loaded.', "
+        "timeout_ms=5000)\n"
+        "    snapshot = await tab.snapshot()\n"
+        "    assert 'Async Result 14' in snapshot.text\n"
+        "    await tab.actions.scroll('down', 400)\n"
+        "    snapshot = await tab.snapshot()\n"
+        "    await tab.actions.click({"
+        '"selector": "[data-testid=\'select-secondary-plan\']"})\n'
+        "    snapshot = await tab.snapshot()\n"
+        "    assert 'Selected: secondary' in snapshot.text\n"
+        "    await tab.actions.click({"
+        '"selector": "[data-testid=\'save-details\']"})\n'
+        "    snapshot = await tab.snapshot()\n"
+        "    assert 'Form validation failed.' in snapshot.text\n"
+        "    await tab.actions.type({"
+        '"selector": "[data-testid=\'details-name\']"}, '
+        "'Ada Lovelace')\n"
+        "    snapshot = await tab.snapshot()\n"
+        "    await tab.actions.type({"
+        '"selector": "[data-testid=\'details-email\']"}, '
+        "'ada@example.test')\n"
+        "    snapshot = await tab.snapshot()\n"
+        "    await tab.actions.click({"
+        '"selector": "[data-testid=\'save-details\']"})\n'
+        "    snapshot = await tab.snapshot()\n"
+        "    assert 'Form saved for deterministic user.' in snapshot.text\n"
+        "    await tab.evaluate('window.confirm = () => true')\n"
+        "    snapshot = await tab.snapshot()\n"
+        "    await tab.actions.click({"
+        '"selector": "[data-testid=\'open-confirm\']"})\n'
+        "    snapshot = await tab.snapshot()\n"
+        "    assert 'Selection confirmed.' in snapshot.text\n"
+        "    shadow_text = await tab.evaluate("
+        "'document.querySelector(\"#shadow-host\").shadowRoot.textContent', "
+        "read_only=True)\n"
+        "    assert 'confirmed' in str(shadow_text)\n"
+        "    frame_srcdoc = await tab.evaluate("
+        '\'document.querySelector("[data-testid=fixture-frame]")'
+        '.getAttribute("srcdoc")\', read_only=True)\n'
+        "    assert 'Frame ready' in str(frame_srcdoc)\n"
+        "    await tab.actions.click({"
+        '"selector": "[data-testid=\'navigate-step-two\']"})\n'
+        "    snapshot = await tab.snapshot()\n"
+        "    assert 'Step: two' in snapshot.text\n"
+        f"    print('{marker} complex deterministic fixture verified')\n"
+        "finally:\n"
+        "    await browser.close()"
     )
 
 
