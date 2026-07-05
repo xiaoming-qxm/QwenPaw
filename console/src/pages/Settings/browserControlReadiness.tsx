@@ -12,7 +12,10 @@ import {
 import type { BrowserDiagnostics } from "@/api/modules/plugin";
 import type {
   BrowserControlBridgeLifecycle,
+  BrowserControlBuildFreshness,
   BrowserControlBuildFingerprint,
+  BrowserControlNativeHostStatus,
+  BrowserControlRepairAction,
   BrowserControlSelfTestResult,
   BrowserControlTraceSummary,
   ExtensionInstallMode,
@@ -27,11 +30,16 @@ export interface BrowserControlReadinessStatus {
   installed?: boolean;
   connected?: boolean;
   install_mode?: ExtensionInstallMode | string | null;
+  readiness_state?: string;
+  repair_action?: BrowserControlRepairAction;
+  native_host_status?: BrowserControlNativeHostStatus;
+  selected_backend_id?: string | null;
   version?: string | null;
   extension_version?: string | null;
   connected_since?: string | null;
   bridge_lifecycle?: BrowserControlBridgeLifecycle;
   build_fingerprint?: BrowserControlBuildFingerprint;
+  build_freshness?: BrowserControlBuildFreshness;
   trace_summary?: BrowserControlTraceSummary;
   last_self_test?: BrowserControlSelfTestResult | null;
   sdk_diagnostics?: BrowserDiagnostics;
@@ -131,6 +139,16 @@ export function BrowserControlReadiness({
   const build = status?.build_fingerprint;
   const trace = status?.trace_summary;
   const lifecycle = status?.bridge_lifecycle;
+  const selectedBackend =
+    status?.selected_backend_id ||
+    status?.sdk_diagnostics?.selected_backend_id ||
+    "-";
+  const nativeHostStatus =
+    status?.native_host_status?.status || inferNativeHostStatus(status);
+  const repairAction = repairActionLabel(
+    t,
+    status?.repair_action || status?.native_host_status?.repair_action,
+  );
   const subtitle = useMemo(
     () => readinessSubtitle(t, state, lifecycle),
     [lifecycle, state, t],
@@ -158,6 +176,18 @@ export function BrowserControlReadiness({
           >
             {subtitle}
           </div>
+          {repairAction ? (
+            <div
+              style={{
+                color: "rgba(0,0,0,0.74)",
+                fontSize: 13,
+                fontWeight: 600,
+                marginTop: 6,
+              }}
+            >
+              {repairAction}
+            </div>
+          ) : null}
         </div>
         <div style={actionsStyle}>
           <Button
@@ -178,10 +208,7 @@ export function BrowserControlReadiness({
             {t("browserControl.actions.openChrome", "Open Chrome")}
           </Button>
           <Button icon={<Copy size={14} />} onClick={onCopyDiagnostics}>
-            {t(
-              "browserControl.actions.copyDiagnostics",
-              "Copy Diagnostics",
-            )}
+            {t("browserControl.actions.copyDiagnostics", "Copy Diagnostics")}
           </Button>
         </div>
       </div>
@@ -195,6 +222,17 @@ export function BrowserControlReadiness({
           value={extensionVersion}
         />
         <Metric
+          label={t(
+            "browserControl.readiness.selectedBackend",
+            "Selected backend",
+          )}
+          value={selectedBackend}
+        />
+        <Metric
+          label={t("browserControl.readiness.nativeHost", "Native host")}
+          value={nativeHostStatus}
+        />
+        <Metric
           label={t("browserControl.readiness.backendCommit", "Backend commit")}
           value={build?.git_commit || "-"}
         />
@@ -203,8 +241,11 @@ export function BrowserControlReadiness({
           value={traceSummary(trace)}
         />
         <Metric
-          label={t("browserControl.readiness.buildFreshness", "Build freshness")}
-          value={buildFreshnessLabel(t, build)}
+          label={t(
+            "browserControl.readiness.buildFreshness",
+            "Build freshness",
+          )}
+          value={buildFreshnessLabel(t, status?.build_freshness, build)}
         />
       </div>
 
@@ -272,6 +313,9 @@ function SelfTestResult({ result }: { result: BrowserControlSelfTestResult }) {
         background: passed ? "rgba(82,196,26,0.08)" : "rgba(255,77,79,0.08)",
       }}
     >
+      <div style={{ color: "rgba(0,0,0,0.56)", fontSize: 12, marginBottom: 6 }}>
+        {t("browserControl.readiness.lastSelfTest", "Last self-test")}
+      </div>
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <ShieldCheck size={15} />
         <strong>
@@ -285,9 +329,19 @@ function SelfTestResult({ result }: { result: BrowserControlSelfTestResult }) {
           {failedChecks.map((check) => (
             <div key={check.name}>
               <div style={codeStyle}>{check.code}</div>
-              <div style={{ color: "rgba(0,0,0,0.68)" }}>
-                {check.message}
-              </div>
+              <div style={{ color: "rgba(0,0,0,0.68)" }}>{check.message}</div>
+              {check.repair_action ? (
+                <div
+                  style={{
+                    color: "rgba(0,0,0,0.74)",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    marginTop: 4,
+                  }}
+                >
+                  {repairActionLabel(t, check.repair_action)}
+                </div>
+              ) : null}
             </div>
           ))}
         </div>
@@ -368,21 +422,74 @@ function badgeColor(state: "connected" | "waiting" | "notStarted") {
 function traceSummary(trace?: BrowserControlTraceSummary): string {
   const events = trace?.event_count ?? 0;
   const sessions = trace?.session_count ?? 0;
-  return `${events} across ${sessions} ${sessions === 1 ? "session" : "sessions"}`;
+  return `${events} across ${sessions} ${
+    sessions === 1 ? "session" : "sessions"
+  }`;
 }
 
 function buildFreshnessLabel(
   t: ReturnType<typeof useTranslation>["t"],
+  freshness?: BrowserControlBuildFreshness,
   build?: BrowserControlBuildFingerprint,
 ): string {
-  if (build?.repo_dirty) {
-    return t(
-      "browserControl.readiness.buildDirty",
-      "Build has local changes",
+  if (freshness?.status) {
+    if (freshness.status === "stale") {
+      return t(
+        "browserControl.readiness.buildDirty",
+        "Build has local changes",
+      );
+    }
+    if (freshness.status === "fresh") {
+      return t("browserControl.readiness.buildClean", "Clean");
+    }
+    return (
+      freshness.message || t("browserControl.readiness.buildUnknown", "Unknown")
     );
+  }
+  if (build?.repo_dirty) {
+    return t("browserControl.readiness.buildDirty", "Build has local changes");
   }
   if (!build?.git_commit) {
     return t("browserControl.readiness.buildUnknown", "Unknown");
   }
   return t("browserControl.readiness.buildClean", "Clean");
+}
+
+function inferNativeHostStatus(
+  status: BrowserControlReadinessStatus | null,
+): string {
+  if (!status?.installed) {
+    return "missing";
+  }
+  return status.native_host_status?.status || "configured";
+}
+
+function repairActionLabel(
+  t: ReturnType<typeof useTranslation>["t"],
+  action?: BrowserControlRepairAction | null,
+): string {
+  switch (action) {
+    case "reload_extension":
+      return t("browserControl.repair.reloadExtension", "Reload extension");
+    case "run_setup":
+      return t("browserControl.repair.runSetup", "Run setup");
+    case "restart_qwenpaw":
+      return t("browserControl.repair.restartQwenPaw", "Restart QwenPaw");
+    case "rebuild_frontend":
+      return t("browserControl.repair.rebuildFrontend", "Rebuild frontend");
+    case "open_chrome":
+      return t("browserControl.repair.openChrome", "Open Chrome");
+    case "login_required":
+      return t("browserControl.repair.loginRequired", "Sign in to the site");
+    case "approval_required":
+      return t("browserControl.repair.approvalRequired", "Review approval");
+    case "approval_denied":
+      return t("browserControl.repair.approvalDenied", "Approval was denied");
+    case "risk_control":
+      return t("browserControl.repair.riskControl", "Review site risk");
+    case "retry":
+      return t("browserControl.repair.retry", "Try again");
+    default:
+      return "";
+  }
 }

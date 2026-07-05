@@ -160,7 +160,7 @@ export default function PluginDetailPage() {
   };
 
   const handleCopyDiagnostics = async () => {
-    await copyValue(JSON.stringify(detail?.runtime_status ?? {}, null, 2));
+    await copyValue(JSON.stringify(browserControlDiagnostics(detail), null, 2));
   };
 
   if (loading) {
@@ -436,4 +436,48 @@ export default function PluginDetailPage() {
       </div>
     </div>
   );
+}
+
+function browserControlDiagnostics(
+  detail: Awaited<ReturnType<typeof fetchPluginDetail>> | null,
+) {
+  const runtime = detail?.runtime_status ?? {};
+  return sanitizeDiagnosticValue({
+    status: runtime,
+    self_test: runtime.last_self_test ?? null,
+    route_diagnostics: {
+      requested_context: runtime.sdk_diagnostics?.requested_context ?? "",
+      selected_backend_id:
+        runtime.selected_backend_id ??
+        runtime.sdk_diagnostics?.selected_backend_id ??
+        "",
+      backends: runtime.sdk_diagnostics?.backends ?? [],
+    },
+  });
+}
+
+function sanitizeDiagnosticValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(sanitizeDiagnosticValue);
+  }
+  if (!value || typeof value !== "object") {
+    return value;
+  }
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .filter(([key]) => !isSensitiveDiagnosticKey(key))
+      .map(([key, item]) => [key, sanitizeDiagnosticValue(item)]),
+  );
+}
+
+function isSensitiveDiagnosticKey(key: string): boolean {
+  const lowered = key.toLowerCase();
+  return [
+    "authorization",
+    "cookie",
+    "credential",
+    "password",
+    "secret",
+    "token",
+  ].some((part) => lowered.includes(part));
 }

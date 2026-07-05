@@ -21,6 +21,7 @@ function approvalProps(
       domain: "shop.example",
       title: "Checkout",
       action: "purchase",
+      expected_state_change: "The current cart will place a paid order.",
       risk: {
         sensitive: true,
         level: "high",
@@ -30,7 +31,8 @@ function approvalProps(
       },
       kwargs: {
         target: "Buy now",
-        value: "secret-token",
+        quantity: 1,
+        authorization_header: "Bearer secret-token",
         password: "hunter2",
         nested: {
           cookie: "session-cookie",
@@ -60,11 +62,18 @@ describe("ApprovalCard browser approvals", () => {
     expect(screen.getByText("https://shop.example/cart")).toBeInTheDocument();
     expect(screen.getByText("purchase")).toBeInTheDocument();
     expect(screen.getByText("purchase / high")).toBeInTheDocument();
+    expect(screen.getByText("Expected state change")).toBeInTheDocument();
+    expect(
+      screen.getByText("The current cart will place a paid order."),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Buy now")).toBeInTheDocument();
     expect(screen.getByText("visible label")).toBeInTheDocument();
     expect(screen.getAllByText("[REDACTED]").length).toBeGreaterThanOrEqual(3);
     expect(screen.queryByText("secret-token")).not.toBeInTheDocument();
     expect(screen.queryByText("hunter2")).not.toBeInTheDocument();
     expect(screen.queryByText("session-cookie")).not.toBeInTheDocument();
+    expect(screen.queryByText("Parameters")).not.toBeInTheDocument();
+    expect(screen.queryByText(/"kwargs"/)).not.toBeInTheDocument();
   });
 
   it("does not emit debug console logs for approve or cancel actions", async () => {

@@ -3,6 +3,8 @@ import type { ComponentProps } from "react";
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderWithProviders } from "@/test/common_setup";
+import enMessages from "@/locales/en.json";
+import zhMessages from "@/locales/zh.json";
 import {
   BrowserControlReadiness,
   type BrowserControlReadinessStatus,
@@ -15,6 +17,14 @@ function status(
     installed: true,
     connected: false,
     install_mode: "unpacked",
+    readiness_state: "blocked",
+    repair_action: "reload_extension",
+    native_host_status: {
+      status: "configured",
+      message: "Native host manifest is configured.",
+      repair_action: "none",
+    },
+    selected_backend_id: "user.chrome_extension",
     extension_version: "0.1.0",
     version: "0.1.0",
     connected_since: null,
@@ -67,9 +77,7 @@ function status(
 
 function renderReadiness(
   nextStatus: BrowserControlReadinessStatus | null,
-  overrides: Partial<
-    ComponentProps<typeof BrowserControlReadiness>
-  > = {},
+  overrides: Partial<ComponentProps<typeof BrowserControlReadiness>> = {},
 ) {
   const onRefresh = vi.fn();
   const onRunSelfTest = vi.fn();
@@ -95,6 +103,29 @@ function renderReadiness(
 }
 
 describe("BrowserControlReadiness", () => {
+  it("ships English and Chinese product explanation copy", () => {
+    const keys = [
+      "connected",
+      "disconnected",
+      "setupRequired",
+      "staleBuild",
+      "approvalRequired",
+      "approvalDenied",
+      "loginRequired",
+      "riskControl",
+      "noProgress",
+      "cleanupComplete",
+    ];
+
+    for (const messages of [enMessages, zhMessages]) {
+      const explain = messages.browserControl.explain as Record<string, string>;
+      for (const key of keys) {
+        expect(explain[key]).toEqual(expect.any(String));
+        expect(explain[key].length).toBeGreaterThan(0);
+      }
+    }
+  });
+
   it("renders connected version and trace summary states", () => {
     renderReadiness(
       status({
@@ -113,6 +144,12 @@ describe("BrowserControlReadiness", () => {
     expect(screen.getByText("Connected")).toBeInTheDocument();
     expect(screen.getByText("Extension version")).toBeInTheDocument();
     expect(screen.getByText("0.1.0")).toBeInTheDocument();
+    expect(screen.getByText("Selected backend")).toBeInTheDocument();
+    expect(screen.getAllByText("user.chrome_extension").length).toBeGreaterThan(
+      0,
+    );
+    expect(screen.getByText("Native host")).toBeInTheDocument();
+    expect(screen.getByText("configured")).toBeInTheDocument();
     expect(screen.getByText("Backend commit")).toBeInTheDocument();
     expect(screen.getByText("abc123")).toBeInTheDocument();
     expect(screen.getByText("Trace events")).toBeInTheDocument();
@@ -132,6 +169,7 @@ describe("BrowserControlReadiness", () => {
     );
 
     expect(screen.getByText("Waiting for Chrome")).toBeInTheDocument();
+    expect(screen.getByText("Reload extension")).toBeInTheDocument();
     expect(screen.getByText("browser_bridge_disconnected")).toBeInTheDocument();
 
     rerender(
@@ -166,14 +204,17 @@ describe("BrowserControlReadiness", () => {
               passed: false,
               code: "bridge_disconnected",
               message: "Native Messaging bridge is not connected.",
+              repair_action: "reload_extension",
             },
           ],
         },
       }),
     );
 
+    expect(screen.getByText("Last self-test")).toBeInTheDocument();
     expect(screen.getByText("Self-test failed")).toBeInTheDocument();
     expect(screen.getByText("bridge_disconnected")).toBeInTheDocument();
+    expect(screen.getAllByText("Reload extension").length).toBeGreaterThan(0);
     expect(screen.getByText("Build has local changes")).toBeInTheDocument();
   });
 
@@ -184,9 +225,7 @@ describe("BrowserControlReadiness", () => {
     await userEvent.click(
       screen.getByRole("button", { name: "Run Self-Test" }),
     );
-    await userEvent.click(
-      screen.getByRole("button", { name: "Open Chrome" }),
-    );
+    await userEvent.click(screen.getByRole("button", { name: "Open Chrome" }));
     await userEvent.click(
       screen.getByRole("button", { name: "Copy Diagnostics" }),
     );

@@ -43,6 +43,15 @@ const runtimeStatus = {
   installed: true,
   connected: false,
   install_mode: "unpacked",
+  readiness_state: "blocked",
+  repair_action: "reload_extension",
+  native_host_status: {
+    status: "configured",
+    message: "Native host manifest is configured.",
+    repair_action: "none",
+  },
+  selected_backend_id: "user.chrome_extension",
+  authorization_header: "Bearer secret-token",
   extension_id: "nflcgkfjgoiipklkpenmbiificbakoch",
   extension_dir: "/tmp/.qwenpaw/chrome-extension/qwenpaw-browser-bridge",
   native_manifest_path: "/tmp/NativeMessagingHosts/com.qwenpaw.browser.json",
@@ -267,14 +276,48 @@ describe("PluginDetailPage browser control setup", () => {
     renderPluginDetail();
 
     expect(await screen.findByText("Extension version")).toBeInTheDocument();
+    expect(screen.getByText("Selected backend")).toBeInTheDocument();
+    expect(screen.getAllByText("user.chrome_extension").length).toBeGreaterThan(
+      0,
+    );
+    expect(screen.getAllByText("Native host").length).toBeGreaterThan(0);
+    expect(screen.getByText("configured")).toBeInTheDocument();
+    expect(screen.getByText("Reload extension")).toBeInTheDocument();
     expect(screen.getByText("Trace events")).toBeInTheDocument();
     expect(screen.getByText("4 across 2 sessions")).toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("button", { name: "Run Self-Test" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Run Self-Test" }),
+    );
 
     await waitFor(() => {
       expect(mockSelfTest).toHaveBeenCalledTimes(1);
     });
+  });
+
+  it("copies sanitized product diagnostics from the readiness center", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+
+    renderPluginDetail();
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Copy Diagnostics" }),
+    );
+
+    await waitFor(() => {
+      expect(writeText).toHaveBeenCalledTimes(1);
+    });
+    const copied = String(writeText.mock.calls[0][0]);
+    expect(copied).toContain('"status"');
+    expect(copied).toContain('"self_test"');
+    expect(copied).toContain('"route_diagnostics"');
+    expect(copied).toContain("user.chrome_extension");
+    expect(copied).not.toContain("secret-token");
+    expect(copied).not.toContain("authorization_header");
   });
 
   it("copies chrome://extensions when the backend cannot open Chrome", async () => {

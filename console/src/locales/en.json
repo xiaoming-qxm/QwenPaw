@@ -44,7 +44,9 @@
     },
     "actions": {
       "openChrome": "Open Chrome",
-      "prepareBridge": "Prepare bridge"
+      "prepareBridge": "Prepare bridge",
+      "runSelfTest": "Run Self-Test",
+      "copyDiagnostics": "Copy Diagnostics"
     },
     "setup": {
       "prepare": "Prepare bridge files",
@@ -63,6 +65,45 @@
         "degraded": "Degraded",
         "unavailable": "Unavailable"
       }
+    },
+    "readiness": {
+      "extensionVersion": "Extension version",
+      "selectedBackend": "Selected backend",
+      "nativeHost": "Native host",
+      "backendCommit": "Backend commit",
+      "traceEvents": "Trace events",
+      "buildFreshness": "Build freshness",
+      "buildDirty": "Build has local changes",
+      "buildUnknown": "Unknown",
+      "buildClean": "Clean",
+      "lastSelfTest": "Last self-test",
+      "connected": "Chrome bridge is connected.",
+      "connectedSince": "Chrome bridge is connected since {{time}}.",
+      "setupRequired": "Install or prepare the Chrome extension bridge."
+    },
+    "repair": {
+      "reloadExtension": "Reload extension",
+      "runSetup": "Run setup",
+      "restartQwenPaw": "Restart QwenPaw",
+      "rebuildFrontend": "Rebuild frontend",
+      "openChrome": "Open Chrome",
+      "loginRequired": "Sign in to the site",
+      "approvalRequired": "Review approval",
+      "approvalDenied": "Approval was denied",
+      "riskControl": "Review site risk",
+      "retry": "Try again"
+    },
+    "explain": {
+      "connected": "Browser Control is ready and using the selected backend.",
+      "disconnected": "Chrome is not connected; reload the extension or reopen Chrome.",
+      "setupRequired": "Setup is incomplete; run setup and install the Chrome extension.",
+      "staleBuild": "The frontend or backend build is stale; rebuild before validation.",
+      "approvalRequired": "This browser action needs your approval before it can continue.",
+      "approvalDenied": "The browser action was denied and no site state was changed.",
+      "loginRequired": "The page needs your signed-in browser state before continuing.",
+      "riskControl": "The website blocked progress; review the page and retry safely.",
+      "noProgress": "The last browser action made no visible progress; observe again and choose a safer next step.",
+      "cleanupComplete": "Browser Control cleanup finished and released request-owned browser resources."
     }
   },
   "pluginDetail": {
@@ -2638,7 +2679,15 @@
     "acknowledge": "Got it",
     "approvePattern": "Approve Pattern",
     "approveExact": "Approve Exact",
-    "approvalScope": "Approval scope"
+    "approvalScope": "Approval scope",
+    "browserAction": "Browser action",
+    "browserDomain": "Domain",
+    "browserUrl": "URL",
+    "browserActionName": "Action",
+    "browserRisk": "Risk",
+    "browserTitle": "Title",
+    "browserExpectedStateChange": "Expected state change",
+    "browserArguments": "Arguments"
   },
   "pluginManager": {
     "title": "Plugin Manager",
@@ -2907,6 +2956,19 @@
       "pdfDefault": "Export PDF",
       "install": "Install",
       "batch": "Batch"
+    },
+    "browserEvidence": {
+      "title": "Browser evidence",
+      "route": "Route",
+      "backend": "Backend",
+      "approval": "Approval",
+      "approvalPrefix": "Approval",
+      "blocker": "Blocker",
+      "duration": "Duration",
+      "artifacts": "Artifacts",
+      "copyDiagnostics": "Copy diagnostics",
+      "noProgress": "Blocked: no progress",
+      "cleanupComplete": "Cleanup complete"
     },
     "lineBadge": {
       "lines": "{{count}} lines",

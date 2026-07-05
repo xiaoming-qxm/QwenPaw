@@ -16,7 +16,6 @@ const SENSITIVE_PARAM_KEYS = [
   "password",
   "secret",
   "token",
-  "value",
 ];
 
 export interface ApprovalCardProps {
@@ -334,6 +333,15 @@ export function ApprovalCard({
                 value={browserApproval.title}
               />
             ) : null}
+            {browserApproval.expectedStateChange ? (
+              <BrowserField
+                label={t(
+                  "approval.browserExpectedStateChange",
+                  "Expected state change",
+                )}
+                value={browserApproval.expectedStateChange}
+              />
+            ) : null}
             {browserApproval.kwargsRows.length ? (
               <div className={styles.browserKwargs}>
                 <div className={styles.browserKwargsTitle}>
@@ -351,32 +359,34 @@ export function ApprovalCard({
           </div>
         ) : null}
 
-        {toolParams && Object.keys(toolParams).length > 0 && (
-          <details className={styles.paramsDetails}>
-            <summary className={styles.paramsSummary}>
-              {t("approval.parameters", "Parameters")}
-            </summary>
-            <div className={styles.paramsCodeWrapper}>
-              <pre className={styles.paramsCode}>
-                {JSON.stringify(redactedToolParams, null, 2)}
-              </pre>
-              <button
-                className={`${styles.copyButton} ${
-                  copiedField === "params" ? styles.copied : ""
-                }`}
-                onClick={() =>
-                  handleCopy(
-                    JSON.stringify(redactedToolParams, null, 2),
-                    "params",
-                  )
-                }
-                title={t("common.copy", "Copy")}
-              >
-                <Copy size={12} />
-              </button>
-            </div>
-          </details>
-        )}
+        {!browserApproval &&
+          toolParams &&
+          Object.keys(toolParams).length > 0 && (
+            <details className={styles.paramsDetails}>
+              <summary className={styles.paramsSummary}>
+                {t("approval.parameters", "Parameters")}
+              </summary>
+              <div className={styles.paramsCodeWrapper}>
+                <pre className={styles.paramsCode}>
+                  {JSON.stringify(redactedToolParams, null, 2)}
+                </pre>
+                <button
+                  className={`${styles.copyButton} ${
+                    copiedField === "params" ? styles.copied : ""
+                  }`}
+                  onClick={() =>
+                    handleCopy(
+                      JSON.stringify(redactedToolParams, null, 2),
+                      "params",
+                    )
+                  }
+                  title={t("common.copy", "Copy")}
+                >
+                  <Copy size={12} />
+                </button>
+              </div>
+            </details>
+          )}
       </div>
 
       <div className={styles.actions}>
@@ -473,6 +483,7 @@ interface BrowserApprovalSummary {
   action: string;
   riskKind: string;
   riskLevel: string;
+  expectedStateChange: string;
   kwargsRows: { path: string; value: string }[];
 }
 
@@ -494,6 +505,7 @@ function browserApprovalSummary(
     action,
     riskKind: asString(risk.kind) || "unknown_sensitive",
     riskLevel: asString(risk.level) || "unknown",
+    expectedStateChange: asString(params.expected_state_change),
     kwargsRows: flattenPreviewRows(kwargs),
   };
 }

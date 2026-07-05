@@ -300,16 +300,16 @@ def _serialize_backend_diagnostic(
         "available": diagnostic.available,
         "status": diagnostic.status,
         "code": diagnostic.code,
-        "reason": diagnostic.reason,
-        "message": diagnostic.message,
+        "reason": _sanitize_text(diagnostic.reason),
+        "message": _sanitize_text(diagnostic.message),
         "hint_key": diagnostic.hint_key,
-        "message_fallback": diagnostic.message_fallback,
+        "message_fallback": _sanitize_text(diagnostic.message_fallback),
         "checks": [
             _serialize_diagnostic_check(check) for check in diagnostic.checks
         ],
         "observed_at": diagnostic.observed_at,
         "features": sorted(diagnostic.features),
-        "metadata": dict(diagnostic.metadata),
+        "metadata": _sanitize_json_value(dict(diagnostic.metadata)),
     }
 
 
@@ -320,10 +320,54 @@ def _serialize_diagnostic_check(
         "name": check.name,
         "status": check.status,
         "code": check.code,
-        "message": check.message,
+        "message": _sanitize_text(check.message),
         "hint_key": check.hint_key,
-        "metadata": dict(check.metadata),
+        "metadata": _sanitize_json_value(dict(check.metadata)),
     }
+
+
+def _sanitize_text(value: Any) -> str:
+    text = str(value or "")
+    if not text:
+        return ""
+    blocked = ("authorization", "bearer ", "token", "traceback")
+    lines = [
+        line
+        for line in text.splitlines()
+        if not any(marker in line.lower() for marker in blocked)
+    ]
+    if lines:
+        return "\n".join(lines)
+    return "Diagnostic detail redacted."
+
+
+def _sanitize_json_value(value: Any) -> Any:
+    if isinstance(value, str):
+        return _sanitize_text(value)
+    if isinstance(value, list):
+        return [_sanitize_json_value(item) for item in value]
+    if isinstance(value, dict):
+        return {
+            str(key): _sanitize_json_value(item)
+            for key, item in value.items()
+            if not _is_sensitive_key(str(key))
+        }
+    return value
+
+
+def _is_sensitive_key(key: str) -> bool:
+    lowered = key.lower()
+    return any(
+        marker in lowered
+        for marker in (
+            "authorization",
+            "cookie",
+            "credential",
+            "password",
+            "secret",
+            "token",
+        )
+    )
 
 
 def _bridge_connected() -> bool:
@@ -425,6 +469,68 @@ def _build_fingerprint() -> dict[str, Any]:
     }
 
 
+def _native_host_status(install_status: dict[str, Any]) -> dict[str, Any]:
+    if install_status.get("native_host_repair_required"):
+        return {
+            "status": "repair_required",
+            "message": _sanitize_text(
+                install_status.get("native_host_repair_instruction")
+                or "Run qwenpaw setup-extension --yes --reset.",
+            ),
+            "repair_action": "run_setup",
+        }
+    return {
+        "status": "configured",
+        "message": "Native Host manifest configuration is current.",
+        "repair_action": "none",
+    }
+
+
+def _build_freshness(build: dict[str, Any]) -> dict[str, Any]:
+    if build.get("repo_dirty"):
+        return {
+            "status": "stale",
+            "message": "Frontend or backend build has local changes.",
+            "repair_action": "rebuild_frontend",
+        }
+    if not build.get("git_commit") or not build.get("frontend_fingerprint"):
+        return {
+            "status": "unknown",
+            "message": "Build freshness could not be determined.",
+            "repair_action": "restart_qwenpaw",
+        }
+    return {
+        "status": "fresh",
+        "message": "Frontend and backend build fingerprints are current.",
+        "repair_action": "none",
+    }
+
+
+def _readiness_state_and_repair_action(
+    *,
+    install_status: dict[str, Any],
+    connected: bool,
+    diagnostics: BrowserDiagnostics,
+    build_freshness: dict[str, Any],
+) -> tuple[str, str]:
+    if not install_status.get("installed"):
+        return "setup_required", "run_setup"
+    if install_status.get("native_host_repair_required"):
+        return "setup_required", "run_setup"
+    if not connected:
+        return "blocked", "reload_extension"
+    selected_available = any(
+        backend.backend_id == diagnostics.selected_backend_id
+        and backend.available
+        for backend in diagnostics.backends
+    )
+    if not selected_available:
+        return "blocked", "reload_extension"
+    if build_freshness.get("status") == "stale":
+        return "stale_build", "rebuild_frontend"
+    return "ready", "none"
+
+
 def _git_output(*args: str) -> str:
     try:
         result = subprocess.run(
@@ -466,15 +572,34 @@ def _check_payload(
     passed: bool,
     code: str,
     message: str,
+    repair_action: str | None = None,
     metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     return {
         "name": name,
         "passed": passed,
+        "status": "passed" if passed else "failed",
         "code": code,
-        "message": message,
-        "metadata": dict(metadata or {}),
+        "message": _sanitize_text(message),
+        "repair_action": repair_action or _repair_action_for_code(code),
+        "metadata": _sanitize_json_value(dict(metadata or {})),
     }
+
+
+def _repair_action_for_code(code: str) -> str:
+    if code in {
+        "bridge_disconnected",
+        "browser_bridge_disconnected",
+        "browser_backend_unavailable",
+    }:
+        return "reload_extension"
+    if code == "native_host_repair_required":
+        return "run_setup"
+    if code in {"build_dirty", "build_stale"}:
+        return "rebuild_frontend"
+    if code in {"isolated_backend_unavailable", "missing"}:
+        return "restart_qwenpaw"
+    return "none"
 
 
 def _diagnostics_check(
@@ -495,6 +620,9 @@ def _diagnostics_check(
         passed=available,
         code=code or ("available" if available else "unavailable"),
         message=message,
+        repair_action=_repair_action_for_code(
+            code or ("available" if available else "unavailable"),
+        ),
         metadata={
             "requested_context": diagnostics.requested_context,
             "selected_backend_id": diagnostics.selected_backend_id,
@@ -507,7 +635,8 @@ async def run_extension_self_test() -> dict[str, Any]:
     checked_at = datetime.now(UTC).isoformat()
     user_diagnostics = await _sdk_diagnostics_snapshot("user")
     isolated_diagnostics = await _sdk_diagnostics_snapshot("isolated")
-    install_status = extension_install_status()
+    build = _build_fingerprint()
+    build_freshness = _build_freshness(build)
 
     trace_event = BrowserTraceEvent(
         event_id=f"self-test-{int(started * 1000)}",
@@ -524,37 +653,9 @@ async def run_extension_self_test() -> dict[str, Any]:
         )
     )
     connected = _bridge_connected()
-    repair_required = bool(install_status.get("native_host_repair_required"))
     checks = [
         _check_payload(
-            name="native_host_config",
-            passed=not repair_required,
-            code=(
-                "native_host_configured"
-                if not repair_required
-                else "native_host_repair_required"
-            ),
-            message=(
-                "Native Host manifest configuration is current."
-                if not repair_required
-                else str(
-                    install_status.get("native_host_repair_instruction")
-                    or "Run qwenpaw setup-extension --yes --reset.",
-                )
-            ),
-            metadata={
-                "bridge_manifest_path": str(
-                    install_status.get("bridge_manifest_path") or "",
-                ),
-                "legacy_config_path": str(
-                    install_status.get("legacy_config_path")
-                    or install_status.get("config_path")
-                    or "",
-                ),
-            },
-        ),
-        _check_payload(
-            name="bridge",
+            name="extension_bridge",
             passed=connected,
             code="bridge_connected" if connected else "bridge_disconnected",
             message=(
@@ -562,6 +663,7 @@ async def run_extension_self_test() -> dict[str, Any]:
                 if connected
                 else "Native Messaging bridge is not connected."
             ),
+            repair_action="none" if connected else "reload_extension",
         ),
         _diagnostics_check(
             name="user_backend",
@@ -581,14 +683,29 @@ async def run_extension_self_test() -> dict[str, Any]:
             message="Browser approval policy is available.",
         ),
         _check_payload(
-            name="trace_store",
+            name="trace_write",
             passed=trace_found,
-            code="trace_store_roundtrip" if trace_found else "trace_missing",
+            code="trace_write_roundtrip" if trace_found else "trace_missing",
             message=(
                 "Trace store write-read check passed."
                 if trace_found
                 else "Trace store write-read check failed."
             ),
+            repair_action="none" if trace_found else "restart_qwenpaw",
+        ),
+        _check_payload(
+            name="build_freshness",
+            passed=build_freshness["status"] != "stale",
+            code=(
+                "build_clean"
+                if build_freshness["status"] == "fresh"
+                else "build_dirty"
+                if build_freshness["status"] == "stale"
+                else "build_unknown"
+            ),
+            message=str(build_freshness["message"]),
+            repair_action=str(build_freshness["repair_action"]),
+            metadata={"build_fingerprint": build},
         ),
     ]
     status = "passed" if all(check["passed"] for check in checks) else "failed"
@@ -598,18 +715,32 @@ async def run_extension_self_test() -> dict[str, Any]:
         "duration_ms": round((perf_counter() - started) * 1000, 3),
         "checks": checks,
     }
-    _bridge_state.last_self_test = result
-    return result
+    sanitized = cast(dict[str, Any], _sanitize_json_value(result))
+    _bridge_state.last_self_test = sanitized
+    return sanitized
 
 
 async def get_extension_status() -> dict[str, Any]:
     connected = _bridge_connected()
     diagnostics = await _sdk_diagnostics_snapshot("user")
     extension_version = _extension_version()
+    install_status = extension_install_status()
+    build = _build_fingerprint()
+    freshness = _build_freshness(build)
+    readiness_state, repair_action = _readiness_state_and_repair_action(
+        install_status=install_status,
+        connected=connected,
+        diagnostics=diagnostics,
+        build_freshness=freshness,
+    )
 
     return {
-        **extension_install_status(),
+        **install_status,
         "connected": connected,
+        "readiness_state": readiness_state,
+        "repair_action": repair_action,
+        "native_host_status": _native_host_status(install_status),
+        "selected_backend_id": diagnostics.selected_backend_id,
         "version": extension_version,
         "extension_version": extension_version,
         "connected_since": (
@@ -618,8 +749,9 @@ async def get_extension_status() -> dict[str, Any]:
             else None
         ),
         "bridge_lifecycle": _bridge_lifecycle(connected),
-        "build_fingerprint": _build_fingerprint(),
-        "last_self_test": _bridge_state.last_self_test,
+        "build_fingerprint": build,
+        "build_freshness": freshness,
+        "last_self_test": _sanitize_json_value(_bridge_state.last_self_test),
         "trace_summary": _trace_summary(),
         "sdk_diagnostics": _serialize_diagnostics(diagnostics),
     }

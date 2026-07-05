@@ -4,7 +4,7 @@ import type { BrowserDiagnostics } from "./plugin";
 export type ExtensionInstallMode = "unpacked" | "cws";
 
 export interface BrowserControlBridgeLifecycle {
-  connected: boolean;
+  connected?: boolean;
   connected_since?: string | null;
   last_connected_at?: string | null;
   last_disconnected_at?: string | null;
@@ -16,6 +16,32 @@ export interface BrowserControlBuildFingerprint {
   git_commit?: string;
   repo_dirty?: boolean;
   frontend_fingerprint?: string;
+}
+
+export interface BrowserControlBuildFreshness {
+  status: string;
+  message?: string;
+  repair_action?: BrowserControlRepairAction;
+}
+
+export type BrowserControlRepairAction =
+  | "none"
+  | "reload_extension"
+  | "run_setup"
+  | "restart_qwenpaw"
+  | "rebuild_frontend"
+  | "open_chrome"
+  | "login_required"
+  | "approval_required"
+  | "approval_denied"
+  | "risk_control"
+  | "retry"
+  | string;
+
+export interface BrowserControlNativeHostStatus {
+  status: string;
+  message?: string;
+  repair_action?: BrowserControlRepairAction;
 }
 
 export interface BrowserControlTraceSummary {
@@ -37,6 +63,8 @@ export interface BrowserControlSelfTestCheck {
   passed: boolean;
   code: string;
   message: string;
+  status?: "passed" | "failed" | "warning" | string;
+  repair_action?: BrowserControlRepairAction;
   metadata?: Record<string, unknown>;
 }
 
@@ -51,6 +79,10 @@ export interface ExtensionStatus {
   installed: boolean;
   connected: boolean;
   install_mode: ExtensionInstallMode | string | null;
+  readiness_state?: string;
+  repair_action?: BrowserControlRepairAction;
+  native_host_status?: BrowserControlNativeHostStatus;
+  selected_backend_id?: string | null;
   extension_id?: string;
   extension_dir?: string;
   native_manifest_path?: string;
@@ -64,6 +96,7 @@ export interface ExtensionStatus {
   connected_since?: string | null;
   bridge_lifecycle?: BrowserControlBridgeLifecycle;
   build_fingerprint?: BrowserControlBuildFingerprint;
+  build_freshness?: BrowserControlBuildFreshness;
   trace_summary?: BrowserControlTraceSummary;
   last_self_test?: BrowserControlSelfTestResult | null;
   sdk_diagnostics?: BrowserDiagnostics;

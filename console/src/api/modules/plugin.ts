@@ -99,6 +99,32 @@ export interface BrowserControlBuildFingerprint {
   frontend_fingerprint?: string;
 }
 
+export interface BrowserControlBuildFreshness {
+  status: string;
+  message?: string;
+  repair_action?: BrowserControlRepairAction;
+}
+
+export type BrowserControlRepairAction =
+  | "none"
+  | "reload_extension"
+  | "run_setup"
+  | "restart_qwenpaw"
+  | "rebuild_frontend"
+  | "open_chrome"
+  | "login_required"
+  | "approval_required"
+  | "approval_denied"
+  | "risk_control"
+  | "retry"
+  | string;
+
+export interface BrowserControlNativeHostStatus {
+  status: string;
+  message?: string;
+  repair_action?: BrowserControlRepairAction;
+}
+
 export interface BrowserControlTraceSummary {
   event_count: number;
   session_count: number;
@@ -118,6 +144,8 @@ export interface BrowserControlSelfTestCheck {
   passed: boolean;
   code: string;
   message: string;
+  status?: "passed" | "failed" | "warning" | string;
+  repair_action?: BrowserControlRepairAction;
   metadata?: Record<string, unknown>;
 }
 
@@ -144,11 +172,16 @@ export interface PluginManifest {
 export interface PluginRuntimeStatus {
   installed?: boolean;
   connected?: boolean;
+  readiness_state?: string;
+  repair_action?: BrowserControlRepairAction;
+  native_host_status?: BrowserControlNativeHostStatus;
+  selected_backend_id?: string | null;
   version?: string | null;
   extension_version?: string | null;
   connected_since?: string | null;
   bridge_lifecycle?: BrowserControlBridgeLifecycle;
   build_fingerprint?: BrowserControlBuildFingerprint;
+  build_freshness?: BrowserControlBuildFreshness;
   trace_summary?: BrowserControlTraceSummary;
   last_self_test?: BrowserControlSelfTestResult | null;
   install_mode?: string | null;

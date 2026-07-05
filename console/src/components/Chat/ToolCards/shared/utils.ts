@@ -7,6 +7,40 @@ import type { TFunction } from "i18next";
 import type { ToolCallContent } from "./types";
 import { chatApi } from "@/api/modules/chat";
 
+export interface BrowserEvidenceArtifact {
+  kind?: string;
+  url?: string;
+  name?: string;
+  media_type?: string;
+}
+
+export interface BrowserTraceEventPreview {
+  phase?: string;
+  action?: string;
+  status?: string;
+  backend_id?: string;
+  selected_context?: string;
+  requested_context?: string;
+  duration_ms?: number;
+  error_code?: string;
+}
+
+export interface BrowserEvidenceMetadata {
+  requestedContext: string;
+  selectedContext: string;
+  backendId: string;
+  approvalState: string;
+  blockerReason: string;
+  recoveryHint: string;
+  progressDecision: string;
+  cleanupComplete: boolean;
+  eventCount: number;
+  durationMs: number | null;
+  artifacts: BrowserEvidenceArtifact[];
+  trace: BrowserTraceEventPreview[];
+  diagnostics: unknown;
+}
+
 // ---------------------------------------------------------------------------
 // URL helpers
 // ---------------------------------------------------------------------------
@@ -256,6 +290,125 @@ function tryParseJson(text: string): unknown | null {
   } catch {
     return null;
   }
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function toStringValue(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+function toNumberValue(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function parseBrowserEvidenceSource(value: unknown): Record<string, unknown> {
+  if (typeof value === "string") {
+    const parsed = tryParseJson(value);
+    return asRecord(parsed);
+  }
+  return asRecord(value);
+}
+
+function browserTraceEvents(value: unknown): BrowserTraceEventPreview[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => asRecord(item) as BrowserTraceEventPreview);
+}
+
+function browserArtifacts(value: unknown): BrowserEvidenceArtifact[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => asRecord(item) as BrowserEvidenceArtifact);
+}
+
+export function extractBrowserEvidence(
+  content: ToolCallContent,
+): BrowserEvidenceMetadata {
+  const result = parseBrowserEvidenceSource(content.result);
+  const params = asRecord(content.params);
+  const trace = browserTraceEvents(
+    result.browser_trace || params.browser_trace,
+  );
+  const firstContext = trace.find(
+    (event) => event.phase === "context" || event.backend_id,
+  );
+  const progress = asRecord(
+    result.progress_decision || params.progress_decision,
+  );
+  const duration =
+    toNumberValue(result.duration_ms) ??
+    trace.reduce<number | null>(
+      (max, event) =>
+        typeof event.duration_ms === "number"
+          ? Math.max(max ?? 0, event.duration_ms)
+          : max,
+      null,
+    );
+
+  return {
+    requestedContext:
+      toStringValue(result.context) ||
+      toStringValue(result.requested_context) ||
+      toStringValue(firstContext?.requested_context) ||
+      toStringValue(params.context) ||
+      "auto",
+    selectedContext:
+      toStringValue(result.selected_context) ||
+      toStringValue(firstContext?.selected_context) ||
+      "",
+    backendId:
+      toStringValue(result.backend_id) ||
+      toStringValue(firstContext?.backend_id) ||
+      "",
+    approvalState:
+      toStringValue(result.approval_state) ||
+      toStringValue(params.approval_state) ||
+      "not required",
+    blockerReason:
+      toStringValue(result.error_code) ||
+      toStringValue(result.error_outcome) ||
+      toStringValue(progress.reason),
+    recoveryHint:
+      toStringValue(result.recovery_hint) ||
+      toStringValue(params.recovery_hint),
+    progressDecision:
+      toStringValue(progress.status) || toStringValue(progress.reason),
+    cleanupComplete: trace.some(
+      (event) => event.phase === "cleanup" && event.status === "ok",
+    ),
+    eventCount: trace.length,
+    durationMs: duration,
+    artifacts: browserArtifacts(result.artifacts || params.artifacts),
+    trace,
+    diagnostics: result,
+  };
+}
+
+export function browserRouteSummary(evidence: BrowserEvidenceMetadata): string {
+  if (evidence.selectedContext) {
+    return `${evidence.requestedContext} -> ${evidence.selectedContext}`;
+  }
+  return evidence.requestedContext;
+}
+
+export function browserBlockerSummary(
+  evidence: BrowserEvidenceMetadata,
+): string {
+  if (evidence.blockerReason) {
+    return `Blocked: ${evidence.blockerReason}`;
+  }
+  if (evidence.progressDecision === "no_progress") {
+    return "Blocked: no progress";
+  }
+  return "No blocker";
+}
+
+export function browserDurationLabel(durationMs: number | null): string {
+  if (durationMs == null) return "-";
+  return `${Math.round(durationMs)} ms`;
 }
 
 function isMemorySearchResultItem(

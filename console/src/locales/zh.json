@@ -44,7 +44,9 @@
     },
     "actions": {
       "openChrome": "打开 Chrome",
-      "prepareBridge": "准备桥接"
+      "prepareBridge": "准备桥接",
+      "runSelfTest": "运行自检",
+      "copyDiagnostics": "复制诊断"
     },
     "setup": {
       "prepare": "准备桥接文件",
@@ -63,6 +65,45 @@
         "degraded": "降级",
         "unavailable": "不可用"
       }
+    },
+    "readiness": {
+      "extensionVersion": "扩展版本",
+      "selectedBackend": "选中的后端",
+      "nativeHost": "Native Host",
+      "backendCommit": "后端提交",
+      "traceEvents": "Trace 事件",
+      "buildFreshness": "构建新鲜度",
+      "buildDirty": "构建包含本地改动",
+      "buildUnknown": "未知",
+      "buildClean": "干净",
+      "lastSelfTest": "最近自检",
+      "connected": "Chrome 桥接已连接。",
+      "connectedSince": "Chrome 桥接已从 {{time}} 起连接。",
+      "setupRequired": "请安装或准备 Chrome 扩展桥接。"
+    },
+    "repair": {
+      "reloadExtension": "重载扩展",
+      "runSetup": "运行设置",
+      "restartQwenPaw": "重启 QwenPaw",
+      "rebuildFrontend": "重新构建前端",
+      "openChrome": "打开 Chrome",
+      "loginRequired": "先登录目标网站",
+      "approvalRequired": "查看审批",
+      "approvalDenied": "审批已拒绝",
+      "riskControl": "检查网站风险控制",
+      "retry": "重试"
+    },
+    "explain": {
+      "connected": "浏览器控制已就绪，正在使用选中的后端。",
+      "disconnected": "Chrome 尚未连接；请重载扩展或重新打开 Chrome。",
+      "setupRequired": "设置尚未完成；请运行设置并安装 Chrome 扩展。",
+      "staleBuild": "前端或后端构建不是最新；验收前请重新构建。",
+      "approvalRequired": "此浏览器操作需要你审批后才能继续。",
+      "approvalDenied": "浏览器操作已被拒绝，网站状态不会被修改。",
+      "loginRequired": "页面需要你的登录态后才能继续。",
+      "riskControl": "网站阻止了继续操作；请检查页面并安全重试。",
+      "noProgress": "上一次浏览器操作没有产生可见进展；请重新观察页面并选择更安全的下一步。",
+      "cleanupComplete": "浏览器控制清理已完成，并释放了本次请求持有的浏览器资源。"
     }
   },
   "pluginDetail": {
@@ -2656,7 +2697,15 @@
     "acknowledge": "我知道了",
     "approvePattern": "批准通用规则",
     "approveExact": "仅批准原文",
-    "approvalScope": "批准范围"
+    "approvalScope": "批准范围",
+    "browserAction": "浏览器操作",
+    "browserDomain": "域名",
+    "browserUrl": "URL",
+    "browserActionName": "操作",
+    "browserRisk": "风险",
+    "browserTitle": "标题",
+    "browserExpectedStateChange": "预期状态变化",
+    "browserArguments": "参数"
   },
   "pluginManager": {
     "title": "插件管理",
@@ -2925,6 +2974,19 @@
       "pdfDefault": "导出PDF",
       "install": "安装",
       "batch": "批量操作"
+    },
+    "browserEvidence": {
+      "title": "浏览器证据",
+      "route": "路由",
+      "backend": "后端",
+      "approval": "审批",
+      "approvalPrefix": "审批",
+      "blocker": "阻断",
+      "duration": "耗时",
+      "artifacts": "产物",
+      "copyDiagnostics": "复制诊断",
+      "noProgress": "已阻断：没有进展",
+      "cleanupComplete": "清理已完成"
     },
     "lineBadge": {
       "lines": "{{count}}行",
