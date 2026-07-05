@@ -344,6 +344,8 @@ def run_public_search(args: argparse.Namespace) -> BrowserControlReport:
         timeout=_task_timeout(args),
         backend_route=preflight.backend_route,
         required_success_marker="V6_PUBLIC_SEARCH_PASS",
+        required_context="isolated",
+        required_backend_id="isolated.playwright",
     )
 
 
@@ -456,6 +458,8 @@ def _run_chat_trace_scenario(
     require_user_backend: bool = False,
     request_context: dict[str, Any] | None = None,
     required_success_marker: str = "",
+    required_context: str = "",
+    required_backend_id: str = "",
 ) -> BrowserControlReport:
     try:
         task = _submit_console_task(
@@ -508,6 +512,8 @@ def _run_chat_trace_scenario(
         route=route,
         require_user_backend=require_user_backend,
         required_success_marker=required_success_marker,
+        required_context=required_context,
+        required_backend_id=required_backend_id,
         artifact_paths=artifact_paths,
     )
 
@@ -523,6 +529,8 @@ def _classify_chat_trace_result(
     route: str,
     require_user_backend: bool,
     required_success_marker: str,
+    required_context: str,
+    required_backend_id: str,
     artifact_paths: list[str] | None,
 ) -> BrowserControlReport:
     raw_evidence = json.dumps(task_status, ensure_ascii=False)
@@ -589,6 +597,8 @@ def _classify_chat_trace_result(
             route=route,
             require_user_backend=require_user_backend,
             required_success_marker=required_success_marker,
+            required_context=required_context,
+            required_backend_id=required_backend_id,
             artifact_paths=artifact_paths,
         )
     return report
@@ -604,6 +614,8 @@ def _classify_completed_chat_trace_result(
     route: str,
     require_user_backend: bool,
     required_success_marker: str,
+    required_context: str,
+    required_backend_id: str,
     artifact_paths: list[str] | None,
 ) -> BrowserControlReport:
     status = "passed"
@@ -627,6 +639,16 @@ def _classify_completed_chat_trace_result(
         status = "failed"
         error_code = BrowserErrorCode.UNKNOWN.value
         failure_reason = "missing_trace_evidence"
+    elif (
+        required_context or required_backend_id
+    ) and not _has_required_backend_evidence(
+        trace_events,
+        context=required_context,
+        backend_id=required_backend_id,
+    ):
+        status = "failed"
+        error_code = BrowserErrorCode.CAPABILITY_MISSING.value
+        failure_reason = "backend_route_mismatch"
     elif require_user_backend and not _has_user_backend_evidence(trace_events):
         status = "failed"
         error_code = BrowserErrorCode.UNKNOWN.value
@@ -962,6 +984,25 @@ def _has_user_backend_evidence(events: list[dict[str, Any]]) -> bool:
     )
 
 
+def _has_required_backend_evidence(
+    events: list[dict[str, Any]],
+    *,
+    context: str = "",
+    backend_id: str = "",
+) -> bool:
+    expected_context = str(context or "").strip()
+    expected_backend = str(backend_id or "").strip()
+    for event in events:
+        selected_context = str(event.get("selected_context") or "").strip()
+        event_backend = str(event.get("backend_id") or "").strip()
+        if expected_context and selected_context != expected_context:
+            continue
+        if expected_backend and event_backend != expected_backend:
+            continue
+        return True
+    return False
+
+
 def _fixture_prompt(fixture_url: str) -> str:
     return (
         "Your next action must be exactly one browser(code=...) tool call. "
@@ -1070,7 +1111,7 @@ def _local_git_commit() -> str:
 
 def _start_qwenpaw_app() -> None:
     subprocess.Popen(  # noqa: S603  # pylint: disable=consider-using-with
-        ("qwenpaw", "app"),
+        (sys.executable, "-m", "qwenpaw", "app"),
         cwd=_repo_root(),
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
