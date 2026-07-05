@@ -240,7 +240,17 @@ class CDPRelaySession:
             )
         return f"Chrome browser control wants to run CDP command {method}."
 
+    def _approval_level(self) -> str:
+        return (
+            str(self.request_context.get("approval_level") or "")
+            .strip()
+            .casefold()
+        )
+
     async def _request_approval(self, request: dict[str, Any]) -> bool:
+        if self._approval_level() == "off":
+            return True
+
         if self.approval_callback is not None:
             result = self.approval_callback(request)
             if inspect.isawaitable(result):

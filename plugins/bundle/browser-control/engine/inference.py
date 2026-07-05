@@ -100,6 +100,9 @@ async def _control_request_domain_approval(
     request_context: dict[str, Any],
     request: dict[str, Any],
 ) -> bool:
+    if _control_approval_level(request_context) == "off":
+        return True
+
     session_id = str(request_context.get("session_id") or "")
     if not session_id:
         return False
@@ -144,6 +147,14 @@ async def _control_request_domain_approval(
         TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS,
     )
     return decision == ApprovalDecision.APPROVED
+
+
+def _control_approval_level(request_context: dict[str, Any]) -> str:
+    return (
+        str(request_context.get("approval_level") or "")
+        .strip()
+        .casefold()
+    )
 
 
 async def _control_tab_create_denial_reason(
