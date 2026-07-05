@@ -81,6 +81,45 @@ class TabActions:
             value=value,
         )
 
+    async def upload(
+        self,
+        target: Any,
+        file_path: str | list[str],
+    ) -> BrowserActionResult:
+        return await self._mutate(
+            "upload",
+            **_target_kwargs(target),
+            file_path=file_path,
+        )
+
+    async def download(
+        self,
+        target: Any | None = None,
+        timeout_ms: int = 30000,
+    ) -> BrowserActionResult:
+        kwargs: dict[str, Any] = {"timeout_ms": timeout_ms}
+        if target is not None:
+            kwargs.update(_target_kwargs(target))
+        return await self._run(
+            "download",
+            mutating=target is not None,
+            transition=True,
+            **kwargs,
+        )
+
+    async def dialog(
+        self,
+        accept: bool = True,
+        prompt_text: str | None = None,
+    ) -> BrowserActionResult:
+        return await self._run(
+            "dialog",
+            mutating=accept,
+            transition=accept,
+            accept=accept,
+            prompt_text=prompt_text,
+        )
+
     async def hover(self, target: Any) -> BrowserActionResult:
         return await self._mutate("hover", **_target_kwargs(target))
 

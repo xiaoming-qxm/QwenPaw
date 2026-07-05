@@ -238,13 +238,11 @@ def render_markdown_report(payload: dict[str, Any]) -> str:
         if not isinstance(item, dict):
             continue
         lines.append(
-            "| {capability} | {gap} | {isolated} | {user} | {follow} |".format(
-                capability=_cell(item.get("capability_id")),
-                gap=_cell(item.get("gap_status")),
-                isolated=_cell(_support_status(item, "isolated_support")),
-                user=_cell(_support_status(item, "user_support")),
-                follow=_cell(item.get("follow_up")),
-            ),
+            f"| {_cell(item.get('capability_id'))} "
+            f"| {_cell(item.get('gap_status'))} "
+            f"| {_cell(_support_status(item, 'isolated_support'))} "
+            f"| {_cell(_support_status(item, 'user_support'))} "
+            f"| {_cell(item.get('follow_up'))} |",
         )
 
     lines.extend(
@@ -260,11 +258,9 @@ def render_markdown_report(payload: dict[str, Any]) -> str:
         if not isinstance(item, dict) or item.get("gap_status") != "supported":
             continue
         lines.append(
-            "| {capability} | {task} | {api} |".format(
-                capability=_cell(item.get("capability_id")),
-                task=_cell(item.get("product_task")),
-                api=_cell(", ".join(_string_list(item.get("public_api")))),
-            ),
+            f"| {_cell(item.get('capability_id'))} "
+            f"| {_cell(item.get('product_task'))} "
+            f"| {_cell(', '.join(_string_list(item.get('public_api'))))} |",
         )
 
     lines.extend(
@@ -283,12 +279,10 @@ def render_markdown_report(payload: dict[str, Any]) -> str:
         if not isinstance(item, dict):
             continue
         lines.append(
-            "| {capability} | {gap} | {route} | {evidence} |".format(
-                capability=_cell(item.get("capability_id")),
-                gap=_cell(item.get("gap_status")),
-                route=_cell(item.get("follow_up")),
-                evidence=_cell(", ".join(_string_list(item.get("evidence")))),
-            ),
+            f"| {_cell(item.get('capability_id'))} "
+            f"| {_cell(item.get('gap_status'))} "
+            f"| {_cell(item.get('follow_up'))} "
+            f"| {_cell(', '.join(_string_list(item.get('evidence'))))} |",
         )
 
     lines.extend(["", "## Entropy Findings", ""])
@@ -328,7 +322,7 @@ def render_markdown_report(payload: dict[str, Any]) -> str:
     if legacy_capabilities:
         lines.append(
             "- Legacy evidence maps to: "
-            + ", ".join(f"`{item}`" for item in legacy_capabilities)
+            + ", ".join(f"`{item}`" for item in legacy_capabilities),
         )
         lines.append("")
 
@@ -463,7 +457,9 @@ def _symbol_scan(
 
 
 def _legacy_actions(text: str) -> tuple[str, ...]:
-    actions = set(re.findall(r"browser_use\s*\(\s*action=[\"']([^\"']+)", text))
+    actions = set(
+        re.findall(r"browser_use\s*\(\s*action=[\"']([^\"']+)", text),
+    )
     actions.update(re.findall(r"browser_use:([a-zA-Z_]+)", text))
     actions.update(re.findall(r"name=[\"']browser_use[\"']", text))
     normalized = {

@@ -5,10 +5,13 @@
 from __future__ import annotations
 
 import time
+import mimetypes
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 from urllib.parse import quote_plus
 
+from ..error_codes import BrowserErrorCode, classify_browser_error
 from .._runtime import (
     _chromium_launch_args,
     _ensure_playwright_async,
@@ -560,6 +563,12 @@ class IsolatedPlaywrightRuntime:
                 )
             await locator.select_option(value)
             return BrowserActionResult(ok=True, message="select")
+        if action == "upload":
+            return await self._upload(page, page_id, kwargs)
+        if action == "download":
+            return await self._download(page, page_id, kwargs)
+        if action == "dialog":
+            return await self._dialog(page, kwargs)
         if action == "wait_for":
             await self._wait_for(page, page_id, kwargs)
             return BrowserActionResult(ok=True, message="wait_for")
@@ -717,6 +726,115 @@ class IsolatedPlaywrightRuntime:
             return
         await page.wait_for_timeout(min(timeout_ms, 1000))
 
+    async def _upload(
+        self,
+        page: Any,
+        page_id: str,
+        kwargs: dict[str, Any],
+    ) -> BrowserActionResult:
+        file_path = kwargs.get("file_path")
+        if file_path in (None, "", []):
+            return BrowserActionResult(ok=False, message="file_path required")
+        locator = self._locator_for_target(page, page_id, kwargs)
+        if locator is None:
+            return _capability_missing_result(
+                "upload",
+                "Upload requires a selector, ref, role, or text target.",
+            )
+        set_input_files = getattr(locator, "set_input_files", None)
+        if not callable(set_input_files):
+            return _capability_missing_result(
+                "upload",
+                "The selected target does not support file input upload.",
+            )
+        await _maybe_await(set_input_files(file_path))
+        return BrowserActionResult(
+            ok=True,
+            message="upload",
+            data={"backend_id": BACKEND_ID},
+        )
+
+    async def _download(
+        self,
+        page: Any,
+        page_id: str,
+        kwargs: dict[str, Any],
+    ) -> BrowserActionResult:
+        expect_download = getattr(page, "expect_download", None)
+        if not callable(expect_download):
+            return _capability_missing_result(
+                "download",
+                "The isolated runtime cannot observe browser downloads.",
+            )
+        timeout_ms = int(kwargs.get("timeout_ms") or 30000)
+        async with expect_download(timeout=timeout_ms) as download_info:
+            locator = self._locator_for_target(page, page_id, kwargs)
+            if locator is not None:
+                await _maybe_await(locator.click())
+            elif _has_coordinates(kwargs):
+                await page.mouse.click(float(kwargs["x"]), float(kwargs["y"]))
+        download = await _maybe_await(download_info.value)
+        path = await _maybe_await(download.path())
+        if not path:
+            return _capability_missing_result(
+                "download",
+                "The browser reported a download without a readable path.",
+            )
+        path_obj = Path(str(path))
+        media_type = (
+            mimetypes.guess_type(path_obj.name)[0]
+            or "application/octet-stream"
+        )
+        name = str(
+            getattr(download, "suggested_filename", "") or path_obj.name,
+        )
+        artifact = {
+            "kind": "download",
+            "url": path_obj.resolve().as_uri(),
+            "media_type": media_type,
+            "name": name,
+            "metadata": {
+                "path": str(path_obj),
+                "source_url": str(getattr(download, "url", "") or ""),
+            },
+        }
+        return BrowserActionResult(
+            ok=True,
+            message="download",
+            data={"backend_id": BACKEND_ID, "artifact": artifact},
+        )
+
+    async def _dialog(
+        self,
+        page: Any,
+        kwargs: dict[str, Any],
+    ) -> BrowserActionResult:
+        once = getattr(page, "once", None)
+        if not callable(once):
+            return _capability_missing_result(
+                "dialog",
+                "The isolated runtime cannot register dialog handlers.",
+            )
+        accept = _bool_arg(kwargs.get("accept", True))
+        prompt_text = kwargs.get("prompt_text")
+
+        async def _handle_dialog(dialog: Any) -> None:
+            if accept:
+                await _maybe_await(dialog.accept(prompt_text=prompt_text))
+            else:
+                await _maybe_await(dialog.dismiss())
+
+        once("dialog", _handle_dialog)
+        return BrowserActionResult(
+            ok=True,
+            message="dialog handler registered",
+            data={
+                "backend_id": BACKEND_ID,
+                "accept": accept,
+                "prompt_text": prompt_text,
+            },
+        )
+
 
 _DEFAULT_RUNTIME_MANAGER = IsolatedPlaywrightRuntimeManager()
 
@@ -762,6 +880,35 @@ async def _fallback_page_text(page: Any) -> str:
 
 def _has_coordinates(kwargs: dict[str, Any]) -> bool:
     return kwargs.get("x") is not None and kwargs.get("y") is not None
+
+
+async def _maybe_await(value: Any) -> Any:
+    if hasattr(value, "__await__"):
+        return await value
+    return value
+
+
+def _capability_missing_result(
+    action: str,
+    message: str,
+) -> BrowserActionResult:
+    info = classify_browser_error(BrowserErrorCode.CAPABILITY_MISSING)
+    return BrowserActionResult(
+        ok=False,
+        message=message,
+        data={
+            "backend_id": BACKEND_ID,
+            "action": action,
+            "error_code": info.code.value,
+            "recovery_hint": info.recovery_hint,
+        },
+    )
+
+
+def _bool_arg(value: Any) -> bool:
+    if isinstance(value, str):
+        return value.strip().casefold() not in {"", "0", "false", "no", "off"}
+    return bool(value)
 
 
 def _search_url(query: str, engine: str) -> str:

@@ -68,6 +68,7 @@ _SENSITIVE_KEYWORDS = {
 }
 
 
+# pylint: disable-next=too-many-return-statements
 def classify_browser_action(
     action: str,
     kwargs: Mapping[str, Any],
@@ -80,6 +81,23 @@ def classify_browser_action(
             level="none",
             kind="read",
             reason="read-only browser action",
+        )
+
+    if normalized == "dialog":
+        if _bool_arg(kwargs.get("accept", True)):
+            return BrowserActionRisk(
+                sensitive=True,
+                level="high",
+                kind="submission",
+                reason="accepting a browser dialog may submit state",
+                matched=("dialog.accept",),
+            )
+        return BrowserActionRisk(
+            sensitive=False,
+            level="low",
+            kind="navigation",
+            reason="dismissing a browser dialog is non-sensitive",
+            matched=("dialog.dismiss",),
         )
 
     if normalized in _STRUCTURED_SENSITIVE_ACTIONS:
@@ -156,6 +174,12 @@ def _flatten_values(value: Any) -> list[str]:
             out.extend(_flatten_values(item))
         return out
     return [str(value)]
+
+
+def _bool_arg(value: Any) -> bool:
+    if isinstance(value, str):
+        return value.strip().casefold() not in {"", "0", "false", "no", "off"}
+    return bool(value)
 
 
 __all__ = ["classify_browser_action"]

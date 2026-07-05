@@ -173,17 +173,45 @@ def _control_store_last_dialog(
     *,
     dialog_type: str,
     message: str,
+    accepted: bool = True,
 ) -> None:
     payload = {
         "type": dialog_type,
         "message": message,
-        "auto_accepted": True,
+        "auto_accepted": accepted,
+        "accepted": accepted,
     }
     extra = getattr(state, "extra", None)
     if isinstance(extra, dict):
         extra["last_dialog"] = payload
         return
     state["last_dialog"] = payload
+
+
+def _control_pop_next_dialog_decision(
+    state: StateMapping,
+    *,
+    tab_id: int,
+) -> dict[str, Any]:
+    default = {"accept": True, "prompt_text": ""}
+    extra = getattr(state, "extra", None)
+    if isinstance(extra, dict):
+        decision = extra.pop("next_dialog_decision", None)
+    else:
+        decision = state.pop("next_dialog_decision", None)
+    if not isinstance(decision, dict):
+        return default
+    decision_tab_id = decision.get("tab_id")
+    if decision_tab_id is not None and int(decision_tab_id) != int(tab_id):
+        if isinstance(extra, dict):
+            extra["next_dialog_decision"] = decision
+        else:
+            state["next_dialog_decision"] = decision
+        return default
+    return {
+        "accept": bool(decision.get("accept", True)),
+        "prompt_text": str(decision.get("prompt_text") or ""),
+    }
 
 
 def _control_register_dialog_auto_handler(
@@ -213,14 +241,18 @@ def _control_register_dialog_auto_handler(
                 params = {}
             dialog_type = str(params.get("type") or "")
             message = str(params.get("message") or "")
+            decision = _control_pop_next_dialog_decision(state, tab_id=tab_id)
+            accept = bool(decision.get("accept", True))
+            prompt_text = str(decision.get("prompt_text") or "")
             _control_store_last_dialog(
                 state,
                 dialog_type=dialog_type,
                 message=message,
+                accepted=accept,
             )
             await session.send(
                 "Page.handleJavaScriptDialog",
-                {"accept": True, "promptText": ""},
+                {"accept": accept, "promptText": prompt_text},
             )
             logger.info(
                 "Auto-handled %s dialog: %s",

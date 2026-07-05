@@ -539,7 +539,7 @@ function missingContentScriptReceiver(error) {
   );
 }
 
-async function sendBannerMessage(tabId, method, params) {
+async function sendContentMessage(tabId, method, params) {
   const message = {
     source: "qwenpaw-browser-bridge",
     method,
@@ -556,6 +556,10 @@ async function sendBannerMessage(tabId, method, params) {
 
   await ensureContentScript(tabId);
   return chrome.tabs.sendMessage(tabId, message);
+}
+
+async function sendBannerMessage(tabId, method, params) {
+  return sendContentMessage(tabId, method, params);
 }
 
 async function cleanupOrphans() {
@@ -648,6 +652,25 @@ async function handleMessage(message) {
           id,
           await sendBannerMessage(params.tabId, "banner.hide", params),
         );
+      case "file.upload":
+        return jsonRpcResult(
+          id,
+          await sendContentMessage(params.tabId, "file.upload", params),
+        );
+      case "download.read":
+        return jsonRpcResult(id, {
+          ok: false,
+          error_code: "capability_missing",
+          message:
+            "Download artifacts are collected through Browser Control CDP events.",
+        });
+      case "dialog.set":
+        return jsonRpcResult(id, {
+          ok: true,
+          tabId: params.tabId,
+          accept: params.accept !== false,
+          promptText: params.promptText || "",
+        });
       default:
         return jsonRpcError(id, -32601, "Method not found");
     }

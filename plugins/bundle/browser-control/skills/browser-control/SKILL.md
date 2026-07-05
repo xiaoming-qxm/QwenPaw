@@ -19,6 +19,14 @@ snapshot = await tab.snapshot()
 info = await tab.page_info()
 ```
 
+Generic user-browser capabilities stay on the Browser SDK action surface:
+
+```python
+await tab.actions.upload({"selector": "input[type=file]"}, "/tmp/input.txt")
+download = await tab.actions.download({"selector": "[data-testid=export]"})
+await tab.actions.dialog(accept=True)
+```
+
 The Chrome Extension bridge is required for user-state work. If the bridge is
 disconnected, stop and ask the user to enable or refresh the extension. Do not
 reroute logged-in or existing-tab tasks to the isolated backend.

@@ -57,6 +57,9 @@ MUTATING_TRACE_ACTIONS = {
     "scroll",
     "select",
     "select_option",
+    "upload",
+    "download",
+    "dialog",
     "type",
 }
 
@@ -141,6 +144,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("public-search")
     subparsers.add_parser("complex-isolated")
     subparsers.add_parser("complex-user")
+    subparsers.add_parser("v8-capability-isolated")
+    subparsers.add_parser("v8-capability-user")
     subparsers.add_parser("bridge-disconnected")
     taobao = subparsers.add_parser("taobao-live")
     taobao.add_argument("--live-taobao", action="store_true")
@@ -509,6 +514,110 @@ def run_complex_user(args: argparse.Namespace) -> BrowserControlReport:
     )
 
 
+def run_v8_capability_isolated(
+    args: argparse.Namespace,
+) -> BrowserControlReport:
+    started = time.perf_counter()
+    base_url = _normalize_base_url(args.base_url)
+    fixture = Path(__file__).with_name(
+        "browser_control_v8_capability_fixture.html",
+    )
+    if not fixture.exists():
+        return _report(
+            "v8-capability-isolated",
+            "failed",
+            started,
+            blocked_reason=f"missing fixture: {fixture}",
+        )
+    preflight = run_preflight(args)
+    if preflight.status != "passed":
+        return _copy_report(preflight, scenario="v8-capability-isolated")
+    session_id = (
+        f"browser-control-v8-capability-isolated-" f"{int(time.time() * 1000)}"
+    )
+    prompt_spec = _v8_capability_prompt_spec(
+        fixture.resolve().as_uri(),
+        context="isolated",
+    )
+    return _run_chat_trace_scenario(
+        scenario="v8-capability-isolated",
+        started=started,
+        base_url=base_url,
+        session_id=session_id,
+        prompt=prompt_spec.render(),
+        timeout=_task_timeout(args),
+        backend_route=preflight.backend_route,
+        artifact_paths=[str(fixture)],
+        require_user_backend=prompt_spec.require_user_backend,
+        request_context=prompt_spec.request_context,
+        required_success_marker=prompt_spec.required_success_marker,
+        required_context=prompt_spec.required_context,
+        required_backend_id=prompt_spec.required_backend_id,
+    )
+
+
+def run_v8_capability_user(args: argparse.Namespace) -> BrowserControlReport:
+    started = time.perf_counter()
+    base_url = _normalize_base_url(args.base_url)
+    fixture = Path(__file__).with_name(
+        "browser_control_v8_capability_fixture.html",
+    )
+    if not fixture.exists():
+        return _report(
+            "v8-capability-user",
+            "failed",
+            started,
+            blocked_reason=f"missing fixture: {fixture}",
+        )
+    preflight = run_preflight(args)
+    if preflight.status != "passed":
+        return _copy_report(preflight, scenario="v8-capability-user")
+    try:
+        status = _extension_status(base_url, args.timeout)
+    except RuntimeError as exc:
+        return _report(
+            "v8-capability-user",
+            "blocked",
+            started,
+            backend_route=preflight.backend_route,
+            error_code=BrowserErrorCode.BRIDGE_DISCONNECTED.value,
+            blocked_reason=str(exc),
+            artifact_paths=[str(fixture)],
+        )
+    backend_route = _backend_route(status) or preflight.backend_route
+    if status.get("connected") is not True:
+        return _report(
+            "v8-capability-user",
+            "blocked",
+            started,
+            backend_route=backend_route,
+            error_code=BrowserErrorCode.BRIDGE_DISCONNECTED.value,
+            artifact_paths=[str(fixture)],
+        )
+    session_id = (
+        f"browser-control-v8-capability-user-" f"{int(time.time() * 1000)}"
+    )
+    prompt_spec = _v8_capability_prompt_spec(
+        fixture.resolve().as_uri(),
+        context="user",
+    )
+    return _run_chat_trace_scenario(
+        scenario="v8-capability-user",
+        started=started,
+        base_url=base_url,
+        session_id=session_id,
+        prompt=prompt_spec.render(),
+        timeout=_task_timeout(args),
+        backend_route=backend_route,
+        artifact_paths=[str(fixture)],
+        require_user_backend=prompt_spec.require_user_backend,
+        request_context=prompt_spec.request_context,
+        required_success_marker=prompt_spec.required_success_marker,
+        required_context=prompt_spec.required_context,
+        required_backend_id=prompt_spec.required_backend_id,
+    )
+
+
 def run_bridge_disconnected(args: argparse.Namespace) -> BrowserControlReport:
     started = time.perf_counter()
     base_url = _normalize_base_url(args.base_url)
@@ -542,6 +651,8 @@ def main(argv: list[str] | None = None) -> int:
         "public-search": run_public_search,
         "complex-isolated": run_complex_isolated,
         "complex-user": run_complex_user,
+        "v8-capability-isolated": run_v8_capability_isolated,
+        "v8-capability-user": run_v8_capability_user,
         "bridge-disconnected": run_bridge_disconnected,
         "taobao-live": run_taobao_live,
     }
@@ -1178,12 +1289,18 @@ def _complex_trace_failure_reason(
     trace_events: list[dict[str, Any]],
     require_user_backend: bool,
 ) -> str:
-    if not scenario.startswith("complex-"):
+    if not (
+        scenario.startswith("complex-")
+        or scenario.startswith("v8-capability-")
+    ):
         return ""
     fresh_observe_failure = _fresh_observe_failure_reason(trace_events)
     if fresh_observe_failure:
         return fresh_observe_failure
-    if scenario == "complex-user" or require_user_backend:
+    if (
+        scenario in {"complex-user", "v8-capability-user"}
+        or require_user_backend
+    ):
         return _user_cleanup_failure_reason(trace_events)
     return ""
 
@@ -1391,6 +1508,110 @@ def _complex_prompt_spec(
         required_backend_id=required_backend_id,
         require_user_backend=require_user_backend,
         request_context=request_context,
+    )
+
+
+def _v8_capability_prompt_spec(
+    fixture_url: str,
+    *,
+    context: str,
+) -> HarnessPromptSpec:
+    if context == "user":
+        marker = "V8_CAPABILITY_USER_PASS"
+        connect = (
+            'browser = await Browser.connect(context="user", '
+            "requires_user_state=True)"
+        )
+        required_context = "user"
+        required_backend_id = "user.chrome_extension"
+        require_user_backend = True
+        request_context = {"approval_level": "OFF"}
+    else:
+        marker = "V8_CAPABILITY_ISOLATED_PASS"
+        connect = 'browser = await Browser.connect(context="isolated")'
+        required_context = "isolated"
+        required_backend_id = "isolated.playwright"
+        require_user_backend = False
+        request_context = None
+
+    return HarnessPromptSpec(
+        instruction=(
+            "Use browser(code=...) to run this deterministic Browser SDK "
+            "capability fixture script, then return the script output and a "
+            "one-line summary."
+        ),
+        code=_v8_capability_fixture_code(
+            fixture_url=fixture_url,
+            connect=connect,
+            marker=marker,
+        ),
+        required_success_marker=marker,
+        required_context=required_context,
+        required_backend_id=required_backend_id,
+        require_user_backend=require_user_backend,
+        request_context=request_context,
+    )
+
+
+def _v8_capability_fixture_code(
+    *,
+    fixture_url: str,
+    connect: str,
+    marker: str,
+) -> str:
+    return (
+        "from pathlib import Path\n"
+        "upload_path = Path('/tmp/qwenpaw-v8-capability-upload.txt')\n"
+        "upload_path.write_text('V8 capability upload', encoding='utf-8')\n"
+        f"{connect}\n"
+        "try:\n"
+        f'    tab = await browser.tabs.open("{fixture_url}")\n'
+        "    snapshot = await tab.snapshot()\n"
+        "    assert 'V8 Browser SDK Capability Fixture' in snapshot.text\n"
+        "    await tab.actions.click({"
+        '"selector": "[data-testid=\'reset-v8-capability-fixture\']"})\n'
+        "    snapshot = await tab.snapshot()\n"
+        "    await tab.actions.upload({"
+        '"selector": "[data-testid=\'capability-upload-input\']"}, '
+        "str(upload_path))\n"
+        "    snapshot = await tab.snapshot()\n"
+        "    assert 'Upload received: qwenpaw-v8-capability-upload.txt' "
+        "in snapshot.text\n"
+        "    download = await tab.actions.download({"
+        '"selector": "[data-testid=\'capability-download\']"}, '
+        "timeout_ms=5000)\n"
+        "    snapshot = await tab.snapshot()\n"
+        "    assert download.data.get('artifact', {}).get('kind') "
+        "== 'download'\n"
+        "    assert 'Download triggered.' in snapshot.text\n"
+        "    await tab.actions.dialog(accept=True)\n"
+        "    snapshot = await tab.snapshot()\n"
+        "    await tab.actions.click({"
+        '"selector": "[data-testid=\'capability-open-dialog\']"})\n'
+        "    snapshot = await tab.snapshot()\n"
+        "    assert 'Dialog accepted.' in snapshot.text\n"
+        "    await tab.actions.click({"
+        '"selector": "[data-testid=\'capability-frame-trigger\']"})\n'
+        "    await tab.actions.wait_for('Frame pong received.', "
+        "timeout_ms=3000)\n"
+        "    snapshot = await tab.snapshot()\n"
+        "    assert 'Frame pong received.' in snapshot.text\n"
+        "    shadow_text = await tab.evaluate("
+        "'document.querySelector(\"#shadow-host\").shadowRoot.textContent', "
+        "read_only=True)\n"
+        "    assert 'Shadow state: pending' in str(shadow_text)\n"
+        "    await tab.actions.click({"
+        '"selector": "[data-testid=\'capability-shadow-toggle\']"})\n'
+        "    snapshot = await tab.snapshot()\n"
+        "    assert 'Shadow toggled active.' in snapshot.text\n"
+        "    shadow_text = await tab.evaluate("
+        "'document.querySelector(\"#shadow-host\").shadowRoot.textContent', "
+        "read_only=True)\n"
+        "    assert 'Shadow state: active' in str(shadow_text)\n"
+        "    assert 'Mutations: 5' in snapshot.text\n"
+        f"    print('{marker} generic SDK capabilities verified')\n"
+        "finally:\n"
+        "    await browser.close()"
     )
 
 

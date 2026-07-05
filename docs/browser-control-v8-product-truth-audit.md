@@ -15,12 +15,12 @@ This report is a local repository audit; it does not start QwenPaw, open Chrome,
 | forms.type | supported | supported | supported | none |
 | forms.select | supported | supported | supported | none |
 | forms.submit_guard | partial | partial | partial | V8-D |
-| dialogs.confirm | missing | missing | missing | V8-B |
-| dom.iframe | partial | partial | partial | V8-B |
-| dom.shadow | partial | partial | partial | V8-B |
+| dialogs.confirm | supported | supported | supported | none |
+| dom.iframe | partial | partial | partial | V8-E |
+| dom.shadow | partial | partial | partial | V8-E |
 | tabs.multi_tab | supported | supported | supported | none |
-| files.download_read | internal_only | internal_only | missing | V8-B |
-| files.upload_select | missing | missing | missing | V8-B |
+| files.download_read | supported | supported | supported | none |
+| files.upload_select | supported | supported | supported | none |
 | lifecycle.cleanup | supported | supported | supported | V8-C |
 | routing.context_resolution | supported | supported | supported | none |
 | policy.approval | partial | partial | supported | V8-D |
@@ -37,7 +37,10 @@ This report is a local repository audit; it does not start QwenPaw, open Chrome,
 | observation.screenshot | Capture a screenshot artifact for visual evidence. | Tab.screenshot() |
 | forms.type | Type or fill text into form fields. | Tab.actions.type(target, text), Tab.actions.press(key) |
 | forms.select | Select an option in a native select control. | Tab.actions.select(target, value) |
+| dialogs.confirm | Handle confirmation, alert, and prompt dialogs. | Tab.actions.dialog(accept=True), Tab.actions.dialog(accept=False) |
 | tabs.multi_tab | List, open, select, and close multiple tabs. | Browser.tabs.list(), Browser.tabs.open(), Browser.tabs.select(), Tab.close() |
+| files.download_read | Read files downloaded by browser interactions. | Tab.actions.download(target) |
+| files.upload_select | Select local files for file upload controls. | Tab.actions.upload(target, file_path) |
 | lifecycle.cleanup | Release owned and borrowed tabs at request boundaries. | Browser.close(), Tab.close() |
 | routing.context_resolution | Route public tasks to isolated and user-state tasks to user. | Browser.connect(context=...) |
 | trace.evidence | Emit backend, context, action, and status evidence. | BrowserTraceEvent, get_browser_trace_events() |
@@ -50,11 +53,8 @@ Gap categories covered here: `missing`, `partial`, `internal_only`.
 |---|---|---|---|
 | extraction.structured | partial | V8-B | src/qwenpaw/browser_sdk/extract.py, src/qwenpaw/browser_sdk/extract.py, complex-isolated, complex-user |
 | forms.submit_guard | partial | V8-D | src/qwenpaw/browser_sdk/policy.py, src/qwenpaw/browser_sdk/backends/user.py:action, src/qwenpaw/browser/approval_policy.py, fixture, taobao-live:safety-gated |
-| dialogs.confirm | missing | V8-B | No public Browser SDK dialog API found., No Browser Control typed dialog handler found., none |
-| dom.iframe | partial | V8-B | Playwright locators can target frames internally., Browser Control snapshot/ref targeting may expose frame nodes., complex-isolated |
-| dom.shadow | partial | V8-B | Playwright selectors may pierce shadow DOM for some targets., Snapshot builder may expose composed accessibility content., complex-isolated |
-| files.download_read | internal_only | V8-B | Playwright context enables accept_downloads=True., No Browser Control download read API found., none |
-| files.upload_select | missing | V8-B | No Browser SDK upload selection API found., No Browser Control upload selection API found., none |
+| dom.iframe | partial | V8-E | scripts/verify/browser_control_v8_capability_fixture.html:capability-frame, scripts/verify/browser_control_v8_capability_fixture.html:capability-frame, v8-capability-isolated, v8-capability-user |
+| dom.shadow | partial | V8-E | scripts/verify/browser_control_v8_capability_fixture.html:capability-shadow-host, scripts/verify/browser_control_v8_capability_fixture.html:capability-shadow-host, v8-capability-isolated, v8-capability-user |
 | policy.approval | partial | V8-D | src/qwenpaw/browser_sdk/policy.py, src/qwenpaw/browser_sdk/backends/user.py:action, src/qwenpaw/browser/approval_policy.py, fixture, taobao-live:safety-gated |
 | ux.readiness | partial | V8-D | src/qwenpaw/browser_sdk/browser.py:diagnostics, console/src/pages/Settings/browserControlReadiness.tsx, plugins/bundle/browser-control/routes.py:/extension/status, bridge-disconnected, frontend focused tests |
 
@@ -66,7 +66,7 @@ Gap categories covered here: `missing`, `partial`, `internal_only`.
 
 Old `browser_use` local tests and samples are historical capability evidence only. They map to product capability IDs and do not define Browser SDK public API names.
 
-- Classified legacy evidence files: `33`
+- Classified legacy evidence files: `35`
 - Public API names are sourced from `product_matrix.py`.
 - Removal candidates and compatibility cleanup belong to V8-C.
 

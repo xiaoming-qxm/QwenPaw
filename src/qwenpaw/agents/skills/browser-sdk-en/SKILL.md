@@ -36,6 +36,14 @@ info = await tab.page_info()
 await tab.actions.click({"ref": "r1_e3"})
 ```
 
+Generic product capabilities use structured actions:
+
+```python
+await tab.actions.upload({"selector": "input[type=file]"}, "/tmp/input.txt")
+download = await tab.actions.download({"selector": "[data-testid=export]"})
+await tab.actions.dialog(accept=True)
+```
+
 After a state-changing operation, take a fresh `tab.snapshot()` or
 `tab.screenshot()` before the next mutation. `tab.evaluate(..., read_only=True)`
 is a read helper and does not satisfy that observation requirement.

@@ -412,6 +412,23 @@
     return { ok: true, visible: false };
   }
 
+  function fileUpload() {
+    return {
+      ok: false,
+      error_code: "capability_missing",
+      message:
+        "File upload is handled through Browser Control CDP setFileInputFiles.",
+    };
+  }
+
+  function setDialogDecision(params) {
+    return {
+      ok: true,
+      accept: params.accept !== false,
+      promptText: params.promptText || "",
+    };
+  }
+
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (!message || message.source !== "qwenpaw-browser-bridge") {
       return false;
@@ -424,6 +441,14 @@
     }
     if (message.method === "banner.hide") {
       sendResponse(hide());
+      return false;
+    }
+    if (message.method === "file.upload") {
+      sendResponse(fileUpload(params));
+      return false;
+    }
+    if (message.method === "dialog.set") {
+      sendResponse(setDialogDecision(params));
       return false;
     }
 

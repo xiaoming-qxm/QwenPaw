@@ -8,6 +8,7 @@ from typing import Any
 
 from agentscope.tool import ToolChunk
 
+from .capabilities import DIALOG_HANDLER, DOWNLOAD_HANDLER, UPLOAD_HANDLER
 from .claim_tab import CLAIM_TAB_HANDLER
 from .click import CLICK_HANDLER
 from .dispatcher import register_handler
@@ -49,6 +50,9 @@ register_handler("select_option", SELECT_OPTION_HANDLER)
 register_handler("click", CLICK_HANDLER)
 register_handler("type", TYPE_HANDLER)
 register_handler("press_key", PRESS_KEY_HANDLER)
+register_handler("upload", UPLOAD_HANDLER)
+register_handler("download", DOWNLOAD_HANDLER)
+register_handler("dialog", DIALOG_HANDLER)
 register_handler("snapshot", SNAPSHOT_HANDLER)
 register_handler("screenshot", SCREENSHOT_HANDLER)
 register_handler("wait_for", WAIT_FOR_HANDLER)
@@ -70,6 +74,9 @@ ACTION_HANDLERS: dict[str, ActionHandler] = {
     "click": CLICK_HANDLER.execute,
     "type": TYPE_HANDLER.execute,
     "press_key": PRESS_KEY_HANDLER.execute,
+    "upload": UPLOAD_HANDLER.execute,
+    "download": DOWNLOAD_HANDLER.execute,
+    "dialog": DIALOG_HANDLER.execute,
     "screenshot": SCREENSHOT_HANDLER.execute,
     "wait_for": WAIT_FOR_HANDLER.execute,
     "stop": STOP_HANDLER.execute,

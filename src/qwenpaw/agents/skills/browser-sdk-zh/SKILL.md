@@ -35,6 +35,14 @@ info = await tab.page_info()
 await tab.actions.click({"ref": "r1_e3"})
 ```
 
+通用产品能力也走结构化 actions：
+
+```python
+await tab.actions.upload({"selector": "input[type=file]"}, "/tmp/input.txt")
+download = await tab.actions.download({"selector": "[data-testid=export]"})
+await tab.actions.dialog(accept=True)
+```
+
 每次改变页面状态后，下一次 mutation 前必须重新调用 `tab.snapshot()` 或
 `tab.screenshot()`。`tab.evaluate(..., read_only=True)` 只是读取辅助，不算新的观察。
 `tab.page_info()` 只读取页面元信息，也不算新的观察。

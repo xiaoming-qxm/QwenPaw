@@ -177,7 +177,10 @@ BROWSER_PRODUCT_CAPABILITIES: tuple[BrowserProductCapability, ...] = (
     BrowserProductCapability(
         capability_id="forms.type",
         product_task="Type or fill text into form fields.",
-        public_api=("Tab.actions.type(target, text)", "Tab.actions.press(key)"),
+        public_api=(
+            "Tab.actions.type(target, text)",
+            "Tab.actions.press(key)",
+        ),
         isolated_support=_support(
             "supported",
             ("src/qwenpaw/browser_sdk/backends/isolated.py:action:type",),
@@ -248,62 +251,98 @@ BROWSER_PRODUCT_CAPABILITIES: tuple[BrowserProductCapability, ...] = (
     BrowserProductCapability(
         capability_id="dialogs.confirm",
         product_task="Handle confirmation, alert, and prompt dialogs.",
-        public_api=("none",),
+        public_api=(
+            "Tab.actions.dialog(accept=True)",
+            "Tab.actions.dialog(accept=False)",
+        ),
         isolated_support=_support(
-            "missing",
-            ("No public Browser SDK dialog API found.",),
-            limitations=(
-                "No first-class dialog event or accept/dismiss API.",
+            "supported",
+            (
+                "src/qwenpaw/browser_sdk/actions.py:TabActions.dialog",
+                "src/qwenpaw/browser_sdk/backends/isolated.py:_dialog",
             ),
+            backend_symbols=("TabActions.dialog", "action:dialog"),
         ),
         user_support=_support(
-            "missing",
-            ("No Browser Control typed dialog handler found.",),
-            limitations=(
-                "Chrome Extension bridge has no product dialog API.",
+            "supported",
+            (
+                "plugins/bundle/browser-control/engine/handlers/"
+                "capabilities.py:DialogHandler",
+                "plugins/bundle/browser-control/engine/session_manager.py:"
+                "_control_pop_next_dialog_decision",
             ),
+            backend_symbols=("handler:dialog", "dialog.set"),
         ),
-        verifier_evidence=("none",),
-        gap_status="missing",
-        follow_up="V8-B",
+        verifier_evidence=(
+            "v8-capability-isolated",
+            "v8-capability-user",
+        ),
+        gap_status="supported",
+        follow_up="none",
         legacy_evidence=("browser_use:dialog",),
     ),
     BrowserProductCapability(
         capability_id="dom.iframe",
         product_task="Target and observe content inside iframes.",
-        public_api=("Tab.snapshot()", "Tab.actions.*(target)"),
+        public_api=(
+            "Tab.snapshot()",
+            "Tab.actions.click(target)",
+            "Tab.evaluate(..., read_only=True)",
+        ),
         isolated_support=_support(
             "partial",
-            ("Playwright locators can target frames internally.",),
-            limitations=("No first-class frame selector in public SDK.",),
+            (
+                "scripts/verify/browser_control_v8_capability_fixture.html:"
+                "capability-frame",
+            ),
+            limitations=("No first-class frame selector API yet.",),
         ),
         user_support=_support(
             "partial",
-            ("Browser Control snapshot/ref targeting may expose frame nodes.",),
-            limitations=("No explicit iframe traversal contract.",),
+            (
+                "scripts/verify/browser_control_v8_capability_fixture.html:"
+                "capability-frame",
+            ),
+            limitations=("No explicit iframe traversal contract yet.",),
         ),
-        verifier_evidence=("complex-isolated",),
+        verifier_evidence=(
+            "v8-capability-isolated",
+            "v8-capability-user",
+        ),
         gap_status="partial",
-        follow_up="V8-B",
+        follow_up="V8-E",
         legacy_evidence=("browser_use:iframe",),
     ),
     BrowserProductCapability(
         capability_id="dom.shadow",
         product_task="Target and observe content inside shadow DOM.",
-        public_api=("Tab.snapshot()", "Tab.actions.*(target)"),
+        public_api=(
+            "Tab.snapshot()",
+            "Tab.actions.click(target)",
+            "Tab.evaluate(..., read_only=True)",
+        ),
         isolated_support=_support(
             "partial",
-            ("Playwright selectors may pierce shadow DOM for some targets.",),
-            limitations=("No first-class shadow-root contract.",),
+            (
+                "scripts/verify/browser_control_v8_capability_fixture.html:"
+                "capability-shadow-host",
+            ),
+            limitations=("No first-class shadow-root API yet.",),
         ),
         user_support=_support(
             "partial",
-            ("Snapshot builder may expose composed accessibility content.",),
-            limitations=("No explicit shadow DOM targeting contract.",),
+            (
+                "scripts/verify/browser_control_v8_capability_fixture.html:"
+                "capability-shadow-host",
+            ),
+            limitations=("No explicit shadow DOM targeting contract yet.",),
         ),
-        verifier_evidence=("complex-isolated",),
+        verifier_evidence=(
+            "v8-capability-isolated",
+            "v8-capability-user",
+        ),
         gap_status="partial",
-        follow_up="V8-B",
+        follow_up="V8-E",
         legacy_evidence=("browser_use:shadow_dom",),
     ),
     BrowserProductCapability(
@@ -336,43 +375,64 @@ BROWSER_PRODUCT_CAPABILITIES: tuple[BrowserProductCapability, ...] = (
     BrowserProductCapability(
         capability_id="files.download_read",
         product_task="Read files downloaded by browser interactions.",
-        public_api=("none",),
+        public_api=("Tab.actions.download(target)",),
         isolated_support=_support(
-            "internal_only",
-            ("Playwright context enables accept_downloads=True.",),
-            limitations=(
-                "No public SDK method returns downloaded file data.",
+            "supported",
+            (
+                "src/qwenpaw/browser_sdk/actions.py:TabActions.download",
+                "src/qwenpaw/browser_sdk/backends/isolated.py:_download",
             ),
+            backend_symbols=("TabActions.download", "action:download"),
         ),
         user_support=_support(
-            "missing",
-            ("No Browser Control download read API found.",),
-            limitations=("No bridge contract for downloaded file reads.",),
+            "supported",
+            (
+                "plugins/bundle/browser-control/engine/handlers/"
+                "capabilities.py:DownloadHandler",
+                "plugins/bundle/browser-control/assets/extensions/"
+                "qwenpaw-browser-bridge/service_worker.js:download.read",
+            ),
+            backend_symbols=(
+                "handler:download",
+                "Browser.setDownloadBehavior",
+            ),
         ),
-        verifier_evidence=("none",),
-        gap_status="internal_only",
-        follow_up="V8-B",
+        verifier_evidence=(
+            "v8-capability-isolated",
+            "v8-capability-user",
+        ),
+        gap_status="supported",
+        follow_up="none",
         legacy_evidence=("browser_use:download",),
     ),
     BrowserProductCapability(
         capability_id="files.upload_select",
         product_task="Select local files for file upload controls.",
-        public_api=("none",),
+        public_api=("Tab.actions.upload(target, file_path)",),
         isolated_support=_support(
-            "missing",
-            ("No Browser SDK upload selection API found.",),
-            limitations=(
-                "No safe file picker or set-input-files contract.",
+            "supported",
+            (
+                "src/qwenpaw/browser_sdk/actions.py:TabActions.upload",
+                "src/qwenpaw/browser_sdk/backends/isolated.py:_upload",
             ),
+            backend_symbols=("TabActions.upload", "action:upload"),
         ),
         user_support=_support(
-            "missing",
-            ("No Browser Control upload selection API found.",),
-            limitations=("No approval-aware bridge upload contract.",),
+            "supported",
+            (
+                "plugins/bundle/browser-control/engine/handlers/"
+                "capabilities.py:UploadHandler",
+                "plugins/bundle/browser-control/engine/handlers/"
+                "capabilities.py:_enforce_file_guard",
+            ),
+            backend_symbols=("handler:upload", "DOM.setFileInputFiles"),
         ),
-        verifier_evidence=("none",),
-        gap_status="missing",
-        follow_up="V8-B",
+        verifier_evidence=(
+            "v8-capability-isolated",
+            "v8-capability-user",
+        ),
+        gap_status="supported",
+        follow_up="none",
         legacy_evidence=("browser_use:upload",),
     ),
     BrowserProductCapability(
@@ -399,7 +459,9 @@ BROWSER_PRODUCT_CAPABILITIES: tuple[BrowserProductCapability, ...] = (
     ),
     BrowserProductCapability(
         capability_id="routing.context_resolution",
-        product_task="Route public tasks to isolated and user-state tasks to user.",
+        product_task=(
+            "Route public tasks to isolated and user-state tasks to user."
+        ),
         public_api=("Browser.connect(context=...)",),
         isolated_support=_support(
             "supported",
@@ -453,7 +515,13 @@ BROWSER_PRODUCT_CAPABILITIES: tuple[BrowserProductCapability, ...] = (
             ),
             backend_symbols=("record_browser_trace_event",),
         ),
-        verifier_evidence=("fixture", "public-search", "complex-user"),
+        verifier_evidence=(
+            "fixture",
+            "public-search",
+            "complex-user",
+            "v8-capability-isolated",
+            "v8-capability-user",
+        ),
         gap_status="supported",
         follow_up="none",
     ),
