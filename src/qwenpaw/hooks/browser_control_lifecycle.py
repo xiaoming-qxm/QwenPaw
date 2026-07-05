@@ -8,6 +8,9 @@ from time import perf_counter
 
 from .base import LifecycleHook
 from ..agents.tools.browser_control import cleanup_control_sessions_for_request
+from ..browser_sdk.backends.user import (
+    cleanup_user_browser_sessions_for_request,
+)
 from ..browser_sdk.trace import record_browser_trace_event
 from ..runtime.hooks import HookContext, HookResult
 from ..runtime.phases import Phase
@@ -33,11 +36,16 @@ class BrowserControlLifecycleCleanupHook(LifecycleHook):
 
         started = perf_counter()
         try:
-            result = await cleanup_control_sessions_for_request(
+            user_result = await cleanup_user_browser_sessions_for_request(
+                session_id=session_id,
+                root_session_id=root_session_id,
+            )
+            control_result = await cleanup_control_sessions_for_request(
                 session_id=session_id,
                 root_session_id=root_session_id,
                 workspace_id=_workspace_id(ctx),
             )
+            result = _merge_cleanup_results(user_result, control_result)
             ctx.extras[BROWSER_CONTROL_CLEANUP_EXTRA] = dict(result or {})
         except Exception as exc:  # pragma: no cover - exercised by T004 traces
             _record_cleanup_trace(
@@ -78,6 +86,25 @@ def _workspace_id(ctx: HookContext) -> str:
         if value:
             return str(value)
     return str(ctx.agent_id or "default")
+
+
+def _merge_cleanup_results(
+    user_result: dict[str, int] | None,
+    control_result: dict[str, int] | None,
+) -> dict[str, int]:
+    user_result = dict(user_result or {})
+    control_result = dict(control_result or {})
+    merged = dict(control_result)
+    matched_user_sessions = int(user_result.get("matched_sessions") or 0)
+    if matched_user_sessions:
+        merged["user_backend_sessions"] = matched_user_sessions
+    merged["closed_tabs"] = int(control_result.get("closed_tabs") or 0) + int(
+        user_result.get("closed_tabs") or 0,
+    )
+    merged["released_tabs"] = int(
+        control_result.get("released_tabs") or 0,
+    ) + int(user_result.get("released_tabs") or 0)
+    return merged
 
 
 def _record_cleanup_trace(

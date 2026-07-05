@@ -139,13 +139,36 @@ class Tab:
         """
         if not read_only:
             self._ensure_can_mutate("evaluate")
-        result = await self._session.evaluate(
-            self.id,
-            script,
-            read_only=read_only,
-        )
+        started = perf_counter()
+        phase = "read" if read_only else "action"
+        try:
+            result = await self._session.evaluate(
+                self.id,
+                script,
+                read_only=read_only,
+            )
+        except Exception as exc:
+            self._trace(
+                phase=phase,
+                action="evaluate",
+                status="error",
+                duration_ms=_duration_ms(started),
+                error_code=_error_code(exc),
+                metadata={
+                    "read_only": read_only,
+                    "error_type": type(exc).__name__,
+                },
+            )
+            raise
         if not read_only:
             self._mark_mutated()
+        self._trace(
+            phase=phase,
+            action="evaluate",
+            status="ok",
+            duration_ms=_duration_ms(started),
+            metadata={"read_only": read_only},
+        )
         return result
 
     async def close(self) -> BrowserActionResult:

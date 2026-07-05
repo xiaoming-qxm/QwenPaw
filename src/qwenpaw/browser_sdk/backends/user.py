@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import weakref
 from datetime import UTC, datetime
 from time import perf_counter
 from typing import Any, Literal
@@ -49,6 +50,10 @@ _ENGINE_ACTION_ALIASES = {
     "press": "press_key",
     "select": "select_option",
 }
+_USER_BROWSER_SESSIONS: dict[
+    str,
+    weakref.WeakSet["ChromeExtensionBrowserSession"],
+] = {}
 
 
 class ChromeExtensionBrowserBackend:
@@ -232,13 +237,15 @@ class ChromeExtensionBrowserBackend:
                 code="browser_bridge_disconnected",
                 backend_id=self.backend_id,
             )
-        return ChromeExtensionBrowserSession(
+        session = ChromeExtensionBrowserSession(
             bridge=bridge,
             session_id=session_id,
             context=context,
             policy=self._policy,
             control_engine=self._engine(),
         )
+        _register_user_browser_session(session)
+        return session
 
     def _bridge(self) -> Any | None:
         manager = self._bridge_manager or get_bridge_connection_manager()
@@ -277,20 +284,34 @@ class ChromeExtensionBrowserSession:
         self._tab_ownership: dict[str, _TabOwnership] = {}
 
     async def close(self) -> None:
-        for tab_id, ownership in list(self._tab_ownership.items()):
-            await self._cleanup_tab(
-                tab_id,
-                ownership,
-                cleanup_reason="browser_close",
-            )
+        await self._cleanup(cleanup_reason="browser_close")
 
     async def stop(self) -> None:
+        await self._cleanup(cleanup_reason="browser_stop")
+
+    async def cleanup_for_request(self) -> dict[str, int]:
+        """Release all tabs held by this Browser SDK user session."""
+        return await self._cleanup(cleanup_reason="finally")
+
+    async def _cleanup(self, *, cleanup_reason: str) -> dict[str, int]:
+        closed_tabs = 0
+        released_tabs = 0
         for tab_id, ownership in list(self._tab_ownership.items()):
             await self._cleanup_tab(
                 tab_id,
                 ownership,
-                cleanup_reason="browser_stop",
+                cleanup_reason=cleanup_reason,
             )
+            if ownership == "owned":
+                closed_tabs += 1
+            else:
+                released_tabs += 1
+        if not self._tab_ownership:
+            _unregister_user_browser_session(self)
+        return {
+            "closed_tabs": closed_tabs,
+            "released_tabs": released_tabs,
+        }
 
     async def active_tab(self) -> dict[str, Any]:
         tabs = await self.list_tabs()
@@ -593,6 +614,67 @@ def register_user_backend_once(
     return backend
 
 
+async def cleanup_user_browser_sessions_for_request(
+    *,
+    session_id: str = "",
+    root_session_id: str = "",
+    **_: Any,
+) -> dict[str, int]:
+    """Release Browser SDK user sessions for the current request."""
+    session_ids = {
+        _normalize_session_id(raw_session_id)
+        for raw_session_id in (session_id, root_session_id)
+        if str(raw_session_id or "").strip()
+    }
+    sessions: list[ChromeExtensionBrowserSession] = []
+    seen: set[int] = set()
+    for key in session_ids:
+        if not key:
+            continue
+        for session in list(_USER_BROWSER_SESSIONS.get(key, ())):
+            marker = id(session)
+            if marker in seen:
+                continue
+            seen.add(marker)
+            sessions.append(session)
+
+    closed_tabs = 0
+    released_tabs = 0
+    for session in sessions:
+        result = await session.cleanup_for_request()
+        closed_tabs += int(result.get("closed_tabs") or 0)
+        released_tabs += int(result.get("released_tabs") or 0)
+    return {
+        "matched_sessions": len(sessions),
+        "closed_tabs": closed_tabs,
+        "released_tabs": released_tabs,
+    }
+
+
+def _register_user_browser_session(
+    session: ChromeExtensionBrowserSession,
+) -> None:
+    key = _normalize_session_id(session.session_id)
+    sessions = _USER_BROWSER_SESSIONS.setdefault(key, weakref.WeakSet())
+    sessions.add(session)
+
+
+def _unregister_user_browser_session(
+    session: ChromeExtensionBrowserSession,
+) -> None:
+    key = _normalize_session_id(session.session_id)
+    sessions = _USER_BROWSER_SESSIONS.get(key)
+    if sessions is None:
+        return
+    sessions.discard(session)
+    if not sessions:
+        _USER_BROWSER_SESSIONS.pop(key, None)
+
+
+def _normalize_session_id(session_id: str) -> str:
+    return str(session_id or "default").strip() or "default"
+
+
 def _normalize_tab(tab: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": str(tab.get("id") or tab.get("tabId") or ""),
@@ -672,5 +754,6 @@ __all__ = [
     "BACKEND_ID",
     "ChromeExtensionBrowserBackend",
     "ChromeExtensionBrowserSession",
+    "cleanup_user_browser_sessions_for_request",
     "register_user_backend_once",
 ]
