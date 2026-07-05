@@ -21,6 +21,7 @@ from .navigation import (
     _control_url_key,
 )
 from .session_manager import _control_get_session
+from .state import StateMapping
 from .tab_manager import (
     _CONTROL_CLICK_TAB_TRANSITION_MAX_POLLS,
     _CONTROL_CLICK_TAB_TRANSITION_POLL_SECONDS,
@@ -246,7 +247,7 @@ def _control_create_action_transition_waiter(
 
 
 def _control_store_pending_action_transition(
-    state: dict,
+    state: StateMapping,
     *,
     before_tabs: list[dict[str, Any]] | None,
     source_tab_id: int,
@@ -263,7 +264,7 @@ def _control_store_pending_action_transition(
 
 
 async def _control_consume_pending_action_transition(
-    state: dict,
+    state: StateMapping,
     *,
     bridge: Any,
     holder_id: str,
@@ -308,7 +309,7 @@ async def _control_consume_pending_action_transition(
 
 
 def _control_refresh_current_tab_from_live_tabs(
-    state: dict,
+    state: StateMapping,
     tab_id: int,
     tabs: list[dict[str, Any]] | None,
 ) -> None:
@@ -324,7 +325,7 @@ def _control_refresh_current_tab_from_live_tabs(
 
 
 async def _control_attach_new_current_tab(
-    state: dict,
+    state: StateMapping,
     *,
     bridge: Any,
     tab: dict[str, Any],
@@ -427,7 +428,7 @@ async def _control_attach_new_current_tab(
 
 
 async def _control_apply_action_transition(
-    state: dict,
+    state: StateMapping,
     *,
     bridge: Any,
     transition: dict[str, Any],
@@ -477,7 +478,7 @@ async def _control_apply_action_transition(
 
 
 async def _control_claim_tab_opened_by_action(
-    state: dict,
+    state: StateMapping,
     *,
     bridge: Any,
     before_tabs: list[dict[str, Any]] | None,
@@ -522,7 +523,7 @@ async def _control_claim_tab_opened_by_action(
 
 
 async def _control_resolve_action_transition(
-    state: dict,
+    state: StateMapping,
     *,
     bridge: Any,
     before_tabs: list[dict[str, Any]] | None,

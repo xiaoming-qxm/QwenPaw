@@ -86,6 +86,34 @@ risk control, and payment or order-submission flows must be classified as
 blocked. The verifier must not automate purchase, payment, order submission,
 or account-changing live-site actions without explicit approval.
 
+## V7-D Coverage-Proven Compatibility Removal
+
+V7-D removes compatibility remnants only after replacement behavior is covered
+by focused tests. The Browser Control Native Host now requires the manifest
+entry file `browser-bridge-hosts.json`. Setup writes that file, and status or
+self-test checks report `native_host_repair_required` when a machine only has
+the old single-config shape. The repair command is:
+
+```bash
+qwenpaw setup-extension --yes --reset
+```
+
+Browser SDK errors now expose the V6 error taxonomy directly. Tool results and
+SDK exception payloads use `BrowserErrorCode` plus `code`, `outcome`,
+`recovery_hint`, and trace event identifiers as the supported contract.
+
+Browser Control runtime state uses `ControlState` as the internal contract. A
+single explicit adapter boundary converts external workspace mappings through
+`control_state_from_mapping` and writes results back through
+`sync_control_state_to_mapping`. Engine helpers should use typed fields rather
+than old dict-shaped state as their normal input.
+
+The V7-D runtime residual scan covers Browser SDK runtime code, Browser runtime
+code, the Browser Control plugin, and the verifier. It blocks removed hot-path
+terms, removed websocket route names, removed remote bridge references, removed
+error payload fields, and removed ControlState compatibility APIs from runtime
+source.
+
 ## V7 Backlog
 
 ### isolated-backend capability-class backlog

@@ -125,7 +125,6 @@ class BrowserKernel:
                 error={
                     "type": "TimeoutError",
                     "code": error_info.code.value,
-                    "legacy_code": "browser_kernel_timeout",
                     "outcome": error_info.outcome.value,
                     "recovery_hint": error_info.recovery_hint,
                     "message": f"Execution timed out after {timeout_ms}ms",
@@ -262,18 +261,12 @@ def _error_payload(exc: Exception) -> dict[str, Any]:
         "traceback": traceback.format_exc(),
     }
     if isinstance(exc, BrowserSDKError):
-        payload["legacy_code"] = exc.code
-        payload["browser_error_code"] = exc.browser_error_code
         payload["recovery_hint"] = exc.recovery_hint
         if exc.backend_id:
             payload["backend_id"] = exc.backend_id
         if exc.action:
             payload["action"] = exc.action
         metadata = dict(exc.metadata)
-        if exc.code:
-            metadata.setdefault("legacy_code", exc.code)
-        if exc.recovery_hint:
-            metadata.setdefault("recovery_hint", exc.recovery_hint)
         if metadata:
             payload["metadata"] = metadata
     return payload

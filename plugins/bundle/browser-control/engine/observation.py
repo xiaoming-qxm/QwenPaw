@@ -14,6 +14,7 @@ from typing import Any
 from agentscope.tool import ToolChunk
 
 from qwenpaw.browser_sdk._runtime import _tool_response
+from .state import StateMapping
 from .tab_manager import _CONTROL_MUTATING_ACTIONS
 
 _ASYNC_WRITE_GUARD_TEMPLATE_PATH = (
@@ -21,7 +22,7 @@ _ASYNC_WRITE_GUARD_TEMPLATE_PATH = (
 )
 
 
-def _click_effect_records(state: dict) -> dict[str, Any]:
+def _click_effect_records(state: StateMapping) -> dict[str, Any]:
     records = state.get("control_click_effects")
     if not isinstance(records, dict):
         records = {}
@@ -29,7 +30,7 @@ def _click_effect_records(state: dict) -> dict[str, Any]:
     return records
 
 
-def _click_effect_snapshot_hashes(state: dict) -> dict[str, str]:
+def _click_effect_snapshot_hashes(state: StateMapping) -> dict[str, str]:
     hashes = state.get("control_snapshot_hashes")
     if not isinstance(hashes, dict):
         hashes = {}
@@ -37,7 +38,7 @@ def _click_effect_snapshot_hashes(state: dict) -> dict[str, str]:
     return hashes
 
 
-def _control_visual_observation_records(state: dict) -> dict[str, Any]:
+def _control_visual_observation_records(state: StateMapping) -> dict[str, Any]:
     records = state.get("control_visual_observations")
     if not isinstance(records, dict):
         records = {}
@@ -46,7 +47,7 @@ def _control_visual_observation_records(state: dict) -> dict[str, Any]:
 
 
 def _control_mark_visual_observation(
-    state: dict,
+    state: StateMapping,
     tab_id: int,
     *,
     source: str,
@@ -58,7 +59,10 @@ def _control_mark_visual_observation(
     }
 
 
-def _control_clear_visual_observation(state: dict, tab_id: int) -> None:
+def _control_clear_visual_observation(
+    state: StateMapping,
+    tab_id: int,
+) -> None:
     records = state.get("control_visual_observations")
     if not isinstance(records, dict):
         return
@@ -68,7 +72,7 @@ def _control_clear_visual_observation(state: dict, tab_id: int) -> None:
 
 
 def _click_effect_record_snapshot(
-    state: dict,
+    state: StateMapping,
     tab_id: int,
     snapshot_hash: str,
 ) -> None:
@@ -77,7 +81,7 @@ def _click_effect_record_snapshot(
     _click_effect_snapshot_hashes(state)[str(tab_id)] = snapshot_hash
 
 
-def _click_effect_last_snapshot_hash(state: dict, tab_id: int) -> str:
+def _click_effect_last_snapshot_hash(state: StateMapping, tab_id: int) -> str:
     hashes = state.get("control_snapshot_hashes")
     if not isinstance(hashes, dict):
         return ""
@@ -85,7 +89,7 @@ def _click_effect_last_snapshot_hash(state: dict, tab_id: int) -> str:
 
 
 def _click_effect_record_click(
-    state: dict,
+    state: StateMapping,
     tab_id: int,
     ref: str,
     snapshot_hash: str,
@@ -155,7 +159,7 @@ def _control_async_write_guard_response(
 
 
 def _control_async_write_guard(
-    state: dict,
+    state: StateMapping,
     tab_id: int,
     target_ref: str,
 ) -> ToolChunk | None:
@@ -264,7 +268,7 @@ def _control_visual_coordinate_click_guard_response(
 
 
 def _control_visual_coordinate_click_guard(
-    state: dict,
+    state: StateMapping,
     tab_id: int,
     target_ref: str,
 ) -> ToolChunk | None:
@@ -288,7 +292,7 @@ def _control_visual_coordinate_click_guard(
 
 
 def _control_repeated_no_effect_record(
-    state: dict,
+    state: StateMapping,
     tab_id: int,
     target_ref: str,
 ) -> tuple[dict[str, Any], int] | None:
@@ -319,7 +323,7 @@ def _control_repeated_no_effect_record(
 
 
 def _control_coordinate_click_loop_guard(
-    state: dict,
+    state: StateMapping,
     tab_id: int,
     target_ref: str,
 ) -> ToolChunk | None:
@@ -378,7 +382,7 @@ def _control_scroll_action_loop_guard_response(
 
 
 def _control_scroll_action_loop_guard(
-    state: dict,
+    state: StateMapping,
     tab_id: int,
     target_ref: str,
 ) -> ToolChunk | None:
@@ -399,7 +403,7 @@ def _control_scroll_action_loop_guard(
     )
 
 
-def _click_effect_reset(state: dict, tab_id: int) -> None:
+def _click_effect_reset(state: StateMapping, tab_id: int) -> None:
     records = state.get("control_click_effects")
     if not isinstance(records, dict):
         return
@@ -409,7 +413,7 @@ def _click_effect_reset(state: dict, tab_id: int) -> None:
 
 
 def _click_effect_check(
-    state: dict,
+    state: StateMapping,
     tab_id: int,
     current_hash: str,
 ) -> tuple[bool, dict[str, Any]]:
@@ -470,7 +474,7 @@ def _click_effect_check(
     return False, {"no_effect": False}
 
 
-def _control_pending_observations(state: dict) -> dict[str, Any]:
+def _control_pending_observations(state: StateMapping) -> dict[str, Any]:
     pending = state.get("control_pending_observations")
     if not isinstance(pending, dict):
         pending = {}
@@ -479,7 +483,7 @@ def _control_pending_observations(state: dict) -> dict[str, Any]:
 
 
 def _control_mark_observation_required(
-    state: dict,
+    state: StateMapping,
     tab_id: int,
     *,
     action: str,
@@ -491,7 +495,10 @@ def _control_mark_observation_required(
     }
 
 
-def _control_clear_observation_required(state: dict, tab_id: int) -> None:
+def _control_clear_observation_required(
+    state: StateMapping,
+    tab_id: int,
+) -> None:
     pending = state.get("control_pending_observations")
     if not isinstance(pending, dict):
         return
@@ -540,7 +547,7 @@ def _control_observation_required_response(
 
 
 def _control_require_observation_before_action(
-    state: dict,
+    state: StateMapping,
     *,
     action: str,
     tab_id: int,

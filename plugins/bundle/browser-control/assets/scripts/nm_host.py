@@ -79,7 +79,8 @@ def load_bridge_entries(
     config_path: Path = DEFAULT_CONFIG_PATH,
     manifest_path: Path = MANIFEST_PATH,
 ) -> list[dict[str, Any]]:
-    """Load multi-instance manifest entries, falling back to legacy config."""
+    """Load current multi-instance manifest entries."""
+    del config_path
     try:
         manifest = load_manifest(manifest_path)
     except (OSError, json.JSONDecodeError):
@@ -104,16 +105,7 @@ def load_bridge_entries(
     if entries:
         return entries
 
-    legacy = load_config(config_path)
-    return [
-        {
-            "entryId": "legacy-default",
-            "wsUrl": legacy["ws_url"],
-            "token": legacy["token"],
-            "protocolVersion": 1,
-            "legacy": True,
-        },
-    ]
+    return []
 
 
 async def connect_websocket(
@@ -308,21 +300,16 @@ async def run_bridge(
     stdin: BinaryIO | None = None,
     stdout: BinaryIO | None = None,
     *,
-    connect_retry_seconds: float = DEFAULT_CONNECT_RETRY_SECONDS,
     connector: Callable[..., Any] | None = None,
 ) -> None:
     entries = load_bridge_entries(config_path, manifest_path)
     stdin = stdin or sys.stdin.buffer
     stdout = stdout or sys.stdout.buffer
-    if len(entries) == 1 and entries[0].get("legacy"):
-        ws = await connect_websocket_with_retry(
-            entries[0]["wsUrl"],
-            entries[0]["token"],
-            connector,
-            retry_seconds=connect_retry_seconds,
+    if not entries:
+        raise RuntimeError(
+            "Browser Control Native Host manifest has no backend entries. "
+            "Run qwenpaw setup-extension --yes --reset to repair setup.",
         )
-        await _run_single_backend_bridge(stdin, stdout, ws)
-        return
 
     registry = LeaseRegistry()
     router = MessageRouter(registry)

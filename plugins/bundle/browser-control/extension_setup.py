@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import os
 import secrets
 import shutil
 import stat
@@ -11,6 +12,7 @@ import subprocess
 import sys
 import webbrowser
 from pathlib import Path
+from uuid import uuid4
 
 import click
 
@@ -26,6 +28,12 @@ CHROME_EXTENSIONS_URL = "chrome://extensions"
 LOCAL_BRIDGE_CONFIG_JS = "bridge_config.js"
 LOCAL_INITIAL_RECONNECT_BACKOFF_SECONDS = 5
 LOCAL_MAX_RECONNECT_BACKOFF_SECONDS = 60
+BRIDGE_MANIFEST_FILENAME = "browser-bridge-hosts.json"
+BRIDGE_MANIFEST_SCHEMA_VERSION = 1
+NATIVE_HOST_REPAIR_INSTRUCTION = (
+    "Run qwenpaw setup-extension --yes --reset to repair Browser Control "
+    "Native Host manifest configuration."
+)
 
 
 def native_manifest_path(
@@ -175,6 +183,70 @@ def _write_nm_config(qwenpaw_home: Path, token: str, ws_url: str) -> Path:
     return config_path
 
 
+def _bridge_manifest_path(qwenpaw_home: Path) -> Path:
+    return qwenpaw_home / BRIDGE_MANIFEST_FILENAME
+
+
+def _write_bridge_manifest_entry(
+    qwenpaw_home: Path,
+    token: str,
+    ws_url: str,
+) -> Path:
+    manifest_path = _bridge_manifest_path(qwenpaw_home)
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    entry_id = f"qwenpaw-runtime-{uuid4().hex[:8]}"
+    manifest = {
+        "schemaVersion": BRIDGE_MANIFEST_SCHEMA_VERSION,
+        "entries": [
+            {
+                "entryId": entry_id,
+                "channel": "stable",
+                "appVersion": "",
+                "protocolVersion": BRIDGE_MANIFEST_SCHEMA_VERSION,
+                "wsUrl": ws_url,
+                "token": token,
+                "presence": {
+                    "pid": os.getpid(),
+                    "startedAt": _utc_now(),
+                    "lastSeenAt": _utc_now(),
+                },
+                "updatedAt": _utc_now(),
+            },
+        ],
+    }
+    manifest_path.write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+    manifest_path.chmod(0o600)
+    return manifest_path
+
+
+def _bridge_manifest_entries(manifest_path: Path) -> list[dict]:
+    if not manifest_path.exists():
+        return []
+    try:
+        raw = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    entries = raw.get("entries")
+    if not isinstance(entries, list):
+        return []
+    return [
+        entry
+        for entry in entries
+        if isinstance(entry, dict)
+        and str(entry.get("wsUrl") or "").strip()
+        and str(entry.get("token") or "").strip()
+    ]
+
+
+def _utc_now() -> str:
+    import time
+
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
 def _read_existing_nm_token(qwenpaw_home: Path) -> str | None:
     config_path = qwenpaw_home / "nm-bridge.json"
     if not config_path.exists():
@@ -229,6 +301,9 @@ def _uninstall(qwenpaw_home: Path) -> None:
     manifest_path = native_manifest_path()
     if manifest_path.exists():
         manifest_path.unlink()
+    bridge_manifest_path = _bridge_manifest_path(qwenpaw_home)
+    if bridge_manifest_path.exists():
+        bridge_manifest_path.unlink()
     host = qwenpaw_home / "bin" / "qwenpaw-nm-host"
     host_impl = qwenpaw_home / "bin" / "qwenpaw-nm-host.py"
     for path in (host, host_impl):
@@ -258,6 +333,11 @@ def setup_extension_files(
         extension_dir = _copy_extension(qwenpaw_home)
         _write_local_extension_config(extension_dir)
     config_path = _write_nm_config(qwenpaw_home, token, ws_url)
+    bridge_manifest_path = _write_bridge_manifest_entry(
+        qwenpaw_home,
+        token,
+        ws_url,
+    )
     host_path = _write_host(qwenpaw_home)
     extension_id = CWS_EXTENSION_ID if install_mode == "cws" else EXTENSION_ID
     manifest_path = _write_native_manifest(host_path, extension_id)
@@ -271,6 +351,10 @@ def setup_extension_files(
         "native_manifest_path": str(manifest_path),
         "native_host_path": str(host_path),
         "config_path": str(config_path),
+        "bridge_manifest_path": str(bridge_manifest_path),
+        "manifest_configured": True,
+        "native_host_repair_required": False,
+        "native_host_repair_instruction": "",
         "ws_url": ws_url,
         "chrome_extensions_url": CHROME_EXTENSIONS_URL,
     }
@@ -288,6 +372,10 @@ def extension_install_status() -> dict[str, str | bool | None]:
     manifest_path = native_manifest_path()
     host_path = qwenpaw_home / "bin" / "qwenpaw-nm-host"
     config_path = qwenpaw_home / "nm-bridge.json"
+    bridge_manifest_path = _bridge_manifest_path(qwenpaw_home)
+    manifest_configured = bool(_bridge_manifest_entries(bridge_manifest_path))
+    legacy_config_exists = config_path.exists()
+    repair_required = legacy_config_exists and not manifest_configured
     ws_url = None
     if config_path.exists():
         try:
@@ -309,6 +397,13 @@ def extension_install_status() -> dict[str, str | bool | None]:
         "native_manifest_path": str(manifest_path),
         "native_host_path": str(host_path),
         "config_path": str(config_path),
+        "bridge_manifest_path": str(bridge_manifest_path),
+        "manifest_configured": manifest_configured,
+        "native_host_repair_required": repair_required,
+        "native_host_repair_instruction": (
+            NATIVE_HOST_REPAIR_INSTRUCTION if repair_required else ""
+        ),
+        "legacy_config_path": str(config_path) if legacy_config_exists else "",
         "ws_url": ws_url or resolve_default_ws_url(),
         "chrome_extensions_url": CHROME_EXTENSIONS_URL,
     }

@@ -4,14 +4,15 @@
 from __future__ import annotations
 
 import re
-from typing import Any
+
+from .state import StateMapping
 
 _REF_SCOPE_STATE_KEY = "control_ref_scope_sequences"
 _REF_PATTERN = re.compile(r"\[ref=([^\]\s]+)\]")
 
 
 def _control_scope_snapshot_refs(
-    state: dict[str, Any],
+    state: StateMapping,
     tab_id: int,
     snapshot: str,
     refs: dict[str, dict],
@@ -61,7 +62,7 @@ def _control_snapshot_payload_refs(
 
 
 def _control_current_snapshot_ref(
-    state: dict[str, Any],
+    state: StateMapping,
     tab_id: int,
     ref: str,
 ) -> str:
@@ -94,7 +95,7 @@ def _control_current_snapshot_ref(
     return ref
 
 
-def _next_ref_scope(state: dict[str, Any], tab_id: int) -> str:
+def _next_ref_scope(state: StateMapping, tab_id: int) -> str:
     sequences = state.get(_REF_SCOPE_STATE_KEY)
     if not isinstance(sequences, dict):
         sequences = {}

@@ -32,7 +32,10 @@ from .engine.session_manager import (
     _control_remove_dialog_auto_handlers,
     _control_request_context,
 )
-from .engine.state import ControlState
+from .engine.state import (
+    control_state_from_mapping,
+    sync_control_state_to_mapping,
+)
 
 
 class ControlEngineImpl(BrowserControlEngine):
@@ -46,7 +49,7 @@ class ControlEngineImpl(BrowserControlEngine):
     ) -> ToolChunk:
         """Dispatch an action through Browser Control handlers."""
         action_name = str(action or "").strip()
-        state_obj = ControlState.from_dict(state)
+        state_obj = control_state_from_mapping(state)
         manager = get_bridge_connection_manager()
         bridge = manager.get_connection() if manager is not None else None
         request_context = _control_request_context()
@@ -71,8 +74,7 @@ class ControlEngineImpl(BrowserControlEngine):
             )
         finally:
             _control_remove_dialog_auto_handlers(state_obj, bridge)
-            if isinstance(state, dict):
-                state_obj.sync_to(state)
+            sync_control_state_to_mapping(state_obj, state)
 
     def supported_actions(self) -> frozenset[str]:
         """Return action names supported by this engine."""

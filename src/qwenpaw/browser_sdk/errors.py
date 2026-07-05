@@ -39,9 +39,7 @@ class BrowserSDKError(Exception):
         payload: dict[str, Any] = {
             "ok": False,
             "error": self.browser_error_code,
-            "legacy_error": self.code,
             "code": self.browser_error_code,
-            "legacy_code": self.code,
             "outcome": self.browser_outcome,
             "recovery_hint": self.recovery_hint,
             "message": str(self),

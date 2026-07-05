@@ -97,7 +97,6 @@ async def browser(
             error_code=_result_error_code(result.error),
             metadata={
                 "error_type": result.error.get("type", ""),
-                "legacy_code": result.error.get("legacy_code", ""),
             },
         )
         trace_events = trace_store.list(session_id)[trace_start_index:]
@@ -164,10 +163,6 @@ def _metadata(
         metadata["error_code"] = error_info.code.value
         metadata["browser_error_code"] = error_info.code.value
         metadata["error_outcome"] = error_info.outcome.value
-        metadata["legacy_error_code"] = result.error.get(
-            "legacy_code",
-            "",
-        )
         metadata["recovery_hint"] = str(
             result.error.get("recovery_hint") or error_info.recovery_hint,
         )
@@ -264,7 +259,7 @@ def _error_hint(error: dict[str, Any], code: str) -> str:
 def _result_error_code(error: dict[str, Any]) -> str:
     raw = error.get("code") or error.get("browser_error_code")
     if not raw:
-        raw = error.get("legacy_code") or error.get("type") or "unknown"
+        raw = error.get("type") or "unknown"
     return classify_browser_error(str(raw)).code.value
 
 

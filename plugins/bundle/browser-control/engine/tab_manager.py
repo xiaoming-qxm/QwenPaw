@@ -23,6 +23,7 @@ from .navigation import (
     _control_url_key,
 )
 from .session_manager import _control_close_session, _control_holder_id
+from .state import ControlState, StateMapping
 
 _CONTROL_CLEANUP_EXCEPTIONS = RECOVERABLE_CONTROL_EXCEPTIONS + (
     NMBridgeDisconnectedError,
@@ -94,12 +95,28 @@ def _control_live_tab_map(
     return live_tabs
 
 
-def _control_claimed_tab_candidates(state: dict, url: str) -> list[int]:
+def _control_state_tabs(state: StateMapping) -> dict[str, dict[str, Any]]:
+    if isinstance(state, ControlState):
+        return state.tabs
+    tabs = state.get("control_tabs") or {}
+    return tabs if isinstance(tabs, dict) else {}
+
+
+def _control_state_current_page_id(state: StateMapping) -> str:
+    if isinstance(state, ControlState):
+        return str(state.current_page_id or "")
+    return str(state.get("current_page_id") or "")
+
+
+def _control_claimed_tab_candidates(
+    state: StateMapping,
+    url: str,
+) -> list[int]:
     if not url:
         return []
     target_key = _control_url_key(url)
-    current = str(state.get("current_page_id") or "")
-    control_tabs = state.get("control_tabs") or {}
+    current = _control_state_current_page_id(state)
+    control_tabs = _control_state_tabs(state)
     candidate_tabs = []
     if current:
         candidate_tabs.append(control_tabs.get(current))
@@ -116,14 +133,14 @@ def _control_claimed_tab_candidates(state: dict, url: str) -> list[int]:
 
 
 def _control_current_same_site_candidate(
-    state: dict,
+    state: StateMapping,
     url: str,
     holder_id: str,
 ) -> int | None:
     if not url:
         return None
-    current = str(state.get("current_page_id") or "")
-    tab = (state.get("control_tabs") or {}).get(current)
+    current = _control_state_current_page_id(state)
+    tab = _control_state_tabs(state).get(current)
     if not isinstance(tab, dict):
         return None
     if str(tab.get("holder_id") or "") != holder_id:
@@ -135,13 +152,13 @@ def _control_current_same_site_candidate(
 
 
 def _control_refresh_tab_url(
-    state: dict,
+    state: StateMapping,
     tab_id: int,
     url: str,
 ) -> None:
     if not url:
         return
-    control_tabs = state.get("control_tabs") or {}
+    control_tabs = _control_state_tabs(state)
     tab = control_tabs.get(str(tab_id))
     if not isinstance(tab, dict):
         return
@@ -149,7 +166,7 @@ def _control_refresh_tab_url(
     tab["url_key"] = _control_url_key(url)
 
 
-async def _control_forget_tab_state(state: dict, tab_id: int) -> None:
+async def _control_forget_tab_state(state: StateMapping, tab_id: int) -> None:
     from .observation import _control_clear_observation_required
 
     key = str(tab_id)
@@ -190,7 +207,7 @@ async def _control_ensure_tab_available(bridge: Any, tab_id: int) -> None:
 
 
 async def _control_close_owned_tab(
-    state: dict,
+    state: StateMapping,
     *,
     bridge: Any,
     tab_id: int,
@@ -230,7 +247,7 @@ def _control_tab_matches_request(
 
 
 async def _control_cleanup_tab_record(
-    state: dict,
+    state: StateMapping,
     *,
     bridge: Any,
     tab: dict[str, Any],
@@ -273,7 +290,7 @@ async def _control_cleanup_tab_record(
 
 
 async def _control_release_tab_record(
-    state: dict,
+    state: StateMapping,
     *,
     bridge: Any,
     tab: dict[str, Any],
@@ -303,7 +320,7 @@ async def _control_release_tab_record(
 
 
 async def _control_cleanup_matching_tabs(
-    state: dict,
+    state: StateMapping,
     *,
     bridge: Any,
     predicate: Callable[[dict[str, Any]], bool],
@@ -331,7 +348,7 @@ async def _control_cleanup_matching_tabs(
 
 
 async def _control_release_matching_tabs(
-    state: dict,
+    state: StateMapping,
     *,
     bridge: Any,
     predicate: Callable[[dict[str, Any]], bool],
@@ -384,7 +401,7 @@ def _control_tab_created_by_extension(tab: dict[str, Any]) -> bool:
 
 
 async def _control_cleanup_extension_created_tabs(
-    state: dict,
+    state: StateMapping,
     *,
     bridge: Any,
     request_context: dict[str, Any],
@@ -436,7 +453,7 @@ async def _control_cleanup_extension_created_tabs(
 
 
 async def _control_cleanup_stopped_session(
-    state: dict,
+    state: StateMapping,
     bridge: Any,
     session: Any,
     _params: dict[str, Any],
@@ -590,7 +607,7 @@ async def release_control_sessions_for_request(
 
 
 async def _control_close_other_owned_tabs(
-    state: dict,
+    state: StateMapping,
     *,
     bridge: Any,
     keep_tab_id: int,
@@ -676,7 +693,7 @@ async def _control_discover_tabs_safe(
 
 
 async def _control_matching_control_or_browser_tab(
-    state: dict,
+    state: StateMapping,
     bridge: Any,
     url: str,
     holder_id: str,
@@ -748,7 +765,7 @@ def _control_missing_tab_error(error: str) -> bool:
     )
 
 
-def _control_page_id(state: dict, page_id: str) -> str:
+def _control_page_id(state: StateMapping, page_id: str) -> str:
     raw = (page_id or "").strip() or "default"
     if raw != "default":
         aliases = state.get("control_page_aliases") or {}
@@ -769,7 +786,7 @@ def _control_page_id(state: dict, page_id: str) -> str:
 
 
 def _control_remember_page_alias(
-    state: dict,
+    state: StateMapping,
     page_id: str,
     tab_id: int,
 ) -> None:

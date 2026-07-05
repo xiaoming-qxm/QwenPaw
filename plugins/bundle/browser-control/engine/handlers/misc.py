@@ -7,6 +7,7 @@ import json
 from typing import Any
 
 from qwenpaw.browser_sdk._runtime import _tool_response
+from ..state import StateMapping
 
 
 def unsupported_control_action_response(action: str):
@@ -46,7 +47,7 @@ def unsupported_control_action_response(action: str):
 
 
 async def handle_unsupported(
-    state: dict[str, Any],
+    state: StateMapping,
     action: str,
     **kwargs: Any,
 ):

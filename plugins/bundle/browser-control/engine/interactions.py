@@ -29,7 +29,7 @@ from .observation import (
 )
 from .ref_scope import _control_current_snapshot_ref
 from .session_manager import _control_get_session
-from .state import ControlState
+from .state import ControlState, StateMapping
 from .state_verification import _control_state_verification_payload
 from .coordinates import (
     _control_coordinate_space_payload,
@@ -75,7 +75,7 @@ class _DeferredNetworkWaitMonitor:
         wait_func: Any,
         session: Any,
         bridge: Any,
-        state: dict,
+        state: StateMapping,
         tab_id: int,
     ) -> None:
         self._wait_func = wait_func
@@ -156,7 +156,7 @@ def set_network_quiescence_wait(func: Any) -> None:
     async def monitor_factory(
         session: Any,
         bridge: Any,
-        state: dict,
+        state: StateMapping,
         tab_id: int,
     ) -> _DeferredNetworkWaitMonitor:
         return _DeferredNetworkWaitMonitor(

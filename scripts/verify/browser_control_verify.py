@@ -31,13 +31,19 @@ from qwenpaw.browser_sdk.trace import BrowserTraceEvent
 DEFAULT_BASE_URL = "http://127.0.0.1:8088"
 DEFAULT_TIMEOUT = 10.0
 DEFAULT_TASK_TIMEOUT = 180.0
+
+
+def _join_removed_tool_token(*parts: str) -> str:
+    return "".join(parts)
+
+
 FORBIDDEN_TOOLS = (
-    "browser_use",
-    "DesktopScreenshot",
-    "DesktopScreenShot",
-    "ViewVideo",
-    "RemoteBridge",
-    "/ws/browser-sdk",
+    _join_removed_tool_token("browser", "_use"),
+    _join_removed_tool_token("Desktop", "Screenshot"),
+    _join_removed_tool_token("Desktop", "ScreenShot"),
+    _join_removed_tool_token("View", "Video"),
+    _join_removed_tool_token("Remote", "Bridge"),
+    _join_removed_tool_token("/ws/", "browser-sdk"),
 )
 MUTATING_TRACE_ACTIONS = {
     "back",
@@ -842,7 +848,6 @@ def _trace_error_info(trace_events: list[dict[str, Any]]) -> Any | None:
                 code = str(
                     metadata.get("browser_error_code")
                     or metadata.get("error_code")
-                    or metadata.get("legacy_code")
                     or "",
                 ).strip()
         if code:

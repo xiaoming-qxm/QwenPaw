@@ -8,10 +8,11 @@ from typing import Any
 
 from qwenpaw.browser_sdk._runtime import logger
 from .errors import RECOVERABLE_CONTROL_EXCEPTIONS
+from .state import StateMapping
 
 
 def _control_holder_id(
-    state: dict,
+    state: StateMapping,
     request_context: dict[str, Any] | None = None,
 ) -> str:
     workspace_id = state.get("workspace_id") or "default"
@@ -26,7 +27,7 @@ def _control_holder_id(
     return f"browser_sdk:{workspace_id}"
 
 
-def _control_sessions(state: dict) -> dict[str, Any]:
+def _control_sessions(state: StateMapping) -> dict[str, Any]:
     sessions = state.get("control_sessions")
     if not isinstance(sessions, dict):
         sessions = {}
@@ -168,7 +169,7 @@ def _control_refresh_session_request_context(
 
 
 def _control_store_last_dialog(
-    state: dict,
+    state: StateMapping,
     *,
     dialog_type: str,
     message: str,
@@ -186,7 +187,7 @@ def _control_store_last_dialog(
 
 
 def _control_register_dialog_auto_handler(
-    state: dict,
+    state: StateMapping,
     *,
     session: Any,
     bridge: Any,
@@ -237,7 +238,10 @@ def _control_register_dialog_auto_handler(
     setattr(session, "_control_dialog_auto_handler_registered", True)
 
 
-def _control_remove_dialog_auto_handlers(state: dict, bridge: Any) -> None:
+def _control_remove_dialog_auto_handlers(
+    state: StateMapping,
+    bridge: Any,
+) -> None:
     remove_listener = getattr(bridge, "remove_event_listener", None)
     if not callable(remove_listener):
         return
@@ -260,7 +264,7 @@ def _control_remove_dialog_auto_handlers(state: dict, bridge: Any) -> None:
 
 
 async def _control_prepare_session_events(
-    state: dict,
+    state: StateMapping,
     *,
     session: Any,
     bridge: Any,
@@ -283,7 +287,7 @@ async def _control_prepare_session_events(
 
 
 async def _control_get_session(
-    state: dict,
+    state: StateMapping,
     *,
     tab_id: int,
     holder_id: str,
@@ -358,7 +362,7 @@ async def _control_get_session(
 
 
 async def _control_get_existing_session(
-    state: dict,
+    state: StateMapping,
     *,
     tab_id: int,
     holder_id: str,
@@ -393,7 +397,7 @@ async def _control_get_existing_session(
 
 
 def _control_active_session(
-    state: dict,
+    state: StateMapping,
     *,
     tab_id: int,
     holder_id: str,
@@ -414,7 +418,7 @@ def _control_active_session(
 
 
 def _control_tab_known_to_holder(
-    state: dict,
+    state: StateMapping,
     *,
     tab_id: int,
     holder_id: str,
@@ -432,7 +436,7 @@ def _control_tab_known_to_holder(
 
 
 async def _control_close_session(
-    state: dict,
+    state: StateMapping,
     *,
     tab_id: int,
     holder_id: str,

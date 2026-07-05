@@ -9,6 +9,7 @@ import time
 from typing import Any
 
 from .errors import CDPCommandFailed, RECOVERABLE_CONTROL_EXCEPTIONS
+from .state import StateMapping
 
 
 class _NetworkActivityTracker:
@@ -94,7 +95,7 @@ class _NetworkQuiescenceMonitor:
         self,
         session: Any,
         bridge: Any,
-        state: dict,
+        state: StateMapping,
         tab_id: int,
         *,
         timeout: float = 3.0,
@@ -184,7 +185,7 @@ class _NetworkQuiescenceMonitor:
 async def _network_quiescence_monitor(
     session: Any,
     bridge: Any,
-    state: dict,
+    state: StateMapping,
     tab_id: int,
     *,
     timeout: float = 3.0,
@@ -206,7 +207,7 @@ async def _network_quiescence_monitor(
 async def _network_quiescence_wait(
     session: Any,
     bridge: Any,
-    state: dict,
+    state: StateMapping,
     tab_id: int,
     *,
     timeout: float = 3.0,
@@ -231,7 +232,7 @@ async def _network_quiescence_wait(
 
 async def _ensure_network_enabled(
     session: Any,
-    state: dict,
+    state: StateMapping,
     tab_id: int,
 ) -> None:
     enabled = state.get("control_network_enabled_tabs")

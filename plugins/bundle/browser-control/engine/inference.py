@@ -7,13 +7,17 @@ from typing import Any
 from urllib.parse import urlparse
 
 from .navigation import _control_remember_approved_navigation
+from .state import StateMapping
 from .tab_manager import (
     _control_close_other_owned_tabs,
     _control_matching_control_or_browser_tab,
 )
 
 
-def _control_holder_has_claimed_tab(state: dict, holder_id: str) -> bool:
+def _control_holder_has_claimed_tab(
+    state: StateMapping,
+    holder_id: str,
+) -> bool:
     control_tabs = state.get("control_tabs") or {}
     if not isinstance(control_tabs, dict):
         return False
@@ -25,7 +29,7 @@ def _control_holder_has_claimed_tab(state: dict, holder_id: str) -> bool:
 
 def _control_should_infer_user_initiated(
     *,
-    state: dict,
+    state: StateMapping,
     action: str,
     url: str,
     holder_id: str,
@@ -179,7 +183,7 @@ async def _control_tab_create_denial_reason(
 
 
 async def _control_select_or_create_url_tab(
-    state: dict,
+    state: StateMapping,
     bridge: Any,
     url: str,
     request_context: dict[str, Any],

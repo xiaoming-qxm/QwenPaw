@@ -507,6 +507,7 @@ async def run_extension_self_test() -> dict[str, Any]:
     checked_at = datetime.now(UTC).isoformat()
     user_diagnostics = await _sdk_diagnostics_snapshot("user")
     isolated_diagnostics = await _sdk_diagnostics_snapshot("isolated")
+    install_status = extension_install_status()
 
     trace_event = BrowserTraceEvent(
         event_id=f"self-test-{int(started * 1000)}",
@@ -523,7 +524,35 @@ async def run_extension_self_test() -> dict[str, Any]:
         )
     )
     connected = _bridge_connected()
+    repair_required = bool(install_status.get("native_host_repair_required"))
     checks = [
+        _check_payload(
+            name="native_host_config",
+            passed=not repair_required,
+            code=(
+                "native_host_configured"
+                if not repair_required
+                else "native_host_repair_required"
+            ),
+            message=(
+                "Native Host manifest configuration is current."
+                if not repair_required
+                else str(
+                    install_status.get("native_host_repair_instruction")
+                    or "Run qwenpaw setup-extension --yes --reset.",
+                )
+            ),
+            metadata={
+                "bridge_manifest_path": str(
+                    install_status.get("bridge_manifest_path") or "",
+                ),
+                "legacy_config_path": str(
+                    install_status.get("legacy_config_path")
+                    or install_status.get("config_path")
+                    or "",
+                ),
+            },
+        ),
         _check_payload(
             name="bridge",
             passed=connected,

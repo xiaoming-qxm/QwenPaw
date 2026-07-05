@@ -9,6 +9,8 @@ from collections.abc import Callable
 from typing import Any
 from urllib.parse import urlparse
 
+from .state import StateMapping
+
 _CONTROL_NAVIGATE_LOAD_TIMEOUT_SECONDS = 15.0
 _CONTROL_NAVIGATE_NETWORK_TIMEOUT_SECONDS = 5.0
 
@@ -107,7 +109,10 @@ def _control_same_site(url_a: str, url_b: str) -> bool:
     return bool(domains_a and domains_b and domains_a.intersection(domains_b))
 
 
-def _control_remember_approved_navigation(state: dict, url: str) -> None:
+def _control_remember_approved_navigation(
+    state: StateMapping,
+    url: str,
+) -> None:
     domains = _control_navigation_domains(url)
     if not domains:
         return
@@ -119,7 +124,7 @@ def _control_remember_approved_navigation(state: dict, url: str) -> None:
 
 
 def _control_sync_session_navigation_scope(
-    state: dict,
+    state: StateMapping,
     session: Any,
 ) -> None:
     approved = state.get("control_approved_domains") or set()

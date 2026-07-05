@@ -1,20 +1,48 @@
 # -*- coding: utf-8 -*-
 """Typed state container for Browser Control runtime data."""
-# pylint: disable=too-many-branches
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping, MutableMapping
 from dataclasses import dataclass, field
 from typing import Any, ClassVar
 
 
 _MISSING = object()
 
+CONTROL_STATE_KEY_TO_FIELD: dict[str, str] = {
+    "workspace_id": "workspace_id",
+    "current_page_id": "current_page_id",
+    "control_tabs": "tabs",
+    "tabs": "tabs",
+    "control_sessions": "sessions",
+    "sessions": "sessions",
+    "refs": "refs",
+    "control_pending_observations": "pending_observations",
+    "pending_observations": "pending_observations",
+    "control_visual_observations": "visual_observations",
+    "visual_observations": "visual_observations",
+    "control_click_effects": "click_effects",
+    "click_effects": "click_effects",
+    "control_snapshot_hashes": "snapshot_hashes",
+    "snapshot_hashes": "snapshot_hashes",
+    "control_network_enabled_tabs": "network_enabled_tabs",
+    "network_enabled_tabs": "network_enabled_tabs",
+    "control_page_aliases": "page_aliases",
+    "page_aliases": "page_aliases",
+    "control_approved_domains": "approved_domains",
+    "approved_domains": "approved_domains",
+    "control_pending_action_transition": "pending_action_transition",
+    "pending_action_transition": "pending_action_transition",
+}
+
+
+StateMapping = MutableMapping[str, Any]
+
 
 @dataclass
-class ControlState(dict[str, Any]):
-    """Browser Control state with legacy dict compatibility."""
+class ControlState(MutableMapping[str, Any]):
+    """Browser Control state used by engine internals."""
 
     workspace_id: str = "default"
     current_page_id: str | None = None
@@ -31,92 +59,7 @@ class ControlState(dict[str, Any]):
     pending_action_transition: dict[str, Any] | None = None
     extra: dict[str, Any] = field(default_factory=dict)
 
-    _KEY_TO_FIELD: ClassVar[dict[str, str]] = {
-        "workspace_id": "workspace_id",
-        "current_page_id": "current_page_id",
-        "control_tabs": "tabs",
-        "control_sessions": "sessions",
-        "refs": "refs",
-        "control_pending_observations": "pending_observations",
-        "control_visual_observations": "visual_observations",
-        "control_click_effects": "click_effects",
-        "control_snapshot_hashes": "snapshot_hashes",
-        "control_network_enabled_tabs": "network_enabled_tabs",
-        "control_page_aliases": "page_aliases",
-        "control_approved_domains": "approved_domains",
-        "control_pending_action_transition": "pending_action_transition",
-    }
-
-    def __post_init__(self) -> None:
-        """Keep the underlying dict shape useful for dict-native consumers."""
-        self._refresh_mapping()
-
-    def _refresh_mapping(self) -> None:
-        super().clear()
-        super().update(self.to_dict())
-
-    @classmethod
-    def from_dict(
-        cls,
-        data: dict[str, Any] | "ControlState",
-    ) -> "ControlState":
-        """Create typed state from the existing Browser Control dict shape."""
-        if isinstance(data, ControlState):
-            return data
-        known = cls._KEY_TO_FIELD
-        kwargs: dict[str, Any] = {}
-        for key, field_name in known.items():
-            if key not in data:
-                continue
-            value = data[key]
-            if field_name == "network_enabled_tabs":
-                value = set(value or set())
-            elif field_name == "approved_domains":
-                value = {str(domain) for domain in value or set()}
-            kwargs[field_name] = value
-        kwargs["extra"] = {
-            key: value for key, value in data.items() if key not in known
-        }
-        return cls(**kwargs)
-
-    def to_dict(self) -> dict[str, Any]:
-        """Return the legacy dict shape expected by older call sites."""
-        data = dict(self.extra)
-        data["workspace_id"] = self.workspace_id
-        if self.current_page_id is not None:
-            data["current_page_id"] = self.current_page_id
-        if self.tabs:
-            data["control_tabs"] = self.tabs
-        if self.sessions:
-            data["control_sessions"] = self.sessions
-        if self.refs:
-            data["refs"] = self.refs
-        if self.pending_observations:
-            data["control_pending_observations"] = self.pending_observations
-        if self.visual_observations:
-            data["control_visual_observations"] = self.visual_observations
-        if self.click_effects:
-            data["control_click_effects"] = self.click_effects
-        if self.snapshot_hashes:
-            data["control_snapshot_hashes"] = self.snapshot_hashes
-        if self.network_enabled_tabs:
-            data["control_network_enabled_tabs"] = self.network_enabled_tabs
-        if self.page_aliases:
-            data["control_page_aliases"] = self.page_aliases
-        if self.approved_domains:
-            data["control_approved_domains"] = self.approved_domains
-        if self.pending_action_transition is not None:
-            data[
-                "control_pending_action_transition"
-            ] = self.pending_action_transition
-        else:
-            data.pop("control_pending_action_transition", None)
-        return data
-
-    def sync_to(self, target: dict[str, Any]) -> None:
-        """Copy the typed state back into an existing legacy dict."""
-        target.clear()
-        target.update(self.to_dict())
+    _KEY_TO_FIELD: ClassVar[dict[str, str]] = CONTROL_STATE_KEY_TO_FIELD
 
     def __getitem__(self, key: str) -> Any:
         field_name = self._KEY_TO_FIELD.get(key)
@@ -129,37 +72,36 @@ class ControlState(dict[str, Any]):
         if field_name is None:
             self.extra[key] = value
             return
-        if field_name == "network_enabled_tabs":
-            value = set(value or set())
-        elif field_name == "approved_domains":
-            value = {str(domain) for domain in value or set()}
-        setattr(self, field_name, value)
-        self._refresh_mapping()
+        setattr(self, field_name, _coerce_field_value(field_name, value))
 
     def __delitem__(self, key: str) -> None:
         field_name = self._KEY_TO_FIELD.get(key)
         if field_name is None:
             del self.extra[key]
             return
-        default = type(self)().__getitem__(key)
-        setattr(self, field_name, default)
-        self._refresh_mapping()
+        setattr(self, field_name, _default_field_value(field_name))
 
     def __iter__(self) -> Iterator[str]:
-        yield from self.to_dict()
+        yield from control_state_to_mapping(self)
 
     def __len__(self) -> int:
-        return len(self.to_dict())
+        return len(control_state_to_mapping(self))
 
     def __contains__(self, key: object) -> bool:
         if not isinstance(key, str):
             return False
-        return key in self._KEY_TO_FIELD or key in self.extra
+        if key in self.extra:
+            return True
+        field_name = self._KEY_TO_FIELD.get(key)
+        if field_name is None:
+            return False
+        value = getattr(self, field_name)
+        return value is not None and value != _default_field_value(field_name)
 
     def get(self, key: object, default: Any = None) -> Any:
-        if not isinstance(key, str):
+        if not isinstance(key, str) or key not in self:
             return default
-        return self[key] if key in self else default
+        return self[key]
 
     def pop(self, key: str, default: Any = _MISSING) -> Any:
         if key in self:
@@ -181,7 +123,103 @@ class ControlState(dict[str, Any]):
             self[str(key)] = value
 
     def copy(self) -> dict[str, Any]:
-        return self.to_dict()
+        return control_state_to_mapping(self)
 
 
-__all__ = ["ControlState"]
+def control_state_from_mapping(
+    data: Mapping[str, Any] | ControlState,
+) -> ControlState:
+    """Adapt an external workspace mapping into typed control state."""
+    if isinstance(data, ControlState):
+        return data
+    kwargs: dict[str, Any] = {}
+    consumed: set[str] = set()
+    for key, field_name in CONTROL_STATE_KEY_TO_FIELD.items():
+        if key not in data or field_name in kwargs:
+            continue
+        kwargs[field_name] = _coerce_field_value(field_name, data[key])
+        consumed.add(key)
+    kwargs["extra"] = {
+        key: value for key, value in data.items() if key not in consumed
+    }
+    return ControlState(**kwargs)
+
+
+def control_state_to_mapping(state: ControlState) -> dict[str, Any]:
+    """Serialize typed control state to the external workspace mapping."""
+    data = dict(state.extra)
+    data["workspace_id"] = state.workspace_id
+    if state.current_page_id is not None:
+        data["current_page_id"] = state.current_page_id
+    if state.tabs:
+        data["control_tabs"] = state.tabs
+    if state.sessions:
+        data["control_sessions"] = state.sessions
+    if state.refs:
+        data["refs"] = state.refs
+    if state.pending_observations:
+        data["control_pending_observations"] = state.pending_observations
+    if state.visual_observations:
+        data["control_visual_observations"] = state.visual_observations
+    if state.click_effects:
+        data["control_click_effects"] = state.click_effects
+    if state.snapshot_hashes:
+        data["control_snapshot_hashes"] = state.snapshot_hashes
+    if state.network_enabled_tabs:
+        data["control_network_enabled_tabs"] = state.network_enabled_tabs
+    if state.page_aliases:
+        data["control_page_aliases"] = state.page_aliases
+    if state.approved_domains:
+        data["control_approved_domains"] = state.approved_domains
+    if state.pending_action_transition is not None:
+        data[
+            "control_pending_action_transition"
+        ] = state.pending_action_transition
+    return data
+
+
+def sync_control_state_to_mapping(
+    state: ControlState,
+    target: dict[str, Any],
+) -> None:
+    """Write typed control state back to an external workspace mapping."""
+    target.clear()
+    target.update(control_state_to_mapping(state))
+
+
+def _coerce_field_value(field_name: str, value: Any) -> Any:
+    if field_name == "network_enabled_tabs":
+        return {int(tab_id) for tab_id in value or set()}
+    if field_name == "approved_domains":
+        return {str(domain) for domain in value or set()}
+    return value
+
+
+def _default_field_value(field_name: str) -> Any:
+    if field_name in {
+        "tabs",
+        "sessions",
+        "refs",
+        "pending_observations",
+        "visual_observations",
+        "click_effects",
+        "snapshot_hashes",
+        "page_aliases",
+        "extra",
+    }:
+        return {}
+    if field_name in {"network_enabled_tabs", "approved_domains"}:
+        return set()
+    if field_name == "workspace_id":
+        return "default"
+    return None
+
+
+__all__ = [
+    "ControlState",
+    "CONTROL_STATE_KEY_TO_FIELD",
+    "StateMapping",
+    "control_state_from_mapping",
+    "control_state_to_mapping",
+    "sync_control_state_to_mapping",
+]
