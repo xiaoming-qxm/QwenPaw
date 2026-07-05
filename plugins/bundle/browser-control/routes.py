@@ -371,6 +371,10 @@ def _bridge_lifecycle(connected: bool) -> dict[str, Any]:
 def _trace_summary() -> dict[str, Any]:
     events = get_browser_trace_store().list()
     latest = events[-1] if events else None
+    latest_cleanup = next(
+        (event for event in reversed(events) if event.phase == "cleanup"),
+        None,
+    )
     return {
         "event_count": len(events),
         "session_count": len({event.session_id for event in events}),
@@ -386,6 +390,29 @@ def _trace_summary() -> dict[str, Any]:
             }
             if latest is not None
             else None
+        ),
+        "latest_cleanup": _cleanup_trace_summary(latest_cleanup),
+    }
+
+
+def _cleanup_trace_summary(
+    event: BrowserTraceEvent | None,
+) -> dict[str, Any] | None:
+    if event is None:
+        return None
+    metadata = event.to_dict().get("metadata", {})
+    return {
+        "event_id": event.event_id,
+        "session_id": event.session_id,
+        "status": event.status,
+        "backend_id": event.backend_id,
+        "closed_owned_tabs": int(metadata.get("closed_owned_tabs") or 0),
+        "released_borrowed_tabs": int(
+            metadata.get("released_borrowed_tabs") or 0,
+        ),
+        "cleanup_reason": str(metadata.get("cleanup_reason") or ""),
+        "error_code": str(
+            metadata.get("error_code") or event.error_code or "",
         ),
     }
 

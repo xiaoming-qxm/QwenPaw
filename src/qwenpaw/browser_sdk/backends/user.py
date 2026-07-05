@@ -5,7 +5,8 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
-from typing import Any
+from time import perf_counter
+from typing import Any, Literal
 from urllib.parse import urlparse
 
 from qwenpaw.browser.connection_manager import get_bridge_connection_manager
@@ -25,6 +26,7 @@ from qwenpaw.browser_sdk.policy import (
     maybe_await_policy_decision,
 )
 from qwenpaw.browser_sdk.risk import classify_browser_action
+from qwenpaw.browser_sdk.trace import record_browser_trace_event
 from qwenpaw.browser_sdk.types import (
     BrowserActionRequest,
     BrowserActionResult,
@@ -40,6 +42,7 @@ from qwenpaw.browser_sdk.types import BrowserObservation, BrowserScreenshot
 
 BACKEND_ID = "user.chrome_extension"
 _BROWSER_SENTINEL_TAB_ID = "__browser__"
+_TabOwnership = Literal["owned", "borrowed"]
 _ENGINE_ACTION_ALIASES = {
     "back": "navigate_back",
     "forward": "navigate_forward",
@@ -271,20 +274,37 @@ class ChromeExtensionBrowserSession:
         self._policy = policy
         self._control_engine = control_engine
         self._state: dict[str, Any] = {"workspace_id": "browser_sdk"}
+        self._tab_ownership: dict[str, _TabOwnership] = {}
 
     async def close(self) -> None:
-        release_all = getattr(self.bridge, "release_all", None)
-        if callable(release_all):
-            result = release_all(self.holder_id)
-            if hasattr(result, "__await__"):
-                await result
+        for tab_id, ownership in list(self._tab_ownership.items()):
+            await self._cleanup_tab(
+                tab_id,
+                ownership,
+                cleanup_reason="browser_close",
+            )
+
+    async def stop(self) -> None:
+        for tab_id, ownership in list(self._tab_ownership.items()):
+            await self._cleanup_tab(
+                tab_id,
+                ownership,
+                cleanup_reason="browser_stop",
+            )
 
     async def active_tab(self) -> dict[str, Any]:
         tabs = await self.list_tabs()
+        selected = tabs[0] if tabs else {"id": "default"}
         for tab in tabs:
             if tab.get("active"):
-                return tab
-        return tabs[0] if tabs else {"id": "default"}
+                selected = tab
+                break
+        tab_id = str(selected.get("id") or "")
+        if tab_id and tab_id != "default":
+            await self._claim(tab_id)
+            await self._attach(tab_id)
+            self._record_tab_ownership(tab_id, "borrowed")
+        return selected
 
     async def list_tabs(self) -> list[dict[str, Any]]:
         tabs = await self.bridge.discover_tabs()
@@ -297,11 +317,13 @@ class ChromeExtensionBrowserSession:
         tab = _tab_from_create_response(response, fallback_url=target_url)
         await self._claim(tab["id"])
         await self._attach(tab["id"])
+        self._record_tab_ownership(tab["id"], "owned")
         return tab
 
     async def select_tab(self, tab_id: str) -> dict[str, Any]:
         await self._claim(tab_id)
         await self._attach(tab_id)
+        self._record_tab_ownership(tab_id, "borrowed")
         return {"id": str(tab_id)}
 
     async def page_info(self, tab_id: str) -> BrowserPageInfo:
@@ -378,12 +400,15 @@ class ChromeExtensionBrowserSession:
         return _action_result(payload, name)
 
     async def close_tab(self, tab_id: str) -> BrowserActionResult:
-        release = getattr(self.bridge, "release", None)
-        if callable(release):
-            result = release(int(tab_id), self.holder_id)
-            if hasattr(result, "__await__"):
-                await result
-        return BrowserActionResult(ok=True, message="Tab released")
+        normalized = str(tab_id)
+        ownership = self._tab_ownership.get(normalized, "borrowed")
+        await self._cleanup_tab(
+            normalized,
+            ownership,
+            cleanup_reason="tab_close",
+        )
+        message = "Tab closed" if ownership == "owned" else "Tab released"
+        return BrowserActionResult(ok=True, message=message)
 
     async def _claim(self, tab_id: str) -> None:
         claim_tab = getattr(self.bridge, "claim_tab", None)
@@ -397,6 +422,99 @@ class ChromeExtensionBrowserSession:
         await self.bridge.request(
             "tab.attach",
             {"tabId": int(tab_id), "holderId": self.holder_id},
+        )
+
+    def _record_tab_ownership(
+        self,
+        tab_id: str,
+        ownership: _TabOwnership,
+    ) -> None:
+        normalized = str(tab_id)
+        if not normalized:
+            return
+        current = self._tab_ownership.get(normalized)
+        if current == "owned" and ownership == "borrowed":
+            return
+        self._tab_ownership[normalized] = ownership
+
+    async def _cleanup_tab(
+        self,
+        tab_id: str,
+        ownership: _TabOwnership,
+        *,
+        cleanup_reason: str,
+    ) -> None:
+        started = perf_counter()
+        tab_id_int = int(tab_id)
+        try:
+            await self.bridge.request("banner.hide", {"tabId": tab_id_int})
+            await self.bridge.request(
+                "tab.detach",
+                {"tabId": tab_id_int, "holderId": self.holder_id},
+            )
+            if ownership == "owned":
+                await self.bridge.request(
+                    "tab.close",
+                    {"tabId": tab_id_int, "holderId": self.holder_id},
+                )
+            await self._release_tab(tab_id_int)
+        except Exception:
+            self._record_cleanup_trace(
+                tab_id=str(tab_id),
+                status="error",
+                duration_ms=_duration_ms(started),
+                cleanup_reason=cleanup_reason,
+                closed_owned_tabs=0,
+                released_borrowed_tabs=0,
+                error_code="browser_cleanup_failed",
+            )
+            raise
+        self._tab_ownership.pop(str(tab_id), None)
+        self._record_cleanup_trace(
+            tab_id=str(tab_id),
+            status="ok",
+            duration_ms=_duration_ms(started),
+            cleanup_reason=cleanup_reason,
+            closed_owned_tabs=1 if ownership == "owned" else 0,
+            released_borrowed_tabs=1 if ownership == "borrowed" else 0,
+        )
+
+    async def _release_tab(self, tab_id: int) -> None:
+        release = getattr(self.bridge, "release", None)
+        if not callable(release):
+            return
+        result = release(tab_id, self.holder_id)
+        if hasattr(result, "__await__"):
+            await result
+
+    def _record_cleanup_trace(
+        self,
+        *,
+        tab_id: str,
+        status: str,
+        duration_ms: float,
+        cleanup_reason: str,
+        closed_owned_tabs: int,
+        released_borrowed_tabs: int,
+        error_code: str = "",
+    ) -> None:
+        record_browser_trace_event(
+            session_id=self.session_id,
+            phase="cleanup",
+            backend_id=self.backend_id,
+            requested_context=self.context.requested,
+            selected_context=self.context.selected,
+            action="tab_lifecycle_cleanup",
+            tab_id=tab_id,
+            status=status,
+            duration_ms=duration_ms,
+            error_code=error_code,
+            metadata={
+                "closed_owned_tabs": closed_owned_tabs,
+                "released_borrowed_tabs": released_borrowed_tabs,
+                "cleanup_reason": cleanup_reason,
+                "error_code": error_code,
+            },
         )
 
     async def _bridge_or_engine_action(
@@ -519,6 +637,10 @@ def _domain_from_url(url: str) -> str:
         return (urlparse(url).hostname or "").lower()
     except ValueError:
         return ""
+
+
+def _duration_ms(started: float) -> float:
+    return round((perf_counter() - started) * 1000, 3)
 
 
 def _browser_sdk_holder_id(session_id: str) -> str:
