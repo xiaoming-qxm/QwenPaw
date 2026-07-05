@@ -9,6 +9,8 @@ from typing import Any
 from urllib.parse import urlparse
 
 from qwenpaw.app.approvals.models import ApprovalRequestSummary
+from qwenpaw.browser_sdk.error_codes import BrowserErrorCode
+from qwenpaw.browser_sdk.trace import record_browser_trace_event
 from qwenpaw.browser_sdk.types import (
     BrowserActionRequest,
     BrowserContextRequest,
@@ -68,16 +70,17 @@ class QwenPawBrowserApprovalPolicy:
                 metadata={"approval_cache": "hit"},
             )
 
+        summary = ApprovalRequestSummary(
+            source_type="browser_sdk_action",
+            name="browser",
+            severity=_severity(request),
+            findings_count=1,
+            result_summary=_approval_summary(request),
+            payload=_approval_payload(request),
+        )
+        request_id = ""
         try:
             service = self._service()
-            summary = ApprovalRequestSummary(
-                source_type="browser_sdk_action",
-                name="browser",
-                severity=_severity(request),
-                findings_count=1,
-                result_summary=_approval_summary(request),
-                payload=_approval_payload(request),
-            )
             pending = await service.create_pending_summary(
                 session_id=context["session_id"],
                 root_session_id=context["root_session_id"],
@@ -95,36 +98,81 @@ class QwenPawBrowserApprovalPolicy:
                     },
                 },
             )
+            request_id = str(pending.request_id)
+            _record_approval_trace(
+                request,
+                approval_state="pending",
+                approval_request_id=request_id,
+                status="pending",
+            )
             decision = await service.wait_for_approval(
                 pending.request_id,
                 TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS,
             )
         except Exception as exc:  # noqa: BLE001
+            _record_approval_trace(
+                request,
+                approval_state="error",
+                approval_request_id=request_id,
+                status="error",
+                error_code=BrowserErrorCode.APPROVAL_DENIED.value,
+                metadata={"error": str(exc)},
+            )
             return BrowserPolicyDecision(
                 allowed=False,
                 reason="browser_action_approval_error",
-                metadata={"error": str(exc)},
+                metadata=_approval_decision_metadata(
+                    "error",
+                    request_id,
+                    {"error": str(exc)},
+                ),
             )
 
         if decision == ApprovalDecision.APPROVED:
             self._approved_cache[cache_key] = (
                 self._now() + self._cache_ttl_seconds
             )
+            _record_approval_trace(
+                request,
+                approval_state="approved",
+                approval_request_id=request_id,
+                status="ok",
+            )
             return BrowserPolicyDecision(
                 allowed=True,
                 reason="browser_action_approved",
-                metadata={"approval_request_id": pending.request_id},
+                metadata=_approval_decision_metadata(
+                    "approved",
+                    request_id,
+                ),
             )
         if decision == ApprovalDecision.TIMEOUT:
+            _record_approval_trace(
+                request,
+                approval_state="timeout",
+                approval_request_id=request_id,
+                status="blocked",
+                error_code=BrowserErrorCode.APPROVAL_DENIED.value,
+            )
             return BrowserPolicyDecision(
                 allowed=False,
                 reason="browser_action_approval_timeout",
-                metadata={"approval_request_id": pending.request_id},
+                metadata=_approval_decision_metadata(
+                    "timeout",
+                    request_id,
+                ),
             )
+        _record_approval_trace(
+            request,
+            approval_state="denied",
+            approval_request_id=request_id,
+            status="blocked",
+            error_code=BrowserErrorCode.APPROVAL_DENIED.value,
+        )
         return BrowserPolicyDecision(
             allowed=False,
             reason="browser_action_denied",
-            metadata={"approval_request_id": pending.request_id},
+            metadata=_approval_decision_metadata("denied", request_id),
         )
 
     def _service(self) -> Any:
@@ -254,6 +302,53 @@ def _approval_cache_key(
         risk_kind,
         str(request.action or "").strip().casefold(),
     )
+
+
+def _record_approval_trace(
+    request: BrowserActionRequest,
+    *,
+    approval_state: str,
+    approval_request_id: str,
+    status: str,
+    error_code: str = "",
+    metadata: dict[str, Any] | None = None,
+) -> None:
+    payload = _approval_payload(request)
+    trace_metadata = {
+        "approval_request_id": approval_request_id,
+        "approval_state": approval_state,
+        "risk_kind": payload["risk"]["kind"],
+        "risk_level": payload["risk"]["level"],
+        **dict(metadata or {}),
+    }
+    record_browser_trace_event(
+        session_id=request.session_id,
+        phase="approval",
+        backend_id=request.context.backend_id,
+        requested_context=request.context.requested,
+        selected_context=request.context.selected,
+        action=request.action,
+        tab_id=str(payload.get("tab_id") or ""),
+        url=str(payload.get("url") or ""),
+        domain=str(payload.get("domain") or ""),
+        status=status,
+        error_code=error_code,
+        approval_state=approval_state,
+        metadata=trace_metadata,
+    )
+
+
+def _approval_decision_metadata(
+    approval_state: str,
+    approval_request_id: str,
+    extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    metadata = {
+        "approval_state": approval_state,
+        "approval_request_id": approval_request_id,
+    }
+    metadata.update(dict(extra or {}))
+    return metadata
 
 
 def _severity(request: BrowserActionRequest) -> str:

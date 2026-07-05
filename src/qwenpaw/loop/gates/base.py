@@ -35,6 +35,7 @@ class StopHandlerResult:
     action: StopAction = StopAction.STOP
     continuation_message: str = ""
     reason: str = ""
+    final_message: str = ""
 
 
 @dataclass

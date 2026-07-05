@@ -14,6 +14,7 @@ from .gates import StopHandler
 from .gates.doom_loop import DoomLoopGate
 from .gates.iteration import IterationGate
 from .gates.rubric import PrematureStopGate
+from .gate_providers import iter_loop_gate_providers
 from .handler_registry import (
     get_or_create_stop_handler,
 )
@@ -70,9 +71,9 @@ def register_react_gates(
     # 1. Iteration Gate
     if loop_cfg.iteration.enabled:
         effective_max = resolve_max_iterations(running_config)
-        gate = IterationGate(max_iterations=effective_max)
-        gate.activate()
-        handler.register(gate)
+        iteration_gate = IterationGate(max_iterations=effective_max)
+        iteration_gate.activate()
+        handler.register(iteration_gate)
         logger.debug(
             "ReactGates: IterationGate (max=%d)",
             effective_max,
@@ -80,25 +81,43 @@ def register_react_gates(
 
     # 2. DoomLoop Gate
     if loop_cfg.doom_loop.enabled:
-        gate = DoomLoopGate(
+        doom_loop_gate = DoomLoopGate(
             window_size=loop_cfg.doom_loop.window_size,
             similarity_threshold=(loop_cfg.doom_loop.similarity_threshold),
             stages=loop_cfg.doom_loop.stages,
         )
-        gate.activate()
-        handler.register(gate)
+        doom_loop_gate.activate()
+        handler.register(doom_loop_gate)
         logger.debug("ReactGates: DoomLoopGate registered")
 
     # 3. Premature Stop Gate (text-only completion check)
     if loop_cfg.rubric.enabled:
-        gate = PrematureStopGate(
+        premature_stop_gate = PrematureStopGate(
             prompt=loop_cfg.rubric.prompt,
             max_interventions=(loop_cfg.rubric.max_interventions),
         )
-        handler.register(gate)
+        handler.register(premature_stop_gate)
         logger.debug(
             "ReactGates: PrematureStopGate registered",
         )
+
+    for provider in iter_loop_gate_providers():
+        try:
+            gates = tuple(provider.gates(workspace, running_config))
+        except Exception:
+            logger.warning(
+                "ReactGates: provider '%s' raised",
+                getattr(provider, "name", "(unknown)"),
+                exc_info=True,
+            )
+            continue
+        for gate in gates:
+            handler.register(gate)
+            logger.debug(
+                "ReactGates: provider '%s' registered gate '%s'",
+                getattr(provider, "name", "(unknown)"),
+                gate.name,
+            )
 
     setattr(
         workspace,

@@ -15,10 +15,18 @@ from qwenpaw.runtime.tool_registry import tool_descriptor
 from .kernel import BrowserKernelResult, get_default_kernel_manager
 from .backends.isolated import register_isolated_backend_once
 from .error_codes import classify_browser_error
+from .loop_gate import register_browser_loop_gate_provider_once
 from .progress import BrowserProgressDecision, detect_no_progress
+from .recovery import (
+    BrowserRecoveryDecision,
+    BrowserRecoveryPolicy,
+    BrowserRequestEvidence,
+)
 from .trace import get_browser_trace_store, record_browser_trace_event
+from .trace import BrowserTraceEvent
 
 register_isolated_backend_once()
+register_browser_loop_gate_provider_once()
 
 _ERROR_HINTS = {
     "bridge_disconnected": (
@@ -109,6 +117,11 @@ async def browser(
         browser_trace=[event.to_dict() for event in trace_events],
         progress_decision=progress_decision,
     )
+    metadata["recovery_decision"] = _recovery_decision_metadata(
+        session_id=session_id,
+        trace_events=trace_events,
+        metadata=metadata,
+    )
     content: list[TextBlock | DataBlock] = [
         TextBlock(type="text", text=_summary_text(result, progress_decision)),
     ]
@@ -183,6 +196,50 @@ def _metadata(
             for artifact in result.artifacts
         ]
     return metadata
+
+
+def _recovery_decision_metadata(
+    *,
+    session_id: str,
+    trace_events: tuple[BrowserTraceEvent, ...],
+    metadata: dict[str, Any],
+) -> dict[str, Any]:
+    decision = BrowserRecoveryPolicy().decide(
+        BrowserRequestEvidence(
+            session_id=session_id,
+            request_scope_key=f"{session_id}:tool",
+            tool_call_ids=_tool_call_ids(trace_events),
+            trace_events=trace_events,
+            tool_metadata=(metadata,),
+            has_browser_tool_calls=True,
+        ),
+    )
+    return _decision_to_dict(decision)
+
+
+def _tool_call_ids(
+    trace_events: tuple[BrowserTraceEvent, ...],
+) -> tuple[str, ...]:
+    ids: list[str] = []
+    for event in trace_events:
+        if event.tool_call_id and event.tool_call_id not in ids:
+            ids.append(event.tool_call_id)
+    return tuple(ids or ["current_browser_tool"])
+
+
+def _decision_to_dict(
+    decision: BrowserRecoveryDecision,
+) -> dict[str, Any]:
+    return {
+        "action": decision.action.value,
+        "reason": decision.reason,
+        "requested_context": decision.requested_context,
+        "selected_context": decision.selected_context,
+        "next_context": decision.next_context,
+        "required_next_step": decision.required_next_step,
+        "forbidden": list(decision.forbidden),
+        "metadata": dict(decision.metadata),
+    }
 
 
 def _artifact_blocks(result: BrowserKernelResult) -> list[DataBlock]:

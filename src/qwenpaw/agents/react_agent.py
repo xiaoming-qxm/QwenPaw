@@ -43,6 +43,25 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _apply_final_message_override(
+    final_msg: Msg,
+    stop_result: StopHandlerResult,
+) -> Msg:
+    """Replace assistant final text when a gate supplies final_message."""
+
+    final_text = str(stop_result.final_message or "")
+    if not final_text:
+        return final_msg
+    return Msg(
+        name=final_msg.name,
+        role=final_msg.role,
+        content=[
+            TextBlock(type="text", text=final_text),
+        ],
+        metadata=getattr(final_msg, "metadata", None),
+    )
+
+
 class QwenPawAgent(CodingModeMixin, Agent):
     """QwenPaw Agent with integrated tools, skills, and memory management.
 
@@ -375,7 +394,11 @@ class QwenPawAgent(CodingModeMixin, Agent):
 
         pending_stop = check_pending_gates(self)
         if pending_stop is not None:
-            stop_text = pending_stop.reason or "Stopped by loop gate."
+            stop_text = (
+                pending_stop.final_message
+                or pending_stop.reason
+                or "Stopped by loop gate."
+            )
             block_id = uuid.uuid4().hex
             yield TextBlockStartEvent(
                 reply_id=self.state.reply_id,
@@ -502,7 +525,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
             )
             return  # outer loop continues
 
-        yield final_msg
+        yield _apply_final_message_override(final_msg, stop_result)
 
     @staticmethod
     def _is_content_safety_error(exc: Exception) -> bool:

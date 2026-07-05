@@ -19,7 +19,6 @@ from qwenpaw.browser.control_engine import (
 )
 from qwenpaw.browser.approval_policy import QwenPawBrowserApprovalPolicy
 from qwenpaw.browser_sdk.backends.user import register_user_backend_once
-from qwenpaw.loop.gates.rubric import PrematureStopGate
 from qwenpaw.plugins.api import PluginApi
 
 from .engine_impl import ControlEngineImpl
@@ -34,18 +33,6 @@ from .routes import (
 )
 
 logger = logging.getLogger(__name__)
-
-_BROWSER_PREMATURE_STOP_PROMPT = (
-    "You have used browser tools in this session but produced a "
-    "text-only response. If the browser task is not verified "
-    "complete, continue with a fresh tab.snapshot() to check "
-    "the current state. Do not stop without verifying."
-)
-
-_premature_stop_gate = PrematureStopGate(
-    prompt=_BROWSER_PREMATURE_STOP_PROMPT,
-    max_interventions=2,
-)
 
 
 def _load_manifest_module() -> ModuleType:
@@ -131,11 +118,6 @@ class BrowserControlPlugin:
             skills_dir=Path(__file__).parent / "skills",
             enabled_by_default=True,
             channels=["all"],
-        )
-        api.register_agent_stop_handler(
-            handler=_premature_stop_gate.check,
-            priority=90,
-            name="browser_control_premature_stop",
         )
         logger.info("Browser Control plugin registered: %s", api.plugin_id)
 

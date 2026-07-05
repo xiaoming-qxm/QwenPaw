@@ -38,6 +38,18 @@ from .progress import (
 )
 from .resolver import BrowserContextResolver
 from .risk import classify_browser_action
+from .loop_gate import (
+    BrowserGate,
+    BrowserLoopGateProvider,
+    register_browser_loop_gate_provider_once,
+)
+from .recovery import (
+    BrowserRecoveryAction,
+    BrowserRecoveryDecision,
+    BrowserRecoveryPolicy,
+    BrowserRequestEvidence,
+    collect_browser_request_evidence,
+)
 from .trace import (
     BrowserTraceEvent,
     BrowserTraceStore,
@@ -92,6 +104,8 @@ __all__ = [
     "BrowserErrorCode",
     "BrowserErrorInfo",
     "BrowserExtractionResult",
+    "BrowserGate",
+    "BrowserLoopGateProvider",
     "BrowserObservation",
     "BrowserObservationRequired",
     "BrowserPageInfo",
@@ -99,6 +113,10 @@ __all__ = [
     "BrowserPolicyDecision",
     "BrowserPolicyDenied",
     "BrowserProgressDecision",
+    "BrowserRecoveryAction",
+    "BrowserRecoveryDecision",
+    "BrowserRecoveryPolicy",
+    "BrowserRequestEvidence",
     "BrowserOutcome",
     "BrowserRiskKind",
     "BrowserRiskLevel",
@@ -120,11 +138,13 @@ __all__ = [
     "connect_browser",
     "classify_browser_action",
     "classify_browser_error",
+    "collect_browser_request_evidence",
     "detect_no_progress",
     "get_browser_trace_store",
     "get_default_backend_registry",
     "record_browser_trace_event",
     "register_isolated_backend_once",
+    "register_browser_loop_gate_provider_once",
     "register_user_backend_once",
     "reset_browser_trace_store_for_tests",
 ]

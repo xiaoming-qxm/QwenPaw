@@ -299,9 +299,11 @@ def classify_verification_evidence(
             fresh_observe_ok=not _fresh_observe_failure_reason(
                 trace_events or [],
             ),
-            cleanup_ok=not _user_cleanup_failure_reason(trace_events or [])
-            if _has_user_backend_evidence(trace_events or [])
-            else True,
+            cleanup_ok=(
+                not _user_cleanup_failure_reason(trace_events or [])
+                if _has_user_backend_evidence(trace_events or [])
+                else True
+            ),
         )
 
     if assertion_failure:
@@ -318,9 +320,11 @@ def classify_verification_evidence(
             fresh_observe_ok=not _fresh_observe_failure_reason(
                 trace_events or [],
             ),
-            cleanup_ok=not _user_cleanup_failure_reason(trace_events or [])
-            if _has_user_backend_evidence(trace_events or [])
-            else True,
+            cleanup_ok=(
+                not _user_cleanup_failure_reason(trace_events or [])
+                if _has_user_backend_evidence(trace_events or [])
+                else True
+            ),
         )
 
     no_progress = _no_progress_failure_reason(trace_events or [])
@@ -336,9 +340,11 @@ def classify_verification_evidence(
             failure_reason=no_progress,
             artifact_paths=artifact_paths,
             fresh_observe_ok=False,
-            cleanup_ok=not _user_cleanup_failure_reason(trace_events or [])
-            if _has_user_backend_evidence(trace_events or [])
-            else True,
+            cleanup_ok=(
+                not _user_cleanup_failure_reason(trace_events or [])
+                if _has_user_backend_evidence(trace_events or [])
+                else True
+            ),
         )
 
     trace_info = _trace_error_info(trace_events or [])
@@ -362,9 +368,11 @@ def classify_verification_evidence(
             fresh_observe_ok=not _fresh_observe_failure_reason(
                 trace_events or [],
             ),
-            cleanup_ok=not _user_cleanup_failure_reason(trace_events or [])
-            if _has_user_backend_evidence(trace_events or [])
-            else True,
+            cleanup_ok=(
+                not _user_cleanup_failure_reason(trace_events or [])
+                if _has_user_backend_evidence(trace_events or [])
+                else True
+            ),
         )
 
     transcript_info = _transcript_error_info(transcript)
@@ -382,9 +390,11 @@ def classify_verification_evidence(
             fresh_observe_ok=not _fresh_observe_failure_reason(
                 trace_events or [],
             ),
-            cleanup_ok=not _user_cleanup_failure_reason(trace_events or [])
-            if _has_user_backend_evidence(trace_events or [])
-            else True,
+            cleanup_ok=(
+                not _user_cleanup_failure_reason(trace_events or [])
+                if _has_user_backend_evidence(trace_events or [])
+                else True
+            ),
         )
 
     return _report(
@@ -396,9 +406,11 @@ def classify_verification_evidence(
         trace_event_count=len(trace_events or []),
         artifact_paths=artifact_paths,
         fresh_observe_ok=not _fresh_observe_failure_reason(trace_events or []),
-        cleanup_ok=not _user_cleanup_failure_reason(trace_events or [])
-        if _has_user_backend_evidence(trace_events or [])
-        else True,
+        cleanup_ok=(
+            not _user_cleanup_failure_reason(trace_events or [])
+            if _has_user_backend_evidence(trace_events or [])
+            else True
+        ),
     )
 
 
@@ -520,9 +532,11 @@ def run_v8_preflight(args: argparse.Namespace) -> BrowserControlReport:
     error_code = (
         ""
         if report_status == "passed"
-        else BrowserErrorCode.BRIDGE_DISCONNECTED.value
-        if checks.get("extension_status") != "passed"
-        else BrowserErrorCode.UNKNOWN.value
+        else (
+            BrowserErrorCode.BRIDGE_DISCONNECTED.value
+            if checks.get("extension_status") != "passed"
+            else BrowserErrorCode.UNKNOWN.value
+        )
     )
     return _report(
         "v8-preflight",
@@ -530,7 +544,8 @@ def run_v8_preflight(args: argparse.Namespace) -> BrowserControlReport:
         started,
         backend_route=_backend_route(status),
         trace_event_count=int(
-            ((status.get("trace_summary") or {}) or {}).get("event_count") or 0,
+            ((status.get("trace_summary") or {}) or {}).get("event_count")
+            or 0,
         ),
         error_code=error_code,
         failure_reason=",".join(failed),
@@ -628,7 +643,9 @@ def run_v8_public_live(args: argparse.Namespace) -> BrowserControlReport:
                 "public live verification requires explicit --public-live"
             ),
         )
-    reports = [_run_v8_live_task(args, spec) for spec in _v8_public_live_task_specs()]
+    reports = [
+        _run_v8_live_task(args, spec) for spec in _v8_public_live_task_specs()
+    ]
     return _aggregate_v8_suite(
         scenario="v8-public-live",
         started=started,
@@ -649,7 +666,9 @@ def run_v8_user_live(args: argparse.Namespace) -> BrowserControlReport:
             ),
             user_preparation=list(V8_TAOBAO_USER_PREPARATION),
         )
-    reports = [_run_v8_live_task(args, spec) for spec in _v8_user_live_task_specs()]
+    reports = [
+        _run_v8_live_task(args, spec) for spec in _v8_user_live_task_specs()
+    ]
     return _aggregate_v8_suite(
         scenario="v8-user-live",
         started=started,
@@ -689,7 +708,8 @@ def run_v8_taobao_live(args: argparse.Namespace) -> BrowserControlReport:
 def run_v8_lifecycle_live(args: argparse.Namespace) -> BrowserControlReport:
     started = time.perf_counter()
     reports = [
-        _run_v8_live_task(args, spec) for spec in _v8_lifecycle_live_task_specs()
+        _run_v8_live_task(args, spec)
+        for spec in _v8_lifecycle_live_task_specs()
     ]
     return _aggregate_v8_suite(
         scenario="v8-lifecycle-live",
@@ -701,7 +721,9 @@ def run_v8_lifecycle_live(args: argparse.Namespace) -> BrowserControlReport:
 def run_v8_report(args: argparse.Namespace) -> BrowserControlReport:
     return write_v8_product_report(
         output=Path(args.output),
-        result_files=[Path(item) for item in getattr(args, "result_files", [])],
+        result_files=[
+            Path(item) for item in getattr(args, "result_files", [])
+        ],
     )
 
 
@@ -1067,7 +1089,7 @@ def _v8_user_live_task_specs() -> list[V8LiveTaskSpec]:
         V8LiveTaskSpec(
             scenario="user-chrome-readonly",
             prompt=(
-                "Use Browser Control with context=\"user\" and "
+                'Use Browser Control with context="user" and '
                 "requires_user_state=True to observe the current user Chrome "
                 "state without modifying any page. Report the active page title "
                 "or URL and the marker V8_USER_READONLY_PASS. Do not fall back "
@@ -1082,7 +1104,7 @@ def _v8_user_live_task_specs() -> list[V8LiveTaskSpec]:
         V8LiveTaskSpec(
             scenario="taobao-cart-preflight",
             prompt=(
-                "Use Browser Control with context=\"user\" and "
+                'Use Browser Control with context="user" and '
                 "requires_user_state=True to open and read the Taobao cart "
                 "page. This is read-only preflight: do not add, remove, clear, "
                 "checkout, pay, submit an order, or enter credentials. If "
@@ -1104,7 +1126,7 @@ def _v8_taobao_live_task_spec() -> V8LiveTaskSpec:
     return V8LiveTaskSpec(
         scenario="v8-taobao-live",
         prompt=(
-            "Use Browser Control with context=\"user\" and "
+            'Use Browser Control with context="user" and '
             "requires_user_state=True. First open the Taobao cart and confirm "
             "it is readable. Then search for men's shampoo, add one ordinary "
             "item to the cart, list cart contents before clearing, clear the "
@@ -1132,7 +1154,7 @@ def _v8_lifecycle_live_task_specs() -> list[V8LiveTaskSpec]:
         V8LiveTaskSpec(
             scenario="multi-tab-user-lifecycle",
             prompt=(
-                "Use Browser Control with context=\"user\" and "
+                'Use Browser Control with context="user" and '
                 "requires_user_state=True. Open a second tab, switch between "
                 "tabs, complete a small read-only observation, then close the "
                 "Browser SDK session. Report V8_LIFECYCLE_MULTI_TAB_PASS with "
@@ -1164,8 +1186,9 @@ def _run_v8_live_task(
     spec: V8LiveTaskSpec,
 ) -> BrowserControlReport:
     started = time.perf_counter()
+    early_report: BrowserControlReport | None = None
     if spec.requires_flag and not getattr(args, spec.requires_flag, False):
-        return _report(
+        early_report = _report(
             spec.scenario,
             "blocked",
             started,
@@ -1173,28 +1196,33 @@ def _run_v8_live_task(
         )
     base_url = _normalize_base_url(args.base_url)
     backend_route = ""
-    if spec.requires_user_state:
+    if early_report is None and spec.requires_user_state:
         try:
             status = _extension_status(base_url, args.timeout)
         except RuntimeError as exc:
-            return _report(
+            early_report = _report(
                 spec.scenario,
                 "blocked",
                 started,
                 error_code=BrowserErrorCode.BRIDGE_DISCONNECTED.value,
                 blocked_reason=str(exc),
             )
-        backend_route = _backend_route(status)
-        if status.get("connected") is not True:
-            return _report(
-                spec.scenario,
-                "blocked",
-                started,
-                backend_route=backend_route,
-                error_code=BrowserErrorCode.BRIDGE_DISCONNECTED.value,
-            )
+        else:
+            backend_route = _backend_route(status)
+            if status.get("connected") is not True:
+                early_report = _report(
+                    spec.scenario,
+                    "blocked",
+                    started,
+                    backend_route=backend_route,
+                    error_code=BrowserErrorCode.BRIDGE_DISCONNECTED.value,
+                )
+    if early_report is not None:
+        return early_report
 
-    session_id = f"browser-control-v8-{spec.scenario}-{int(time.time() * 1000)}"
+    session_id = (
+        f"browser-control-v8-{spec.scenario}-{int(time.time() * 1000)}"
+    )
     try:
         task = _submit_console_task(
             base_url,
@@ -1297,15 +1325,23 @@ def _aggregate_v8_suite(
     reports: list[BrowserControlReport],
     user_preparation: list[str] | None = None,
 ) -> BrowserControlReport:
-    failed = next((report for report in reports if report.status == "failed"), None)
-    blocked = next((report for report in reports if report.status == "blocked"), None)
+    failed = next(
+        (report for report in reports if report.status == "failed"),
+        None,
+    )
+    blocked = next(
+        (report for report in reports if report.status == "blocked"),
+        None,
+    )
     decisive = failed or blocked
     status = decisive.status if decisive is not None else "passed"
     return _report(
         scenario,
         status,
         started,
-        browser_tool_calls=sum(report.browser_tool_calls for report in reports),
+        browser_tool_calls=sum(
+            report.browser_tool_calls for report in reports
+        ),
         backend_route=_join_unique(report.backend_route for report in reports),
         forbidden_tools=_join_forbidden(reports),
         trace_event_count=sum(report.trace_event_count for report in reports),
@@ -1313,9 +1349,7 @@ def _aggregate_v8_suite(
         blocked_reason=decisive.blocked_reason if decisive else "",
         failure_reason=decisive.failure_reason if decisive else "",
         artifact_paths=[
-            item
-            for report in reports
-            for item in report.artifact_paths
+            item for report in reports for item in report.artifact_paths
         ],
         fresh_observe_ok=all(report.fresh_observe_ok for report in reports),
         cleanup_ok=all(report.cleanup_ok for report in reports),
@@ -1353,143 +1387,87 @@ def _classify_v8_taobao_live_evidence(
     artifact_paths: list[str],
     browser_tool_calls: int | None = None,
 ) -> BrowserControlReport:
-    if _has_payment_or_checkout_marker(transcript):
-        return _report(
-            "v8-taobao-live",
-            "failed",
-            started,
-            browser_tool_calls=browser_tool_calls
-            if browser_tool_calls is not None
-            else _browser_tool_calls_from_traces(trace_events),
-            trace_event_count=len(trace_events),
-            error_code=BrowserErrorCode.APPROVAL_REQUIRED.value,
-            failure_reason="safety_violation_payment_or_checkout",
-            safety_boundaries=list(V8_SAFETY_BOUNDARIES),
-        )
-    if _user_state_routed_to_isolated(trace_events):
-        return _report(
-            "v8-taobao-live",
-            "failed",
-            started,
-            backend_route=_backend_route_from_traces(trace_events),
-            browser_tool_calls=browser_tool_calls
-            if browser_tool_calls is not None
-            else _browser_tool_calls_from_traces(trace_events),
-            trace_event_count=len(trace_events),
-            error_code=BrowserErrorCode.CAPABILITY_MISSING.value,
-            failure_reason="user_state_routed_to_isolated",
-            safety_boundaries=list(V8_SAFETY_BOUNDARIES),
-        )
-    transcript_info = _transcript_error_info(transcript)
-    if transcript_info is not None and transcript_info.code in {
-        BrowserErrorCode.LOGIN_REQUIRED,
-        BrowserErrorCode.CAPTCHA_OR_RISK_CONTROL,
-    }:
-        return _report(
-            "v8-taobao-live",
-            "blocked",
-            started,
-            backend_route=_backend_route_from_traces(trace_events),
-            browser_tool_calls=browser_tool_calls
-            if browser_tool_calls is not None
-            else _browser_tool_calls_from_traces(trace_events),
-            trace_event_count=len(trace_events),
-            error_code=transcript_info.code.value,
-            blocked_reason=transcript_info.blocked_reason,
-            safety_boundaries=list(V8_SAFETY_BOUNDARIES),
-            user_preparation=list(V8_TAOBAO_USER_PREPARATION),
-        )
-    lower = transcript.casefold()
-    if "cart contents before" not in lower:
-        return _report(
-            "v8-taobao-live",
-            "failed",
-            started,
-            backend_route=_backend_route_from_traces(trace_events),
-            browser_tool_calls=browser_tool_calls
-            if browser_tool_calls is not None
-            else _browser_tool_calls_from_traces(trace_events),
-            trace_event_count=len(trace_events),
-            error_code=BrowserErrorCode.UNKNOWN.value,
-            failure_reason="missing_cart_contents_before_clear",
-            safety_boundaries=list(V8_SAFETY_BOUNDARIES),
-        )
-    if "empty" not in lower:
-        return _report(
-            "v8-taobao-live",
-            "failed",
-            started,
-            backend_route=_backend_route_from_traces(trace_events),
-            browser_tool_calls=browser_tool_calls
-            if browser_tool_calls is not None
-            else _browser_tool_calls_from_traces(trace_events),
-            trace_event_count=len(trace_events),
-            error_code=BrowserErrorCode.UNKNOWN.value,
-            failure_reason="missing_empty_cart_evidence",
-            safety_boundaries=list(V8_SAFETY_BOUNDARIES),
-        )
-    if not artifact_paths:
-        return _report(
-            "v8-taobao-live",
-            "failed",
-            started,
-            backend_route=_backend_route_from_traces(trace_events),
-            browser_tool_calls=browser_tool_calls
-            if browser_tool_calls is not None
-            else _browser_tool_calls_from_traces(trace_events),
-            trace_event_count=len(trace_events),
-            error_code=BrowserErrorCode.UNKNOWN.value,
-            failure_reason="missing_screenshot_artifact",
-            safety_boundaries=list(V8_SAFETY_BOUNDARIES),
-        )
-    cleanup_failure = _user_cleanup_failure_reason(trace_events)
-    if cleanup_failure:
-        return _report(
-            "v8-taobao-live",
-            "failed",
-            started,
-            backend_route=_backend_route_from_traces(trace_events),
-            browser_tool_calls=browser_tool_calls
-            if browser_tool_calls is not None
-            else _browser_tool_calls_from_traces(trace_events),
-            trace_event_count=len(trace_events),
-            error_code=BrowserErrorCode.UNKNOWN.value,
-            failure_reason=cleanup_failure,
-            safety_boundaries=list(V8_SAFETY_BOUNDARIES),
-        )
-    fresh_failure = _fresh_observe_failure_reason(trace_events)
-    if fresh_failure:
-        return _report(
-            "v8-taobao-live",
-            "failed",
-            started,
-            backend_route=_backend_route_from_traces(trace_events),
-            browser_tool_calls=browser_tool_calls
-            if browser_tool_calls is not None
-            else _browser_tool_calls_from_traces(trace_events),
-            trace_event_count=len(trace_events),
-            error_code=BrowserErrorCode.UNKNOWN.value,
-            failure_reason=fresh_failure,
-            safety_boundaries=list(V8_SAFETY_BOUNDARIES),
-        )
-    return _report(
-        "v8-taobao-live",
-        "passed",
-        started,
-        backend_route=_backend_route_from_traces(trace_events),
-        browser_tool_calls=browser_tool_calls
+    effective_browser_tool_calls = (
+        browser_tool_calls
         if browser_tool_calls is not None
-        else _browser_tool_calls_from_traces(trace_events),
-        trace_event_count=len(trace_events),
-        artifact_paths=artifact_paths,
-        fresh_observe_ok=True,
-        cleanup_ok=True,
-        content_evidence={
+        else _browser_tool_calls_from_traces(trace_events)
+    )
+    common_kwargs: dict[str, Any] = {
+        "browser_tool_calls": effective_browser_tool_calls,
+        "trace_event_count": len(trace_events),
+        "safety_boundaries": list(V8_SAFETY_BOUNDARIES),
+    }
+    route = _backend_route_from_traces(trace_events)
+    status = "passed"
+    report_kwargs = {
+        **common_kwargs,
+        "backend_route": route,
+        "artifact_paths": artifact_paths,
+        "fresh_observe_ok": True,
+        "cleanup_ok": True,
+        "content_evidence": {
             "cart_contents_before_clear": True,
             "empty_cart_after_clear": True,
         },
-        safety_boundaries=list(V8_SAFETY_BOUNDARIES),
-        user_preparation=list(V8_TAOBAO_USER_PREPARATION),
+        "user_preparation": list(V8_TAOBAO_USER_PREPARATION),
+    }
+    if _has_payment_or_checkout_marker(transcript):
+        status = "failed"
+        report_kwargs = {
+            **common_kwargs,
+            "error_code": BrowserErrorCode.APPROVAL_REQUIRED.value,
+            "failure_reason": "safety_violation_payment_or_checkout",
+        }
+    elif _user_state_routed_to_isolated(trace_events):
+        status = "failed"
+        report_kwargs = {
+            **common_kwargs,
+            "backend_route": route,
+            "error_code": BrowserErrorCode.CAPABILITY_MISSING.value,
+            "failure_reason": "user_state_routed_to_isolated",
+        }
+    else:
+        transcript_info = _transcript_error_info(transcript)
+        if transcript_info is not None and transcript_info.code in {
+            BrowserErrorCode.LOGIN_REQUIRED,
+            BrowserErrorCode.CAPTCHA_OR_RISK_CONTROL,
+        }:
+            status = "blocked"
+            report_kwargs = {
+                **common_kwargs,
+                "backend_route": route,
+                "error_code": transcript_info.code.value,
+                "blocked_reason": transcript_info.blocked_reason,
+                "user_preparation": list(V8_TAOBAO_USER_PREPARATION),
+            }
+        else:
+            lower = transcript.casefold()
+            failure_reason = ""
+            if "cart contents before" not in lower:
+                failure_reason = "missing_cart_contents_before_clear"
+            elif "empty" not in lower:
+                failure_reason = "missing_empty_cart_evidence"
+            elif not artifact_paths:
+                failure_reason = "missing_screenshot_artifact"
+            else:
+                failure_reason = _user_cleanup_failure_reason(trace_events)
+                if not failure_reason:
+                    failure_reason = _fresh_observe_failure_reason(
+                        trace_events,
+                    )
+            if failure_reason:
+                status = "failed"
+                report_kwargs = {
+                    **common_kwargs,
+                    "backend_route": route,
+                    "error_code": BrowserErrorCode.UNKNOWN.value,
+                    "failure_reason": failure_reason,
+                }
+    return _report(
+        "v8-taobao-live",
+        status,
+        started,
+        **report_kwargs,
     )
 
 
@@ -1524,9 +1502,11 @@ def _classify_v8_lifecycle_evidence(
             "failed",
             started,
             backend_route=_backend_route_from_traces(trace_events),
-            browser_tool_calls=browser_tool_calls
-            if browser_tool_calls is not None
-            else _browser_tool_calls_from_traces(trace_events),
+            browser_tool_calls=(
+                browser_tool_calls
+                if browser_tool_calls is not None
+                else _browser_tool_calls_from_traces(trace_events)
+            ),
             trace_event_count=len(trace_events),
             error_code=BrowserErrorCode.CAPABILITY_MISSING.value,
             failure_reason="user_state_routed_to_isolated",
@@ -1538,9 +1518,11 @@ def _classify_v8_lifecycle_evidence(
             "blocked",
             started,
             backend_route=_backend_route_from_traces(trace_events),
-            browser_tool_calls=browser_tool_calls
-            if browser_tool_calls is not None
-            else _browser_tool_calls_from_traces(trace_events),
+            browser_tool_calls=(
+                browser_tool_calls
+                if browser_tool_calls is not None
+                else _browser_tool_calls_from_traces(trace_events)
+            ),
             trace_event_count=len(trace_events),
             error_code=transcript_info.code.value,
             blocked_reason=transcript_info.blocked_reason,
@@ -1551,9 +1533,11 @@ def _classify_v8_lifecycle_evidence(
             "blocked",
             started,
             backend_route=_backend_route_from_traces(trace_events),
-            browser_tool_calls=browser_tool_calls
-            if browser_tool_calls is not None
-            else _browser_tool_calls_from_traces(trace_events),
+            browser_tool_calls=(
+                browser_tool_calls
+                if browser_tool_calls is not None
+                else _browser_tool_calls_from_traces(trace_events)
+            ),
             trace_event_count=len(trace_events),
             error_code=BrowserErrorCode.BRIDGE_DISCONNECTED.value,
         )
@@ -1565,9 +1549,11 @@ def _classify_v8_lifecycle_evidence(
                 "failed",
                 started,
                 backend_route=_backend_route_from_traces(trace_events),
-                browser_tool_calls=browser_tool_calls
-                if browser_tool_calls is not None
-                else _browser_tool_calls_from_traces(trace_events),
+                browser_tool_calls=(
+                    browser_tool_calls
+                    if browser_tool_calls is not None
+                    else _browser_tool_calls_from_traces(trace_events)
+                ),
                 trace_event_count=len(trace_events),
                 error_code=BrowserErrorCode.UNKNOWN.value,
                 failure_reason="missing_multitab_trace_evidence",
@@ -1579,9 +1565,11 @@ def _classify_v8_lifecycle_evidence(
             "failed",
             started,
             backend_route=_backend_route_from_traces(trace_events),
-            browser_tool_calls=browser_tool_calls
-            if browser_tool_calls is not None
-            else _browser_tool_calls_from_traces(trace_events),
+            browser_tool_calls=(
+                browser_tool_calls
+                if browser_tool_calls is not None
+                else _browser_tool_calls_from_traces(trace_events)
+            ),
             trace_event_count=len(trace_events),
             error_code=BrowserErrorCode.UNKNOWN.value,
             failure_reason=cleanup_failure,
@@ -1591,9 +1579,11 @@ def _classify_v8_lifecycle_evidence(
         "passed",
         started,
         backend_route=_backend_route_from_traces(trace_events),
-        browser_tool_calls=browser_tool_calls
-        if browser_tool_calls is not None
-        else _browser_tool_calls_from_traces(trace_events),
+        browser_tool_calls=(
+            browser_tool_calls
+            if browser_tool_calls is not None
+            else _browser_tool_calls_from_traces(trace_events)
+        ),
         trace_event_count=len(trace_events),
         fresh_observe_ok=True,
         cleanup_ok=True,
@@ -1605,7 +1595,11 @@ def _classify_bridge_lifecycle_status(status: dict[str, Any]) -> str:
         return "disconnected"
     lifecycle = status.get("bridge_lifecycle")
     lifecycle = lifecycle if isinstance(lifecycle, dict) else {}
-    return "reconnected" if int(lifecycle.get("reconnect_count") or 0) > 0 else "connected"
+    return (
+        "reconnected"
+        if int(lifecycle.get("reconnect_count") or 0) > 0
+        else "connected"
+    )
 
 
 def write_v8_product_report(
@@ -1622,7 +1616,10 @@ def write_v8_product_report(
         user_preparation=list(V8_TAOBAO_USER_PREPARATION),
     )
     output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(_render_v8_markdown_report(reports, aggregate), encoding="utf-8")
+    output.write_text(
+        _render_v8_markdown_report(reports, aggregate),
+        encoding="utf-8",
+    )
     return replace(aggregate, artifact_paths=[str(output)])
 
 
@@ -1643,7 +1640,9 @@ def _load_v8_report(path: Path) -> BrowserControlReport:
         error_code=str(payload.get("error_code") or ""),
         blocked_reason=str(payload.get("blocked_reason") or ""),
         failure_reason=str(payload.get("failure_reason") or ""),
-        artifact_paths=[str(item) for item in payload.get("artifact_paths") or []],
+        artifact_paths=[
+            str(item) for item in payload.get("artifact_paths") or []
+        ],
         fresh_observe_ok=bool(payload.get("fresh_observe_ok")),
         cleanup_ok=bool(payload.get("cleanup_ok")),
         preflight_checks=dict(payload.get("preflight_checks") or {}),
@@ -1715,12 +1714,8 @@ def _markdown_report_table(reports: list[BrowserControlReport]) -> str:
         return "_No results provided._"
     rows = ["| Scenario | Status | Blocked | Failure |", "|---|---|---|---|"]
     rows.extend(
-        "| `{}` | `{}` | `{}` | `{}` |".format(
-            report.scenario,
-            report.status,
-            report.blocked_reason,
-            report.failure_reason,
-        )
+        f"| `{report.scenario}` | `{report.status}` | "
+        f"`{report.blocked_reason}` | `{report.failure_reason}` |"
         for report in reports
     )
     return "\n".join(rows)
@@ -2066,9 +2061,11 @@ def _classify_completed_chat_trace_result(
         failure_reason=failure_reason,
         artifact_paths=artifact_paths,
         fresh_observe_ok=not _fresh_observe_failure_reason(trace_events),
-        cleanup_ok=not _user_cleanup_failure_reason(trace_events)
-        if require_user_backend or _has_user_backend_evidence(trace_events)
-        else True,
+        cleanup_ok=(
+            not _user_cleanup_failure_reason(trace_events)
+            if require_user_backend or _has_user_backend_evidence(trace_events)
+            else True
+        ),
     )
 
 

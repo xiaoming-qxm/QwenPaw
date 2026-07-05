@@ -167,7 +167,10 @@ class Tab:
             action="evaluate",
             status="ok",
             duration_ms=_duration_ms(started),
-            metadata={"read_only": read_only},
+            metadata={
+                "read_only": read_only,
+                "needs_observation": not read_only,
+            },
         )
         return result
 
@@ -223,15 +226,22 @@ class Tab:
                 status="error",
                 duration_ms=_duration_ms(started),
                 error_code=_error_code(exc),
-                metadata={"kwargs": kwargs, "error_type": type(exc).__name__},
+                metadata={
+                    "kwargs": kwargs,
+                    "error_type": type(exc).__name__,
+                },
             )
             raise
+        action_result = _coerce_action_result(result)
         self._trace(
             phase="action",
             action=name,
             status=_result_status(result),
             duration_ms=_duration_ms(started),
-            metadata={"kwargs": kwargs},
+            metadata={
+                "kwargs": kwargs,
+                "needs_observation": action_result.needs_observation,
+            },
         )
         return result
 
@@ -279,7 +289,10 @@ class Tab:
             status="error",
             duration_ms=0.0,
             error_code=_error_code(exc),
-            metadata={"error_type": type(exc).__name__},
+            metadata={
+                "error_type": type(exc).__name__,
+                "needs_observation": True,
+            },
         )
         raise exc
 

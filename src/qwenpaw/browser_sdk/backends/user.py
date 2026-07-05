@@ -36,6 +36,7 @@ from qwenpaw.browser_sdk.types import (
     BrowserDiagnosticCheck,
     BrowserDiagnosticStatus,
     BrowserPageInfo,
+    BrowserPolicyDecision,
     ResolvedBrowserContext,
 )
 from qwenpaw.browser_sdk.types import BrowserObservation, BrowserScreenshot
@@ -416,7 +417,14 @@ class ChromeExtensionBrowserSession:
                 decision.reason or "Browser action denied by policy",
                 action=name,
                 backend_id=self.backend_id,
-                metadata=decision.metadata,
+                metadata=_policy_denial_metadata(
+                    decision=decision,
+                    action=name,
+                    tab_id=tab_id,
+                    action_metadata=metadata,
+                    context=self.context,
+                    backend_id=self.backend_id,
+                ),
             )
 
         if tab_id == _BROWSER_SENTINEL_TAB_ID:
@@ -798,6 +806,46 @@ def _domain_from_url(url: str) -> str:
 
 def _duration_ms(started: float) -> float:
     return round((perf_counter() - started) * 1000, 3)
+
+
+def _policy_denial_metadata(
+    *,
+    decision: BrowserPolicyDecision,
+    action: str,
+    tab_id: str,
+    action_metadata: dict[str, Any],
+    context: ResolvedBrowserContext,
+    backend_id: str,
+) -> dict[str, Any]:
+    metadata = dict(decision.metadata)
+    approval_state = _approval_state_from_reason(decision.reason)
+    if approval_state:
+        metadata.setdefault("approval_state", approval_state)
+    metadata.update(
+        {
+            "action": action,
+            "tab_id": str(tab_id),
+            "requested_context": context.requested,
+            "selected_context": context.selected,
+            "backend_id": backend_id,
+        },
+    )
+    for key in ("url", "domain", "title"):
+        value = action_metadata.get(key)
+        if value:
+            metadata[key] = str(value)
+    return metadata
+
+
+def _approval_state_from_reason(reason: str) -> str:
+    normalized = str(reason or "").strip().casefold()
+    if normalized == "browser_action_denied":
+        return "denied"
+    if normalized == "browser_action_approval_timeout":
+        return "timeout"
+    if normalized == "browser_action_approval_error":
+        return "error"
+    return ""
 
 
 def _browser_sdk_holder_id(session_id: str) -> str:

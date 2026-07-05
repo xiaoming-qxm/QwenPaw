@@ -27,19 +27,22 @@ download = await tab.actions.download({"selector": "[data-testid=export]"})
 await tab.actions.dialog(accept=True)
 ```
 
-The Chrome Extension bridge is required for user-state work. If the bridge is
-disconnected, stop and ask the user to enable or refresh the extension. Do not
-reroute logged-in or existing-tab tasks to the isolated backend.
+Use `Browser.connect(context="isolated")` only for public, read-only work that
+does not need the user's Chrome profile. Logged-in pages, existing tabs, and
+user-state tasks require `context="user"` and the Chrome Extension bridge.
 
 Use `await Browser.diagnostics(context="user")` to report bridge availability
 without opening or mutating a page.
 
-Use observe-act-verify discipline: after each navigation, click, type,
-selection, scroll, or destructive action, take a fresh `tab.snapshot()` or
-`tab.screenshot()` before the next mutation.
+Sensitive user-browser actions use the QwenPaw approval service. Approval
+state, bridge availability, stale observations, and blocker details are
+recorded by Browser SDK trace metadata and handled by BrowserGate.
+
+Observation primitives are `tab.snapshot()` for structured page state and
+`tab.screenshot()` for visual state when text observations are insufficient.
 
 ## Includes
 
-- [ops.md](ops.md): browser operation rules and read-after-write verification.
-- [blocker-report.md](blocker-report.md): blocker detection and reporting.
+- [ops.md](ops.md): Browser SDK API, context, approval, and observation notes.
+- [blocker-report.md](blocker-report.md): structured blocker report fields.
 - [control-mode.md](control-mode.md): Chrome Extension bridge constraints.
