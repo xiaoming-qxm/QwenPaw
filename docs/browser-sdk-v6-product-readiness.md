@@ -28,7 +28,7 @@ dependencies and stores cart state only in localStorage.
 | --- | --- | --- | --- | --- |
 | A1 | Preflight freshness | running service matches local `HEAD` | `/api/version` freshness gates: `git_commit`, `repo_dirty`, `frontend_fingerprint` | `failed` for stale service, `blocked` for unreachable service unless `--start-if-missing` is used. |
 | A2 | Deterministic fixture cart | `browser(code=...)` -> `context="user"` -> Chrome Extension backend | `/extension/traces` includes user backend route, action events, and no forbidden tools | `passed` only when trace evidence proves user backend execution. |
-| A3 | Public search/read-only | `browser(code=...)` -> `context="auto"` -> isolated backend when available | trace events include connect, observe/extraction, and backend route | `blocked` for live network/content failure; route evidence can still be recorded separately. |
+| A3 | Deterministic public read-only | `browser(code=...)` -> `context="auto"` -> isolated backend when available | trace events include connect, observe/page-info, and backend route for `https://example.com/` | `passed` only when the task completes with `V6_PUBLIC_SEARCH_PASS` and isolated trace evidence. |
 | A4 | Bridge disconnected | `browser(code=...)` -> `context="user"` -> fail closed | status diagnostics include disconnected bridge status and no isolated fallback | `passed` when user-state work blocks before mutation. |
 | A5 | Approval gate | sensitive fixture action with approval required | approval denied/timeout blocks before bridge mutation; approval_level OFF policy bypass is explicit in report | `blocked` when approval is unavailable; never call purchase, payment, or order submission flows. |
 | A6 | live Taobao opt-in | real user Chrome profile only when explicitly authorized | command includes `--live-taobao`, report records account-safety guardrails | not part of CI and must not run by default. Requires explicit user authorization. |
@@ -53,6 +53,27 @@ Each verifier scenario writes a JSON-compatible report with:
 proving the scenario. It is not a pass. `failed` means a required invariant was
 violated, such as stale service code, forbidden tools in evidence, or user
 state routed to isolated backend.
+
+## Closeout Evidence
+
+The V6 closeout verifier runs the Browser Control scenarios through the
+QwenPaw chat/task API, then validates `/api/extension/traces` for backend
+route evidence:
+
+- `preflight`: `passed`, route
+  `browser(code=...) -> context="user" -> user.chrome_extension`.
+- `fixture`: `passed`, one browser tool call, route
+  `browser(code=...) -> context="user" -> user.chrome_extension`, eight trace
+  events, and no forbidden tools.
+- `public-search`: `passed`, one browser tool call, route
+  `browser(code=...) -> context="isolated" -> isolated.playwright`, two trace
+  events, and no forbidden tools.
+
+The fixture scenario opens the local deterministic cart page, executes
+Browser SDK selector clicks through the Chrome Extension user backend, verifies
+`V6_FIXTURE_PASS`, and fails if user-state work routes to the isolated backend.
+The public scenario name is historical; it uses `https://example.com/` as a
+stable read-only public page rather than a search engine.
 
 V6-C requires every `blocked` report to include `blocked_reason` and every
 `failed` report to include `failure_reason`. A blocked live condition must not

@@ -41,7 +41,9 @@ class BrowserErrorInfo:
 
     @property
     def blocked_reason(self) -> str:
-        return self.code.value if self.outcome == BrowserOutcome.BLOCKED else ""
+        return (
+            self.code.value if self.outcome == BrowserOutcome.BLOCKED else ""
+        )
 
     @property
     def failure_reason(self) -> str:

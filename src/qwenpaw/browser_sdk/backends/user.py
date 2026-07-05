@@ -168,17 +168,21 @@ class ChromeExtensionBrowserBackend:
                     status="available"
                     if control_engine_registered
                     else "degraded",
-                    code=""
-                    if control_engine_registered
-                    else "browser_control_engine_missing",
+                    code=(
+                        ""
+                        if control_engine_registered
+                        else "browser_control_engine_missing"
+                    ),
                     message=(
                         "Browser Control engine is registered."
                         if control_engine_registered
                         else "Browser Control engine is not registered."
                     ),
-                    hint_key=""
-                    if control_engine_registered
-                    else "browser_control_engine_missing",
+                    hint_key=(
+                        ""
+                        if control_engine_registered
+                        else "browser_control_engine_missing"
+                    ),
                     metadata={"backend_id": self.backend_id},
                 ),
             ),
@@ -263,7 +267,7 @@ class ChromeExtensionBrowserSession:
         self.bridge = bridge
         self.session_id = session_id
         self.context = context
-        self.holder_id = f"browser_sdk:{session_id or 'default'}"
+        self.holder_id = _browser_sdk_holder_id(session_id)
         self._policy = policy
         self._control_engine = control_engine
         self._state: dict[str, Any] = {"workspace_id": "browser_sdk"}
@@ -292,14 +296,12 @@ class ChromeExtensionBrowserSession:
         response = await self.bridge.request("tab.create", payload)
         tab = _tab_from_create_response(response, fallback_url=target_url)
         await self._claim(tab["id"])
+        await self._attach(tab["id"])
         return tab
 
     async def select_tab(self, tab_id: str) -> dict[str, Any]:
         await self._claim(tab_id)
-        await self.bridge.request(
-            "tab.attach",
-            {"tabId": int(tab_id), "holderId": self.holder_id},
-        )
+        await self._attach(tab_id)
         return {"id": str(tab_id)}
 
     async def page_info(self, tab_id: str) -> BrowserPageInfo:
@@ -390,6 +392,12 @@ class ChromeExtensionBrowserSession:
         result = claim_tab(int(tab_id), self.holder_id)
         if hasattr(result, "__await__"):
             await result
+
+    async def _attach(self, tab_id: str) -> None:
+        await self.bridge.request(
+            "tab.attach",
+            {"tabId": int(tab_id), "holderId": self.holder_id},
+        )
 
     async def _bridge_or_engine_action(
         self,
@@ -511,6 +519,11 @@ def _domain_from_url(url: str) -> str:
         return (urlparse(url).hostname or "").lower()
     except ValueError:
         return ""
+
+
+def _browser_sdk_holder_id(session_id: str) -> str:
+    session_scope = str(session_id or "default").strip() or "default"
+    return f"browser_sdk:browser_sdk:{session_scope}"
 
 
 def _chunk_payload(chunk: Any) -> dict[str, Any]:

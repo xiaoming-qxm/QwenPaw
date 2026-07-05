@@ -51,7 +51,9 @@ class BrowserProgressDecision:
             "retry_count": self.retry_count,
             "recovery_hint": self.recovery_hint,
             "signature": (
-                self.signature.to_dict() if self.signature is not None else None
+                self.signature.to_dict()
+                if self.signature is not None
+                else None
             ),
         }
 
