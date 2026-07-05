@@ -71,6 +71,30 @@ class BrowserControlReport:
         }
 
 
+@dataclass(frozen=True)
+class HarnessPromptSpec:
+    """Prompt text plus verifier-owned scenario checks."""
+
+    instruction: str
+    code: str
+    required_success_marker: str
+    required_context: str = ""
+    required_backend_id: str = ""
+    require_user_backend: bool = False
+    request_context: dict[str, Any] | None = None
+    forbidden_tools: tuple[str, ...] = field(
+        default_factory=lambda: FORBIDDEN_TOOLS,
+    )
+
+    def render(self) -> str:
+        return (
+            f"{self.instruction.strip()}\n\n"
+            "```python\n"
+            f"{self.code.strip()}\n"
+            "```"
+        )
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return build_arg_parser().parse_args(argv)
 
@@ -313,18 +337,21 @@ def run_fixture(args: argparse.Namespace) -> BrowserControlReport:
         )
 
     session_id = f"browser-control-fixture-{int(time.time() * 1000)}"
+    prompt_spec = _fixture_prompt_spec(fixture.resolve().as_uri())
     return _run_chat_trace_scenario(
         scenario="fixture",
         started=started,
         base_url=base_url,
         session_id=session_id,
-        prompt=_fixture_prompt(fixture.resolve().as_uri()),
+        prompt=prompt_spec.render(),
         timeout=_task_timeout(args),
         backend_route=backend_route,
         artifact_paths=[str(fixture)],
-        require_user_backend=True,
-        request_context={"approval_level": "OFF"},
-        required_success_marker="V6_FIXTURE_PASS",
+        require_user_backend=prompt_spec.require_user_backend,
+        request_context=prompt_spec.request_context,
+        required_success_marker=prompt_spec.required_success_marker,
+        required_context=prompt_spec.required_context,
+        required_backend_id=prompt_spec.required_backend_id,
     )
 
 
@@ -335,17 +362,18 @@ def run_public_search(args: argparse.Namespace) -> BrowserControlReport:
     if preflight.status != "passed":
         return _copy_report(preflight, scenario="public-search")
     session_id = f"browser-control-public-search-{int(time.time() * 1000)}"
+    prompt_spec = _public_search_prompt_spec()
     return _run_chat_trace_scenario(
         scenario="public-search",
         started=started,
         base_url=base_url,
         session_id=session_id,
-        prompt=_public_search_prompt(),
+        prompt=prompt_spec.render(),
         timeout=_task_timeout(args),
         backend_route=preflight.backend_route,
-        required_success_marker="V6_PUBLIC_SEARCH_PASS",
-        required_context="isolated",
-        required_backend_id="isolated.playwright",
+        required_success_marker=prompt_spec.required_success_marker,
+        required_context=prompt_spec.required_context,
+        required_backend_id=prompt_spec.required_backend_id,
     )
 
 
@@ -1003,53 +1031,56 @@ def _has_required_backend_evidence(
     return False
 
 
-def _fixture_prompt(fixture_url: str) -> str:
-    return (
-        "Your next action must be exactly one browser(code=...) tool call. "
-        "Do not call Skill, read_file, memory_search, glob_search, shell, "
-        "desktop tools, browser_use, or direct control engine APIs. "
-        "Do not fall back to isolated context for this user-state fixture. "
-        "In browser(code=...), Browser is already preloaded; do not import "
-        "Browser from any module and do not inspect module names. "
-        "Run this exact Browser SDK code, then answer exactly "
-        "V6_FIXTURE_PASS plus a one-line summary:\n"
-        "```python\n"
-        'browser = await Browser.connect(context="user", '
-        "requires_user_state=True)\n"
-        f'tab = await browser.tabs.open("{fixture_url}")\n'
-        "snapshot = await tab.snapshot()\n"
-        'await tab.actions.click({"selector": "[data-testid=\'reset-fixture\']"})\n'
-        "snapshot = await tab.snapshot()\n"
-        'assert "Cart is empty" in snapshot.text\n'
-        'await tab.actions.click({"selector": "[data-testid=\'add-men-shampoo\']"})\n'
-        "snapshot = await tab.snapshot()\n"
-        'assert "Men Shampoo x 1" in snapshot.text\n'
-        'await tab.actions.click({"selector": "[data-testid=\'clear-cart\']"})\n'
-        "snapshot = await tab.snapshot()\n"
-        'assert "Cart is empty" in snapshot.text\n'
-        'print("V6_FIXTURE_PASS user backend cart add and clear verified")\n'
-        "```"
+def _fixture_prompt_spec(fixture_url: str) -> HarnessPromptSpec:
+    marker = "V6_FIXTURE_PASS"
+    return HarnessPromptSpec(
+        instruction=(
+            "Use browser(code=...) to run this deterministic Browser SDK "
+            "fixture script, then return the script output and a one-line "
+            "summary."
+        ),
+        code=(
+            'browser = await Browser.connect(context="user", '
+            "requires_user_state=True)\n"
+            f'tab = await browser.tabs.open("{fixture_url}")\n'
+            "snapshot = await tab.snapshot()\n"
+            'await tab.actions.click({"selector": "[data-testid=\'reset-fixture\']"})\n'
+            "snapshot = await tab.snapshot()\n"
+            'assert "Cart is empty" in snapshot.text\n'
+            'await tab.actions.click({"selector": "[data-testid=\'add-men-shampoo\']"})\n'
+            "snapshot = await tab.snapshot()\n"
+            'assert "Men Shampoo x 1" in snapshot.text\n'
+            'await tab.actions.click({"selector": "[data-testid=\'clear-cart\']"})\n'
+            "snapshot = await tab.snapshot()\n"
+            'assert "Cart is empty" in snapshot.text\n'
+            f'print("{marker} user backend cart add and clear verified")'
+        ),
+        required_success_marker=marker,
+        required_context="user",
+        required_backend_id="user.chrome_extension",
+        require_user_backend=True,
+        request_context={"approval_level": "OFF"},
     )
 
 
-def _public_search_prompt() -> str:
-    return (
-        "Your next action must be exactly one browser(code=...) tool call. "
-        "Do not call Skill, read_file, memory_search, glob_search, shell, "
-        "desktop tools, browser_use, or direct network libraries. "
-        "This scenario name is historical; do not use search engines. "
-        "In browser(code=...), Browser is already preloaded; do not import "
-        "Browser from any module and do not inspect module names. "
-        "Run this exact read-only Browser SDK code, then answer exactly "
-        "V6_PUBLIC_SEARCH_PASS plus the page title and backend route evidence:"
-        "\n```python\n"
-        'browser = await Browser.connect(context="auto")\n'
-        'tab = await browser.tabs.open("https://example.com/")\n'
-        "snapshot = await tab.snapshot()\n"
-        "info = await tab.page_info()\n"
-        'assert "Example Domain" in snapshot.text\n'
-        'print("V6_PUBLIC_SEARCH_PASS", info.title, browser.context)\n'
-        "```"
+def _public_search_prompt_spec() -> HarnessPromptSpec:
+    marker = "V6_PUBLIC_SEARCH_PASS"
+    return HarnessPromptSpec(
+        instruction=(
+            "Use browser(code=...) to run this deterministic read-only "
+            "Browser SDK script, then return the script output and page title."
+        ),
+        code=(
+            'browser = await Browser.connect(context="auto")\n'
+            'tab = await browser.tabs.open("https://example.com/")\n'
+            "snapshot = await tab.snapshot()\n"
+            "info = await tab.page_info()\n"
+            'assert "Example Domain" in snapshot.text\n'
+            f'print("{marker}", info.title, browser.context)'
+        ),
+        required_success_marker=marker,
+        required_context="isolated",
+        required_backend_id="isolated.playwright",
     )
 
 

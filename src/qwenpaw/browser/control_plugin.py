@@ -53,12 +53,33 @@ def _browser_control_submodule_spec(
     return spec, is_package
 
 
+def _browser_control_submodule_exists(plugin_dir: Path, name: str) -> bool:
+    """Return whether a Browser Control submodule still has source."""
+    parts = name.split(".")
+    parent_dir = plugin_dir
+    for part in parts[:-1]:
+        parent_dir = parent_dir / part
+        if not parent_dir.exists():
+            return False
+    final_name = parts[-1]
+    return (parent_dir / final_name / "__init__.py").exists() or (
+        parent_dir / f"{final_name}.py"
+    ).exists()
+
+
+def _missing_browser_control_submodule(name: str) -> ImportError:
+    return ImportError(f"Could not load browser control module: {name}")
+
+
 def load_browser_control_submodule(name: str) -> ModuleType:
     """Load a Browser Control plugin submodule by file name."""
     plugin_dir = get_browser_control_plugin_dir()
     module_name = f"{_PACKAGE_NAME}.{name}"
     cached = sys.modules.get(module_name)
     if cached is not None:
+        if not _browser_control_submodule_exists(plugin_dir, name):
+            sys.modules.pop(module_name, None)
+            raise _missing_browser_control_submodule(name)
         return cached
 
     package = sys.modules.get(_PACKAGE_NAME)
@@ -107,6 +128,9 @@ def load_browser_control_submodule(name: str) -> ModuleType:
 
     cached = sys.modules.get(module_name)
     if cached is not None:
+        if not _browser_control_submodule_exists(plugin_dir, name):
+            sys.modules.pop(module_name, None)
+            raise _missing_browser_control_submodule(name)
         return cached
 
     final_name = parts[-1]
