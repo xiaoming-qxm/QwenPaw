@@ -131,6 +131,8 @@ class HarnessPromptSpec:
             f"{self.instruction.strip()}\n\n"
             "Browser is already preloaded in the browser(code=...) runtime; "
             "do not import Browser. Use exactly one browser(code=...) call. "
+            "Pass timeout_ms=180000, for example "
+            "browser(code=..., timeout_ms=180000). "
             "Do not call Skill or any legacy browser tool. Do not fall back "
             "to isolated when user context is required.\n\n"
             "```python\n"

@@ -477,7 +477,7 @@ class ChromeExtensionBrowserSession:
         started = perf_counter()
         tab_id_int = int(tab_id)
         try:
-            await self.bridge.request("banner.hide", {"tabId": tab_id_int})
+            await self._hide_banner_best_effort(tab_id_int)
             await self.bridge.request(
                 "tab.detach",
                 {"tabId": tab_id_int, "holderId": self.holder_id},
@@ -510,6 +510,12 @@ class ChromeExtensionBrowserSession:
             released_borrowed_tabs=1 if ownership == "borrowed" else 0,
             owned_tabs_remaining=self._owned_tabs_remaining(),
         )
+
+    async def _hide_banner_best_effort(self, tab_id: int) -> None:
+        try:
+            await self.bridge.request("banner.hide", {"tabId": tab_id})
+        except Exception:
+            return
 
     async def _release_tab(self, tab_id: int) -> None:
         release = getattr(self.bridge, "release", None)
