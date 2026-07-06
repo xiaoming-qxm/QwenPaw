@@ -23,6 +23,7 @@ from .recovery import (
     BrowserRequestEvidence,
 )
 from .trace import get_browser_trace_store, record_browser_trace_event
+from .trace import validate_browser_trace_events
 from .trace import BrowserTraceEvent
 
 register_isolated_backend_once()
@@ -167,6 +168,7 @@ def _metadata(
         "return_value": result.return_value,
         "browser_trace": browser_trace,
         "progress_decision": progress_decision.to_dict(),
+        "trace_validation": validate_browser_trace_events(browser_trace),
     }
     if browser_trace:
         metadata["trace_event_id"] = str(browser_trace[-1].get("event_id"))

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import secrets
 import contextlib
 import subprocess
@@ -34,6 +35,7 @@ from qwenpaw.browser_sdk.types import (
 )
 
 from .extension_setup import (
+    BRIDGE_MANIFEST_SCHEMA_VERSION,
     extension_install_status,
     open_chrome_extensions_page,
     resolve_default_ws_url,
@@ -466,13 +468,18 @@ def _build_fingerprint() -> dict[str, Any]:
         "git_commit": _git_output("rev-parse", "--short", "HEAD"),
         "repo_dirty": bool(_git_output("status", "--short")),
         "frontend_fingerprint": _frontend_fingerprint(),
+        "plugin_fingerprint": _plugin_fingerprint(),
     }
 
 
 def _native_host_status(install_status: dict[str, Any]) -> dict[str, Any]:
+    native_host_version = (
+        f"browser-control-native-host.v{BRIDGE_MANIFEST_SCHEMA_VERSION}"
+    )
     if install_status.get("native_host_repair_required"):
         return {
             "status": "repair_required",
+            "version": native_host_version,
             "message": _sanitize_text(
                 install_status.get("native_host_repair_instruction")
                 or "Run qwenpaw setup-extension --yes --reset.",
@@ -481,6 +488,7 @@ def _native_host_status(install_status: dict[str, Any]) -> dict[str, Any]:
         }
     return {
         "status": "configured",
+        "version": native_host_version,
         "message": "Native Host manifest configuration is current.",
         "repair_action": "none",
     }
@@ -564,6 +572,31 @@ def _frontend_fingerprint() -> str:
         stat = index_path.stat()
         return f"index:{int(stat.st_mtime)}:{stat.st_size}"
     return ""
+
+
+def _plugin_fingerprint() -> str:
+    plugin_root = Path(__file__).resolve().parent
+    return _hash_existing_files(
+        [
+            plugin_root / "plugin.json",
+            EXTENSION_MANIFEST_PATH,
+            plugin_root / "routes.py",
+        ],
+    )
+
+
+def _hash_existing_files(paths: list[Path]) -> str:
+    digest = hashlib.sha256()
+    seen = False
+    for path in paths:
+        if not path.exists() or not path.is_file():
+            continue
+        seen = True
+        digest.update(path.name.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(path.read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()[:16] if seen else ""
 
 
 def _check_payload(
@@ -725,6 +758,7 @@ async def get_extension_status() -> dict[str, Any]:
     diagnostics = await _sdk_diagnostics_snapshot("user")
     extension_version = _extension_version()
     install_status = extension_install_status()
+    native_host_status = _native_host_status(install_status)
     build = _build_fingerprint()
     freshness = _build_freshness(build)
     readiness_state, repair_action = _readiness_state_and_repair_action(
@@ -739,7 +773,8 @@ async def get_extension_status() -> dict[str, Any]:
         "connected": connected,
         "readiness_state": readiness_state,
         "repair_action": repair_action,
-        "native_host_status": _native_host_status(install_status),
+        "native_host_status": native_host_status,
+        "native_host_version": str(native_host_status.get("version") or ""),
         "selected_backend_id": diagnostics.selected_backend_id,
         "version": extension_version,
         "extension_version": extension_version,

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import hashlib
 import json
 import subprocess
 import sys
@@ -27,11 +28,23 @@ from qwenpaw.browser_sdk.error_codes import (
     classify_browser_error,
 )
 from qwenpaw.browser_sdk.progress import detect_no_progress
-from qwenpaw.browser_sdk.trace import BrowserTraceEvent
+from qwenpaw.browser_sdk.trace import (
+    BrowserTraceEvent,
+    validate_browser_trace_events,
+)
 
 DEFAULT_BASE_URL = "http://127.0.0.1:8088"
 DEFAULT_TIMEOUT = 10.0
 DEFAULT_TASK_TIMEOUT = 180.0
+V9_RUNTIME_STALE_CODE = "RUNTIME_STALE"
+V9_REPORT_SCHEMA_VERSION = "browser-control-v9-a"
+V9_SOURCE_LABELS = (
+    "fixture",
+    "local_service",
+    "user_chrome",
+    "public_live",
+    "commerce_live",
+)
 
 
 def _join_removed_tool_token(*parts: str) -> str:
@@ -87,6 +100,14 @@ class BrowserControlReport:
     safety_boundaries: list[str] = field(default_factory=list)
     user_preparation: list[str] = field(default_factory=list)
     scenario_reports: list[dict[str, Any]] = field(default_factory=list)
+    runtime_evidence: dict[str, Any] = field(default_factory=dict)
+    trace_summary: dict[str, Any] = field(default_factory=dict)
+    report_schema_version: str = ""
+    scenario_budget: dict[str, Any] = field(default_factory=dict)
+    actual_metrics: dict[str, Any] = field(default_factory=dict)
+    cleanup_summary: dict[str, Any] = field(default_factory=dict)
+    blocker_classification: dict[str, Any] = field(default_factory=dict)
+    source_labels: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -108,6 +129,14 @@ class BrowserControlReport:
             "safety_boundaries": list(self.safety_boundaries),
             "user_preparation": list(self.user_preparation),
             "scenario_reports": list(self.scenario_reports),
+            "runtime_evidence": dict(self.runtime_evidence),
+            "trace_summary": dict(self.trace_summary),
+            "report_schema_version": self.report_schema_version,
+            "scenario_budget": dict(self.scenario_budget),
+            "actual_metrics": dict(self.actual_metrics),
+            "cleanup_summary": dict(self.cleanup_summary),
+            "blocker_classification": dict(self.blocker_classification),
+            "source_labels": dict(self.source_labels),
         }
 
 
@@ -214,6 +243,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     taobao = subparsers.add_parser("taobao-live")
     taobao.add_argument("--live-taobao", action="store_true")
     _add_v8_command_parsers(subparsers)
+    _add_v9_command_parsers(subparsers)
     return parser
 
 
@@ -265,11 +295,40 @@ def _add_v8_common_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--output-json", default="")
 
 
+def _add_v9_command_parsers(
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
+    preflight = subparsers.add_parser("v9-preflight")
+    _add_v9_common_args(preflight)
+
+    report = subparsers.add_parser("v9-report")
+    report.add_argument(
+        "--output",
+        default="docs/browser-control-v9-runtime-truth-evidence-report.json",
+    )
+    report.add_argument("result_files", nargs="*")
+
+
+def _add_v9_common_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--port", type=int, default=8088)
+    parser.add_argument("--base-url", default="")
+    parser.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT)
+    parser.add_argument(
+        "--task-timeout",
+        type=float,
+        default=DEFAULT_TASK_TIMEOUT,
+    )
+    parser.add_argument("--start-if-missing", action="store_true")
+    parser.add_argument("--restart-stale", action="store_true")
+    parser.add_argument("--output-json", default="")
+
+
 def detect_forbidden_tools(text: str | list[str]) -> list[str]:
     haystack = "\n".join(text) if isinstance(text, list) else str(text or "")
     return [tool for tool in FORBIDDEN_TOOLS if tool in haystack]
 
 
+# pylint: disable-next=too-many-return-statements
 def classify_verification_evidence(
     *,
     scenario: str,
@@ -325,6 +384,29 @@ def classify_verification_evidence(
                 if _has_user_backend_evidence(trace_events or [])
                 else True
             ),
+        )
+
+    trace_validation = _trace_completeness_summary(trace_events or [])
+    if trace_validation and not trace_validation.get("complete", True):
+        return _report(
+            scenario,
+            "failed",
+            started,
+            browser_tool_calls=browser_tool_calls,
+            backend_route=backend_route,
+            trace_event_count=len(trace_events or []),
+            error_code=BrowserErrorCode.UNKNOWN.value,
+            failure_reason="trace_incomplete",
+            artifact_paths=artifact_paths,
+            fresh_observe_ok=not _fresh_observe_failure_reason(
+                trace_events or [],
+            ),
+            cleanup_ok=(
+                not _user_cleanup_failure_reason(trace_events or [])
+                if _has_user_backend_evidence(trace_events or [])
+                else True
+            ),
+            trace_summary=trace_validation,
         )
 
     no_progress = _no_progress_failure_reason(trace_events or [])
@@ -553,6 +635,199 @@ def run_v8_preflight(args: argparse.Namespace) -> BrowserControlReport:
         fresh_observe_ok=True,
         cleanup_ok=True,
     )
+
+
+def run_v9_preflight(args: argparse.Namespace) -> BrowserControlReport:
+    """Validate runtime evidence before trusting V9 scenarios."""
+    started = time.perf_counter()
+    base_url = _v9_base_url(args)
+    try:
+        version = _http_json(f"{base_url}/api/version", timeout=args.timeout)
+    except RuntimeError as exc:
+        if not getattr(args, "start_if_missing", False):
+            return _report(
+                "v9-preflight",
+                "blocked",
+                started,
+                blocked_reason=str(exc),
+            )
+        try:
+            _start_qwenpaw_app()
+            version = _http_json(
+                f"{base_url}/api/version",
+                timeout=args.timeout,
+            )
+        except RuntimeError as retry_exc:
+            return _report(
+                "v9-preflight",
+                "blocked",
+                started,
+                blocked_reason=str(retry_exc),
+            )
+
+    try:
+        status = _extension_status(base_url, args.timeout)
+    except RuntimeError as exc:
+        return _report(
+            "v9-preflight",
+            "blocked",
+            started,
+            error_code=BrowserErrorCode.BRIDGE_DISCONNECTED.value,
+            blocked_reason=str(exc),
+        )
+
+    evidence = _v9_runtime_evidence(version, status)
+    failed = [
+        name for name, value in evidence["checks"].items() if value != "passed"
+    ]
+    if failed and getattr(args, "restart_stale", False):
+        _start_qwenpaw_app()
+        return run_v9_preflight(
+            argparse.Namespace(**{**vars(args), "restart_stale": False}),
+        )
+    report_status = "passed" if not failed else "failed"
+    return _report(
+        "v9-preflight",
+        report_status,
+        started,
+        backend_route=_backend_route(status),
+        trace_event_count=int(
+            ((status.get("trace_summary") or {}) or {}).get("event_count")
+            or 0,
+        ),
+        error_code="" if report_status == "passed" else V9_RUNTIME_STALE_CODE,
+        failure_reason=",".join(failed[:1]),
+        preflight_checks=evidence["checks"],
+        runtime_evidence=evidence,
+        report_schema_version=V9_REPORT_SCHEMA_VERSION,
+        source_labels=v9_source_labels_for_scenario("v9-preflight"),
+        fresh_observe_ok=True,
+        cleanup_ok=True,
+    )
+
+
+def run_v9_report(args: argparse.Namespace) -> BrowserControlReport:
+    """Write the V9 evidence report JSON from scenario result files."""
+    return write_v9_evidence_report(
+        output=Path(str(args.output)),
+        result_files=[
+            Path(path) for path in getattr(args, "result_files", [])
+        ],
+    )
+
+
+def _v9_base_url(args: argparse.Namespace) -> str:
+    base_url = str(getattr(args, "base_url", "") or "").strip()
+    if base_url:
+        return _normalize_base_url(base_url)
+    port = int(getattr(args, "port", 8088) or 8088)
+    return f"http://127.0.0.1:{port}"
+
+
+def _v9_runtime_evidence(
+    version: dict[str, Any],
+    status: dict[str, Any],
+) -> dict[str, Any]:
+    build = status.get("build_fingerprint")
+    build = build if isinstance(build, dict) else {}
+    bridge_lifecycle = status.get("bridge_lifecycle")
+    bridge_lifecycle = (
+        bridge_lifecycle if isinstance(bridge_lifecycle, dict) else {}
+    )
+    local = {
+        "git_commit": _local_git_commit(),
+        "repo_dirty": _local_repo_dirty(),
+        "frontend_fingerprint": _local_frontend_fingerprint(),
+        "plugin_fingerprint": _local_plugin_fingerprint(),
+    }
+    service = {
+        "git_commit": str(
+            version.get("git_commit") or build.get("git_commit") or "",
+        ),
+        "repo_dirty": bool(
+            version.get("repo_dirty") or build.get("repo_dirty"),
+        ),
+        "frontend_fingerprint": str(
+            version.get("frontend_fingerprint")
+            or build.get("frontend_fingerprint")
+            or "",
+        ),
+        "plugin_fingerprint": str(build.get("plugin_fingerprint") or ""),
+        "extension_version": str(status.get("extension_version") or ""),
+        "native_host_version": str(status.get("native_host_version") or ""),
+        "bridge_connected": status.get("connected") is True,
+        "bridge_connected_since": str(
+            status.get("connected_since")
+            or bridge_lifecycle.get("connected_since")
+            or "",
+        ),
+    }
+    checks = {
+        "backend_commit": _v9_check_match(
+            local["git_commit"],
+            service["git_commit"],
+        ),
+        "backend_dirty": (
+            "passed"
+            if not local["repo_dirty"] and not service["repo_dirty"]
+            else "failed"
+        ),
+        "frontend_fingerprint": _v9_check_match(
+            local["frontend_fingerprint"],
+            service["frontend_fingerprint"],
+        ),
+        "plugin_fingerprint": _v9_check_match(
+            local["plugin_fingerprint"],
+            service["plugin_fingerprint"],
+        ),
+        "extension_version": (
+            "passed" if service["extension_version"] else "failed"
+        ),
+        "native_host_version": (
+            "passed" if service["native_host_version"] else "failed"
+        ),
+        "bridge_freshness": (
+            "passed"
+            if service["bridge_connected"]
+            and bool(service["bridge_connected_since"])
+            else "blocked"
+        ),
+    }
+    failed = [name for name, value in checks.items() if value != "passed"]
+    return {
+        "schema_version": "browser-control-v9-a-runtime-truth",
+        "local": local,
+        "service": service,
+        "checks": checks,
+        "status": "fresh" if not failed else "stale",
+        "repair_action": _v9_runtime_repair_action(failed),
+    }
+
+
+def _v9_check_match(local_value: Any, service_value: Any) -> str:
+    local_text = str(local_value or "")
+    service_text = str(service_value or "")
+    return (
+        "passed"
+        if local_text and service_text and local_text == service_text
+        else "failed"
+    )
+
+
+def _v9_runtime_repair_action(failed: list[str]) -> str:
+    if not failed:
+        return "none"
+    repair_actions = {
+        "backend_commit": "restart_qwenpaw",
+        "backend_dirty": "commit_or_revert_local_changes",
+        "frontend_fingerprint": "rebuild_frontend",
+        "plugin_fingerprint": "reload_browser_control_plugin",
+        "bridge_freshness": "reload_extension",
+    }
+    for name, action in repair_actions.items():
+        if name in failed:
+            return action
+    return "restart_qwenpaw"
 
 
 def _v8_preflight_checks(
@@ -1623,6 +1898,23 @@ def write_v8_product_report(
     return replace(aggregate, artifact_paths=[str(output)])
 
 
+def write_v9_evidence_report(
+    *,
+    output: Path,
+    result_files: list[Path],
+) -> BrowserControlReport:
+    """Write a JSON V9 evidence report from scenario result files."""
+    started = time.perf_counter()
+    reports = [_load_v9_report(path) for path in result_files]
+    aggregate = _aggregate_v9_evidence_report(started=started, reports=reports)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(
+        json.dumps(aggregate.to_dict(), ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    return replace(aggregate, artifact_paths=[str(output)])
+
+
 def _load_v8_report(path: Path) -> BrowserControlReport:
     payload = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
@@ -1655,6 +1947,233 @@ def _load_v8_report(path: Path) -> BrowserControlReport:
         ],
         scenario_reports=list(payload.get("scenario_reports") or []),
     )
+
+
+def _load_v9_report(path: Path) -> BrowserControlReport:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise RuntimeError(f"{path} did not contain a JSON object")
+    return BrowserControlReport(
+        scenario=str(payload.get("scenario") or path.stem),
+        status=str(payload.get("status") or "failed"),
+        duration_ms=float(payload.get("duration_ms") or 0.0),
+        browser_tool_calls=int(payload.get("browser_tool_calls") or 0),
+        backend_route=str(payload.get("backend_route") or ""),
+        forbidden_tools=[
+            str(item) for item in payload.get("forbidden_tools") or []
+        ],
+        trace_event_count=int(payload.get("trace_event_count") or 0),
+        error_code=str(payload.get("error_code") or ""),
+        blocked_reason=str(payload.get("blocked_reason") or ""),
+        failure_reason=str(payload.get("failure_reason") or ""),
+        artifact_paths=[
+            str(item) for item in payload.get("artifact_paths") or []
+        ],
+        fresh_observe_ok=bool(payload.get("fresh_observe_ok")),
+        cleanup_ok=bool(payload.get("cleanup_ok")),
+        preflight_checks=dict(payload.get("preflight_checks") or {}),
+        content_evidence=dict(payload.get("content_evidence") or {}),
+        safety_boundaries=[
+            str(item) for item in payload.get("safety_boundaries") or []
+        ],
+        user_preparation=[
+            str(item) for item in payload.get("user_preparation") or []
+        ],
+        scenario_reports=list(payload.get("scenario_reports") or []),
+        runtime_evidence=dict(payload.get("runtime_evidence") or {}),
+        trace_summary=dict(payload.get("trace_summary") or {}),
+        report_schema_version=str(
+            payload.get("report_schema_version") or V9_REPORT_SCHEMA_VERSION,
+        ),
+        scenario_budget=dict(payload.get("scenario_budget") or {}),
+        actual_metrics=dict(payload.get("actual_metrics") or {}),
+        cleanup_summary=dict(payload.get("cleanup_summary") or {}),
+        blocker_classification=dict(
+            payload.get("blocker_classification") or {},
+        ),
+        source_labels=dict(payload.get("source_labels") or {}),
+    )
+
+
+def _aggregate_v9_evidence_report(
+    *,
+    started: float,
+    reports: list[BrowserControlReport],
+) -> BrowserControlReport:
+    status = _aggregate_status(reports)
+    scenario_payloads = [report.to_dict() for report in reports]
+    trace_summary = _aggregate_v9_trace_summary(reports)
+    cleanup_summary = _aggregate_v9_cleanup_summary(reports)
+    blocker = _v9_blocker_classification(status, reports)
+    return _report(
+        "v9-report",
+        status,
+        started,
+        browser_tool_calls=sum(
+            report.browser_tool_calls for report in reports
+        ),
+        trace_event_count=sum(report.trace_event_count for report in reports),
+        report_schema_version=V9_REPORT_SCHEMA_VERSION,
+        scenario_budget=_v9_default_scenario_budget(len(reports)),
+        actual_metrics=_v9_actual_metrics(reports),
+        trace_summary=trace_summary,
+        cleanup_summary=cleanup_summary,
+        blocker_classification=blocker,
+        source_labels=_aggregate_v9_source_labels(reports),
+        scenario_reports=scenario_payloads,
+        fresh_observe_ok=all(report.fresh_observe_ok for report in reports),
+        cleanup_ok=bool(cleanup_summary.get("cleanup_ok", False)),
+        failure_reason=str(blocker.get("reason") or ""),
+        blocked_reason=(
+            str(blocker.get("reason") or "") if status == "blocked" else ""
+        ),
+    )
+
+
+def _aggregate_status(reports: list[BrowserControlReport]) -> str:
+    if any(report.status == "failed" for report in reports):
+        return "failed"
+    if any(report.status == "blocked" for report in reports):
+        return "blocked"
+    return "passed"
+
+
+def _v9_default_scenario_budget(count: int) -> dict[str, Any]:
+    return {
+        "scenario_count": count,
+        "iteration_limit": "scenario_defined",
+        "browser_call_limit": "scenario_defined",
+        "timeout_ms": int(DEFAULT_TASK_TIMEOUT * 1000),
+    }
+
+
+def _v9_actual_metrics(reports: list[BrowserControlReport]) -> dict[str, Any]:
+    return {
+        "scenario_count": len(reports),
+        "elapsed_ms": round(sum(report.duration_ms for report in reports), 3),
+        "browser_calls": sum(report.browser_tool_calls for report in reports),
+        "trace_events": sum(report.trace_event_count for report in reports),
+        "iterations": _sum_nested_metric(reports, "iterations"),
+        "token_count": {"available": False, "reason": "not_reported"},
+    }
+
+
+def _sum_nested_metric(
+    reports: list[BrowserControlReport],
+    key: str,
+) -> int:
+    total = 0
+    for report in reports:
+        value = report.actual_metrics.get(key)
+        if isinstance(value, int):
+            total += value
+    return total
+
+
+def _aggregate_v9_trace_summary(
+    reports: list[BrowserControlReport],
+) -> dict[str, Any]:
+    missing: dict[str, Any] = {}
+    complete = True
+    for report in reports:
+        summary = report.trace_summary
+        if summary.get("complete") is False:
+            complete = False
+        if isinstance(summary.get("missing_fields"), dict):
+            missing[report.scenario] = summary["missing_fields"]
+    return {
+        "complete": complete and not missing,
+        "event_count": sum(report.trace_event_count for report in reports),
+        "missing_fields": missing,
+    }
+
+
+def _aggregate_v9_cleanup_summary(
+    reports: list[BrowserControlReport],
+) -> dict[str, Any]:
+    return {
+        "cleanup_ok": all(report.cleanup_ok for report in reports),
+        "scenario_count": len(reports),
+        "failed_scenarios": [
+            report.scenario for report in reports if not report.cleanup_ok
+        ],
+    }
+
+
+def _v9_blocker_classification(
+    status: str,
+    reports: list[BrowserControlReport],
+) -> dict[str, str]:
+    for report in reports:
+        reason = report.blocked_reason or report.failure_reason
+        if reason:
+            return {"status": status, "reason": reason}
+    return {"status": status, "reason": ""}
+
+
+def _aggregate_v9_source_labels(
+    reports: list[BrowserControlReport],
+) -> dict[str, Any]:
+    observations: list[dict[str, Any]] = []
+    for report in reports:
+        labels = report.source_labels
+        for item in labels.get("observations") or []:
+            if isinstance(item, dict):
+                observations.append(dict(item))
+        primary = labels.get("primary")
+        if primary:
+            observations.append(
+                {"source": str(primary), "kind": "scenario_primary"},
+            )
+    return {"allowed": list(V9_SOURCE_LABELS), "observations": observations}
+
+
+def validate_v9_source_labels(labels: dict[str, Any]) -> dict[str, Any]:
+    """Validate that evidence observations use explicit V9 source labels."""
+    invalid: list[str] = []
+    primary = str(labels.get("primary") or "")
+    if primary and primary not in V9_SOURCE_LABELS:
+        invalid.append(primary)
+    observations = labels.get("observations")
+    if isinstance(observations, list):
+        for item in observations:
+            if not isinstance(item, dict):
+                continue
+            source = str(item.get("source") or "")
+            if (
+                source
+                and source not in V9_SOURCE_LABELS
+                and source not in invalid
+            ):
+                invalid.append(source)
+    return {"ok": not invalid, "invalid_sources": invalid}
+
+
+def v9_source_labels_for_scenario(scenario: str) -> dict[str, Any]:
+    """Return default observation source labels for a verifier scenario."""
+    name = str(scenario or "")
+    if "taobao" in name or "commerce" in name:
+        primary = "commerce_live"
+        kind = "commerce_live"
+    elif "user" in name:
+        primary = "user_chrome"
+        kind = "user_chrome"
+    elif "public" in name or "loop" in name:
+        primary = "public_live"
+        kind = "public_live"
+    elif "fixture" in name or "deterministic" in name:
+        primary = "fixture"
+        kind = "deterministic_fixture"
+    else:
+        primary = "local_service"
+        kind = "runtime_preflight"
+    return {
+        "primary": primary,
+        "observations": [
+            {"source": primary, "kind": kind},
+            {"source": "local_service", "kind": "runtime_preflight"},
+        ],
+    }
 
 
 def _render_v8_markdown_report(
@@ -1734,12 +2253,14 @@ def main(argv: list[str] | None = None) -> int:
         "bridge-disconnected": run_bridge_disconnected,
         "taobao-live": run_taobao_live,
         "v8-preflight": run_v8_preflight,
+        "v9-preflight": run_v9_preflight,
         "v8-deterministic": run_v8_deterministic,
         "v8-public-live": run_v8_public_live,
         "v8-user-live": run_v8_user_live,
         "v8-taobao-live": run_v8_taobao_live,
         "v8-lifecycle-live": run_v8_lifecycle_live,
         "v8-report": run_v8_report,
+        "v9-report": run_v9_report,
     }
     report = runners[args.command](args)
     payload = report.to_dict()
@@ -1775,6 +2296,14 @@ def _report(
     safety_boundaries: list[str] | None = None,
     user_preparation: list[str] | None = None,
     scenario_reports: list[dict[str, Any]] | None = None,
+    runtime_evidence: dict[str, Any] | None = None,
+    trace_summary: dict[str, Any] | None = None,
+    report_schema_version: str = "",
+    scenario_budget: dict[str, Any] | None = None,
+    actual_metrics: dict[str, Any] | None = None,
+    cleanup_summary: dict[str, Any] | None = None,
+    blocker_classification: dict[str, Any] | None = None,
+    source_labels: dict[str, Any] | None = None,
 ) -> BrowserControlReport:
     if status == "blocked" and not blocked_reason and error_code:
         blocked_reason = classify_browser_error(error_code).blocked_reason
@@ -1803,6 +2332,14 @@ def _report(
         safety_boundaries=list(safety_boundaries or []),
         user_preparation=list(user_preparation or []),
         scenario_reports=list(scenario_reports or []),
+        runtime_evidence=dict(runtime_evidence or {}),
+        trace_summary=dict(trace_summary or {}),
+        report_schema_version=report_schema_version,
+        scenario_budget=dict(scenario_budget or {}),
+        actual_metrics=dict(actual_metrics or {}),
+        cleanup_summary=dict(cleanup_summary or {}),
+        blocker_classification=dict(blocker_classification or {}),
+        source_labels=dict(source_labels or {}),
     )
 
 
@@ -1830,6 +2367,14 @@ def _copy_report(
         safety_boundaries=list(report.safety_boundaries),
         user_preparation=list(report.user_preparation),
         scenario_reports=list(report.scenario_reports),
+        runtime_evidence=dict(report.runtime_evidence),
+        trace_summary=dict(report.trace_summary),
+        report_schema_version=report.report_schema_version,
+        scenario_budget=dict(report.scenario_budget),
+        actual_metrics=dict(report.actual_metrics),
+        cleanup_summary=dict(report.cleanup_summary),
+        blocker_classification=dict(report.blocker_classification),
+        source_labels=dict(report.source_labels),
     )
 
 
@@ -2027,6 +2572,10 @@ def _classify_completed_chat_trace_result(
         status = "failed"
         error_code = BrowserErrorCode.UNKNOWN.value
         failure_reason = "missing_trace_evidence"
+    elif not _trace_completeness_summary(trace_events).get("complete", True):
+        status = "failed"
+        error_code = BrowserErrorCode.UNKNOWN.value
+        failure_reason = "trace_incomplete"
     elif (
         required_context or required_backend_id
     ) and not _has_required_backend_evidence(
@@ -2066,6 +2615,7 @@ def _classify_completed_chat_trace_result(
             if require_user_backend or _has_user_backend_evidence(trace_events)
             else True
         ),
+        trace_summary=_trace_completeness_summary(trace_events),
     )
 
 
@@ -2087,6 +2637,17 @@ def _trace_error_info(trace_events: list[dict[str, Any]]) -> Any | None:
         if str(event.get("status") or "").casefold() == "error":
             return classify_browser_error(BrowserErrorCode.UNKNOWN)
     return None
+
+
+def _trace_completeness_summary(
+    trace_events: list[dict[str, Any]],
+) -> dict[str, Any]:
+    validation = validate_browser_trace_events(trace_events)
+    return {
+        "complete": bool(validation.get("ok")),
+        "event_count": int(validation.get("event_count") or 0),
+        "missing_fields": dict(validation.get("missing_fields") or {}),
+    }
 
 
 def _transcript_error_info(text: str | list[str]) -> Any | None:
@@ -2858,6 +3419,70 @@ def _local_git_commit() -> str:
     if result.returncode != 0:
         return ""
     return result.stdout.strip()
+
+
+def _local_repo_dirty() -> bool:
+    try:
+        result = subprocess.run(
+            ("git", "status", "--short"),
+            cwd=_repo_root(),
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    if result.returncode != 0:
+        return False
+    return bool(result.stdout.strip())
+
+
+def _local_frontend_fingerprint() -> str:
+    static_dir = _repo_root() / "console" / "dist"
+    index_path = static_dir / "index.html"
+    assets_dir = static_dir / "assets"
+    if assets_dir.is_dir():
+        names = sorted(
+            path.name
+            for path in assets_dir.iterdir()
+            if path.is_file() and path.suffix in {".js", ".css"}
+        )
+        if names:
+            return ",".join(names[:20])
+    if index_path.exists():
+        stat = index_path.stat()
+        return f"index:{int(stat.st_mtime)}:{stat.st_size}"
+    return ""
+
+
+def _local_plugin_fingerprint() -> str:
+    plugin_root = _repo_root() / "plugins" / "bundle" / "browser-control"
+    return _hash_existing_files(
+        [
+            plugin_root / "plugin.json",
+            plugin_root
+            / "assets"
+            / "extensions"
+            / "qwenpaw-browser-bridge"
+            / "manifest.json",
+            plugin_root / "routes.py",
+        ],
+    )
+
+
+def _hash_existing_files(paths: list[Path]) -> str:
+    digest = hashlib.sha256()
+    seen = False
+    for path in paths:
+        if not path.exists() or not path.is_file():
+            continue
+        seen = True
+        digest.update(path.name.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(path.read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()[:16] if seen else ""
 
 
 def _start_qwenpaw_app() -> None:

@@ -5,6 +5,9 @@ from __future__ import annotations
 
 from collections import defaultdict, deque
 from dataclasses import dataclass, field, replace
+from functools import lru_cache
+from pathlib import Path
+import subprocess
 from threading import RLock
 from typing import Any
 from urllib.parse import urlparse
@@ -21,6 +24,21 @@ _SENSITIVE_KEY_TOKENS = (
     "secret",
     "token",
     "value",
+)
+V9_REQUIRED_TRACE_FIELDS = (
+    "event_id",
+    "session_id",
+    "tool_call_id",
+    "backend_id",
+    "requested_context",
+    "selected_context",
+    "phase",
+    "action",
+    "tab_id",
+    "domain",
+    "status",
+    "approval_state",
+    "freshness_marker",
 )
 
 
@@ -43,6 +61,7 @@ class BrowserTraceEvent:
     duration_ms: float = 0.0
     error_code: str = ""
     approval_state: str = ""
+    freshness_marker: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -63,6 +82,7 @@ class BrowserTraceEvent:
             "duration_ms": self.duration_ms,
             "error_code": self.error_code,
             "approval_state": self.approval_state,
+            "freshness_marker": self.freshness_marker,
             "metadata": _redact(self.metadata),
         }
 
@@ -143,28 +163,81 @@ def record_browser_trace_event(
     duration_ms: float = 0.0,
     error_code: str = "",
     approval_state: str = "",
+    freshness_marker: str = "",
     metadata: dict[str, Any] | None = None,
 ) -> BrowserTraceEvent:
     """Record one Browser SDK trace event in the default store."""
+    safe_metadata = dict(metadata or {})
+    current_tool_call_id = _current_tool_call_id()
+    effective_url = str(url or "")
     event = BrowserTraceEvent(
         event_id=uuid4().hex,
         session_id=str(session_id or "default"),
-        tool_call_id=_current_tool_call_id(),
+        tool_call_id=str(
+            current_tool_call_id
+            or safe_metadata.get("tool_call_id")
+            or "current_browser_tool",
+        ),
         backend_id=str(backend_id or ""),
         requested_context=str(requested_context or ""),
         selected_context=str(selected_context or ""),
         phase=str(phase or ""),
-        action=str(action or ""),
-        tab_id=str(tab_id or ""),
-        url=str(url or ""),
-        domain=str(domain or _domain_from_url(url)),
-        status=str(status or ""),
+        action=str(action or phase or "browser"),
+        tab_id=str(tab_id or "__browser__"),
+        url=effective_url,
+        domain=str(
+            domain or _domain_from_url(effective_url) or "local_runtime",
+        ),
+        status=str(status or "ok"),
         duration_ms=float(duration_ms or 0.0),
         error_code=str(error_code or ""),
-        approval_state=str(approval_state or ""),
-        metadata=dict(metadata or {}),
+        approval_state=str(
+            approval_state
+            or safe_metadata.get("approval_state")
+            or "not_required",
+        ),
+        freshness_marker=str(freshness_marker or _runtime_freshness_marker()),
+        metadata=safe_metadata,
     )
     return get_browser_trace_store().record(event)
+
+
+def validate_browser_trace_event(
+    event: BrowserTraceEvent | dict[str, Any],
+) -> dict[str, Any]:
+    """Return V9 trace completeness evidence for one event."""
+    payload = (
+        event.to_dict() if isinstance(event, BrowserTraceEvent) else event
+    )
+    missing = [
+        field
+        for field in V9_REQUIRED_TRACE_FIELDS
+        if not _trace_field_present(payload, field)
+    ]
+    return {
+        "ok": not missing,
+        "event_id": str(payload.get("event_id") or ""),
+        "missing_fields": missing,
+    }
+
+
+def validate_browser_trace_events(
+    events: list[dict[str, Any]] | tuple[BrowserTraceEvent, ...],
+) -> dict[str, Any]:
+    """Return aggregate V9 trace completeness evidence."""
+    results = [validate_browser_trace_event(event) for event in events]
+    missing = {
+        str(result.get("event_id") or f"event_{index}"): list(
+            result.get("missing_fields") or [],
+        )
+        for index, result in enumerate(results)
+        if result.get("missing_fields")
+    }
+    return {
+        "ok": not missing,
+        "event_count": len(results),
+        "missing_fields": missing,
+    }
 
 
 def _current_tool_call_id() -> str:
@@ -175,6 +248,34 @@ def _current_tool_call_id() -> str:
         return str(getattr(context, "tool_call_id", "") or "")
     except Exception:  # pragma: no cover - defensive runtime fallback
         return ""
+
+
+def _trace_field_present(payload: dict[str, Any], field_name: str) -> bool:
+    if field_name == "error_code":
+        return field_name in payload
+    value = payload.get(field_name)
+    if isinstance(value, str):
+        return bool(value.strip())
+    if field_name == "duration_ms":
+        return value is not None
+    return bool(value)
+
+
+@lru_cache(maxsize=1)
+def _runtime_freshness_marker() -> str:
+    try:
+        result = subprocess.run(
+            ("git", "rev-parse", "--short", "HEAD"),
+            cwd=Path(__file__).resolve().parents[3],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=0.5,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return "commit:unknown"
+    commit = result.stdout.strip() if result.returncode == 0 else ""
+    return f"commit:{commit or 'unknown'}"
 
 
 def _domain_from_url(url: str) -> str:
@@ -209,4 +310,6 @@ __all__ = [
     "get_browser_trace_store",
     "record_browser_trace_event",
     "reset_browser_trace_store_for_tests",
+    "validate_browser_trace_event",
+    "validate_browser_trace_events",
 ]
