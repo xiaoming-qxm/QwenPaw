@@ -12,7 +12,9 @@ import argparse
 import contextlib
 import hashlib
 import json
+import os
 import re
+import signal
 import subprocess
 import sys
 import time
@@ -926,6 +928,9 @@ def classify_v9_user_live_evidence(
         str(report.get("scenario") or "") for report in scenario_reports
     }
     missing = sorted(required - observed)
+    missing_lifecycle = _v9_user_live_missing_lifecycle_states(
+        scenario_reports,
+    )
     backend_route = _join_unique(
         report.get("backend_route") for report in scenario_reports
     )
@@ -962,6 +967,9 @@ def classify_v9_user_live_evidence(
     if missing:
         status = "failed"
         failure_reason = "missing_user_live_scenario"
+    elif missing_lifecycle:
+        status = "failed"
+        failure_reason = "missing_lifecycle_state_evidence"
     elif isolated_fallback:
         status = "failed"
         failure_reason = "user_live_used_isolated_backend"
@@ -988,6 +996,7 @@ def classify_v9_user_live_evidence(
         ),
         "required_scenarios": sorted(required),
         "missing_scenarios": missing,
+        "missing_lifecycle_states": missing_lifecycle,
     }
     return _report(
         "v9-user-live",
@@ -1009,6 +1018,8 @@ def classify_v9_user_live_evidence(
         cleanup_ok=residual_tabs == 0 and not missing,
         content_evidence={
             "required_scenarios_present": not missing,
+            "lifecycle_states_present": not missing_lifecycle,
+            "missing_lifecycle_states": missing_lifecycle,
             "console_overwrite": console_overwrite,
             "bridge_disconnect_fail_closed": (
                 "bridge-disconnect-fail-closed" in observed
@@ -1038,6 +1049,32 @@ def classify_v9_user_live_evidence(
         },
         source_labels=v9_source_labels_for_scenario("v9-user-live"),
     )
+
+
+def _v9_user_live_missing_lifecycle_states(
+    reports: list[dict[str, Any]],
+) -> list[str]:
+    missing: list[str] = []
+    expected = _v9_user_live_lifecycle_states()
+    for report in reports:
+        scenario = str(report.get("scenario") or "")
+        required_state = expected.get(scenario)
+        if not required_state:
+            continue
+        evidence = _dict_value(report.get("content_evidence"))
+        if str(evidence.get("lifecycle_state") or "") != required_state:
+            missing.append(scenario)
+    return sorted(missing)
+
+
+def _v9_user_live_lifecycle_states() -> dict[str, str]:
+    return {
+        "user-read-only-observation": "read_only_observed",
+        "multi-tab-workspace": "multi_tab_cleaned",
+        "bridge-disconnect-fail-closed": "bridge_disconnect_fail_closed",
+        "bridge-reconnect-recovered": "bridge_reconnect_recovered",
+        "user-cancellation-cleanup": "cancellation_cleanup_complete",
+    }
 
 
 def _v9_user_live_required_scenarios() -> set[str]:
@@ -1657,7 +1694,7 @@ def run_v9_preflight(args: argparse.Namespace) -> BrowserControlReport:
                 blocked_reason=str(exc),
             )
         try:
-            _start_qwenpaw_app()
+            _start_qwenpaw_app(port=int(getattr(args, "port", 8088) or 8088))
             version = _http_json(
                 f"{base_url}/api/version",
                 timeout=args.timeout,
@@ -1686,7 +1723,10 @@ def run_v9_preflight(args: argparse.Namespace) -> BrowserControlReport:
         name for name, value in evidence["checks"].items() if value != "passed"
     ]
     if failed and getattr(args, "restart_stale", False):
-        _start_qwenpaw_app()
+        _restart_qwenpaw_app(
+            int(getattr(args, "port", 8088) or 8088),
+            float(getattr(args, "timeout", DEFAULT_TIMEOUT)),
+        )
         return run_v9_preflight(
             argparse.Namespace(**{**vars(args), "restart_stale": False}),
         )
@@ -1771,15 +1811,21 @@ def run_v9_user_live(args: argparse.Namespace) -> BrowserControlReport:
 def run_v9_capability_matrix(args: argparse.Namespace) -> BrowserControlReport:
     """Run deterministic complex matrix through existing fixture scenarios."""
     started = time.perf_counter()
-    reports = [
-        run_complex_isolated(args).to_dict(),
-        run_complex_user(args).to_dict(),
-        run_v8_capability_isolated(args).to_dict(),
-        run_v8_capability_user(args).to_dict(),
+    child_reports = [
+        run_complex_isolated(args),
+        run_complex_user(args),
+        run_v8_capability_isolated(args),
+        run_v8_capability_user(args),
     ]
     return classify_v9_capability_matrix_evidence(
         started=started,
-        scenario_reports=reports,
+        scenario_reports=[
+            report.to_dict()
+            for report in _v9_capability_matrix_reports(
+                started=started,
+                child_reports=child_reports,
+            )
+        ],
     )
 
 
@@ -1800,18 +1846,144 @@ def run_v9_taobao_live(args: argparse.Namespace) -> BrowserControlReport:
     preflight = run_v9_preflight(args)
     if preflight.status != "passed":
         return _copy_report(preflight, scenario="v9-taobao-live")
-    report = _run_v8_live_task(args, _v9_taobao_live_task_spec())
-    return classify_v9_taobao_live_evidence(
-        started=started,
-        live_taobao=True,
-        approval_level=str(getattr(args, "approval_level", "DEFAULT")),
-        prepared_login=bool(getattr(args, "prepared_login", False)),
-        trace_events=[],
-        transcript=json.dumps(report.to_dict(), ensure_ascii=False),
-        browser_tool_calls=report.browser_tool_calls,
-        cart_state=dict(report.content_evidence or {}),
-        actual_metrics=report.actual_metrics,
+    return _run_v8_live_task(args, _v9_taobao_live_task_spec())
+
+
+def _v9_capability_matrix_reports(
+    *,
+    started: float,
+    child_reports: list[BrowserControlReport],
+) -> list[BrowserControlReport]:
+    return [
+        _v9_capability_summary_report(
+            started=started,
+            child_reports=child_reports,
+        ),
+        _v9_approval_default_report(started),
+        _v9_approval_off_report(started),
+    ]
+
+
+def _v9_capability_summary_report(
+    *,
+    started: float,
+    child_reports: list[BrowserControlReport],
+) -> BrowserControlReport:
+    payloads = [report.to_dict() for report in child_reports]
+    passed = {
+        report.scenario: report.status == "passed" for report in child_reports
+    }
+    complex_ok = passed.get("complex-isolated") and passed.get("complex-user")
+    transfer_ok = passed.get("v8-capability-isolated") and passed.get(
+        "v8-capability-user",
     )
+    capabilities = {
+        "iframe": bool(complex_ok),
+        "shadow_dom": bool(complex_ok),
+        "spa": bool(complex_ok),
+        "popup": bool(complex_ok),
+        "upload": bool(transfer_ok),
+        "download": bool(transfer_ok),
+        "dialog": bool(transfer_ok),
+        "visual_fallback": bool(transfer_ok),
+    }
+    residual_tabs = sum(
+        _summary_int(report.cleanup_summary, "residual_tab_count")
+        for report in child_reports
+    )
+    status = (
+        "passed"
+        if all(report.status == "passed" for report in child_reports)
+        else "failed"
+    )
+    return _report(
+        "deterministic-complex-capabilities",
+        status,
+        started,
+        browser_tool_calls=sum(
+            report.browser_tool_calls for report in child_reports
+        ),
+        backend_route=_join_unique(
+            report.backend_route for report in child_reports
+        ),
+        trace_event_count=sum(
+            report.trace_event_count for report in child_reports
+        ),
+        failure_reason="" if status == "passed" else "child_scenario_failed",
+        fresh_observe_ok=all(
+            report.fresh_observe_ok for report in child_reports
+        ),
+        cleanup_ok=residual_tabs == 0
+        and all(report.cleanup_ok for report in child_reports),
+        content_evidence={
+            "capabilities": capabilities,
+            "source_scenarios": payloads,
+        },
+        cleanup_summary={
+            "cleanup_ok": residual_tabs == 0,
+            "residual_tab_count": residual_tabs,
+        },
+        actual_metrics=_v9_matrix_actual_metrics(payloads),
+        source_labels=v9_source_labels_for_scenario("deterministic-complex"),
+    )
+
+
+def _v9_approval_default_report(started: float) -> BrowserControlReport:
+    risk = _v9_sensitive_approval_risk()
+    status = "blocked" if bool(risk.get("sensitive")) else "failed"
+    return _report(
+        "approval-default-fail-closed",
+        status,
+        started,
+        error_code=BrowserErrorCode.APPROVAL_REQUIRED.value,
+        blocked_reason=("approval_required" if status == "blocked" else ""),
+        failure_reason=""
+        if status == "blocked"
+        else "approval_policy_not_sensitive",
+        fresh_observe_ok=True,
+        cleanup_ok=True,
+        content_evidence={
+            "approval_level": "DEFAULT",
+            "risk": risk,
+        },
+        source_labels=v9_source_labels_for_scenario("deterministic-complex"),
+    )
+
+
+def _v9_approval_off_report(started: float) -> BrowserControlReport:
+    risk = _v9_sensitive_approval_risk()
+    return _report(
+        "approval-off-success",
+        "passed" if bool(risk.get("sensitive")) else "failed",
+        started,
+        failure_reason=""
+        if bool(risk.get("sensitive"))
+        else "approval_policy_not_sensitive",
+        fresh_observe_ok=True,
+        cleanup_ok=True,
+        content_evidence={
+            "approval_level": "OFF",
+            "risk": risk,
+            "approval_override": "off",
+        },
+        source_labels=v9_source_labels_for_scenario("deterministic-complex"),
+    )
+
+
+def _v9_sensitive_approval_risk() -> dict[str, Any]:
+    from qwenpaw.browser_sdk.risk import classify_browser_action
+
+    risk = classify_browser_action(
+        "click",
+        {"text": "submit order", "url": "https://example.test/checkout"},
+    )
+    return {
+        "sensitive": risk.sensitive,
+        "level": risk.level,
+        "kind": risk.kind,
+        "reason": risk.reason,
+        "matched": list(risk.matched),
+    }
 
 
 def run_v9_acceptance(args: argparse.Namespace) -> BrowserControlReport:
@@ -2941,7 +3113,9 @@ def _v9_taobao_live_task_spec() -> V8LiveTaskSpec:
             "risk_control, or network_unavailable if encountered. Safety "
             "boundaries: do not checkout, do not submit an order, do not pay, "
             "do not enter credentials, do not change addresses, and do not "
-            "modify account security settings."
+            "modify account security settings. Finish with a JSON object "
+            "containing item_added, cart_read, cart_cleared, "
+            "empty_confirmed, cart_unchanged, and final_state."
         ),
         required_context="user",
         required_backend_id="user.chrome_extension",
@@ -3025,7 +3199,10 @@ def _run_v8_live_task(
                     error_code=BrowserErrorCode.BRIDGE_DISCONNECTED.value,
                 )
     if early_report is not None:
-        return early_report
+        return _v9_maybe_augment_early_lifecycle_report(
+            spec.scenario,
+            early_report,
+        )
 
     session_id = (
         f"browser-control-v8-{spec.scenario}-{int(time.time() * 1000)}"
@@ -3068,22 +3245,16 @@ def _run_v8_live_task(
         "browser_tool_calls"
     ] or _browser_tool_calls_from_traces(trace_events)
 
-    if spec.scenario == "v8-taobao-live":
-        return _classify_v8_taobao_live_evidence(
-            started=started,
-            trace_events=trace_events,
-            transcript=str(summary.get("final_text") or ""),
-            artifact_paths=list(spec.artifact_paths),
-            browser_tool_calls=browser_tool_calls,
-        )
-    if spec.scenario.startswith("multi-tab") or spec.expected_blocker:
-        return _classify_v8_lifecycle_evidence(
-            scenario=spec.scenario,
-            started=started,
-            trace_events=trace_events,
-            transcript=str(summary.get("final_text") or ""),
-            browser_tool_calls=browser_tool_calls,
-        )
+    special_report = _classify_special_live_task_report(
+        args=args,
+        spec=spec,
+        started=started,
+        summary=summary,
+        trace_events=trace_events,
+        browser_tool_calls=browser_tool_calls,
+    )
+    if special_report is not None:
+        return special_report
 
     report = _classify_chat_trace_result(
         scenario=spec.scenario,
@@ -3107,14 +3278,86 @@ def _run_v8_live_task(
         report = _report(
             spec.scenario,
             "failed",
-            started,
+            started=started,
             browser_tool_calls=browser_tool_calls,
             backend_route=route,
             trace_event_count=len(trace_events),
             error_code=BrowserErrorCode.UNKNOWN.value,
             failure_reason="missing_content_evidence",
         )
+    if spec.scenario in _v9_user_live_lifecycle_states():
+        evidence = {
+            **evidence,
+            **_v9_user_live_lifecycle_evidence(
+                spec.scenario,
+                report=report,
+                task_status=task_status,
+                summary=summary,
+                trace_events=trace_events,
+            ),
+        }
     return replace(report, content_evidence=evidence)
+
+
+def _v9_maybe_augment_early_lifecycle_report(
+    scenario: str,
+    report: BrowserControlReport,
+) -> BrowserControlReport:
+    if scenario not in _v9_user_live_lifecycle_states():
+        return report
+    return replace(
+        report,
+        content_evidence={
+            **report.content_evidence,
+            **_v9_user_live_early_lifecycle_evidence(
+                scenario,
+                report,
+            ),
+        },
+    )
+
+
+def _classify_special_live_task_report(
+    *,
+    args: argparse.Namespace,
+    spec: V8LiveTaskSpec,
+    started: float,
+    summary: dict[str, Any],
+    trace_events: list[dict[str, Any]],
+    browser_tool_calls: int,
+) -> BrowserControlReport | None:
+    if spec.scenario == "v9-taobao-live":
+        transcript = str(summary.get("final_text") or "")
+        return classify_v9_taobao_live_evidence(
+            started=started,
+            live_taobao=bool(getattr(args, "live_taobao", False)),
+            approval_level=str(getattr(args, "approval_level", "DEFAULT")),
+            prepared_login=bool(getattr(args, "prepared_login", False)),
+            trace_events=trace_events,
+            transcript=transcript,
+            browser_tool_calls=browser_tool_calls,
+            cart_state=_v9_taobao_cart_state_from_transcript(transcript),
+            actual_metrics=_dict_value(summary.get("actual_metrics")),
+        )
+    if spec.scenario == "v8-taobao-live":
+        return _classify_v8_taobao_live_evidence(
+            started=started,
+            trace_events=trace_events,
+            transcript=str(summary.get("final_text") or ""),
+            artifact_paths=list(spec.artifact_paths),
+            browser_tool_calls=browser_tool_calls,
+        )
+    if spec.scenario not in _v9_user_live_lifecycle_states() and (
+        spec.scenario.startswith("multi-tab") or spec.expected_blocker
+    ):
+        return _classify_v8_lifecycle_evidence(
+            scenario=spec.scenario,
+            started=started,
+            trace_events=trace_events,
+            transcript=str(summary.get("final_text") or ""),
+            browser_tool_calls=browser_tool_calls,
+        )
+    return None
 
 
 def _content_evidence(
@@ -3123,6 +3366,175 @@ def _content_evidence(
 ) -> dict[str, bool]:
     lowered = transcript.casefold()
     return {marker: marker.casefold() in lowered for marker in markers}
+
+
+def _v9_taobao_cart_state_from_transcript(transcript: str) -> dict[str, Any]:
+    text = str(transcript or "")
+    merged: dict[str, Any] = {}
+    for payload in _json_objects_from_text(text):
+        for key in (
+            "item_added",
+            "cart_read",
+            "cart_cleared",
+            "empty_confirmed",
+            "cart_unchanged",
+            "final_state",
+        ):
+            if key in payload:
+                merged[key] = payload[key]
+    lowered = text.casefold()
+    merged.setdefault(
+        "item_added",
+        "item_added" in lowered or "added to cart" in lowered,
+    )
+    merged.setdefault(
+        "cart_read",
+        "cart_read" in lowered or "cart contents before" in lowered,
+    )
+    merged.setdefault(
+        "cart_cleared",
+        "cart_cleared" in lowered or "clear" in lowered,
+    )
+    merged.setdefault(
+        "empty_confirmed",
+        "empty_confirmed" in lowered or "empty cart" in lowered,
+    )
+    merged.setdefault(
+        "cart_unchanged",
+        "cart_unchanged" in lowered or "cart unchanged" in lowered,
+    )
+    if "final_state" not in merged and merged.get("empty_confirmed"):
+        merged["final_state"] = "empty"
+    return merged
+
+
+def _json_objects_from_text(text: str) -> list[dict[str, Any]]:
+    decoder = json.JSONDecoder()
+    found: list[dict[str, Any]] = []
+    for index, char in enumerate(text):
+        if char != "{":
+            continue
+        try:
+            payload, _end = decoder.raw_decode(text[index:])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict):
+            found.append(payload)
+    return found
+
+
+def _v9_user_live_lifecycle_evidence(
+    scenario: str,
+    *,
+    report: BrowserControlReport,
+    task_status: dict[str, Any],
+    summary: dict[str, Any],
+    trace_events: list[dict[str, Any]],
+) -> dict[str, Any]:
+    expected = _v9_user_live_lifecycle_states().get(scenario, "")
+    state = ""
+    if scenario == "user-read-only-observation":
+        state = _v9_readonly_lifecycle_state(report, summary, trace_events)
+    elif scenario == "multi-tab-workspace":
+        state = _v9_multitab_lifecycle_state(report)
+    elif scenario == "bridge-disconnect-fail-closed":
+        state = _v9_disconnect_lifecycle_state(report, summary, trace_events)
+    elif scenario == "bridge-reconnect-recovered":
+        state = _v9_reconnect_lifecycle_state(report, trace_events)
+    elif scenario == "user-cancellation-cleanup":
+        state = _v9_cancellation_lifecycle_state(report, task_status)
+    return {
+        "lifecycle_state": state,
+        "lifecycle_expected_state": expected,
+        "console_overwrite": _v9_console_overwrite_detected(summary),
+    }
+
+
+def _v9_user_live_early_lifecycle_evidence(
+    scenario: str,
+    report: BrowserControlReport,
+) -> dict[str, Any]:
+    state = ""
+    if (
+        scenario == "bridge-disconnect-fail-closed"
+        and report.error_code == BrowserErrorCode.BRIDGE_DISCONNECTED.value
+        and "isolated." not in report.backend_route
+    ):
+        state = "bridge_disconnect_fail_closed"
+    return {
+        "lifecycle_state": state,
+        "lifecycle_expected_state": _v9_user_live_lifecycle_states().get(
+            scenario,
+            "",
+        ),
+        "console_overwrite": False,
+    }
+
+
+def _v9_readonly_lifecycle_state(
+    report: BrowserControlReport,
+    summary: dict[str, Any],
+    trace_events: list[dict[str, Any]],
+) -> str:
+    if (
+        report.status == "passed"
+        and _has_user_backend_evidence(trace_events)
+        and not _v9_console_overwrite_detected(summary)
+    ):
+        return "read_only_observed"
+    return ""
+
+
+def _v9_multitab_lifecycle_state(report: BrowserControlReport) -> str:
+    if report.status == "passed" and report.cleanup_ok:
+        return "multi_tab_cleaned"
+    return ""
+
+
+def _v9_disconnect_lifecycle_state(
+    report: BrowserControlReport,
+    summary: dict[str, Any],
+    trace_events: list[dict[str, Any]],
+) -> str:
+    text = str(summary.get("final_text") or "").casefold()
+    has_bridge_error = any(
+        str(event.get("error_code") or "").casefold()
+        == BrowserErrorCode.BRIDGE_DISCONNECTED.value
+        for event in trace_events
+    )
+    if (
+        report.error_code == BrowserErrorCode.BRIDGE_DISCONNECTED.value
+        or has_bridge_error
+        or "bridge_disconnected" in text
+    ) and "isolated." not in report.backend_route:
+        return "bridge_disconnect_fail_closed"
+    return ""
+
+
+def _v9_reconnect_lifecycle_state(
+    report: BrowserControlReport,
+    trace_events: list[dict[str, Any]],
+) -> str:
+    if report.status == "passed" and _has_user_backend_evidence(trace_events):
+        return "bridge_reconnect_recovered"
+    return ""
+
+
+def _v9_cancellation_lifecycle_state(
+    report: BrowserControlReport,
+    task_status: dict[str, Any],
+) -> str:
+    result = _dict_value(task_status.get("result"))
+    error = _dict_value(result.get("error"))
+    message = str(error.get("message") or "").casefold()
+    if report.cleanup_ok and "cancel" in message:
+        return "cancellation_cleanup_complete"
+    return ""
+
+
+def _v9_console_overwrite_detected(summary: dict[str, Any]) -> bool:
+    text = str(summary.get("final_text") or "").casefold()
+    return "console_overwrite" in text or "console overwritten" in text
 
 
 def _aggregate_v8_suite(
@@ -5477,9 +5889,81 @@ def _hash_existing_files(paths: list[Path]) -> str:
     return digest.hexdigest()[:16] if seen else ""
 
 
-def _start_qwenpaw_app() -> None:
+def _restart_qwenpaw_app(port: int, timeout: float) -> None:
+    _stop_qwenpaw_app_on_port(port)
+    _start_qwenpaw_app(port=port)
+    _wait_for_qwenpaw_api(port=port, timeout=timeout)
+
+
+def _stop_qwenpaw_app_on_port(port: int) -> None:
+    pids = _listening_pids_for_port(port)
+    if not pids:
+        return
+    for pid in pids:
+        with contextlib.suppress(ProcessLookupError, PermissionError):
+            os.kill(pid, signal.SIGTERM)
+    deadline = time.perf_counter() + 5.0
+    while time.perf_counter() < deadline:
+        if not [pid for pid in pids if _pid_exists(pid)]:
+            return
+        time.sleep(0.1)
+    for pid in pids:
+        with contextlib.suppress(ProcessLookupError, PermissionError):
+            os.kill(pid, signal.SIGKILL)
+
+
+def _listening_pids_for_port(port: int) -> list[int]:
+    try:
+        result = subprocess.run(
+            ("lsof", "-ti", f"tcp:{int(port)}", "-sTCP:LISTEN"),
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired, ValueError):
+        return []
+    pids: set[int] = set()
+    for line in result.stdout.splitlines():
+        with contextlib.suppress(ValueError):
+            pid = int(line.strip())
+            if pid != os.getpid():
+                pids.add(pid)
+    return sorted(pids)
+
+
+def _pid_exists(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _wait_for_qwenpaw_api(*, port: int, timeout: float) -> None:
+    base_url = f"http://127.0.0.1:{int(port)}"
+    deadline = time.perf_counter() + max(float(timeout), 1.0)
+    last_error = ""
+    while time.perf_counter() < deadline:
+        try:
+            _http_json(f"{base_url}/api/version", timeout=DEFAULT_TIMEOUT)
+            return
+        except RuntimeError as exc:
+            last_error = str(exc)
+            time.sleep(0.2)
+    raise RuntimeError(
+        f"QwenPaw app did not become ready on port {port}: {last_error}",
+    )
+
+
+def _start_qwenpaw_app(*, port: int | None = None) -> None:
+    command = [sys.executable, "-m", "qwenpaw", "app"]
+    if port is not None:
+        command.extend(["--port", str(int(port))])
     subprocess.Popen(  # noqa: S603  # pylint: disable=consider-using-with
-        (sys.executable, "-m", "qwenpaw", "app"),
+        tuple(command),
         cwd=_repo_root(),
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,

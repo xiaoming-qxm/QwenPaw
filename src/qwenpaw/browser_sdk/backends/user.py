@@ -396,13 +396,17 @@ class ChromeExtensionBrowserSession:
 
     async def open_tab(self, url: str | None = None) -> dict[str, Any]:
         target_url = url or "about:blank"
-        payload = {"url": target_url, "active": True}
+        payload = {
+            "url": target_url,
+            "active": False,
+            "workspace": self._state["workspace_id"],
+        }
         response = await self.bridge.request("tab.create", payload)
         tab = _tab_from_create_response(
             response,
             fallback_url=target_url,
-            fallback_active=True,
-            fallback_workspace="",
+            fallback_active=False,
+            fallback_workspace=self._state["workspace_id"],
         )
         await self._claim(tab["id"])
         await self._attach(tab["id"])
