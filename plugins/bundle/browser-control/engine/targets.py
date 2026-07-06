@@ -166,6 +166,13 @@ async def _control_selector_target(
     session: Any,
     selector: str,
 ) -> dict[str, Any]:
+    runtime_target = await _control_runtime_selector_target(
+        session,
+        selector,
+    )
+    if runtime_target is not None:
+        return runtime_target
+
     await _control_enable_dom(session)
     document = await session.send(
         "DOM.getDocument",
@@ -199,6 +206,178 @@ async def _control_selector_target(
     if isinstance(backend_node_id, int):
         return {"backendNodeId": backend_node_id}
     return {"nodeId": matched_node_id}
+
+
+def _control_selector_locator_script(selector: str) -> str:
+    query = json.dumps(str(selector or ""), ensure_ascii=False)
+    return f"""
+(() => {{
+  const selector = {query};
+  if (!selector) return null;
+  const contexts = [{{ root: document, offsetX: 0, offsetY: 0 }}];
+  const seenRoots = new Set([document]);
+  let cursor = 0;
+
+  const pushContext = (root, offsetX = 0, offsetY = 0) => {{
+    if (!root || seenRoots.has(root) || contexts.length >= 80) return;
+    seenRoots.add(root);
+    contexts.push({{ root, offsetX, offsetY }});
+  }};
+
+  const visibleRect = (element) => {{
+    if (!element || element.nodeType !== Node.ELEMENT_NODE) return null;
+    const style = element.ownerDocument.defaultView.getComputedStyle(element);
+    if (
+      style.display === "none" ||
+      style.visibility === "hidden" ||
+      Number(style.opacity || "1") === 0
+    ) {{
+      return null;
+    }}
+    const rect = element.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return null;
+    return rect;
+  }};
+
+  while (cursor < contexts.length && contexts.length < 80) {{
+    const context = contexts[cursor++];
+    const root = context.root;
+    const elements = root.querySelectorAll("*");
+    for (const element of elements) {{
+      if (element.shadowRoot) {{
+        pushContext(element.shadowRoot, context.offsetX, context.offsetY);
+      }}
+    }}
+    for (const frame of root.querySelectorAll("iframe,frame")) {{
+      let childDocument = null;
+      try {{
+        childDocument = frame.contentDocument;
+      }} catch (_error) {{
+        childDocument = null;
+      }}
+      if (!childDocument) continue;
+      const rect = visibleRect(frame);
+      if (!rect) continue;
+      pushContext(
+        childDocument,
+        context.offsetX + rect.left,
+        context.offsetY + rect.top,
+      );
+    }}
+  }}
+
+  const candidates = [];
+  for (const context of contexts) {{
+    let matches = [];
+    try {{
+      matches = Array.from(context.root.querySelectorAll(selector));
+    }} catch (error) {{
+      return {{
+        error: "invalid_selector",
+        message: String(error.message || error),
+      }};
+    }}
+    for (const element of matches) {{
+      const rect = visibleRect(element);
+      if (!rect) continue;
+      const text = String(
+        element.getAttribute("aria-label") ||
+        element.getAttribute("title") ||
+        element.value ||
+        element.textContent ||
+        "",
+      ).replace(/\\s+/g, " ").trim();
+      candidates.push({{
+        x: context.offsetX + rect.left + rect.width / 2,
+        y: context.offsetY + rect.top + rect.height / 2,
+        area: rect.width * rect.height,
+        text: text.slice(0, 200),
+        tagName: element.tagName,
+        inFrame: context.offsetX !== 0 || context.offsetY !== 0,
+      }});
+    }}
+  }}
+
+  candidates.sort((a, b) => a.area - b.area);
+  const best = candidates[0];
+  if (!best) return null;
+  return {{
+    x: best.x,
+    y: best.y,
+    text: best.text,
+    tagName: best.tagName,
+    inFrame: best.inFrame,
+  }};
+}})()
+""".strip()
+
+
+async def _control_runtime_selector_target(
+    session: Any,
+    selector: str,
+) -> dict[str, Any] | None:
+    bridge = getattr(session, "bridge", None)
+    request = getattr(bridge, "request", None)
+    tab_id = getattr(session, "tab_id", None)
+    holder_id = getattr(session, "holder_id", None)
+    response: Any = None
+    if callable(request) and tab_id is not None and holder_id is not None:
+        try:
+            response = await asyncio.wait_for(
+                request(
+                    "cdp.send",
+                    {
+                        "tabId": tab_id,
+                        "holderId": holder_id,
+                        "method": "Runtime.evaluate",
+                        "params": {
+                            "expression": _control_selector_locator_script(
+                                selector,
+                            ),
+                            "returnByValue": True,
+                            "awaitPromise": False,
+                            "timeout": 3000,
+                        },
+                    },
+                ),
+                timeout=4.0,
+            )
+        except asyncio.TimeoutError:
+            logger.debug("control selector runtime locator timed out")
+        except RECOVERABLE_CONTROL_EXCEPTIONS:
+            logger.debug(
+                "control selector runtime locator failed",
+                exc_info=True,
+            )
+    if response is None or (
+        isinstance(response, dict) and "error" in response
+    ):
+        return None
+    result = response.get("result") if isinstance(response, dict) else None
+    if isinstance(result, dict) and response.get("jsonrpc") == "2.0":
+        remote_object = result.get("result")
+    else:
+        remote_object = result
+    value = (
+        remote_object.get("value") if isinstance(remote_object, dict) else None
+    )
+    if not isinstance(value, dict):
+        return None
+    if value.get("error") == "invalid_selector":
+        raise TargetResolutionFailed(
+            f"Invalid selector {selector!r}: {value.get('message') or ''}",
+        )
+    x = value.get("x")
+    y = value.get("y")
+    if not isinstance(x, (int, float)) or not isinstance(y, (int, float)):
+        return None
+    return {
+        "x": float(x),
+        "y": float(y),
+        "text": value.get("text") or selector,
+        "tagName": value.get("tagName") or "",
+        "inFrame": bool(value.get("inFrame")),
+    }
 
 
 async def _control_node_click_targets(
@@ -1308,6 +1487,7 @@ __all__ = [
     "_control_hover_at",
     "_control_key_params",
     "_control_prepare_silent_new_context_at_point",
+    "_control_selector_locator_script",
     "_control_node_click_targets",
     "_control_node_params",
     "_control_press_key",

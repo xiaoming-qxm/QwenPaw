@@ -77,6 +77,13 @@ class Tab:
             status="ok",
             duration_ms=_duration_ms(started),
             url=result.url,
+            metadata={
+                "observation_source": _observation_source(
+                    result.metadata,
+                    "snapshot",
+                ),
+                "degraded": result.degraded,
+            },
         )
         return result
 
@@ -108,6 +115,12 @@ class Tab:
             status="ok",
             duration_ms=_duration_ms(started),
             url=result.url,
+            metadata={
+                "observation_source": _observation_source(
+                    result.metadata,
+                    "screenshot",
+                ),
+            },
         )
         return result
 
@@ -241,6 +254,9 @@ class Tab:
             metadata={
                 "kwargs": kwargs,
                 "needs_observation": action_result.needs_observation,
+                "post_mutation_observation_required": (
+                    action_result.needs_observation
+                ),
             },
         )
         return result
@@ -410,6 +426,11 @@ def _domain_from_url(url: str) -> str:
         return (urlparse(str(url or "")).hostname or "").lower()
     except ValueError:
         return ""
+
+
+def _observation_source(metadata: dict[str, Any], fallback: str) -> str:
+    source = str(metadata.get("observation_source") or "").strip()
+    return source or fallback
 
 
 def _artifact_from_screenshot(

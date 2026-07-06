@@ -52,6 +52,12 @@
         width: 100%;
       }
 
+      canvas {
+        border: 1px solid #bac4d0;
+        display: block;
+        margin-top: 10px;
+      }
+
       .status {
         color: #256d3c;
         font-weight: 700;
@@ -104,6 +110,25 @@
         <p class="status" data-testid="capability-dialog-status">
           Dialog pending.
         </p>
+        <button data-testid="capability-open-prompt" id="capability-open-prompt">
+          Open prompt dialog
+        </button>
+        <p class="status" data-testid="capability-prompt-status">
+          Prompt pending.
+        </p>
+      </section>
+
+      <section aria-label="Visual fallback">
+        <h2>Visual fallback</h2>
+        <canvas
+          data-testid="capability-visual-canvas"
+          id="capability-visual-canvas"
+          width="320"
+          height="96"
+        ></canvas>
+        <p class="status" data-testid="capability-visual-status">
+          Visual canvas ready.
+        </p>
       </section>
 
       <section aria-label="Iframe">
@@ -154,10 +179,13 @@
         status("capability-upload-status", "Upload pending.");
         status("capability-download-status", "Download pending.");
         status("capability-dialog-status", "Dialog pending.");
+        status("capability-prompt-status", "Prompt pending.");
         status("capability-frame-status", "Frame waiting.");
         status("capability-shadow-status", "Shadow pending.");
+        status("capability-visual-status", "Visual canvas ready.");
         status("capability-mutation-count", "Mutations: 0");
         renderShadow(false);
+        renderVisualCanvas();
       }
 
       function renderShadow(active) {
@@ -222,6 +250,31 @@
           }
         });
 
+      document
+        .getElementById("capability-open-prompt")
+        .addEventListener("click", () => {
+          const value = window.prompt("Enter V9-D prompt text", "");
+          status(
+            "capability-prompt-status",
+            value ? `Prompt received: ${value}` : "Prompt dismissed.",
+          );
+          if (value) recordMutation();
+        });
+
+      function renderVisualCanvas() {
+        const canvas = document.getElementById("capability-visual-canvas");
+        const context = canvas.getContext("2d");
+        context.fillStyle = "#f8fafc";
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        context.fillStyle = "#1769aa";
+        context.fillRect(12, 18, 296, 44);
+        context.fillStyle = "#ffffff";
+        context.font = "20px sans-serif";
+        context.fillText("V9-D visual fallback", 32, 47);
+        context.fillStyle = "#256d3c";
+        context.fillText("SDK screenshot evidence", 32, 78);
+      }
+
       document.getElementById("frame-trigger").addEventListener("click", () => {
         const frame = document.getElementById("capability-frame");
         frame.contentWindow.postMessage("frame-ping", "*");
@@ -236,6 +289,7 @@
       });
 
       renderShadow(false);
+      renderVisualCanvas();
     </script>
   </body>
 </html>

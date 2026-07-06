@@ -7,6 +7,7 @@ from .backend_registry import (
 )
 from .backend_protocols import BrowserBackend, BrowserSession
 from .browser import Browser, connect_browser
+from .docs import browser_capabilities, browser_sdk_help, capability_gap
 from .actions import BrowserActions, TabActions
 from .backends.isolated import (
     IsolatedBrowserBackend,
@@ -138,6 +139,9 @@ __all__ = [
     "connect_browser",
     "classify_browser_action",
     "classify_browser_error",
+    "browser_capabilities",
+    "browser_sdk_help",
+    "capability_gap",
     "collect_browser_request_evidence",
     "detect_no_progress",
     "get_browser_trace_store",

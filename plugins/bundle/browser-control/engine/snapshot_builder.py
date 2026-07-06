@@ -16,8 +16,10 @@ from agentscope.message import DataBlock, URLSource
 from pydantic import AnyUrl
 
 from qwenpaw.browser_sdk._runtime import logger
+from qwenpaw.browser_sdk.error_codes import BrowserErrorCode
 from .errors import BrowserControlRecoverableError, DOMSettleTimeout
 
+_OBSERVATION_ENRICHMENT_DENIED = "OBSERVATION_ENRICHMENT_DENIED"
 _DOM_TREE_FALLBACK_DEPTH = 8
 _DOM_TREE_AX_FAILURE_FALLBACK_DEPTH = 18
 _CONTROL_AX_SNAPSHOT_TIMEOUT_SECONDS = 5.0
@@ -322,7 +324,10 @@ async def build_control_snapshot(
         return fallback_snapshot, fallback_refs, True
 
     snapshot, refs = from_cdp_ax_tree(ax_tree)
-    await _enrich_ax_link_refs_with_dom_attributes(session, refs)
+    degradation_lines = await _enrich_ax_link_refs_with_dom_attributes(
+        session,
+        refs,
+    )
     snapshot_text = snapshot.strip()
     degraded_snapshot = False
     if not refs and (
@@ -346,6 +351,12 @@ async def build_control_snapshot(
         degraded_snapshot = True
     snapshot = await _append_page_state(session, snapshot)
     snapshot = await _append_action_targets(session, snapshot, refs)
+    snapshot = _prepend_observation_degradation_lines(
+        snapshot,
+        degradation_lines,
+    )
+    if _snapshot_has_observation_enrichment_denial(snapshot):
+        degraded_snapshot = True
     return snapshot, refs, degraded_snapshot
 
 
@@ -442,11 +453,12 @@ async def _send_trusted_readonly_evaluate(
 async def _enrich_ax_link_refs_with_dom_attributes(
     session: Any,
     refs: dict[str, dict],
-) -> None:
+) -> list[str]:
     enriched = 0
+    degradation_lines: list[str] = []
     for target in refs.values():
         if enriched >= _CONTROL_LINK_REF_ENRICH_LIMIT:
-            return
+            return degradation_lines
         if not isinstance(target, dict):
             continue
         role = str(target.get("role") or "").strip().lower()
@@ -462,7 +474,14 @@ async def _enrich_ax_link_refs_with_dom_attributes(
                 {"backendNodeId": backend_node_id, "depth": 0},
                 timeout=_CONTROL_LINK_REF_ENRICH_TIMEOUT_SECONDS,
             )
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            if _is_observation_enrichment_denied(exc):
+                degradation_lines.append(
+                    _observation_degradation_line(
+                        "snapshot.link_attributes",
+                        exc,
+                    ),
+                )
             logger.debug("Failed to enrich AX link ref", exc_info=True)
             continue
         attributes = _describe_node_attributes(result)
@@ -473,6 +492,7 @@ async def _enrich_ax_link_refs_with_dom_attributes(
         if link_target:
             target["target"] = link_target
         enriched += 1
+    return degradation_lines
 
 
 def _describe_node_attributes(result: dict[str, Any]) -> dict[str, str]:
@@ -552,7 +572,14 @@ async def _control_dom_action_target_lines(
             {"depth": _CONTROL_ACTION_DOM_DEPTH, "pierce": True},
             timeout=_CONTROL_ACTION_DOM_TIMEOUT_SECONDS,
         )
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        if _is_observation_enrichment_denied(exc):
+            return [
+                _observation_degradation_line(
+                    "snapshot.dom_action_targets",
+                    exc,
+                ),
+            ]
         logger.debug("Failed to read DOM action targets", exc_info=True)
         return []
 
@@ -1235,7 +1262,14 @@ async def _control_action_target_lines(session: Any) -> list[str]:
             expression=_CONTROL_ACTION_TARGETS_SCRIPT,
             timeout=_CONTROL_ACTION_TARGETS_TIMEOUT_SECONDS,
         )
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        if _is_observation_enrichment_denied(exc):
+            return [
+                _observation_degradation_line(
+                    "snapshot.action_targets",
+                    exc,
+                ),
+            ]
         logger.debug("Failed to read control action targets", exc_info=True)
         return []
     value = _runtime_evaluate_value(result)
@@ -1273,7 +1307,12 @@ async def _control_page_state_line(session: Any) -> str:
             expression=_CONTROL_PAGE_STATE_SCRIPT,
             timeout=_CONTROL_PAGE_STATE_TIMEOUT_SECONDS,
         )
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        if _is_observation_enrichment_denied(exc):
+            return _observation_degradation_line(
+                "snapshot.page_state",
+                exc,
+            )
         logger.debug("Failed to read control page state", exc_info=True)
         return ""
     value = _runtime_evaluate_value(result)
@@ -1300,6 +1339,70 @@ def _runtime_evaluate_value(result: dict[str, Any]) -> Any:
     if isinstance(remote_object, dict):
         return remote_object.get("value")
     return None
+
+
+def _is_observation_enrichment_denied(exc: Exception) -> bool:
+    code = str(
+        getattr(exc, "browser_error_code", "")
+        or getattr(exc, "code", "")
+        or "",
+    ).strip()
+    if code in {
+        BrowserErrorCode.APPROVAL_DENIED.value,
+        BrowserErrorCode.APPROVAL_REQUIRED.value,
+    }:
+        return True
+    exc_type = type(exc).__name__.casefold()
+    message = str(exc).casefold()
+    if "permissiondenied" in exc_type or "approvaldenied" in exc_type:
+        return True
+    return "denied" in message and (
+        "permission" in message
+        or "approval" in message
+        or "runtime.evaluate" in message
+        or "trusted" in message
+        or "readonly" in message
+    )
+
+
+def _observation_degradation_line(purpose: str, exc: Exception) -> str:
+    safe_purpose = _clean_observation_purpose(purpose)
+    reason = " ".join(str(exc or type(exc).__name__).split())
+    if not reason:
+        reason = type(exc).__name__
+    reason = _quote_snapshot_text(reason[:160])
+    return (
+        '- observation_degradation "'
+        f"{_OBSERVATION_ENRICHMENT_DENIED} "
+        f"purpose={safe_purpose} reason={reason}"
+        '"'
+    )
+
+
+def _clean_observation_purpose(value: str) -> str:
+    purpose = "".join(
+        char
+        for char in str(value or "").strip()
+        if char.isalnum() or char in {"_", "-", "."}
+    )
+    return purpose[:64] or "snapshot"
+
+
+def _prepend_observation_degradation_lines(
+    snapshot: str,
+    lines: list[str],
+) -> str:
+    unique_lines = list(dict.fromkeys(line for line in lines if line))
+    if not unique_lines:
+        return snapshot
+    snapshot = snapshot.strip() or "(empty)"
+    if snapshot == "(empty)":
+        return "\n".join(unique_lines)
+    return "\n".join([*unique_lines, *snapshot.splitlines()])
+
+
+def _snapshot_has_observation_enrichment_denial(snapshot: str) -> bool:
+    return _OBSERVATION_ENRICHMENT_DENIED in str(snapshot or "")
 
 
 def _rounded_number(value: Any) -> int:

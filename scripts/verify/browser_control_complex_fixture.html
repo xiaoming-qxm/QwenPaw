@@ -187,13 +187,36 @@
 
       <section aria-label="Iframe and shadow DOM">
         <h2>Embedded coverage</h2>
+        <p data-testid="frame-status" id="frame-status">
+          Frame waiting.
+        </p>
         <iframe
           data-testid="fixture-frame"
           id="fixture-frame"
           title="Fixture frame"
-          srcdoc="<p data-testid='frame-message'>Frame ready</p>"
+          srcdoc="<button data-testid='frame-action' id='frame-action'>Frame action</button><p data-testid='frame-message'>Frame ready</p><script>document.getElementById('frame-action').addEventListener('click', function () { parent.postMessage('v9-frame-clicked', '*'); });</script>"
         ></iframe>
         <div id="shadow-host"></div>
+      </section>
+
+      <section aria-label="JavaScript link and popup">
+        <h2>Navigation edge cases</h2>
+        <a
+          data-testid="javascript-link"
+          id="javascript-link"
+          href="javascript:window.qwenpawActivateJavascriptLink()"
+        >
+          Run JavaScript link
+        </a>
+        <p data-testid="javascript-link-status" id="javascript-link-status">
+          JavaScript link pending.
+        </p>
+        <button data-testid="open-popup" id="open-popup">
+          Open popup
+        </button>
+        <p data-testid="popup-status" id="popup-status">
+          Popup pending.
+        </p>
       </section>
     </main>
 
@@ -203,8 +226,12 @@
         asyncLoaded: false,
         confirmed: false,
         formSaved: false,
+        frameClicked: false,
+        jsLinkActivated: false,
+        popupOpened: false,
         route: "one",
         selectedPlan: "none",
+        shadowName: "",
       };
 
       function loadState() {
@@ -270,6 +297,16 @@
         document.getElementById("confirm-status").textContent = state.confirmed
           ? "Selection confirmed."
           : "Confirmation pending.";
+        document.getElementById("frame-status").textContent = state.frameClicked
+          ? "Frame action clicked."
+          : "Frame waiting.";
+        document.getElementById("javascript-link-status").textContent =
+          state.jsLinkActivated
+            ? "JavaScript link activated."
+            : "JavaScript link pending.";
+        document.getElementById("popup-status").textContent = state.popupOpened
+          ? "Popup opened."
+          : "Popup pending.";
         renderShadow(state);
       }
 
@@ -277,10 +314,22 @@
         const host = document.getElementById("shadow-host");
         const root = host.shadowRoot || host.attachShadow({ mode: "open" });
         root.innerHTML = `
+          <label for="shadow-input">Shadow name</label>
+          <input
+            data-testid="shadow-input"
+            id="shadow-input"
+            value="${state.shadowName}"
+          />
+          <p data-testid="shadow-input-status" class="status">
+            Shadow input: ${state.shadowName || "empty"}
+          </p>
           <p data-testid="shadow-confirmation" class="status">
             Shadow confirmation: ${state.confirmed ? "confirmed" : "pending"}
           </p>
         `;
+        root.getElementById("shadow-input").addEventListener("input", (event) => {
+          updateState({ shadowName: event.target.value });
+        });
       }
 
       document
@@ -325,6 +374,24 @@
         .addEventListener("click", () => {
           history.pushState({ step: "two" }, "", "#step-two");
           updateState({ route: "two" });
+        });
+
+      window.qwenpawActivateJavascriptLink = () => {
+        updateState({ jsLinkActivated: true });
+      };
+
+      window.addEventListener("message", (event) => {
+        if (event.data === "v9-frame-clicked") {
+          updateState({ frameClicked: true });
+        }
+      });
+
+      document
+        .getElementById("open-popup")
+        .addEventListener("click", () => {
+          updateState({ popupOpened: true });
+          const popupUrl = new URL("#popup-target", window.location.href).href;
+          window.open(popupUrl, "_blank", "noopener");
         });
 
       window.addEventListener("popstate", (event) => {

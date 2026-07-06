@@ -49,6 +49,8 @@ class CDPRelayPaused(CDPRelayError):
 class CDPApprovalDenied(CDPRelayError):
     """Raised when CDP permission approval is denied or unavailable."""
 
+    browser_error_code = str(BrowserErrorCode.APPROVAL_DENIED.value)
+
 
 class CDPPermissionDenied(CDPApprovalDenied):
     """Raised when CDP permission policy denies a command."""

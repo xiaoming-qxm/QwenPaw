@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from .backend_registry import get_default_backend_registry
+from .docs import browser_capabilities
 from .error_codes import classify_browser_error
 from .errors import BrowserContextUnavailable
 from .kernel import get_current_execution_context
@@ -177,6 +178,12 @@ class Browser:
             ),
             backends=diagnostics,
         )
+
+    @classmethod
+    def capabilities(cls) -> dict[str, Any]:
+        """Return public Browser SDK contexts, primitives, actions, limits."""
+        del cls
+        return browser_capabilities()
 
     async def _call_browser_action(
         self,

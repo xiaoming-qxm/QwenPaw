@@ -3328,6 +3328,10 @@ def _v8_capability_fixture_code(
         "    snapshot = await tab.snapshot()\n"
         "    assert download.data.get('artifact', {}).get('kind') "
         "== 'download'\n"
+        "    download_path = Path(download.data.get('artifact', {})"
+        ".get('metadata', {}).get('path', ''))\n"
+        "    assert download_path.read_text(encoding='utf-8') "
+        "== 'v8 capability download'\n"
         "    assert 'Download triggered.' in snapshot.text\n"
         "    await tab.actions.dialog(accept=True)\n"
         "    snapshot = await tab.snapshot()\n"
@@ -3335,6 +3339,13 @@ def _v8_capability_fixture_code(
         '"selector": "[data-testid=\'capability-open-dialog\']"})\n'
         "    snapshot = await tab.snapshot()\n"
         "    assert 'Dialog accepted.' in snapshot.text\n"
+        "    await tab.actions.dialog("
+        "accept=True, prompt_text='V9-D prompt text')\n"
+        "    snapshot = await tab.snapshot()\n"
+        "    await tab.actions.click({"
+        '"selector": "[data-testid=\'capability-open-prompt\']"})\n'
+        "    snapshot = await tab.snapshot()\n"
+        "    assert 'Prompt received: V9-D prompt text' in snapshot.text\n"
         "    await tab.actions.click({"
         '"selector": "[data-testid=\'capability-frame-trigger\']"})\n'
         "    await tab.actions.wait_for('Frame pong received.', "
@@ -3353,7 +3364,9 @@ def _v8_capability_fixture_code(
         "'document.querySelector(\"#shadow-host\").shadowRoot.textContent', "
         "read_only=True)\n"
         "    assert 'Shadow state: active' in str(shadow_text)\n"
-        "    assert 'Mutations: 5' in snapshot.text\n"
+        "    assert 'Mutations: 6' in snapshot.text\n"
+        "    visual = await tab.screenshot()\n"
+        "    assert visual.path\n"
         f"    print('{marker} generic SDK capabilities verified')\n"
         "finally:\n"
         "    await browser.close()"
@@ -3418,9 +3431,31 @@ def _complex_fixture_code(
         '.getAttribute("srcdoc")\', read_only=True)\n'
         "    assert 'Frame ready' in str(frame_srcdoc)\n"
         "    await tab.actions.click({"
+        '"selector": "[data-testid=\'frame-action\']"})\n'
+        "    await tab.actions.wait_for('Frame action clicked.', "
+        "timeout_ms=3000)\n"
+        "    snapshot = await tab.snapshot()\n"
+        "    assert 'Frame action clicked.' in snapshot.text\n"
+        "    await tab.actions.type({"
+        '"selector": "[data-testid=\'shadow-input\']"}, '
+        "'Ada Shadow')\n"
+        "    snapshot = await tab.snapshot()\n"
+        "    assert 'Shadow input: Ada Shadow' in snapshot.text\n"
+        "    await tab.actions.click({"
+        '"selector": "[data-testid=\'javascript-link\']"})\n'
+        "    snapshot = await tab.snapshot()\n"
+        "    assert 'JavaScript link activated.' in snapshot.text\n"
+        "    await tab.actions.click({"
         '"selector": "[data-testid=\'navigate-step-two\']"})\n'
         "    snapshot = await tab.snapshot()\n"
         "    assert 'Step: two' in snapshot.text\n"
+        "    popup = await tab.actions.click({"
+        '"selector": "[data-testid=\'open-popup\']"}, '
+        "allow_new_context=True)\n"
+        "    snapshot = await tab.snapshot()\n"
+        "    assert popup.data.get('opened_new_tab') or "
+        "popup.data.get('navigation_occurred') or 'opened_new_tab' in "
+        "str(popup.data)\n"
         f"    print('{marker} complex deterministic fixture verified')\n"
         "finally:\n"
         "    await browser.close()"

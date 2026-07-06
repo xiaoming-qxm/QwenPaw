@@ -38,6 +38,10 @@ from .tab_manager import (
 )
 
 
+def _control_is_action_transition_url(url: str) -> bool:
+    return _control_is_http_url(url) or str(url or "").startswith("file://")
+
+
 def _control_tab_ids(tabs: list[dict[str, Any]] | None) -> set[int]:
     if not tabs:
         return set()
@@ -127,11 +131,11 @@ def _control_transition_from_tab_event(
         )
         if not source_matches and not tab.get("active"):
             return None
-        if not _control_is_http_url(url):
+        if not _control_is_action_transition_url(url):
             return None
         return {"kind": "new_tab", "tab": tab}
 
-    if tab_id != source_tab_id or not _control_is_http_url(url):
+    if tab_id != source_tab_id or not _control_is_action_transition_url(url):
         return None
     if source_url and _control_url_key(url) == _control_url_key(source_url):
         return None
@@ -166,7 +170,7 @@ def _control_transition_from_cdp_event(
         "Page.loadEventFired",
     }:
         return None
-    if not _control_is_http_url(url):
+    if not _control_is_action_transition_url(url):
         return None
     if source_url and _control_url_key(url) == _control_url_key(source_url):
         return None

@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from .errors import BrowserSDKGap
 from .types import BrowserActionResult
 
 
@@ -51,15 +52,22 @@ class TabActions:
     async def reload(self) -> BrowserActionResult:
         return await self._mutate("reload")
 
-    async def click(self, target: Any) -> BrowserActionResult:
-        return await self._mutate("click", **_target_kwargs(target))
+    async def click(
+        self,
+        target: Any,
+        *,
+        allow_new_context: bool = False,
+    ) -> BrowserActionResult:
+        kwargs = _target_kwargs(target)
+        if allow_new_context:
+            kwargs["allow_new_context"] = True
+        _ensure_target("click", kwargs)
+        return await self._mutate("click", **kwargs)
 
     async def type(self, target: Any, text: str) -> BrowserActionResult:
-        return await self._mutate(
-            "type",
-            **_target_kwargs(target),
-            text=text,
-        )
+        kwargs = _target_kwargs(target)
+        _ensure_target("type", kwargs)
+        return await self._mutate("type", **kwargs, text=text)
 
     async def press(self, key: str) -> BrowserActionResult:
         return await self._mutate("press", key=key)
@@ -75,22 +83,18 @@ class TabActions:
         return await self._mutate("scroll", **kwargs)
 
     async def select(self, target: Any, value: Any) -> BrowserActionResult:
-        return await self._mutate(
-            "select",
-            **_target_kwargs(target),
-            value=value,
-        )
+        kwargs = _target_kwargs(target)
+        _ensure_target("select", kwargs)
+        return await self._mutate("select", **kwargs, value=value)
 
     async def upload(
         self,
         target: Any,
         file_path: str | list[str],
     ) -> BrowserActionResult:
-        return await self._mutate(
-            "upload",
-            **_target_kwargs(target),
-            file_path=file_path,
-        )
+        kwargs = _target_kwargs(target)
+        _ensure_target("upload", kwargs)
+        return await self._mutate("upload", **kwargs, file_path=file_path)
 
     async def download(
         self,
@@ -121,7 +125,9 @@ class TabActions:
         )
 
     async def hover(self, target: Any) -> BrowserActionResult:
-        return await self._mutate("hover", **_target_kwargs(target))
+        kwargs = _target_kwargs(target)
+        _ensure_target("hover", kwargs)
+        return await self._mutate("hover", **kwargs)
 
     async def wait_for(
         self,
@@ -161,6 +167,27 @@ def _target_kwargs(target: Any) -> dict[str, Any]:
     if isinstance(target, dict):
         return dict(target)
     return {"target": target}
+
+
+def _ensure_target(action: str, kwargs: dict[str, Any]) -> None:
+    if _has_target(kwargs):
+        return
+    raise BrowserSDKGap(
+        f"{action} target is required. Provide a selector, ref, text, "
+        "target string, or x/y viewport coordinates.",
+        action=action,
+        metadata={
+            "expected_target_keys": ("target", "selector", "ref", "text"),
+            "expected_coordinate_keys": ("x", "y"),
+        },
+    )
+
+
+def _has_target(kwargs: dict[str, Any]) -> bool:
+    for key in ("target", "selector", "ref", "text"):
+        if str(kwargs.get(key) or "").strip():
+            return True
+    return kwargs.get("x") is not None and kwargs.get("y") is not None
 
 
 def _coerce_action_result(value: Any) -> BrowserActionResult:
