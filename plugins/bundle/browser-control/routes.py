@@ -15,7 +15,13 @@ from typing import Any, cast
 
 from pydantic import BaseModel, Field
 
-from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
+from fastapi import (
+    APIRouter,
+    HTTPException,
+    Query,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from starlette.responses import JSONResponse
 
 from qwenpaw.browser.connection_manager import get_bridge_connection_manager
@@ -849,6 +855,28 @@ async def get_extension_status() -> dict[str, Any]:
 @api_router.get("/status")
 async def extension_status() -> dict[str, Any]:
     return await get_extension_status()
+
+
+@api_router.post("/test/bridge/disconnect")
+async def disconnect_bridge_for_verifier(
+    confirm: bool = Query(False),
+) -> dict[str, Any]:
+    """Force-disconnect the current bridge for verifier lifecycle tests."""
+    if not confirm:
+        raise HTTPException(
+            status_code=400,
+            detail="confirm=true is required for bridge disconnect tests",
+        )
+    bridge = _default_bridge()
+    before_connected = _bridge_connected()
+    await _drop_connected_websocket(bridge, reason="v9_verifier")
+    after_connected = _bridge_connected()
+    return {
+        "ok": before_connected and not after_connected,
+        "before_connected": before_connected,
+        "after_connected": after_connected,
+        "bridge_lifecycle": _bridge_lifecycle(after_connected),
+    }
 
 
 @api_router.post("/self-test")

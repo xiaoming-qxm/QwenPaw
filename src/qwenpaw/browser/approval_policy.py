@@ -79,6 +79,7 @@ class QwenPawBrowserApprovalPolicy:
             payload=_approval_payload(request),
         )
         request_id = ""
+        timeout_seconds = _approval_timeout_seconds()
         try:
             service = self._service()
             pending = await service.create_pending_summary(
@@ -89,7 +90,7 @@ class QwenPawBrowserApprovalPolicy:
                 channel=context["channel"],
                 agent_id=context["agent_id"],
                 summary=summary,
-                timeout_seconds=TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS,
+                timeout_seconds=timeout_seconds,
                 extra={
                     "tool_call": {
                         "id": context["tool_call_id"],
@@ -107,7 +108,7 @@ class QwenPawBrowserApprovalPolicy:
             )
             decision = await service.wait_for_approval(
                 pending.request_id,
-                TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS,
+                timeout_seconds,
             )
         except Exception as exc:  # noqa: BLE001
             _record_approval_trace(
@@ -249,6 +250,19 @@ def _request_approval_level() -> str:
     if not isinstance(request_context, dict):
         return ""
     return str(request_context.get("approval_level") or "").strip().casefold()
+
+
+def _approval_timeout_seconds() -> float:
+    call_context = _call_context()
+    request_context = getattr(call_context, "request_context", {}) or {}
+    if isinstance(request_context, dict):
+        try:
+            value = float(request_context.get("approval_timeout_seconds") or 0)
+        except (TypeError, ValueError):
+            value = 0
+        if value > 0:
+            return min(value, float(TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS))
+    return float(TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS)
 
 
 def _agent_context_value(function_name: str) -> str:

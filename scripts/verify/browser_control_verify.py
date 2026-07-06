@@ -931,6 +931,11 @@ def classify_v9_user_live_evidence(
     missing_lifecycle = _v9_user_live_missing_lifecycle_states(
         scenario_reports,
     )
+    missing_controlled_lifecycle = (
+        _v9_user_live_missing_controlled_lifecycle_evidence(
+            scenario_reports,
+        )
+    )
     backend_route = _join_unique(
         report.get("backend_route") for report in scenario_reports
     )
@@ -976,6 +981,9 @@ def classify_v9_user_live_evidence(
     elif residual_tabs:
         status = "failed"
         failure_reason = "residual_controlled_tabs"
+    elif missing_controlled_lifecycle:
+        status = "failed"
+        failure_reason = "missing_controlled_lifecycle_evidence"
     elif console_overwrite:
         status = "failed"
         failure_reason = "console_overwrite_detected"
@@ -997,6 +1005,7 @@ def classify_v9_user_live_evidence(
         "required_scenarios": sorted(required),
         "missing_scenarios": missing,
         "missing_lifecycle_states": missing_lifecycle,
+        "missing_controlled_lifecycle": missing_controlled_lifecycle,
     }
     return _report(
         "v9-user-live",
@@ -1020,6 +1029,8 @@ def classify_v9_user_live_evidence(
             "required_scenarios_present": not missing,
             "lifecycle_states_present": not missing_lifecycle,
             "missing_lifecycle_states": missing_lifecycle,
+            "controlled_lifecycle_present": not missing_controlled_lifecycle,
+            "missing_controlled_lifecycle": missing_controlled_lifecycle,
             "console_overwrite": console_overwrite,
             "bridge_disconnect_fail_closed": (
                 "bridge-disconnect-fail-closed" in observed
@@ -1065,6 +1076,56 @@ def _v9_user_live_missing_lifecycle_states(
         if str(evidence.get("lifecycle_state") or "") != required_state:
             missing.append(scenario)
     return sorted(missing)
+
+
+def _v9_user_live_missing_controlled_lifecycle_evidence(
+    reports: list[dict[str, Any]],
+) -> list[str]:
+    missing: list[str] = []
+    for report in reports:
+        scenario = str(report.get("scenario") or "")
+        if scenario not in _v9_user_live_controlled_lifecycle_scenarios():
+            continue
+        evidence = _dict_value(report.get("content_evidence"))
+        controlled = _dict_value(evidence.get("controlled_lifecycle_event"))
+        if not _v9_controlled_lifecycle_event_ok(scenario, controlled):
+            missing.append(scenario)
+    return sorted(missing)
+
+
+def _v9_user_live_controlled_lifecycle_scenarios() -> set[str]:
+    return {
+        "bridge-disconnect-fail-closed",
+        "bridge-reconnect-recovered",
+        "user-cancellation-cleanup",
+    }
+
+
+def _v9_controlled_lifecycle_event_ok(
+    scenario: str,
+    event: dict[str, Any],
+) -> bool:
+    if scenario == "bridge-disconnect-fail-closed":
+        return (
+            event.get("kind") == "bridge_disconnect_injected"
+            and event.get("before_connected") is True
+            and event.get("after_connected") is False
+            and event.get("isolated_fallback") is False
+        )
+    if scenario == "bridge-reconnect-recovered":
+        return (
+            event.get("kind") == "bridge_reconnect_observed"
+            and event.get("after_connected") is True
+            and event.get("reconnect_count_increased") is True
+        )
+    if scenario == "user-cancellation-cleanup":
+        return (
+            event.get("kind") == "task_cancel_requested"
+            and event.get("stop_api_called") is True
+            and event.get("task_cancelled") is True
+            and event.get("cleanup_ok") is True
+        )
+    return True
 
 
 def _v9_user_live_lifecycle_states() -> dict[str, str]:
@@ -1131,6 +1192,9 @@ def classify_v9_capability_matrix_evidence(
         scenario_reports,
     )
     approval_off = _v9_matrix_approval_off_success(scenario_reports)
+    approval_execution = _v9_matrix_approval_execution_evidence(
+        scenario_reports,
+    )
     actual_metrics = _v9_matrix_actual_metrics(scenario_reports)
     budget = _v9_scenario_budget("deterministic-complex")
     budget_failure = _v9_budget_failure(budget, actual_metrics)
@@ -1140,6 +1204,9 @@ def classify_v9_capability_matrix_evidence(
     if missing:
         status = "failed"
         failure_reason = "missing_capability_evidence"
+    elif not approval_execution:
+        status = "failed"
+        failure_reason = "approval_execution_evidence_missing"
     elif not approval_default:
         status = "failed"
         failure_reason = "approval_default_not_fail_closed"
@@ -1179,6 +1246,7 @@ def classify_v9_capability_matrix_evidence(
             "missing_capabilities": missing,
             "approval_fail_closed": approval_default,
             "approval_off_success": approval_off,
+            "approval_execution_evidence": approval_execution,
         },
         scenario_reports=scenario_reports,
         cleanup_summary={
@@ -1233,16 +1301,66 @@ def _v9_matrix_approval_default_fail_closed(
             or report.get("error_code")
             or "",
         )
-        return status in {"blocked", "failed"} and "approval" in reason
+        evidence = _v9_approval_execution_evidence(report)
+        return (
+            status in {"blocked", "failed"}
+            and "approval" in reason
+            and evidence.get("executed_sensitive_action") is True
+            and evidence.get("request_context_approval_level") == "DEFAULT"
+            and evidence.get("mutation_prevented") is True
+            and str(evidence.get("approval_state") or "")
+            in _APPROVAL_BLOCKED_STATES
+        )
     return False
 
 
 def _v9_matrix_approval_off_success(reports: list[dict[str, Any]]) -> bool:
-    return any(
-        str(report.get("scenario") or "") == "approval-off-success"
-        and str(report.get("status") or "") == "passed"
-        for report in reports
-    )
+    for report in reports:
+        if str(report.get("scenario") or "") != "approval-off-success":
+            continue
+        evidence = _v9_approval_execution_evidence(report)
+        return (
+            str(report.get("status") or "") == "passed"
+            and evidence.get("executed_sensitive_action") is True
+            and evidence.get("request_context_approval_level") == "OFF"
+            and evidence.get("mutation_observed") is True
+            and evidence.get("fresh_observe_after_mutation") is True
+        )
+    return False
+
+
+_APPROVAL_BLOCKED_STATES = frozenset(
+    {"pending", "timeout", "denied", "error", "approval_required"},
+)
+
+
+def _v9_matrix_approval_execution_evidence(
+    reports: list[dict[str, Any]],
+) -> bool:
+    expected = {
+        "approval-default-fail-closed": "DEFAULT",
+        "approval-off-success": "OFF",
+    }
+    observed: set[str] = set()
+    for report in reports:
+        scenario = str(report.get("scenario") or "")
+        level = expected.get(scenario)
+        if not level:
+            continue
+        evidence = _v9_approval_execution_evidence(report)
+        if (
+            evidence.get("executed_sensitive_action") is True
+            and evidence.get("request_context_approval_level") == level
+        ):
+            observed.add(scenario)
+    return set(expected) == observed
+
+
+def _v9_approval_execution_evidence(
+    report: dict[str, Any],
+) -> dict[str, Any]:
+    content = _dict_value(report.get("content_evidence"))
+    return _dict_value(content.get("approval_execution"))
 
 
 def _v9_matrix_actual_metrics(
@@ -1285,6 +1403,7 @@ def classify_v9_taobao_live_evidence(
     content = _v9_taobao_content_evidence(
         transcript=transcript,
         cart_state=cart_state,
+        trace_events=trace_events,
     )
 
     def taobao_report(
@@ -1484,6 +1603,12 @@ def _v9_taobao_completion_decision(
             "error_code": BrowserErrorCode.UNKNOWN.value,
             "failure_reason": "taobao_cart_roundtrip_incomplete",
         }
+    if not content["live_trace_roundtrip"]:
+        return {
+            "status": "failed",
+            "error_code": BrowserErrorCode.UNKNOWN.value,
+            "failure_reason": "taobao_live_trace_evidence_missing",
+        }
     return {"status": "passed"}
 
 
@@ -1491,9 +1616,11 @@ def _v9_taobao_content_evidence(
     *,
     transcript: str,
     cart_state: dict[str, Any],
+    trace_events: list[dict[str, Any]],
 ) -> dict[str, Any]:
     text = str(transcript or "")
     cart = dict(cart_state or {})
+    trace = _v9_taobao_trace_evidence(trace_events)
     cart_roundtrip = (
         all(
             bool(cart.get(key))
@@ -1515,10 +1642,133 @@ def _v9_taobao_content_evidence(
         "cart_unchanged": bool(cart.get("cart_unchanged")),
         "final_state": str(cart.get("final_state") or ""),
         "cart_roundtrip_complete": cart_roundtrip,
+        "live_trace_roundtrip": bool(trace["live_trace_roundtrip"]),
+        "trace_evidence": trace,
         "safety_boundaries_observed": not _has_payment_or_checkout_marker(
             text,
         ),
     }
+
+
+def _v9_taobao_trace_evidence(
+    trace_events: list[dict[str, Any]],
+) -> dict[str, Any]:
+    commerce_events = [
+        event
+        for event in trace_events
+        if isinstance(event, dict) and _v9_is_taobao_or_tmall_event(event)
+    ]
+    mutation_events = [
+        event
+        for event in commerce_events
+        if _is_successful_mutation(event)
+        and str(event.get("phase") or "").casefold() != "tab_lifecycle"
+    ]
+    observe_events = [
+        event for event in commerce_events if _is_successful_observe(event)
+    ]
+    final_observe = _v9_final_observe_after_last_mutation(
+        mutation_events,
+        observe_events,
+        commerce_events,
+    )
+    has_user_backend = _has_required_backend_evidence(
+        commerce_events,
+        context="user",
+        backend_id="user.chrome_extension",
+    )
+    fresh_observe_after_mutation = bool(mutation_events) and not (
+        _fresh_observe_failure_reason(commerce_events)
+    )
+    stages = _v9_taobao_trace_stages(commerce_events)
+    return {
+        "user_backend": has_user_backend,
+        "commerce_domain": bool(commerce_events),
+        "mutation_action_count": len(mutation_events),
+        "observe_count": len(observe_events),
+        "fresh_observe_after_mutation": fresh_observe_after_mutation,
+        "final_cart_observed": final_observe,
+        "stages": sorted(stages),
+        "live_trace_roundtrip": (
+            has_user_backend
+            and bool(commerce_events)
+            and len(mutation_events) >= 2
+            and fresh_observe_after_mutation
+            and final_observe
+        ),
+    }
+
+
+def _v9_is_taobao_or_tmall_event(event: dict[str, Any]) -> bool:
+    domain = str(event.get("domain") or "").casefold()
+    if not domain:
+        url = str(event.get("url") or "")
+        with contextlib.suppress(ValueError):
+            domain = urllib.parse.urlparse(url).hostname or ""
+    domain = domain.casefold()
+    return (
+        domain == "taobao.com"
+        or domain.endswith(
+            ".taobao.com",
+        )
+        or domain == "tmall.com"
+        or domain.endswith(".tmall.com")
+    )
+
+
+def _v9_final_observe_after_last_mutation(
+    mutation_events: list[dict[str, Any]],
+    observe_events: list[dict[str, Any]],
+    commerce_events: list[dict[str, Any]],
+) -> bool:
+    if not mutation_events or not observe_events:
+        return False
+    last_mutation_index = max(
+        _event_identity_index(commerce_events, event)
+        for event in mutation_events
+    )
+    for event in observe_events:
+        if (
+            _event_identity_index(commerce_events, event)
+            <= last_mutation_index
+        ):
+            continue
+        metadata = _dict_value(event.get("metadata"))
+        stage = str(metadata.get("taobao_cart_stage") or "").casefold()
+        if stage in {"empty_confirmed", "cart_empty", "final_empty"}:
+            return True
+        if _v9_url_looks_like_cart(str(event.get("url") or "")):
+            return True
+    return False
+
+
+def _event_identity_index(
+    events: list[dict[str, Any]],
+    target: dict[str, Any],
+) -> int:
+    for index, event in enumerate(events):
+        if event is target:
+            return index
+    return -1
+
+
+def _v9_url_looks_like_cart(url: str) -> bool:
+    lowered = str(url or "").casefold()
+    return (
+        "cart" in lowered or "cart.htm" in lowered or "cart.taobao" in lowered
+    )
+
+
+def _v9_taobao_trace_stages(
+    events: list[dict[str, Any]],
+) -> set[str]:
+    stages: set[str] = set()
+    for event in events:
+        metadata = _dict_value(event.get("metadata"))
+        stage = str(metadata.get("taobao_cart_stage") or "").strip()
+        if stage:
+            stages.add(stage)
+    return stages
 
 
 def _v9_taobao_allowed_external_blocker(code: BrowserErrorCode) -> bool:
@@ -1799,7 +2049,7 @@ def run_v9_user_live(args: argparse.Namespace) -> BrowserControlReport:
     if preflight.status != "passed":
         return _copy_report(preflight, scenario="v9-user-live")
     reports = [
-        _run_v8_live_task(args, spec).to_dict()
+        _run_v9_user_live_task(args, spec).to_dict()
         for spec in _v9_user_live_task_specs()
     ]
     return classify_v9_user_live_evidence(
@@ -1817,6 +2067,10 @@ def run_v9_capability_matrix(args: argparse.Namespace) -> BrowserControlReport:
         run_v8_capability_isolated(args),
         run_v8_capability_user(args),
     ]
+    approval_reports = [
+        _run_v9_approval_probe(args, "DEFAULT"),
+        _run_v9_approval_probe(args, "OFF"),
+    ]
     return classify_v9_capability_matrix_evidence(
         started=started,
         scenario_reports=[
@@ -1824,6 +2078,7 @@ def run_v9_capability_matrix(args: argparse.Namespace) -> BrowserControlReport:
             for report in _v9_capability_matrix_reports(
                 started=started,
                 child_reports=child_reports,
+                approval_reports=approval_reports,
             )
         ],
     )
@@ -1853,14 +2108,14 @@ def _v9_capability_matrix_reports(
     *,
     started: float,
     child_reports: list[BrowserControlReport],
+    approval_reports: list[BrowserControlReport],
 ) -> list[BrowserControlReport]:
     return [
         _v9_capability_summary_report(
             started=started,
             child_reports=child_reports,
         ),
-        _v9_approval_default_report(started),
-        _v9_approval_off_report(started),
+        *approval_reports,
     ]
 
 
@@ -1928,62 +2183,258 @@ def _v9_capability_summary_report(
     )
 
 
-def _v9_approval_default_report(started: float) -> BrowserControlReport:
-    risk = _v9_sensitive_approval_risk()
-    status = "blocked" if bool(risk.get("sensitive")) else "failed"
+def _run_v9_approval_probe(
+    args: argparse.Namespace,
+    approval_level: str,
+) -> BrowserControlReport:
+    started = time.perf_counter()
+    base_url = _normalize_base_url(args.base_url)
+    fixture = Path(__file__).with_name("browser_control_cart_fixture.html")
+    normalized_level = str(approval_level or "DEFAULT").upper()
+    scenario = (
+        "approval-off-success"
+        if normalized_level == "OFF"
+        else "approval-default-fail-closed"
+    )
+    if not fixture.exists():
+        return _report(
+            scenario,
+            "failed",
+            started,
+            blocked_reason=f"missing fixture: {fixture}",
+            source_labels=v9_source_labels_for_scenario(
+                "deterministic-complex",
+            ),
+        )
+    try:
+        status = _extension_status(base_url, args.timeout)
+    except RuntimeError as exc:
+        return _report(
+            scenario,
+            "blocked",
+            started,
+            error_code=BrowserErrorCode.BRIDGE_DISCONNECTED.value,
+            blocked_reason=str(exc),
+            source_labels=v9_source_labels_for_scenario(
+                "deterministic-complex",
+            ),
+        )
+    backend_route = _backend_route(status)
+    if status.get("connected") is not True:
+        return _report(
+            scenario,
+            "blocked",
+            started,
+            backend_route=backend_route,
+            error_code=BrowserErrorCode.BRIDGE_DISCONNECTED.value,
+            source_labels=v9_source_labels_for_scenario(
+                "deterministic-complex",
+            ),
+        )
+
+    session_id = (
+        "browser-control-v9-approval-"
+        f"{normalized_level.lower()}-{int(time.time() * 1000)}"
+    )
+    prompt_spec = _v9_approval_probe_prompt_spec(
+        fixture.resolve().as_uri(),
+        approval_level=normalized_level,
+    )
+    request_context = {
+        "approval_level": normalized_level,
+        "approval_timeout_seconds": 1,
+    }
+    try:
+        task = _submit_console_task(
+            base_url,
+            prompt_spec.render(),
+            session_id=session_id,
+            timeout=_task_timeout(args),
+            request_context=request_context,
+        )
+        task_status = _poll_console_task(
+            base_url,
+            str(task.get("task_id") or ""),
+            timeout=_task_timeout(args),
+        )
+    except RuntimeError as exc:
+        return _report(
+            scenario,
+            "blocked",
+            started,
+            backend_route=backend_route,
+            error_code=BrowserErrorCode.UNKNOWN.value,
+            blocked_reason=str(exc),
+            source_labels=v9_source_labels_for_scenario(
+                "deterministic-complex",
+            ),
+        )
+    summary = _summarize_task_status(task_status)
+    trace_session_id = summary["session_id"] or session_id
+    try:
+        trace_events = _fetch_extension_traces(
+            base_url,
+            trace_session_id,
+            DEFAULT_TIMEOUT,
+        )
+    except RuntimeError:
+        trace_events = []
+    return _classify_v9_approval_probe_report(
+        scenario=scenario,
+        started=started,
+        approval_level=normalized_level,
+        task_status=task_status,
+        summary=summary,
+        trace_events=trace_events,
+        backend_route=_backend_route_from_traces(trace_events)
+        or backend_route,
+        browser_tool_calls=summary["browser_tool_calls"]
+        or _browser_tool_calls_from_traces(trace_events),
+    )
+
+
+def _classify_v9_approval_probe_report(
+    *,
+    scenario: str,
+    started: float,
+    approval_level: str,
+    task_status: dict[str, Any],
+    summary: dict[str, Any],
+    trace_events: list[dict[str, Any]],
+    backend_route: str,
+    browser_tool_calls: int,
+) -> BrowserControlReport:
+    evidence = _v9_approval_execution_from_trace(
+        trace_events,
+        approval_level=approval_level,
+    )
+    transcript = str(summary.get("final_text") or "")
+    task_completed = (
+        task_status.get("status") == "finished"
+        and _dict_value(task_status.get("result")).get("status") == "completed"
+    )
+    if approval_level == "OFF":
+        probe_ok = (
+            "V9_APPROVAL_OFF_PASS" in transcript
+            and _v9_matrix_approval_off_success(
+                [
+                    {
+                        "scenario": scenario,
+                        "status": "passed",
+                        "content_evidence": {
+                            "approval_execution": evidence,
+                        },
+                    },
+                ],
+            )
+        )
+        status = "passed" if probe_ok else "failed"
+        failure_reason = "" if probe_ok else "approval_off_probe_failed"
+        blocked_reason = ""
+        error_code = ""
+    else:
+        fail_closed = _v9_matrix_approval_default_fail_closed(
+            [
+                {
+                    "scenario": scenario,
+                    "status": "blocked",
+                    "blocked_reason": "approval_required",
+                    "content_evidence": {
+                        "approval_execution": evidence,
+                    },
+                },
+            ],
+        )
+        status = "blocked" if fail_closed else "failed"
+        blocked_reason = "approval_required" if fail_closed else ""
+        failure_reason = "" if fail_closed else "approval_default_probe_failed"
+        error_code = BrowserErrorCode.APPROVAL_REQUIRED.value
     return _report(
-        "approval-default-fail-closed",
+        scenario,
         status,
         started,
-        error_code=BrowserErrorCode.APPROVAL_REQUIRED.value,
-        blocked_reason=("approval_required" if status == "blocked" else ""),
-        failure_reason=""
-        if status == "blocked"
-        else "approval_policy_not_sensitive",
-        fresh_observe_ok=True,
-        cleanup_ok=True,
+        browser_tool_calls=browser_tool_calls,
+        backend_route=backend_route,
+        trace_event_count=len(trace_events),
+        error_code=error_code,
+        blocked_reason=blocked_reason,
+        failure_reason=failure_reason,
+        fresh_observe_ok=(
+            not _fresh_observe_failure_reason(trace_events)
+            if task_completed
+            else False
+        ),
+        cleanup_ok=not _user_cleanup_failure_reason(trace_events),
         content_evidence={
-            "approval_level": "DEFAULT",
-            "risk": risk,
+            "approval_level": approval_level,
+            "approval_execution": evidence,
         },
+        actual_metrics=_dict_value(summary.get("actual_metrics")),
         source_labels=v9_source_labels_for_scenario("deterministic-complex"),
     )
 
 
-def _v9_approval_off_report(started: float) -> BrowserControlReport:
-    risk = _v9_sensitive_approval_risk()
-    return _report(
-        "approval-off-success",
-        "passed" if bool(risk.get("sensitive")) else "failed",
-        started,
-        failure_reason=""
-        if bool(risk.get("sensitive"))
-        else "approval_policy_not_sensitive",
-        fresh_observe_ok=True,
-        cleanup_ok=True,
-        content_evidence={
-            "approval_level": "OFF",
-            "risk": risk,
-            "approval_override": "off",
-        },
-        source_labels=v9_source_labels_for_scenario("deterministic-complex"),
-    )
-
-
-def _v9_sensitive_approval_risk() -> dict[str, Any]:
-    from qwenpaw.browser_sdk.risk import classify_browser_action
-
-    risk = classify_browser_action(
-        "click",
-        {"text": "submit order", "url": "https://example.test/checkout"},
+def _v9_approval_execution_from_trace(
+    trace_events: list[dict[str, Any]],
+    *,
+    approval_level: str,
+) -> dict[str, Any]:
+    approval_events = [
+        event
+        for event in trace_events
+        if str(event.get("phase") or "").casefold() == "approval"
+    ]
+    mutation_events = [
+        event
+        for event in trace_events
+        if _is_successful_mutation(event) and _v9_sensitive_probe_event(event)
+    ]
+    states = [
+        str(
+            event.get("approval_state")
+            or _dict_value(event.get("metadata")).get("approval_state")
+            or "",
+        )
+        for event in approval_events
+    ]
+    approval_state = next((state for state in reversed(states) if state), "")
+    if not approval_state and approval_level == "OFF" and mutation_events:
+        approval_state = "not_required"
+    fresh_observe_after_mutation = bool(mutation_events) and not (
+        _fresh_observe_failure_reason(trace_events)
     )
     return {
-        "sensitive": risk.sensitive,
-        "level": risk.level,
-        "kind": risk.kind,
-        "reason": risk.reason,
-        "matched": list(risk.matched),
+        "executed_sensitive_action": bool(approval_events or mutation_events),
+        "request_context_approval_level": approval_level,
+        "approval_state": approval_state,
+        "mutation_prevented": (
+            approval_level != "OFF"
+            and bool(approval_events)
+            and not mutation_events
+        ),
+        "mutation_observed": bool(mutation_events),
+        "fresh_observe_after_mutation": fresh_observe_after_mutation,
+        "approval_event_count": len(approval_events),
+        "mutation_event_count": len(mutation_events),
     }
+
+
+def _v9_sensitive_probe_event(event: dict[str, Any]) -> bool:
+    metadata = _dict_value(event.get("metadata"))
+    kwargs = _dict_value(metadata.get("kwargs"))
+    haystack = " ".join(
+        str(value)
+        for value in (
+            event.get("action"),
+            kwargs.get("selector"),
+            kwargs.get("text"),
+            kwargs.get("target"),
+            event.get("url"),
+        )
+    ).casefold()
+    return any(
+        token in haystack for token in ("clear-cart", "clear cart", "submit")
+    )
 
 
 def run_v9_acceptance(args: argparse.Namespace) -> BrowserControlReport:
@@ -3162,6 +3613,282 @@ def _v8_lifecycle_live_task_specs() -> list[V8LiveTaskSpec]:
     ]
 
 
+def _run_v9_user_live_task(
+    args: argparse.Namespace,
+    spec: V8LiveTaskSpec,
+) -> BrowserControlReport:
+    if spec.scenario == "bridge-disconnect-fail-closed":
+        event = _v9_force_bridge_disconnect_event(args)
+        report = _run_v8_live_task(args, spec)
+        return _v9_augment_controlled_lifecycle(report, event)
+    if spec.scenario == "bridge-reconnect-recovered":
+        event = _v9_wait_for_bridge_reconnect_event(args)
+        report = _run_v8_live_task(args, spec)
+        return _v9_augment_controlled_lifecycle(report, event)
+    if spec.scenario == "user-cancellation-cleanup":
+        return _run_v9_cancellation_live_task(args, spec)
+    return _run_v8_live_task(args, spec)
+
+
+def _v9_force_bridge_disconnect_event(
+    args: argparse.Namespace,
+) -> dict[str, Any]:
+    base_url = _normalize_base_url(args.base_url)
+    timeout = float(getattr(args, "timeout", DEFAULT_TIMEOUT))
+    before = _safe_extension_status(base_url, timeout)
+    payload: dict[str, Any] = {}
+    try:
+        payload = _http_json(
+            f"{base_url}/api/extension/test/bridge/disconnect?confirm=true",
+            timeout=timeout,
+            method="POST",
+        )
+    except RuntimeError as exc:
+        payload = {"error": str(exc)}
+    after = _safe_extension_status(base_url, timeout)
+    return {
+        "kind": "bridge_disconnect_injected",
+        "before_connected": bool(before.get("connected")),
+        "after_connected": bool(after.get("connected")),
+        "isolated_fallback": False,
+        "api_called": bool(payload) and "error" not in payload,
+        "api_result": payload,
+        "bridge_lifecycle": _dict_value(after.get("bridge_lifecycle")),
+    }
+
+
+def _v9_wait_for_bridge_reconnect_event(
+    args: argparse.Namespace,
+) -> dict[str, Any]:
+    base_url = _normalize_base_url(args.base_url)
+    timeout = max(float(getattr(args, "timeout", DEFAULT_TIMEOUT)), 1.0)
+    deadline = time.perf_counter() + timeout
+    first = _safe_extension_status(base_url, timeout)
+    current = first
+    while time.perf_counter() < deadline:
+        current = _safe_extension_status(base_url, timeout)
+        lifecycle = _dict_value(current.get("bridge_lifecycle"))
+        if (
+            current.get("connected") is True
+            and int(
+                lifecycle.get("reconnect_count") or 0,
+            )
+            > 0
+        ):
+            break
+        time.sleep(0.5)
+    lifecycle = _dict_value(current.get("bridge_lifecycle"))
+    return {
+        "kind": "bridge_reconnect_observed",
+        "before_connected": bool(first.get("connected")),
+        "after_connected": bool(current.get("connected")),
+        "reconnect_count_increased": int(
+            lifecycle.get("reconnect_count") or 0,
+        )
+        > 0,
+        "bridge_lifecycle": lifecycle,
+    }
+
+
+def _safe_extension_status(base_url: str, timeout: float) -> dict[str, Any]:
+    try:
+        return _extension_status(base_url, timeout)
+    except RuntimeError as exc:
+        return {"connected": False, "error": str(exc)}
+
+
+def _v9_augment_controlled_lifecycle(
+    report: BrowserControlReport,
+    event: dict[str, Any],
+) -> BrowserControlReport:
+    return replace(
+        report,
+        content_evidence={
+            **report.content_evidence,
+            "controlled_lifecycle_event": event,
+        },
+    )
+
+
+def _run_v9_cancellation_live_task(
+    args: argparse.Namespace,
+    spec: V8LiveTaskSpec,
+) -> BrowserControlReport:
+    started = time.perf_counter()
+    base_url = _normalize_base_url(args.base_url)
+    backend_route = ""
+    try:
+        status = _extension_status(base_url, args.timeout)
+    except RuntimeError as exc:
+        return _v9_augment_controlled_lifecycle(
+            _report(
+                spec.scenario,
+                "blocked",
+                started,
+                error_code=BrowserErrorCode.BRIDGE_DISCONNECTED.value,
+                blocked_reason=str(exc),
+            ),
+            _v9_cancel_control_event(False, False, False, {}),
+        )
+    backend_route = _backend_route(status)
+    if status.get("connected") is not True:
+        return _v9_augment_controlled_lifecycle(
+            _report(
+                spec.scenario,
+                "blocked",
+                started,
+                backend_route=backend_route,
+                error_code=BrowserErrorCode.BRIDGE_DISCONNECTED.value,
+            ),
+            _v9_cancel_control_event(False, False, False, {}),
+        )
+
+    session_id = (
+        f"browser-control-v9-{spec.scenario}-{int(time.time() * 1000)}"
+    )
+    try:
+        task = _submit_console_task(
+            base_url,
+            spec.prompt,
+            session_id=session_id,
+            timeout=_task_timeout(args),
+            request_context=spec.request_context,
+        )
+    except RuntimeError as exc:
+        return _report(
+            spec.scenario,
+            "blocked",
+            started,
+            backend_route=backend_route,
+            error_code=BrowserErrorCode.UNKNOWN.value,
+            blocked_reason=str(exc),
+        )
+    time.sleep(min(1.0, max(0.2, _task_timeout(args) / 60.0)))
+    stop_result = _stop_console_chat(base_url, session_id, args.timeout)
+    task_status = _poll_console_task(
+        base_url,
+        str(task.get("task_id") or ""),
+        timeout=_task_timeout(args),
+    )
+    summary = _summarize_task_status(task_status)
+    trace_session_id = summary["session_id"] or session_id
+    try:
+        trace_events = _fetch_extension_traces(
+            base_url,
+            trace_session_id,
+            DEFAULT_TIMEOUT,
+        )
+    except RuntimeError:
+        trace_events = []
+    route = _backend_route_from_traces(trace_events) or backend_route
+    cleanup_ok = _v9_stop_cleanup_ok(stop_result) and not (
+        _user_cleanup_failure_reason(trace_events)
+    )
+    task_cancelled = _task_status_cancelled(task_status)
+    browser_tool_calls = summary[
+        "browser_tool_calls"
+    ] or _browser_tool_calls_from_traces(trace_events)
+    status_value = "passed" if task_cancelled and cleanup_ok else "failed"
+    event = _v9_cancel_control_event(
+        stop_api_called=True,
+        task_cancelled=task_cancelled,
+        cleanup_ok=cleanup_ok,
+        stop_result=stop_result,
+    )
+    return _report(
+        spec.scenario,
+        status_value,
+        started,
+        browser_tool_calls=browser_tool_calls,
+        backend_route=route,
+        trace_event_count=len(trace_events),
+        failure_reason="" if status_value == "passed" else "cancel_not_proven",
+        fresh_observe_ok=not _fresh_observe_failure_reason(trace_events),
+        cleanup_ok=cleanup_ok,
+        content_evidence={
+            "lifecycle_state": (
+                "cancellation_cleanup_complete"
+                if status_value == "passed"
+                else ""
+            ),
+            "lifecycle_expected_state": _v9_user_live_lifecycle_states().get(
+                spec.scenario,
+                "",
+            ),
+            "console_overwrite": _v9_console_overwrite_detected(summary),
+            "controlled_lifecycle_event": event,
+        },
+        cleanup_summary=_v9_cleanup_summary_from_stop(stop_result),
+        actual_metrics=_dict_value(summary.get("actual_metrics")),
+        source_labels=v9_source_labels_for_scenario("v9-user-live"),
+    )
+
+
+def _stop_console_chat(
+    base_url: str,
+    chat_id: str,
+    timeout: float,
+) -> dict[str, Any]:
+    query = urllib.parse.urlencode({"chat_id": chat_id})
+    try:
+        return _http_json(
+            f"{_normalize_base_url(base_url)}/api/console/chat/stop?{query}",
+            timeout=timeout,
+            method="POST",
+        )
+    except RuntimeError as exc:
+        return {"error": str(exc)}
+
+
+def _task_status_cancelled(task_status: dict[str, Any]) -> bool:
+    if str(task_status.get("status") or "").casefold() in {
+        "cancelled",
+        "canceled",
+    }:
+        return True
+    result = _dict_value(task_status.get("result"))
+    if str(result.get("status") or "").casefold() in {"cancelled", "canceled"}:
+        return True
+    error = _dict_value(result.get("error"))
+    return "cancel" in str(error.get("message") or "").casefold()
+
+
+def _v9_stop_cleanup_ok(stop_result: dict[str, Any]) -> bool:
+    cleanup = _dict_value(stop_result.get("control_cleanup"))
+    if not cleanup and "error" not in stop_result:
+        return True
+    return _summary_int(cleanup, "residual_tab_count") == 0
+
+
+def _v9_cleanup_summary_from_stop(
+    stop_result: dict[str, Any],
+) -> dict[str, Any]:
+    cleanup = _dict_value(stop_result.get("control_cleanup"))
+    residual = _summary_int(cleanup, "residual_tab_count")
+    controlled = _summary_int(cleanup, "controlled_tab_count")
+    return {
+        "cleanup_ok": residual == 0,
+        "residual_tab_count": residual,
+        "controlled_tab_count": controlled,
+        "stop_result": stop_result,
+    }
+
+
+def _v9_cancel_control_event(
+    stop_api_called: bool,
+    task_cancelled: bool,
+    cleanup_ok: bool,
+    stop_result: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "kind": "task_cancel_requested",
+        "stop_api_called": stop_api_called,
+        "task_cancelled": task_cancelled,
+        "cleanup_ok": cleanup_ok,
+        "stop_result": stop_result,
+    }
+
+
 def _run_v8_live_task(
     args: argparse.Namespace,
     spec: V8LiveTaskSpec,
@@ -3496,7 +4223,7 @@ def _v9_disconnect_lifecycle_state(
     summary: dict[str, Any],
     trace_events: list[dict[str, Any]],
 ) -> str:
-    text = str(summary.get("final_text") or "").casefold()
+    del summary
     has_bridge_error = any(
         str(event.get("error_code") or "").casefold()
         == BrowserErrorCode.BRIDGE_DISCONNECTED.value
@@ -3505,7 +4232,6 @@ def _v9_disconnect_lifecycle_state(
     if (
         report.error_code == BrowserErrorCode.BRIDGE_DISCONNECTED.value
         or has_bridge_error
-        or "bridge_disconnected" in text
     ) and "isolated." not in report.backend_route:
         return "bridge_disconnect_fail_closed"
     return ""
@@ -5602,6 +6328,67 @@ def _v8_capability_prompt_spec(
         required_backend_id=required_backend_id,
         require_user_backend=require_user_backend,
         request_context=request_context,
+    )
+
+
+def _v9_approval_probe_prompt_spec(
+    fixture_url: str,
+    *,
+    approval_level: str,
+) -> HarnessPromptSpec:
+    normalized = str(approval_level or "DEFAULT").upper()
+    marker = (
+        "V9_APPROVAL_OFF_PASS"
+        if normalized == "OFF"
+        else "V9_APPROVAL_DEFAULT_FAIL_CLOSED"
+    )
+    if normalized == "OFF":
+        code = (
+            'browser = await Browser.connect(context="user", '
+            "requires_user_state=True)\n"
+            f'tab = await browser.tabs.open("{fixture_url}")\n'
+            "snapshot = await tab.snapshot()\n"
+            'assert "Shopping cart" in snapshot.text\n'
+            'await tab.actions.click({"selector": "[data-testid=\'add-men-shampoo\']", '
+            '"text": "add men shampoo to cart"})\n'
+            "snapshot = await tab.snapshot()\n"
+            'assert "Men Shampoo x 1" in snapshot.text\n'
+            'await tab.actions.click({"selector": "[data-testid=\'clear-cart\']", '
+            '"text": "clear cart"})\n'
+            "snapshot = await tab.snapshot()\n"
+            'assert "Cart is empty" in snapshot.text\n'
+            f'print("{marker} sensitive clear-cart action executed with OFF")'
+        )
+    else:
+        code = (
+            'browser = await Browser.connect(context="user", '
+            "requires_user_state=True)\n"
+            f'tab = await browser.tabs.open("{fixture_url}")\n'
+            "snapshot = await tab.snapshot()\n"
+            'assert "Shopping cart" in snapshot.text\n'
+            "try:\n"
+            '    await tab.actions.click({"selector": "[data-testid=\'clear-cart\']", '
+            '"text": "clear cart"})\n'
+            "except Exception as exc:\n"
+            f'    print("{marker}", type(exc).__name__, str(exc)[:120])\n'
+            "else:\n"
+            "    raise AssertionError('DEFAULT approval allowed sensitive action')"
+        )
+    return HarnessPromptSpec(
+        instruction=(
+            "Use browser(code=...) to execute this deterministic approval "
+            "probe through Browser SDK user Chrome. Return the script output "
+            "only."
+        ),
+        code=code,
+        required_success_marker=marker,
+        required_context="user",
+        required_backend_id="user.chrome_extension",
+        require_user_backend=True,
+        request_context={
+            "approval_level": normalized,
+            "approval_timeout_seconds": 1,
+        },
     )
 
 
