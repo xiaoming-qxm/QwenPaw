@@ -5,23 +5,23 @@ from __future__ import annotations
 
 from typing import Any
 
-from .backend_registry import (
+from ..backends.registry import (
     BrowserBackendRegistry,
     get_default_backend_registry,
 )
-from .backend_protocols import BrowserBackend
+from ..backends.protocols import BrowserBackend
+from ..primitives.types import (
+    BrowserContext,
+    BrowserContextRequest,
+    ConcreteBrowserContext,
+    ResolvedBrowserContext,
+)
 from .errors import (
     BrowserContextConflict,
     BrowserContextUnavailable,
     BrowserPolicyDenied,
 )
 from .policy import BrowserPolicy, DefaultBrowserPolicy
-from .types import (
-    BrowserContext,
-    BrowserContextRequest,
-    ConcreteBrowserContext,
-    ResolvedBrowserContext,
-)
 
 
 class BrowserContextResolver:

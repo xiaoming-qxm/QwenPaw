@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from qwenpaw.browser_sdk._runtime import _tool_response
+from qwenpaw.browser.sdk.runtime.responses import _tool_response
 from ..state import StateMapping
 
 

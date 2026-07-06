@@ -8,7 +8,7 @@ import contextlib
 import time
 from typing import Any
 
-from qwenpaw.browser_sdk.error_codes import (
+from qwenpaw.browser.sdk.governance.error_codes import (
     BrowserErrorCode,
     classify_browser_error,
 )

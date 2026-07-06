@@ -6,8 +6,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from .errors import BrowserSDKGap
-from .types import BrowserActionResult
+from ..governance.errors import BrowserSDKGap
+from ..primitives.types import BrowserActionResult
 
 
 class BrowserActions:
@@ -99,9 +99,9 @@ class TabActions:
     async def download(
         self,
         target: Any | None = None,
-        timeout_ms: int = 30000,
+        max_wait_ms: int = 30000,
     ) -> BrowserActionResult:
-        kwargs: dict[str, Any] = {"timeout_ms": timeout_ms}
+        kwargs: dict[str, Any] = {"max_wait_ms": max_wait_ms}
         if target is not None:
             kwargs.update(_target_kwargs(target))
         return await self._run(
@@ -132,14 +132,14 @@ class TabActions:
     async def wait_for(
         self,
         instruction: str,
-        timeout_ms: int = 10000,
+        max_wait_ms: int = 10000,
     ) -> BrowserActionResult:
         return await self._run(
             "wait_for",
             mutating=False,
             transition=True,
             instruction=instruction,
-            timeout_ms=timeout_ms,
+            max_wait_ms=max_wait_ms,
         )
 
     async def _mutate(self, name: str, **kwargs: Any) -> BrowserActionResult:

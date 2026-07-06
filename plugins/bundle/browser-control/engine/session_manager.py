@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from qwenpaw.browser_sdk._runtime import logger
+from qwenpaw.browser.sdk.runtime.responses import logger
 from .errors import RECOVERABLE_CONTROL_EXCEPTIONS
 from .state import StateMapping
 

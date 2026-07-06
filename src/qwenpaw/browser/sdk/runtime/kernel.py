@@ -1,23 +1,21 @@
 # -*- coding: utf-8 -*-
-"""Session-scoped Python kernel for the browser(code=...) tool."""
+"""Session-scoped runtime for the browser(code=...) tool."""
 
 from __future__ import annotations
 
-import ast
 import asyncio
 import contextlib
-import inspect
 import io
 import traceback
 from contextvars import ContextVar, Token
 from dataclasses import dataclass
-from types import CodeType
-from typing import Any
+from time import monotonic
+from typing import Any, Callable
 
-from .types import BrowserArtifact, BrowserContext
+from ..primitives.types import BrowserArtifact, BrowserContext
+from .executor import BrowserCodeExecutor, InProcessBrowserCodeExecutor
 
-_RETURN_NAME = "__qwenpaw_browser_return__"
-_MAX_PREBOUND_REF_INDEX = 10000
+_DEFAULT_IDLE_TTL_SECONDS = 300.0
 
 
 @dataclass(frozen=True)
@@ -31,7 +29,7 @@ class BrowserExecutionContext:
 
 @dataclass(frozen=True)
 class BrowserKernelResult:
-    """Execution result returned by the in-process browser kernel."""
+    """Execution result returned by the browser kernel runtime."""
 
     output: str
     return_value: str | None
@@ -84,25 +82,44 @@ def drain_browser_artifacts() -> tuple[BrowserArtifact, ...]:
     return drained
 
 
-class BrowserKernel:
-    """Execute snippets in a durable per-session namespace."""
+class BrowserKernelRuntime:
+    """Coordinate browser code execution around an injected executor."""
 
-    def __init__(self) -> None:
-        self._namespace = _new_namespace()
+    def __init__(
+        self,
+        *,
+        executor: BrowserCodeExecutor | None = None,
+        idle_ttl_seconds: float = _DEFAULT_IDLE_TTL_SECONDS,
+        clock: Callable[[], float] = monotonic,
+    ) -> None:
+        self._executor = executor or InProcessBrowserCodeExecutor()
+        self._idle_ttl_seconds = float(idle_ttl_seconds)
+        self._clock = clock
+        self._last_used: dict[str, float] = {}
 
     async def execute(
         self,
-        code: str,
         *,
-        execution_context: BrowserExecutionContext,
+        session_id: str,
+        code: str,
+        context: BrowserContext,
+        requires_user_state: bool | None = None,
     ) -> BrowserKernelResult:
-        """Execute Python code with top-level await support."""
+        """Execute code in a session-scoped browser kernel."""
+        execution_context = BrowserExecutionContext(
+            session_id=session_id,
+            context=context,
+            requires_user_state=requires_user_state,
+        )
         stdout_capture = io.StringIO()
         token = set_current_execution_context(execution_context)
         artifacts_token = _CURRENT_ARTIFACTS.set([])
         try:
             with contextlib.redirect_stdout(stdout_capture):
-                result = await self._execute_code(code)
+                result = await self._executor.execute(
+                    code,
+                    execution_context=execution_context,
+                )
             return BrowserKernelResult(
                 output=stdout_capture.getvalue(),
                 return_value=repr(result) if result is not None else None,
@@ -120,57 +137,73 @@ class BrowserKernel:
                 artifacts=drain_browser_artifacts(),
             )
         finally:
+            self._last_used[session_id] = self._clock()
             _CURRENT_ARTIFACTS.reset(artifacts_token)
             reset_current_execution_context(token)
 
-    async def _execute_code(self, code: str) -> Any:
-        namespace = self._namespace
-        namespace.pop(_RETURN_NAME, None)
-        compiled = _compile_code(code)
-        maybe_awaitable = eval(compiled, namespace)  # noqa: S307
-        if inspect.isawaitable(maybe_awaitable):
-            await maybe_awaitable
-        return namespace.pop(_RETURN_NAME, None)
-
-
-class BrowserKernelManager:
-    """Manage durable browser kernels keyed by session id."""
-
-    def __init__(self) -> None:
-        self._kernels: dict[str, BrowserKernel] = {}
-
-    async def execute(
-        self,
-        *,
-        session_id: str,
-        code: str,
-        timeout_ms: int,
-        context: BrowserContext,
-        requires_user_state: bool | None = None,
-    ) -> BrowserKernelResult:
-        """Execute code in the session-scoped browser kernel."""
-        _record_timeout_ms_compat_warning(
-            session_id=session_id,
-            context=context,
-            timeout_ms=timeout_ms,
-        )
-        kernel = self._kernels.setdefault(session_id, BrowserKernel())
-        return await kernel.execute(
-            code,
-            execution_context=BrowserExecutionContext(
-                session_id=session_id,
-                context=context,
-                requires_user_state=requires_user_state,
-            ),
-        )
-
     async def reset(self, session_id: str) -> None:
         """Reset one session kernel."""
-        self._kernels.pop(session_id, None)
+        self._last_used.pop(session_id, None)
+        await self._executor.reset(session_id)
 
     async def reset_all(self) -> None:
         """Reset all session kernels."""
-        self._kernels.clear()
+        self._last_used.clear()
+        await self._executor.reset_all()
+
+    async def sweep_idle(
+        self,
+        *,
+        now: float | None = None,
+    ) -> tuple[str, ...]:
+        """Reset kernels idle for more than the configured TTL."""
+        current = self._clock() if now is None else float(now)
+        expired = tuple(
+            session_id
+            for session_id, last_used in list(self._last_used.items())
+            if current - last_used > self._idle_ttl_seconds
+        )
+        for session_id in expired:
+            await self.reset(session_id)
+        return expired
+
+    def diagnostics(self) -> dict[str, Any]:
+        """Return JSON-safe runtime diagnostics."""
+        return {
+            "runtime": "browser_kernel",
+            "idle_ttl_seconds": self._idle_ttl_seconds,
+            "tracked_sessions": len(self._last_used),
+            "executor": self._executor.diagnostics(),
+        }
+
+
+class BrowserKernel:
+    """Compatibility wrapper for one in-process session kernel."""
+
+    def __init__(
+        self,
+        *,
+        executor: BrowserCodeExecutor | None = None,
+    ) -> None:
+        self._runtime = BrowserKernelRuntime(executor=executor)
+
+    async def execute(
+        self,
+        code: str,
+        *,
+        execution_context: BrowserExecutionContext,
+    ) -> BrowserKernelResult:
+        """Execute code using the wrapped runtime."""
+        return await self._runtime.execute(
+            session_id=execution_context.session_id,
+            code=code,
+            context=execution_context.context,
+            requires_user_state=execution_context.requires_user_state,
+        )
+
+
+class BrowserKernelManager(BrowserKernelRuntime):
+    """Manage durable browser kernels keyed by session id."""
 
 
 _DEFAULT_KERNEL_MANAGER = BrowserKernelManager()
@@ -181,42 +214,11 @@ def get_default_kernel_manager() -> BrowserKernelManager:
     return _DEFAULT_KERNEL_MANAGER
 
 
-def _record_timeout_ms_compat_warning(
-    *,
-    session_id: str,
-    context: BrowserContext,
-    timeout_ms: int,
-) -> None:
-    if int(timeout_ms) == 30000:
-        return
-
-    from .trace import record_browser_trace_event
-
-    record_browser_trace_event(
-        session_id=session_id,
-        phase="tool",
-        backend_id="browser.kernel",
-        requested_context=context,
-        selected_context=context,
-        action="timeout_ms_ignored",
-        status="warning",
-        metadata={
-            "warning": "timeout_ms_deprecated_compatibility",
-            "timeout_ms": int(timeout_ms),
-            "contract": (
-                "timeout_ms is accepted for compatibility but does not "
-                "limit total Browser SDK execution; cancel the task to stop "
-                "long-running code."
-            ),
-        },
-    )
-
-
 def _record_kernel_cancelled(
     execution_context: BrowserExecutionContext,
 ) -> None:
-    from .error_codes import BrowserErrorCode, classify_browser_error
-    from .trace import record_browser_trace_event
+    from ..governance.error_codes import BrowserErrorCode, classify_browser_error
+    from ..telemetry.trace import record_browser_trace_event
 
     error_info = classify_browser_error(BrowserErrorCode.CANCELLED)
     record_browser_trace_event(
@@ -235,59 +237,9 @@ def _record_kernel_cancelled(
     )
 
 
-def _compile_code(code: str) -> CodeType:
-    tree = ast.parse(str(code or ""), mode="exec")
-    if tree.body and isinstance(tree.body[-1], ast.Expr):
-        last_expr = tree.body[-1]
-        tree.body[-1] = ast.Assign(
-            targets=[ast.Name(id=_RETURN_NAME, ctx=ast.Store())],
-            value=last_expr.value,
-        )
-        ast.fix_missing_locations(tree)
-    return compile(
-        tree,
-        "<browser>",
-        "exec",
-        flags=ast.PyCF_ALLOW_TOP_LEVEL_AWAIT,
-    )
-
-
-def _new_namespace() -> dict[str, Any]:
-    from .browser import Browser, connect_browser
-    from .errors import (
-        BrowserContextConflict,
-        BrowserContextUnavailable,
-        BrowserObservationRequired,
-        BrowserPolicyDenied,
-        BrowserSDKError,
-        BrowserSDKGap,
-    )
-
-    namespace: dict[str, Any] = {"__builtins__": __builtins__}
-    namespace.update(
-        {
-            "Browser": Browser,
-            "BrowserSDKError": BrowserSDKError,
-            "BrowserContextUnavailable": BrowserContextUnavailable,
-            "BrowserContextConflict": BrowserContextConflict,
-            "BrowserPolicyDenied": BrowserPolicyDenied,
-            "BrowserSDKGap": BrowserSDKGap,
-            "BrowserObservationRequired": BrowserObservationRequired,
-            "connect_browser": connect_browser,
-        },
-    )
-    namespace.update(
-        {
-            f"e{index}": f"e{index}"
-            for index in range(1, _MAX_PREBOUND_REF_INDEX + 1)
-        },
-    )
-    return namespace
-
-
 def _error_payload(exc: Exception) -> dict[str, Any]:
-    from .errors import BrowserSDKError
-    from .error_codes import classify_browser_error
+    from ..governance.error_codes import classify_browser_error
+    from ..governance.errors import BrowserSDKError
 
     error_info = classify_browser_error(exc)
     payload: dict[str, Any] = {
@@ -311,12 +263,17 @@ def _error_payload(exc: Exception) -> dict[str, Any]:
 
 
 __all__ = [
+    "BrowserCodeExecutor",
     "BrowserExecutionContext",
     "BrowserKernel",
     "BrowserKernelManager",
     "BrowserKernelResult",
+    "BrowserKernelRuntime",
+    "InProcessBrowserCodeExecutor",
+    "drain_browser_artifacts",
     "get_current_execution_context",
     "get_default_kernel_manager",
+    "record_browser_artifact",
     "reset_current_execution_context",
     "set_current_execution_context",
 ]

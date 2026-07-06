@@ -10,11 +10,11 @@ from typing import Any
 
 from .base import LifecycleHook
 from ..agents.tools.browser_control import cleanup_control_sessions_for_request
-from ..browser_sdk.backends.user import (
+from ..browser.sdk.backends.user import (
     cleanup_user_browser_sessions_for_request,
 )
-from ..browser_sdk.errors import BrowserPolicyDenied
-from ..browser_sdk.trace import record_browser_trace_event
+from ..browser.sdk.governance.errors import BrowserPolicyDenied
+from ..browser.sdk.telemetry.trace import record_browser_trace_event
 from ..runtime.hooks import HookContext, HookResult
 from ..runtime.phases import Phase
 

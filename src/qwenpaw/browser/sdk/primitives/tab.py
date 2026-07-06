@@ -10,13 +10,13 @@ from time import perf_counter
 from typing import Any
 from urllib.parse import urlparse
 
-from .actions import TabActions
-from .error_codes import classify_browser_error
-from .errors import BrowserObservationRequired
+from ..actions.tab_actions import TabActions
+from ..governance.error_codes import classify_browser_error
+from ..governance.errors import BrowserObservationRequired
+from ..runtime.kernel import record_browser_artifact
+from ..telemetry.trace import record_browser_trace_event
 from .extract import extract_from_tab
-from .kernel import record_browser_artifact
 from .observation import coerce_observation, coerce_screenshot
-from .trace import record_browser_trace_event
 from .types import (
     BrowserActionResult,
     BrowserArtifact,

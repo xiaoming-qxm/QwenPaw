@@ -9,17 +9,15 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
-from .backend_registry import get_default_backend_registry
-from .docs import browser_capabilities
-from .error_codes import classify_browser_error
-from .errors import BrowserContextUnavailable
-from .kernel import get_current_execution_context
-from .resolver import BrowserContextResolver
-from .actions import BrowserActions
-from .tabs import Tabs
-from .trace import record_browser_trace_event
-from .types import BrowserActionResult
-from .types import (
+from ..actions.tab_actions import BrowserActions
+from ..backends.registry import get_default_backend_registry
+from ..docs.capabilities import browser_capabilities
+from ..governance.error_codes import classify_browser_error
+from ..governance.errors import BrowserContextUnavailable
+from ..governance.resolver import BrowserContextResolver
+from ..primitives.tabs import BrowserTabs
+from ..primitives.types import BrowserActionResult
+from ..primitives.types import (
     BrowserBackendDiagnostic,
     BrowserContext,
     BrowserDiagnosticCheck,
@@ -27,6 +25,8 @@ from .types import (
     BrowserDiagnostics,
     ResolvedBrowserContext,
 )
+from ..runtime.kernel import get_current_execution_context
+from ..telemetry.trace import record_browser_trace_event
 
 
 @dataclass
@@ -40,11 +40,11 @@ class Browser:
     session: Any
     context: ResolvedBrowserContext
     session_id: str = ""
-    tabs: Tabs = field(init=False)
+    tabs: BrowserTabs = field(init=False)
     actions: BrowserActions = field(init=False)
 
     def __post_init__(self) -> None:
-        self.tabs = Tabs(self)
+        self.tabs = BrowserTabs(self)
         self.actions = BrowserActions(self)
 
     @property

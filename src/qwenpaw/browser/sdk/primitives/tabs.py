@@ -7,12 +7,12 @@ from time import perf_counter
 from typing import Any
 from urllib.parse import urlparse
 
-from .error_codes import classify_browser_error
+from ..governance.error_codes import classify_browser_error
+from ..telemetry.trace import record_browser_trace_event
 from .tab import Tab, tab_from_backend
-from .trace import record_browser_trace_event
 
 
-class Tabs:
+class BrowserTabs:
     """Collection of tabs for a connected browser session."""
 
     def __init__(self, browser: Any) -> None:
@@ -189,4 +189,4 @@ def _domain_from_url(url: str) -> str:
         return ""
 
 
-__all__ = ["Tabs"]
+__all__ = ["BrowserTabs"]

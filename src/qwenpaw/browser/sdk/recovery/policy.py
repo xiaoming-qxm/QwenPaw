@@ -10,12 +10,12 @@ from typing import Any
 
 from qwenpaw.constant import QWENPAW_MESSAGE_TAG_KEY
 
-from .error_codes import (
+from ..governance.error_codes import (
     BrowserErrorCode,
     BrowserOutcome,
     classify_browser_error,
 )
-from .trace import (
+from ..telemetry.trace import (
     BrowserTraceEvent,
     BrowserTraceStore,
     get_browser_trace_store,

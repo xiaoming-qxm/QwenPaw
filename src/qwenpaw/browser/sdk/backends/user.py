@@ -11,23 +11,23 @@ from urllib.parse import urlparse
 
 from qwenpaw.browser.connection_manager import get_bridge_connection_manager
 from qwenpaw.browser.control_engine import get_control_engine
-from qwenpaw.browser_sdk.backend_registry import get_default_backend_registry
-from qwenpaw.browser_sdk.errors import (
+from qwenpaw.browser.sdk.backends.registry import get_default_backend_registry
+from qwenpaw.browser.sdk.governance.errors import (
     BrowserContextUnavailable,
     BrowserPolicyDenied,
 )
-from qwenpaw.browser_sdk.observation import (
+from qwenpaw.browser.sdk.primitives.observation import (
     coerce_observation,
     coerce_screenshot,
 )
-from qwenpaw.browser_sdk.policy import (
+from qwenpaw.browser.sdk.governance.policy import (
     BrowserPolicy,
     DefaultBrowserPolicy,
     maybe_await_policy_decision,
 )
-from qwenpaw.browser_sdk.risk import classify_browser_action
-from qwenpaw.browser_sdk.trace import record_browser_trace_event
-from qwenpaw.browser_sdk.types import (
+from qwenpaw.browser.sdk.governance.risk import classify_browser_action
+from qwenpaw.browser.sdk.telemetry.trace import record_browser_trace_event
+from qwenpaw.browser.sdk.primitives.types import (
     BrowserActionRequest,
     BrowserActionResult,
     BrowserBackendCapabilities,
@@ -39,7 +39,7 @@ from qwenpaw.browser_sdk.types import (
     BrowserPolicyDecision,
     ResolvedBrowserContext,
 )
-from qwenpaw.browser_sdk.types import BrowserObservation, BrowserScreenshot
+from qwenpaw.browser.sdk.primitives.types import BrowserObservation, BrowserScreenshot
 
 BACKEND_ID = "user.chrome_extension"
 _BROWSER_SENTINEL_TAB_ID = "__browser__"

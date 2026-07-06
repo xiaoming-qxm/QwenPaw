@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from qwenpaw.browser_sdk.product_matrix import (
+from scripts.verify.browser.product_matrix import (
     BROWSER_PRODUCT_CAPABILITIES,
     BrowserProductCapability,
 )
@@ -33,14 +33,14 @@ FRONTEND_EVIDENCE_PATHS = (
     "plugins/bundle/browser-control/routes.py",
 )
 SDK_API_PATHS = (
-    "src/qwenpaw/browser_sdk/browser.py",
-    "src/qwenpaw/browser_sdk/tab.py",
-    "src/qwenpaw/browser_sdk/tabs.py",
-    "src/qwenpaw/browser_sdk/actions.py",
+    "src/qwenpaw/browser/sdk/facade/browser.py",
+    "src/qwenpaw/browser/sdk/primitives/tab.py",
+    "src/qwenpaw/browser/sdk/primitives/tabs.py",
+    "src/qwenpaw/browser/sdk/actions/tab_actions.py",
 )
 BACKEND_PATHS = (
-    "src/qwenpaw/browser_sdk/backends/isolated.py",
-    "src/qwenpaw/browser_sdk/backends/user.py",
+    "src/qwenpaw/browser/sdk/backends/isolated.py",
+    "src/qwenpaw/browser/sdk/backends/user.py",
     "plugins/bundle/browser-control/engine/handlers/__init__.py",
 )
 LEGACY_EVIDENCE_FIXTURES = (

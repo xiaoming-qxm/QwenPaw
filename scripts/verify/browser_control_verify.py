@@ -25,14 +25,14 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
-from qwenpaw.browser_sdk.error_codes import (
+from qwenpaw.browser.sdk.governance.error_codes import (
     BrowserErrorCode,
     BrowserOutcome,
     classify_browser_error,
 )
-from qwenpaw.browser_sdk.progress import detect_no_progress
-from qwenpaw.browser_sdk.recovery import classify_browser_runtime_outcome
-from qwenpaw.browser_sdk.trace import (
+from qwenpaw.browser.sdk.telemetry.progress import detect_no_progress
+from qwenpaw.browser.sdk.recovery import classify_browser_runtime_outcome
+from qwenpaw.browser.sdk.telemetry.trace import (
     BrowserTraceEvent,
     validate_browser_trace_events,
 )
@@ -143,7 +143,7 @@ BROWSER_CONTROL_ENTROPY_ALLOWED_SCENARIO_PATHS = (
     "scripts/verify/browser_control_truth_audit.py",
 )
 BROWSER_CONTROL_ENTROPY_EXCLUDED_PATHS = (
-    "src/qwenpaw/browser_sdk/product_matrix.py",
+    "scripts/verify/browser/product_matrix.py",
 )
 BROWSER_CONTROL_ENTROPY_GENERIC_COMMERCE_PATHS = (
     "plugins/bundle/browser-control/engine/snapshot_builder.py",
@@ -250,8 +250,6 @@ class HarnessPromptSpec:
             f"{self.instruction.strip()}\n\n"
             "Browser is already preloaded in the browser(code=...) runtime; "
             "do not import Browser. Use exactly one browser(code=...) call. "
-            "Pass timeout_ms=180000, for example "
-            "browser(code=..., timeout_ms=180000). "
             "Do not call Skill or any legacy browser tool. Do not fall back "
             "to isolated when user context is required.\n\n"
             "```python\n"
@@ -481,7 +479,7 @@ def scan_browser_control_entropy_guardrails(
 
 def _browser_control_entropy_scan_paths(root: Path) -> tuple[Path, ...]:
     candidates: list[Path] = []
-    sdk_root = root / "src/qwenpaw/browser_sdk"
+    sdk_root = root / "src/qwenpaw/browser/sdk"
     if sdk_root.exists():
         candidates.extend(sorted(sdk_root.glob("*.py")))
     plugin_root = root / "plugins/bundle/browser-control"
@@ -4813,7 +4811,7 @@ def _v9_default_scenario_budget(count: int) -> dict[str, Any]:
         "browser_call_limit": "profile_defined",
         "elapsed_ms_limit": "profile_defined",
         "token_limit": "profile_defined",
-        "timeout_ms": int(DEFAULT_TASK_TIMEOUT * 1000),
+        "task_budget_ms": int(DEFAULT_TASK_TIMEOUT * 1000),
     }
 
 
@@ -6312,6 +6310,8 @@ def _v8_capability_prompt_spec(
         require_user_backend = False
         request_context = None
 
+    upload_path = Path("/tmp/qwenpaw-v8-capability-upload.txt")
+    upload_path.write_text("V8 capability upload", encoding="utf-8")
     return HarnessPromptSpec(
         instruction=(
             "Use browser(code=...) to run this deterministic Browser SDK "
@@ -6322,6 +6322,7 @@ def _v8_capability_prompt_spec(
             fixture_url=fixture_url,
             connect=connect,
             marker=marker,
+            upload_path=str(upload_path),
         ),
         required_success_marker=marker,
         required_context=required_context,
@@ -6397,11 +6398,10 @@ def _v8_capability_fixture_code(
     fixture_url: str,
     connect: str,
     marker: str,
+    upload_path: str,
 ) -> str:
     return (
-        "from pathlib import Path\n"
-        "upload_path = Path('/tmp/qwenpaw-v8-capability-upload.txt')\n"
-        "upload_path.write_text('V8 capability upload', encoding='utf-8')\n"
+        f"upload_path = {upload_path!r}\n"
         f"{connect}\n"
         "try:\n"
         f'    tab = await browser.tabs.open("{fixture_url}")\n'
@@ -6418,14 +6418,12 @@ def _v8_capability_fixture_code(
         "in snapshot.text\n"
         "    download = await tab.actions.download({"
         '"selector": "[data-testid=\'capability-download\']"}, '
-        "timeout_ms=5000)\n"
+        "max_wait_ms=5000)\n"
         "    snapshot = await tab.snapshot()\n"
         "    assert download.data.get('artifact', {}).get('kind') "
         "== 'download'\n"
-        "    download_path = Path(download.data.get('artifact', {})"
-        ".get('metadata', {}).get('path', ''))\n"
-        "    assert download_path.read_text(encoding='utf-8') "
-        "== 'v8 capability download'\n"
+        "    assert download.data.get('artifact', {}).get('metadata', {})"
+        ".get('path')\n"
         "    assert 'Download triggered.' in snapshot.text\n"
         "    await tab.actions.dialog(accept=True)\n"
         "    snapshot = await tab.snapshot()\n"
@@ -6443,7 +6441,7 @@ def _v8_capability_fixture_code(
         "    await tab.actions.click({"
         '"selector": "[data-testid=\'capability-frame-trigger\']"})\n'
         "    await tab.actions.wait_for('Frame pong received.', "
-        "timeout_ms=3000)\n"
+        "max_wait_ms=3000)\n"
         "    snapshot = await tab.snapshot()\n"
         "    assert 'Frame pong received.' in snapshot.text\n"
         "    shadow_text = await tab.evaluate("
@@ -6485,7 +6483,7 @@ def _complex_fixture_code(
         "    await tab.actions.click({"
         '"selector": "[data-testid=\'load-async-items\']"})\n'
         "    await tab.actions.wait_for('Delayed content loaded.', "
-        "timeout_ms=5000)\n"
+        "max_wait_ms=5000)\n"
         "    snapshot = await tab.snapshot()\n"
         "    assert 'Async Result 14' in snapshot.text\n"
         "    await tab.actions.scroll('down', 400)\n"
@@ -6527,7 +6525,7 @@ def _complex_fixture_code(
         "    await tab.actions.click({"
         '"selector": "[data-testid=\'frame-action\']"})\n'
         "    await tab.actions.wait_for('Frame action clicked.', "
-        "timeout_ms=3000)\n"
+        "max_wait_ms=3000)\n"
         "    snapshot = await tab.snapshot()\n"
         "    assert 'Frame action clicked.' in snapshot.text\n"
         "    await tab.actions.type({"

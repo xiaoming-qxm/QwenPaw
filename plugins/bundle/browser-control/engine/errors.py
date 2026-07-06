@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from qwenpaw.browser_sdk.error_codes import BrowserErrorCode
+from qwenpaw.browser.sdk.governance.error_codes import BrowserErrorCode
 
 
 class BrowserControlError(Exception):

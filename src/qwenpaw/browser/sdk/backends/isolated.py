@@ -11,22 +11,11 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote_plus
 
-from ..error_codes import BrowserErrorCode, classify_browser_error
-from .._runtime import (
-    _chromium_launch_args,
-    _ensure_playwright_async,
-    _parse_browser_args,
-    _resolve_chromium_launch_target,
-    _resolve_output_path,
-    _use_webkit_fallback,
-    is_playwright_available,
-    logger,
-)
-from .._snapshot import build_role_snapshot_from_aria
-from ..actions import BrowserActionResult
-from ..backend_registry import get_default_backend_registry
-from ..observation import coerce_observation, coerce_screenshot
-from ..types import (
+from ..actions.tab_actions import BrowserActionResult
+from ..backends.registry import get_default_backend_registry
+from ..governance.error_codes import BrowserErrorCode, classify_browser_error
+from ..primitives.observation import coerce_observation, coerce_screenshot
+from ..primitives.types import (
     BrowserBackendCapabilities,
     BrowserBackendDiagnostic,
     BrowserDiagnosticCheck,
@@ -36,6 +25,17 @@ from ..types import (
     BrowserScreenshot,
     ResolvedBrowserContext,
 )
+from ..runtime.responses import (
+    _chromium_launch_args,
+    _ensure_playwright_async,
+    _parse_browser_args,
+    _resolve_chromium_launch_target,
+    _resolve_output_path,
+    _use_webkit_fallback,
+    is_playwright_available,
+    logger,
+)
+from ..runtime.snapshot import build_role_snapshot_from_aria
 
 BACKEND_ID = "isolated.playwright"
 _BROWSER_SENTINEL_TAB_ID = "__browser__"
@@ -713,18 +713,18 @@ class IsolatedPlaywrightRuntime:
         page_id: str,
         kwargs: dict[str, Any],
     ) -> None:
-        timeout_ms = int(kwargs.get("timeout_ms") or 10000)
+        max_wait_ms = int(kwargs.get("max_wait_ms") or 10000)
         locator = self._locator_for_target(page, page_id, kwargs)
         if locator is not None:
-            await locator.wait_for(timeout=timeout_ms)
+            await locator.wait_for(timeout=max_wait_ms)
             return
         instruction = str(kwargs.get("instruction") or "").strip()
         if instruction:
             await page.get_by_text(instruction).first.wait_for(
-                timeout=timeout_ms,
+                timeout=max_wait_ms,
             )
             return
-        await page.wait_for_timeout(min(timeout_ms, 1000))
+        await page.wait_for_timeout(min(max_wait_ms, 1000))
 
     async def _upload(
         self,
@@ -766,8 +766,8 @@ class IsolatedPlaywrightRuntime:
                 "download",
                 "The isolated runtime cannot observe browser downloads.",
             )
-        timeout_ms = int(kwargs.get("timeout_ms") or 30000)
-        async with expect_download(timeout=timeout_ms) as download_info:
+        max_wait_ms = int(kwargs.get("max_wait_ms") or 30000)
+        async with expect_download(timeout=max_wait_ms) as download_info:
             locator = self._locator_for_target(page, page_id, kwargs)
             if locator is not None:
                 await _maybe_await(locator.click())

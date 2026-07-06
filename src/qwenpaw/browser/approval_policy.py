@@ -9,9 +9,9 @@ from typing import Any
 from urllib.parse import urlparse
 
 from qwenpaw.app.approvals.models import ApprovalRequestSummary
-from qwenpaw.browser_sdk.error_codes import BrowserErrorCode
-from qwenpaw.browser_sdk.trace import record_browser_trace_event
-from qwenpaw.browser_sdk.types import (
+from qwenpaw.browser.sdk.governance.error_codes import BrowserErrorCode
+from qwenpaw.browser.sdk.telemetry.trace import record_browser_trace_event
+from qwenpaw.browser.sdk.primitives.types import (
     BrowserActionRequest,
     BrowserContextRequest,
     BrowserPolicyDecision,

@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .errors import BrowserSDKGap
+from ..governance.errors import BrowserSDKGap
 
 
 def browser_capabilities() -> dict[str, Any]:
@@ -46,7 +46,7 @@ def browser_capabilities() -> dict[str, Any]:
         },
         "download": {
             "kind": "transition",
-            "kwargs": ("target", "selector", "ref", "timeout_ms"),
+            "kwargs": ("target", "selector", "ref", "max_wait_ms"),
         },
         "dialog": {
             "kind": "transition",
@@ -58,7 +58,7 @@ def browser_capabilities() -> dict[str, Any]:
         },
         "wait_for": {
             "kind": "read_transition",
-            "kwargs": ("instruction", "timeout_ms"),
+            "kwargs": ("instruction", "max_wait_ms"),
         },
     }
     return {
@@ -79,7 +79,7 @@ def browser_capabilities() -> dict[str, Any]:
         "limits": {
             "requires_fresh_observe_after_mutation": True,
             "mutation_observations": ("snapshot", "screenshot"),
-            "download_timeout_ms_default": 30000,
+            "download_max_wait_ms_default": 30000,
             "raw_cdp_public_hot_path": False,
         },
     }

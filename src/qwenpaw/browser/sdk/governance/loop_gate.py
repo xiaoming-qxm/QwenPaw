@@ -9,14 +9,14 @@ from typing import Any
 from qwenpaw.loop.gate_providers import register_loop_gate_provider
 from qwenpaw.loop.gates.base import StopAction, StopGate, StopHandlerResult
 
-from .recovery import (
+from ..recovery import (
     BrowserRecoveryAction,
     BrowserRecoveryDecision,
     BrowserRecoveryPolicy,
     BrowserRequestEvidence,
     collect_browser_request_evidence,
 )
-from .trace import BrowserTraceEvent, BrowserTraceStore
+from ..telemetry.trace import BrowserTraceEvent, BrowserTraceStore
 
 
 class BrowserGate(StopGate):

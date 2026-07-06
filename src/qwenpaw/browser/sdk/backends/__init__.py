@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
 """Browser SDK backend implementations."""
 
-from qwenpaw.browser_sdk.backend_protocols import (
+from qwenpaw.browser.sdk.backends.protocols import (
     BrowserBackend,
     BrowserSession,
 )
-from qwenpaw.browser_sdk.backends.isolated import (
+from qwenpaw.browser.sdk.backends.isolated import (
     IsolatedBrowserBackend,
     IsolatedBrowserSession,
     IsolatedPlaywrightRuntime,
@@ -13,7 +13,7 @@ from qwenpaw.browser_sdk.backends.isolated import (
     get_isolated_runtime_manager,
     register_isolated_backend_once,
 )
-from qwenpaw.browser_sdk.backends.user import (
+from qwenpaw.browser.sdk.backends.user import (
     ChromeExtensionBrowserBackend,
     ChromeExtensionBrowserSession,
     register_user_backend_once,

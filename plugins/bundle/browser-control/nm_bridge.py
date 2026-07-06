@@ -17,8 +17,8 @@ from typing import Any
 
 from qwenpaw.browser.connection_manager import BridgeConnectionManager
 from qwenpaw.browser.nm_bridge_state import get_nm_bridge_route_state
-from qwenpaw.browser_sdk.error_codes import BrowserErrorCode
-from qwenpaw.browser_sdk.trace import record_browser_trace_event
+from qwenpaw.browser.sdk.governance.error_codes import BrowserErrorCode
+from qwenpaw.browser.sdk.telemetry.trace import record_browser_trace_event
 
 JSONRPC_VERSION = "2.0"
 LEASE_TTL_SECONDS = 30.0

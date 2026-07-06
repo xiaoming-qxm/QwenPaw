@@ -22,7 +22,7 @@ from qwenpaw.config import (
 from qwenpaw.config.context import get_current_workspace_dir
 from qwenpaw.constant import EnvVarLoader, WORKING_DIR
 
-logger = logging.getLogger("qwenpaw.browser_sdk")
+logger = logging.getLogger("qwenpaw.browser.sdk")
 
 _TRUSTED_BROWSER_KEYWORDS = frozenset(
     {
@@ -235,7 +235,7 @@ def is_playwright_available() -> bool:
 
 async def stop_all_browsers() -> None:
     """Stop all Browser SDK isolated runtimes."""
-    from .backends.isolated import get_isolated_runtime_manager
+    from ..backends.isolated import get_isolated_runtime_manager
 
     await get_isolated_runtime_manager().stop_all()
 

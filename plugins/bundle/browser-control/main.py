@@ -18,7 +18,7 @@ from qwenpaw.browser.control_engine import (
     register_control_engine,
 )
 from qwenpaw.browser.approval_policy import QwenPawBrowserApprovalPolicy
-from qwenpaw.browser_sdk.backends.user import register_user_backend_once
+from qwenpaw.browser.sdk.backends.user import register_user_backend_once
 from qwenpaw.plugins.api import PluginApi
 
 from .engine_impl import ControlEngineImpl

@@ -3,8 +3,11 @@
 .PHONY: test test-unit test-contract test-integration test-channel test-channel-contract coverage-full clean
 
 # Python path
-PYTHON := python
-PYTEST := python -m pytest
+PYTHON ?= .venv/bin/python
+ifeq ($(wildcard $(PYTHON)),)
+PYTHON := python3
+endif
+PYTEST := $(PYTHON) -m pytest
 
 # Default: run all tests
 test:

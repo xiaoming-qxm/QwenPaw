@@ -12,20 +12,20 @@ from pydantic import AnyUrl
 
 from qwenpaw.runtime.tool_registry import tool_descriptor
 
-from .kernel import BrowserKernelResult, get_default_kernel_manager
-from .backends.isolated import register_isolated_backend_once
-from .error_codes import classify_browser_error
-from .loop_gate import register_browser_loop_gate_provider_once
-from .progress import BrowserProgressDecision, detect_no_progress
-from .recovery import (
+from ..backends.isolated import register_isolated_backend_once
+from ..governance.error_codes import classify_browser_error
+from ..governance.loop_gate import register_browser_loop_gate_provider_once
+from ..recovery import (
     BrowserRecoveryDecision,
     BrowserRecoveryPolicy,
     BrowserRequestEvidence,
     classify_browser_runtime_outcome,
 )
-from .trace import get_browser_trace_store, record_browser_trace_event
-from .trace import validate_browser_trace_events
-from .trace import BrowserTraceEvent
+from ..telemetry.progress import BrowserProgressDecision, detect_no_progress
+from ..telemetry.trace import BrowserTraceEvent
+from ..telemetry.trace import get_browser_trace_store, record_browser_trace_event
+from ..telemetry.trace import validate_browser_trace_events
+from .kernel import BrowserKernelResult, get_default_kernel_manager
 
 register_isolated_backend_once()
 register_browser_loop_gate_provider_once()
@@ -94,20 +94,14 @@ _ERROR_HINTS = {
 async def browser(
     code: str,
     context: str = "auto",
-    timeout_ms: int = 30000,
 ) -> ToolChunk:
-    """Execute Browser SDK Python code in a session-scoped kernel.
-
-    ``timeout_ms`` is a deprecated compatibility input. It does not limit
-    total Browser SDK execution; cancel the task to stop long-running code.
-    """
+    """Execute Browser SDK Python code in a session-scoped kernel."""
     session_id = _current_session_id()
     trace_store = get_browser_trace_store()
     trace_start_index = len(trace_store.list(session_id))
     result = await get_default_kernel_manager().execute(
         session_id=session_id,
         code=code,
-        timeout_ms=timeout_ms,
         context=context,  # type: ignore[arg-type]
     )
     ok = result.error is None

@@ -53,6 +53,8 @@ class SkillsCommandHandler(BaseControlCommandHandler):
         )
         if workspace_dir is None:
             return "**Error**: Workspace not initialized."
+        if context.channel is None:
+            return "**Error**: Channel context is unavailable."
 
         channel_id = context.channel.channel
         manifest = reconcile_workspace_manifest(workspace_dir)

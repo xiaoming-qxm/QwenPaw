@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import logging
 import mimetypes
-from typing import Any, List
 from pathlib import Path
+from typing import Any, List, Literal, cast
 from urllib.parse import unquote, urlparse
 
 logger = logging.getLogger(__name__)
@@ -86,18 +86,19 @@ def _request_input_to_msgs(
 
     out: List[Any] = []
     for m in input_list:
-        role = getattr(m, "role", None)
-        if hasattr(role, "value"):
-            role = role.value
-        role = role or "user"
+        role_raw = getattr(m, "role", None)
+        role_value = getattr(role_raw, "value", role_raw) or "user"
+        role = str(role_value)
         if role == "tool":
             role = "assistant"
+        if role not in ("user", "assistant", "system"):
+            role = "user"
+        msg_role = cast(Literal["user", "assistant", "system"], role)
 
         blocks: list = []
         for c in getattr(m, "content", None) or []:
-            ctype = getattr(c, "type", None)
-            if hasattr(ctype, "value"):
-                ctype = ctype.value
+            ctype_raw = getattr(c, "type", None)
+            ctype = getattr(ctype_raw, "value", ctype_raw)
 
             if ctype == "text":
                 text = getattr(c, "text", None) or ""
@@ -126,7 +127,7 @@ def _request_input_to_msgs(
                         blocks.append(
                             DataBlock(
                                 source=URLSource(
-                                    url=url,
+                                    url=cast(Any, url),
                                     media_type=media_type,
                                 ),
                             ),
@@ -146,7 +147,7 @@ def _request_input_to_msgs(
                         blocks.append(
                             DataBlock(
                                 source=URLSource(
-                                    url=url,
+                                    url=cast(Any, url),
                                     media_type="application/octet-stream",
                                 ),
                                 name=getattr(c, "file_name", None),
@@ -161,5 +162,5 @@ def _request_input_to_msgs(
         if not blocks:
             continue
 
-        out.append(Msg(name=role, role=role, content=blocks))
+        out.append(Msg(name=msg_role, role=msg_role, content=blocks))
     return out

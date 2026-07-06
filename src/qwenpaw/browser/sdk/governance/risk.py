@@ -6,7 +6,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from .types import BrowserActionRisk, BrowserRiskKind
+from ..primitives.types import BrowserActionRisk, BrowserRiskKind
 
 _READ_ACTIONS = {
     "active_tab",

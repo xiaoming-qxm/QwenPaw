@@ -63,15 +63,15 @@ BROWSER_PRODUCT_CAPABILITIES: tuple[BrowserProductCapability, ...] = (
         isolated_support=_support(
             "supported",
             (
-                "src/qwenpaw/browser_sdk/backends/isolated.py:open_tab",
-                "src/qwenpaw/browser_sdk/backends/isolated.py:action:navigate",
+                "src/qwenpaw/browser/sdk/backends/isolated.py:open_tab",
+                "src/qwenpaw/browser/sdk/backends/isolated.py:action:navigate",
             ),
             backend_symbols=("open_tab", "action:navigate"),
         ),
         user_support=_support(
             "supported",
             (
-                "src/qwenpaw/browser_sdk/backends/user.py:open_tab",
+                "src/qwenpaw/browser/sdk/backends/user.py:open_tab",
                 "plugins/bundle/browser-control/engine/handlers/open.py",
             ),
             backend_symbols=("open_tab", "handler:open"),
@@ -90,7 +90,7 @@ BROWSER_PRODUCT_CAPABILITIES: tuple[BrowserProductCapability, ...] = (
         ),
         isolated_support=_support(
             "supported",
-            ("src/qwenpaw/browser_sdk/backends/isolated.py:action:back",),
+            ("src/qwenpaw/browser/sdk/backends/isolated.py:action:back",),
             backend_symbols=("action:back", "action:forward", "action:reload"),
         ),
         user_support=_support(
@@ -117,13 +117,13 @@ BROWSER_PRODUCT_CAPABILITIES: tuple[BrowserProductCapability, ...] = (
         public_api=("Tab.snapshot()",),
         isolated_support=_support(
             "supported",
-            ("src/qwenpaw/browser_sdk/backends/isolated.py:snapshot",),
+            ("src/qwenpaw/browser/sdk/backends/isolated.py:snapshot",),
             backend_symbols=("snapshot",),
         ),
         user_support=_support(
             "supported",
             (
-                "src/qwenpaw/browser_sdk/backends/user.py:snapshot",
+                "src/qwenpaw/browser/sdk/backends/user.py:snapshot",
                 "plugins/bundle/browser-control/engine/handlers/snapshot.py",
             ),
             backend_symbols=("snapshot", "handler:snapshot"),
@@ -138,13 +138,13 @@ BROWSER_PRODUCT_CAPABILITIES: tuple[BrowserProductCapability, ...] = (
         public_api=("Tab.screenshot()",),
         isolated_support=_support(
             "supported",
-            ("src/qwenpaw/browser_sdk/backends/isolated.py:screenshot",),
+            ("src/qwenpaw/browser/sdk/backends/isolated.py:screenshot",),
             backend_symbols=("screenshot",),
         ),
         user_support=_support(
             "supported",
             (
-                "src/qwenpaw/browser_sdk/backends/user.py:screenshot",
+                "src/qwenpaw/browser/sdk/backends/user.py:screenshot",
                 "plugins/bundle/browser-control/engine/handlers/screenshot.py",
             ),
             backend_symbols=("screenshot", "handler:screenshot"),
@@ -159,13 +159,13 @@ BROWSER_PRODUCT_CAPABILITIES: tuple[BrowserProductCapability, ...] = (
         public_api=("Tab.extract(instruction, format='json')",),
         isolated_support=_support(
             "partial",
-            ("src/qwenpaw/browser_sdk/extract.py",),
+            ("src/qwenpaw/browser/sdk/primitives/extract.py",),
             backend_symbols=("Tab.extract",),
             limitations=("Lightweight extraction, not full schema engine.",),
         ),
         user_support=_support(
             "partial",
-            ("src/qwenpaw/browser_sdk/extract.py",),
+            ("src/qwenpaw/browser/sdk/primitives/extract.py",),
             backend_symbols=("Tab.extract",),
             limitations=("Depends on Browser SDK snapshot/evaluate support.",),
         ),
@@ -183,7 +183,7 @@ BROWSER_PRODUCT_CAPABILITIES: tuple[BrowserProductCapability, ...] = (
         ),
         isolated_support=_support(
             "supported",
-            ("src/qwenpaw/browser_sdk/backends/isolated.py:action:type",),
+            ("src/qwenpaw/browser/sdk/backends/isolated.py:action:type",),
             backend_symbols=("action:type", "action:press"),
         ),
         user_support=_support(
@@ -205,7 +205,7 @@ BROWSER_PRODUCT_CAPABILITIES: tuple[BrowserProductCapability, ...] = (
         public_api=("Tab.actions.select(target, value)",),
         isolated_support=_support(
             "supported",
-            ("src/qwenpaw/browser_sdk/backends/isolated.py:action:select",),
+            ("src/qwenpaw/browser/sdk/backends/isolated.py:action:select",),
             backend_symbols=("action:select",),
         ),
         user_support=_support(
@@ -227,7 +227,7 @@ BROWSER_PRODUCT_CAPABILITIES: tuple[BrowserProductCapability, ...] = (
         public_api=("BrowserPolicy.allow_action(BrowserActionRequest)",),
         isolated_support=_support(
             "partial",
-            ("src/qwenpaw/browser_sdk/policy.py",),
+            ("src/qwenpaw/browser/sdk/governance/policy.py",),
             backend_symbols=("BrowserPolicy",),
             limitations=(
                 "Policy is available, but submit is not distinct API.",
@@ -236,7 +236,7 @@ BROWSER_PRODUCT_CAPABILITIES: tuple[BrowserProductCapability, ...] = (
         user_support=_support(
             "partial",
             (
-                "src/qwenpaw/browser_sdk/backends/user.py:action",
+                "src/qwenpaw/browser/sdk/backends/user.py:action",
                 "src/qwenpaw/browser/approval_policy.py",
             ),
             backend_symbols=("classify_browser_action", "approval_policy"),
@@ -258,8 +258,8 @@ BROWSER_PRODUCT_CAPABILITIES: tuple[BrowserProductCapability, ...] = (
         isolated_support=_support(
             "supported",
             (
-                "src/qwenpaw/browser_sdk/actions.py:TabActions.dialog",
-                "src/qwenpaw/browser_sdk/backends/isolated.py:_dialog",
+                "src/qwenpaw/browser/sdk/actions/tab_actions.py:TabActions.dialog",
+                "src/qwenpaw/browser/sdk/backends/isolated.py:_dialog",
             ),
             backend_symbols=("TabActions.dialog", "action:dialog"),
         ),
@@ -356,13 +356,13 @@ BROWSER_PRODUCT_CAPABILITIES: tuple[BrowserProductCapability, ...] = (
         ),
         isolated_support=_support(
             "supported",
-            ("src/qwenpaw/browser_sdk/backends/isolated.py:list_tabs",),
+            ("src/qwenpaw/browser/sdk/backends/isolated.py:list_tabs",),
             backend_symbols=("list_tabs", "open_tab", "select_tab"),
         ),
         user_support=_support(
             "supported",
             (
-                "src/qwenpaw/browser_sdk/backends/user.py:list_tabs",
+                "src/qwenpaw/browser/sdk/backends/user.py:list_tabs",
                 "plugins/bundle/browser-control/engine/handlers/tabs.py",
             ),
             backend_symbols=("list_tabs", "select_tab", "handler:tabs"),
@@ -379,8 +379,8 @@ BROWSER_PRODUCT_CAPABILITIES: tuple[BrowserProductCapability, ...] = (
         isolated_support=_support(
             "supported",
             (
-                "src/qwenpaw/browser_sdk/actions.py:TabActions.download",
-                "src/qwenpaw/browser_sdk/backends/isolated.py:_download",
+                "src/qwenpaw/browser/sdk/actions/tab_actions.py:TabActions.download",
+                "src/qwenpaw/browser/sdk/backends/isolated.py:_download",
             ),
             backend_symbols=("TabActions.download", "action:download"),
         ),
@@ -412,8 +412,8 @@ BROWSER_PRODUCT_CAPABILITIES: tuple[BrowserProductCapability, ...] = (
         isolated_support=_support(
             "supported",
             (
-                "src/qwenpaw/browser_sdk/actions.py:TabActions.upload",
-                "src/qwenpaw/browser_sdk/backends/isolated.py:_upload",
+                "src/qwenpaw/browser/sdk/actions/tab_actions.py:TabActions.upload",
+                "src/qwenpaw/browser/sdk/backends/isolated.py:_upload",
             ),
             backend_symbols=("TabActions.upload", "action:upload"),
         ),
@@ -441,13 +441,13 @@ BROWSER_PRODUCT_CAPABILITIES: tuple[BrowserProductCapability, ...] = (
         public_api=("Browser.close()", "Tab.close()"),
         isolated_support=_support(
             "supported",
-            ("src/qwenpaw/browser_sdk/backends/isolated.py:close",),
+            ("src/qwenpaw/browser/sdk/backends/isolated.py:close",),
             backend_symbols=("close", "close_tab"),
         ),
         user_support=_support(
             "supported",
             (
-                "src/qwenpaw/browser_sdk/backends/user.py:"
+                "src/qwenpaw/browser/sdk/backends/user.py:"
                 "cleanup_user_browser_sessions_for_request",
                 "src/qwenpaw/hooks/browser_control_lifecycle.py",
             ),
@@ -465,12 +465,12 @@ BROWSER_PRODUCT_CAPABILITIES: tuple[BrowserProductCapability, ...] = (
         public_api=("Browser.connect(context=...)",),
         isolated_support=_support(
             "supported",
-            ("src/qwenpaw/browser_sdk/resolver.py",),
+            ("src/qwenpaw/browser/sdk/governance/resolver.py",),
             backend_symbols=("BrowserContextResolver",),
         ),
         user_support=_support(
             "supported",
-            ("src/qwenpaw/browser_sdk/resolver.py",),
+            ("src/qwenpaw/browser/sdk/governance/resolver.py",),
             backend_symbols=("BrowserContextResolver",),
         ),
         verifier_evidence=("public-search", "fixture"),
@@ -483,13 +483,13 @@ BROWSER_PRODUCT_CAPABILITIES: tuple[BrowserProductCapability, ...] = (
         public_api=("BrowserPolicy", "BrowserActionRequest"),
         isolated_support=_support(
             "partial",
-            ("src/qwenpaw/browser_sdk/policy.py",),
+            ("src/qwenpaw/browser/sdk/governance/policy.py",),
             limitations=("Default isolated policy has lower risk surface.",),
         ),
         user_support=_support(
             "supported",
             (
-                "src/qwenpaw/browser_sdk/backends/user.py:action",
+                "src/qwenpaw/browser/sdk/backends/user.py:action",
                 "src/qwenpaw/browser/approval_policy.py",
             ),
             backend_symbols=("maybe_await_policy_decision",),
@@ -504,13 +504,13 @@ BROWSER_PRODUCT_CAPABILITIES: tuple[BrowserProductCapability, ...] = (
         public_api=("BrowserTraceEvent", "get_browser_trace_events()"),
         isolated_support=_support(
             "supported",
-            ("src/qwenpaw/browser_sdk/trace.py",),
+            ("src/qwenpaw/browser/sdk/telemetry/trace.py",),
             backend_symbols=("record_browser_trace_event",),
         ),
         user_support=_support(
             "supported",
             (
-                "src/qwenpaw/browser_sdk/trace.py",
+                "src/qwenpaw/browser/sdk/telemetry/trace.py",
                 "plugins/bundle/browser-control/routes.py:/extension/traces",
             ),
             backend_symbols=("record_browser_trace_event",),
@@ -531,7 +531,7 @@ BROWSER_PRODUCT_CAPABILITIES: tuple[BrowserProductCapability, ...] = (
         public_api=("Browser.diagnostics(context='user')",),
         isolated_support=_support(
             "partial",
-            ("src/qwenpaw/browser_sdk/browser.py:diagnostics",),
+            ("src/qwenpaw/browser/sdk/facade/browser.py:diagnostics",),
             limitations=("Readiness UI focuses on user backend state.",),
         ),
         user_support=_support(

@@ -1,23 +1,28 @@
 # -*- coding: utf-8 -*-
 """Unified browser automation SDK for QwenPaw agents."""
 
-from .backend_registry import (
-    BrowserBackendRegistry,
-    get_default_backend_registry,
-)
-from .backend_protocols import BrowserBackend, BrowserSession
-from .browser import Browser, connect_browser
-from .docs import browser_capabilities, browser_sdk_help, capability_gap
-from .actions import BrowserActions, TabActions
-from .backends.isolated import (
+from .actions.tab_actions import BrowserActions, TabActions
+from .backends import (
+    ChromeExtensionBrowserBackend,
     IsolatedBrowserBackend,
     register_isolated_backend_once,
-)
-from .backends.user import (
-    ChromeExtensionBrowserBackend,
     register_user_backend_once,
 )
-from .errors import (
+from .backends.protocols import BrowserBackend, BrowserSession
+from .backends.registry import BrowserBackendRegistry, get_default_backend_registry
+from .docs.capabilities import (
+    browser_capabilities,
+    browser_sdk_help,
+    capability_gap,
+)
+from .facade.browser import Browser, connect_browser
+from .governance.error_codes import (
+    BrowserErrorCode,
+    BrowserErrorInfo,
+    BrowserOutcome,
+    classify_browser_error,
+)
+from .governance.errors import (
     BrowserContextConflict,
     BrowserContextUnavailable,
     BrowserObservationRequired,
@@ -25,40 +30,17 @@ from .errors import (
     BrowserSDKError,
     BrowserSDKGap,
 )
-from .error_codes import (
-    BrowserErrorCode,
-    BrowserErrorInfo,
-    BrowserOutcome,
-    classify_browser_error,
-)
-from .policy import BrowserPolicy, DefaultBrowserPolicy
-from .progress import (
-    BrowserActionSignature,
-    BrowserProgressDecision,
-    detect_no_progress,
-)
-from .resolver import BrowserContextResolver
-from .risk import classify_browser_action
-from .loop_gate import (
+from .governance.loop_gate import (
     BrowserGate,
     BrowserLoopGateProvider,
     register_browser_loop_gate_provider_once,
 )
-from .recovery import (
-    BrowserRecoveryAction,
-    BrowserRecoveryDecision,
-    BrowserRecoveryPolicy,
-    BrowserRequestEvidence,
-    collect_browser_request_evidence,
-)
-from .trace import (
-    BrowserTraceEvent,
-    BrowserTraceStore,
-    get_browser_trace_store,
-    record_browser_trace_event,
-    reset_browser_trace_store_for_tests,
-)
-from .types import (
+from .governance.policy import BrowserPolicy, DefaultBrowserPolicy
+from .governance.resolver import BrowserContextResolver
+from .governance.risk import classify_browser_action
+from .primitives.tab import Tab
+from .primitives.tabs import BrowserTabs
+from .primitives.types import (
     BrowserActionRequest,
     BrowserActionResult,
     BrowserActionRisk,
@@ -80,8 +62,25 @@ from .types import (
     ExtractionFormat,
     ResolvedBrowserContext,
 )
-from .tab import Tab
-from .tabs import Tabs
+from .recovery import (
+    BrowserRecoveryAction,
+    BrowserRecoveryDecision,
+    BrowserRecoveryPolicy,
+    BrowserRequestEvidence,
+    collect_browser_request_evidence,
+)
+from .telemetry.progress import (
+    BrowserActionSignature,
+    BrowserProgressDecision,
+    detect_no_progress,
+)
+from .telemetry.trace import (
+    BrowserTraceEvent,
+    BrowserTraceStore,
+    get_browser_trace_store,
+    record_browser_trace_event,
+    reset_browser_trace_store_for_tests,
+)
 
 __all__ = [
     "BrowserActionRequest",
@@ -109,6 +108,7 @@ __all__ = [
     "BrowserLoopGateProvider",
     "BrowserObservation",
     "BrowserObservationRequired",
+    "BrowserOutcome",
     "BrowserPageInfo",
     "BrowserPolicy",
     "BrowserPolicyDecision",
@@ -118,13 +118,13 @@ __all__ = [
     "BrowserRecoveryDecision",
     "BrowserRecoveryPolicy",
     "BrowserRequestEvidence",
-    "BrowserOutcome",
     "BrowserRiskKind",
     "BrowserRiskLevel",
     "BrowserSDKError",
     "BrowserSDKGap",
     "BrowserScreenshot",
     "BrowserSession",
+    "BrowserTabs",
     "BrowserTraceEvent",
     "BrowserTraceStore",
     "ChromeExtensionBrowserBackend",
@@ -135,20 +135,19 @@ __all__ = [
     "ResolvedBrowserContext",
     "Tab",
     "TabActions",
-    "Tabs",
-    "connect_browser",
-    "classify_browser_action",
-    "classify_browser_error",
     "browser_capabilities",
     "browser_sdk_help",
     "capability_gap",
+    "classify_browser_action",
+    "classify_browser_error",
     "collect_browser_request_evidence",
+    "connect_browser",
     "detect_no_progress",
     "get_browser_trace_store",
     "get_default_backend_registry",
     "record_browser_trace_event",
-    "register_isolated_backend_once",
     "register_browser_loop_gate_provider_once",
+    "register_isolated_backend_once",
     "register_user_backend_once",
     "reset_browser_trace_store_for_tests",
 ]

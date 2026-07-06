@@ -13,7 +13,7 @@ import json
 import logging
 import uuid
 from datetime import datetime, timezone
-from typing import Any, AsyncGenerator, Dict
+from typing import Any, AsyncGenerator, Dict, cast
 
 from .message_convert import _media_type_to_block_type
 
@@ -157,9 +157,8 @@ class Envelope:
             TextContent,
         )
 
-        evt_type = getattr(event, "type", None)
-        if hasattr(evt_type, "value"):
-            evt_type = evt_type.value
+        evt_type_raw = getattr(event, "type", None)
+        evt_type = getattr(evt_type_raw, "value", evt_type_raw)
 
         # === TEXT BLOCK ===
         if evt_type == EventType.TEXT_BLOCK_START.value:
@@ -192,23 +191,23 @@ class Envelope:
 
         elif evt_type == EventType.TEXT_BLOCK_END.value:
             block_id = event.block_id
-            state = self._text_blocks.get(block_id)
-            if state is None:
+            text_state = self._text_blocks.get(block_id)
+            if text_state is None:
                 return
             final_chunk = TextContent(
                 type=ContentType.TEXT,
-                text=state["text"],
+                text=text_state["text"],
                 delta=False,
-                index=state["index"],
+                index=text_state["index"],
             )
             final_chunk.msg_id = self._message_id
             yield self._tag_seq(final_chunk)
             self._completed_message.content.append(
                 TextContent(
                     type=ContentType.TEXT,
-                    text=state["text"],
+                    text=text_state["text"],
                     delta=False,
-                    index=state["index"],
+                    index=text_state["index"],
                 ),
             )
 
@@ -235,8 +234,8 @@ class Envelope:
         elif evt_type == EventType.THINKING_BLOCK_DELTA.value:
             block_id = event.block_id
             delta = getattr(event, "delta", "") or ""
-            state = self._reasoning_blocks.get(block_id)
-            if state is None:
+            reasoning_state = self._reasoning_blocks.get(block_id)
+            if reasoning_state is None:
                 r_msg_id = _gen_msg_id()
                 r_envelope = Message(
                     id=r_msg_id,
@@ -247,47 +246,47 @@ class Envelope:
                 )
                 r_envelope.name = "assistant"
                 r_envelope.object = "message"
-                state = {
+                reasoning_state = {
                     "msg_id": r_msg_id,
                     "envelope": r_envelope,
                     "text": "",
                 }
-                self._reasoning_blocks[block_id] = state
+                self._reasoning_blocks[block_id] = reasoning_state
                 yield self._tag_seq(r_envelope)
-            state["text"] += delta
+            reasoning_state["text"] += delta
             r_chunk = TextContent(
                 type=ContentType.TEXT,
                 text=delta,
                 delta=True,
                 index=0,
             )
-            r_chunk.msg_id = state["msg_id"]
+            r_chunk.msg_id = reasoning_state["msg_id"]
             yield self._tag_seq(r_chunk)
 
         elif evt_type == EventType.THINKING_BLOCK_END.value:
             block_id = event.block_id
-            state = self._reasoning_blocks.get(block_id)
-            if state is None:
+            reasoning_state = self._reasoning_blocks.get(block_id)
+            if reasoning_state is None:
                 return
             r_final = TextContent(
                 type=ContentType.TEXT,
-                text=state["text"],
+                text=reasoning_state["text"],
                 delta=False,
                 index=0,
             )
-            r_final.msg_id = state["msg_id"]
+            r_final.msg_id = reasoning_state["msg_id"]
             yield self._tag_seq(r_final)
-            state["envelope"].content.append(
+            reasoning_state["envelope"].content.append(
                 TextContent(
                     type=ContentType.TEXT,
-                    text=state["text"],
+                    text=reasoning_state["text"],
                     delta=False,
                     index=0,
                 ),
             )
-            state["envelope"].status = RunStatus.Completed
-            self._response.output.append(state["envelope"])
-            yield self._tag_seq(state["envelope"])
+            reasoning_state["envelope"].status = RunStatus.Completed
+            self._response.output.append(reasoning_state["envelope"])
+            yield self._tag_seq(reasoning_state["envelope"])
 
         # === TOOL CALL ===
         elif evt_type == EventType.TOOL_CALL_START.value:
@@ -333,56 +332,56 @@ class Envelope:
 
         elif evt_type == EventType.TOOL_CALL_DELTA.value:
             call_id = event.tool_call_id
-            state = self._tool_calls.get(call_id)
-            if state is None:
+            tool_call_state = self._tool_calls.get(call_id)
+            if tool_call_state is None:
                 return
-            state["args_json_acc"] += event.delta or ""
+            tool_call_state["args_json_acc"] += event.delta or ""
 
             delta_content = DataContent(
                 type=ContentType.DATA,
                 data=FunctionCall(
                     call_id=call_id,
-                    name=state["name"],
-                    arguments=state["args_json_acc"],
+                    name=tool_call_state["name"],
+                    arguments=tool_call_state["args_json_acc"],
                 ).model_dump(),
                 delta=False,
                 index=0,
             )
-            delta_content.msg_id = state["message"].id
+            delta_content.msg_id = tool_call_state["message"].id
             yield self._tag_seq(delta_content.in_progress())
 
         elif evt_type == EventType.TOOL_CALL_END.value:
             call_id = event.tool_call_id
-            state = self._tool_calls.get(call_id)
-            if state is None:
+            tool_call_state = self._tool_calls.get(call_id)
+            if tool_call_state is None:
                 return
 
             final_content = DataContent(
                 type=ContentType.DATA,
                 data=FunctionCall(
                     call_id=call_id,
-                    name=state["name"],
-                    arguments=state["args_json_acc"],
+                    name=tool_call_state["name"],
+                    arguments=tool_call_state["args_json_acc"],
                 ).model_dump(),
                 delta=False,
             )
-            state["message"].add_content(new_content=final_content)
+            tool_call_state["message"].add_content(new_content=final_content)
             yield self._tag_seq(final_content.completed())
-            self._response.output.append(state["message"])
-            yield self._tag_seq(state["message"].completed())
+            self._response.output.append(tool_call_state["message"])
+            yield self._tag_seq(tool_call_state["message"].completed())
 
         # === TOOL RESULT ===
         elif evt_type == EventType.TOOL_RESULT_START.value:
             call_id = event.tool_call_id
-            state = self._tool_calls.get(call_id)
-            if state is None:
-                state = {
+            tool_result_state = self._tool_calls.get(call_id)
+            if tool_result_state is None:
+                tool_result_state = {
                     "name": event.tool_call_name,
                     "args_json_acc": "",
                     "output_text_acc": "",
                     "output_data_blocks": {},
                 }
-                self._tool_calls[call_id] = state
+                self._tool_calls[call_id] = tool_result_state
 
             out_msg_id = _gen_msg_id()
             out_message = Message(
@@ -399,7 +398,7 @@ class Envelope:
                 type=ContentType.DATA,
                 data=FunctionCallOutput(
                     call_id=call_id,
-                    name=state["name"],
+                    name=tool_result_state["name"],
                     output="",
                 ).model_dump(),
                 delta=False,
@@ -410,37 +409,37 @@ class Envelope:
             yield self._tag_seq(out_message.in_progress())
             yield self._tag_seq(stub_content.in_progress())
 
-            state["output_message"] = out_message
-            state["output_text_acc"] = ""
-            state["output_data_blocks"] = {}
+            tool_result_state["output_message"] = out_message
+            tool_result_state["output_text_acc"] = ""
+            tool_result_state["output_data_blocks"] = {}
 
         elif evt_type == EventType.TOOL_RESULT_TEXT_DELTA.value:
             call_id = event.tool_call_id
-            state = self._tool_calls.get(call_id)
-            if state is None:
+            tool_result_state = self._tool_calls.get(call_id)
+            if tool_result_state is None:
                 return
-            state["output_text_acc"] += event.delta or ""
+            tool_result_state["output_text_acc"] += event.delta or ""
 
             delta_content = self._build_tool_result_content(
                 call_id,
-                state,
+                tool_result_state,
                 ContentType,
                 FunctionCallOutput,
             )
-            delta_content.msg_id = state["output_message"].id
+            delta_content.msg_id = tool_result_state["output_message"].id
             yield self._tag_seq(delta_content.in_progress())
 
         elif evt_type == EventType.TOOL_RESULT_DATA_DELTA.value:
             call_id = event.tool_call_id
-            state = self._tool_calls.get(call_id)
-            if state is None:
+            tool_result_state = self._tool_calls.get(call_id)
+            if tool_result_state is None:
                 return
 
             block_id = event.block_id
             media_type = getattr(event, "media_type", None)
             block_type = _media_type_to_block_type(media_type)
 
-            blocks_dict: dict = state["output_data_blocks"]
+            blocks_dict: dict = tool_result_state["output_data_blocks"]
             url = getattr(event, "url", None)
             b64 = getattr(event, "data", None)
 
@@ -471,47 +470,46 @@ class Envelope:
 
             delta_content = self._build_tool_result_content(
                 call_id,
-                state,
+                tool_result_state,
                 ContentType,
                 FunctionCallOutput,
             )
-            delta_content.msg_id = state["output_message"].id
+            delta_content.msg_id = tool_result_state["output_message"].id
             yield self._tag_seq(delta_content.in_progress())
 
         elif evt_type == EventType.TOOL_RESULT_END.value:
             call_id = event.tool_call_id
-            state = self._tool_calls.get(call_id)
-            if state is None:
+            tool_result_state = self._tool_calls.get(call_id)
+            if tool_result_state is None:
                 return
 
-            tool_state = getattr(event, "state", None)
-            if hasattr(tool_state, "value"):
-                tool_state = tool_state.value
+            tool_state_raw = getattr(event, "state", None)
+            tool_state = getattr(tool_state_raw, "value", tool_state_raw)
 
             final_content = self._build_tool_result_content(
                 call_id,
-                state,
+                tool_result_state,
                 ContentType,
                 FunctionCallOutput,
                 tool_state=tool_state,
             )
 
-            out_message = state.get("output_message")
-            if out_message is None:
-                out_message = Message(
+            result_out_message: Any = tool_result_state.get("output_message")
+            if result_out_message is None:
+                result_out_message = Message(
                     id=_gen_msg_id(),
                     type=MessageType.PLUGIN_CALL_OUTPUT,
                     role=Role.TOOL,
                     content=[],
                     status=RunStatus.InProgress,
                 )
-                out_message.name = "assistant"
-                out_message.object = "message"
+                result_out_message.name = "assistant"
+                result_out_message.object = "message"
 
-            out_message.add_content(new_content=final_content)
+            result_out_message.add_content(new_content=final_content)
             yield self._tag_seq(final_content.completed())
-            self._response.output.append(out_message)
-            yield self._tag_seq(out_message.completed())
+            self._response.output.append(result_out_message)
+            yield self._tag_seq(result_out_message.completed())
 
         # === DATA BLOCK ===
         elif evt_type == EventType.DATA_BLOCK_START.value:
@@ -529,25 +527,26 @@ class Envelope:
 
         elif evt_type == EventType.DATA_BLOCK_DELTA.value:
             block_id = event.block_id
-            state = self._data_blocks.get(block_id)
-            if state is None:
+            data_state = self._data_blocks.get(block_id)
+            if data_state is None:
                 return
-            state["data_acc"] += event.data or ""
+            data_state["data_acc"] += event.data or ""
             # No intermediate yield: partial base64 cannot be decoded or
             # rendered by the frontend.  Content is emitted once on
             # DATA_BLOCK_END with the complete payload.
 
         elif evt_type == EventType.DATA_BLOCK_END.value:
             block_id = event.block_id
-            state = self._data_blocks.get(block_id)
-            if state is None:
+            data_state = self._data_blocks.get(block_id)
+            if data_state is None:
                 return
 
-            media_type = state["media_type"]
-            b64_data = state["data_acc"]
+            media_type = data_state["media_type"]
+            b64_data = data_state["data_acc"]
             major = (media_type.split("/", 1)[0]) if media_type else ""
             index = len(self._completed_message.content)
 
+            content_block: Any
             if major == "audio":
                 fmt = media_type.split("/", 1)[1] if "/" in media_type else ""
                 content_block = AudioContent(
@@ -627,14 +626,14 @@ class Envelope:
         # guard the lookup so an unmatched event falls through to a no-op
         # instead of raising AttributeError and killing the whole turn.
         elif (_hb := getattr(EventType, "HINT_BLOCK", None)) is not None and (
-            evt_type == _hb.value
+            evt_type == getattr(_hb, "value", _hb)
         ):
-            source = getattr(event, "source", None) or ""
+            hint_source = getattr(event, "source", None) or ""
             logger.warning(
                 "HintBlockEvent received but not rendered: "
                 "block_id=%s source=%s",
                 getattr(event, "block_id", "?"),
-                source,
+                hint_source,
             )
 
     # ------------------------------------------------------------------
@@ -667,11 +666,14 @@ class Envelope:
         else:
             tool_output = text_acc
 
-        data_dict = FunctionCallOutput(
-            call_id=call_id,
-            name=state["name"],
-            output=tool_output,
-        ).model_dump()
+        data_dict = cast(
+            dict[str, Any],
+            FunctionCallOutput(
+                call_id=call_id,
+                name=state["name"],
+                output=tool_output,
+            ).model_dump(),
+        )
         if tool_state is not None:
             data_dict["state"] = tool_state
 

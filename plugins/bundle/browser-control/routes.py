@@ -27,14 +27,14 @@ from starlette.responses import JSONResponse
 from qwenpaw.browser.connection_manager import get_bridge_connection_manager
 from qwenpaw.browser.nm_bridge_state import get_nm_bridge_route_state
 from qwenpaw.browser.approval_policy import QwenPawBrowserApprovalPolicy
-from qwenpaw.browser_sdk import Browser
-from qwenpaw.browser_sdk.error_codes import BrowserErrorCode
-from qwenpaw.browser_sdk.trace import (
+from qwenpaw.browser.sdk import Browser
+from qwenpaw.browser.sdk.governance.error_codes import BrowserErrorCode
+from qwenpaw.browser.sdk.telemetry.trace import (
     BrowserTraceEvent,
     get_browser_trace_store,
     summarize_browser_tab_ownership,
 )
-from qwenpaw.browser_sdk.types import (
+from qwenpaw.browser.sdk.primitives.types import (
     BrowserBackendDiagnostic,
     BrowserContext,
     BrowserDiagnosticCheck,

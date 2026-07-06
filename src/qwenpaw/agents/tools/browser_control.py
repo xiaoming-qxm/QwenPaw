@@ -2,7 +2,7 @@
 """Browser Control lifecycle helpers."""
 
 from qwenpaw.browser.control_plugin import load_browser_control_submodule
-from qwenpaw.browser_sdk._runtime import (
+from qwenpaw.browser.sdk.runtime.responses import (
     _get_workspace_state,
     _tool_response,
     _workspace_states,

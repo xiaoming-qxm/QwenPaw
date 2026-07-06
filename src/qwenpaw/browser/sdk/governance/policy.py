@@ -7,7 +7,7 @@ import inspect
 from collections.abc import Awaitable
 from typing import Protocol, cast
 
-from .types import (
+from ..primitives.types import (
     BrowserActionRequest,
     BrowserContextRequest,
     BrowserPolicyDecision,

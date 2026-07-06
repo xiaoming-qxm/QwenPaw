@@ -12,12 +12,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from qwenpaw.browser_sdk._runtime import (
+from qwenpaw.browser.sdk.runtime.responses import (
     _browser_output_dir,
     _safe_download_filename,
     _tool_response,
 )
-from qwenpaw.browser_sdk.error_codes import (
+from qwenpaw.browser.sdk.governance.error_codes import (
     BrowserErrorCode,
     classify_browser_error,
 )

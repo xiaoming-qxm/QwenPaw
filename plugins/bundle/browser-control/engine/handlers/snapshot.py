@@ -5,7 +5,7 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
-from qwenpaw.browser_sdk._runtime import (
+from qwenpaw.browser.sdk.runtime.responses import (
     _tool_response,
     _tool_response_with_blocks,
 )

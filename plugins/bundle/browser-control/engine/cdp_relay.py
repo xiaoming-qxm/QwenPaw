@@ -12,7 +12,7 @@ from collections.abc import Callable
 from typing import Any
 from urllib.parse import urlparse
 
-from qwenpaw.browser_sdk.error_codes import BrowserErrorCode
+from qwenpaw.browser.sdk.governance.error_codes import BrowserErrorCode
 
 _TRUSTED_READONLY_EVALUATE_PURPOSES = {
     "snapshot.action_targets": "_CONTROL_ACTION_TARGETS_SCRIPT",

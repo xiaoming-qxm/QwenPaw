@@ -49,6 +49,8 @@ class StopCommandHandler(BaseControlCommandHandler):
         )
 
         workspace = context.workspace
+        if context.channel is None:
+            return "**Error**: Channel context is unavailable."
         channel_id = context.channel.channel
 
         chat_id = await workspace.chat_manager.get_chat_id_by_session(
