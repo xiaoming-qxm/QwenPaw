@@ -19,6 +19,12 @@ tab = await browser.tabs.open("https://example.com")
 snapshot = await tab.snapshot()
 ```
 
+Long-running browser work is allowed to continue until it reaches a real
+terminal outcome. Stop it with task cancellation when the user asks to cancel
+or when the outer runtime is stopped. The `timeout_ms` tool parameter is a
+deprecated compatibility input and does not limit total Browser SDK execution;
+do not tune it to manage long-running work.
+
 Choose context by browser state, not by operation type:
 
 - `context="auto"`: default. Public web work usually uses the isolated backend.

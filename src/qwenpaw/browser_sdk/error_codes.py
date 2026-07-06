@@ -14,6 +14,8 @@ class BrowserOutcome(StrEnum):
     PASS = "pass"
     BLOCKED = "blocked"
     FAILED = "failed"
+    CANCELLED = "cancelled"
+    IN_PROGRESS = "in_progress"
 
 
 class BrowserErrorCode(StrEnum):
@@ -26,7 +28,14 @@ class BrowserErrorCode(StrEnum):
     APPROVAL_DENIED = "approval_denied"
     LOGIN_REQUIRED = "login_required"
     CAPTCHA_OR_RISK_CONTROL = "captcha_or_risk_control"
+    CANCELLED = "cancelled"
     NETWORK_TIMEOUT = "network_timeout"
+    BRIDGE_REQUEST_TIMEOUT = "bridge_request_timeout"
+    CDP_COMMAND_TIMEOUT = "cdp_command_timeout"
+    DOM_SETTLE_TIMEOUT = "dom_settle_timeout"
+    NETWORK_SETTLE_TIMEOUT = "network_settle_timeout"
+    DOWNLOAD_TIMEOUT = "download_timeout"
+    UPLOAD_TIMEOUT = "upload_timeout"
     OBSERVATION_STALE = "observation_stale"
     CAPABILITY_MISSING = "capability_missing"
 
@@ -113,12 +122,68 @@ _ERROR_INFO: dict[BrowserErrorCode, BrowserErrorInfo] = {
             "risk-control challenge manually."
         ),
     ),
+    BrowserErrorCode.CANCELLED: BrowserErrorInfo(
+        code=BrowserErrorCode.CANCELLED,
+        outcome=BrowserOutcome.CANCELLED,
+        recovery_hint=(
+            "Browser task was cancelled by the user or runtime; cleanup "
+            "should release request-scoped browser resources."
+        ),
+    ),
     BrowserErrorCode.NETWORK_TIMEOUT: BrowserErrorInfo(
         code=BrowserErrorCode.NETWORK_TIMEOUT,
         outcome=BrowserOutcome.FAILED,
         recovery_hint=(
             "Report the timeout and retry later only if the network or page "
             "settles."
+        ),
+    ),
+    BrowserErrorCode.BRIDGE_REQUEST_TIMEOUT: BrowserErrorInfo(
+        code=BrowserErrorCode.BRIDGE_REQUEST_TIMEOUT,
+        outcome=BrowserOutcome.FAILED,
+        recovery_hint=(
+            "Protocol timeout bridge_request_timeout: the Chrome extension "
+            "bridge did not answer before its request deadline."
+        ),
+    ),
+    BrowserErrorCode.CDP_COMMAND_TIMEOUT: BrowserErrorInfo(
+        code=BrowserErrorCode.CDP_COMMAND_TIMEOUT,
+        outcome=BrowserOutcome.FAILED,
+        recovery_hint=(
+            "Protocol timeout cdp_command_timeout: the CDP command did not "
+            "finish before its bounded command deadline."
+        ),
+    ),
+    BrowserErrorCode.DOM_SETTLE_TIMEOUT: BrowserErrorInfo(
+        code=BrowserErrorCode.DOM_SETTLE_TIMEOUT,
+        outcome=BrowserOutcome.FAILED,
+        recovery_hint=(
+            "Protocol timeout dom_settle_timeout: DOM observation did not "
+            "settle before its bounded observation deadline."
+        ),
+    ),
+    BrowserErrorCode.NETWORK_SETTLE_TIMEOUT: BrowserErrorInfo(
+        code=BrowserErrorCode.NETWORK_SETTLE_TIMEOUT,
+        outcome=BrowserOutcome.FAILED,
+        recovery_hint=(
+            "Protocol timeout network_settle_timeout: network activity did "
+            "not become quiet before its bounded settle deadline."
+        ),
+    ),
+    BrowserErrorCode.DOWNLOAD_TIMEOUT: BrowserErrorInfo(
+        code=BrowserErrorCode.DOWNLOAD_TIMEOUT,
+        outcome=BrowserOutcome.FAILED,
+        recovery_hint=(
+            "Protocol timeout download_timeout: Chrome did not report a "
+            "completed download before its bounded download deadline."
+        ),
+    ),
+    BrowserErrorCode.UPLOAD_TIMEOUT: BrowserErrorInfo(
+        code=BrowserErrorCode.UPLOAD_TIMEOUT,
+        outcome=BrowserOutcome.FAILED,
+        recovery_hint=(
+            "Protocol timeout upload_timeout: Chrome did not finish the file "
+            "upload command before its bounded upload deadline."
         ),
     ),
     BrowserErrorCode.OBSERVATION_STALE: BrowserErrorInfo(
@@ -173,11 +238,20 @@ def _coerce_error_string(value: str) -> BrowserErrorCode:
         "browser_bridge_disconnected": BrowserErrorCode.BRIDGE_DISCONNECTED,
         "browser_action_approval_timeout": BrowserErrorCode.APPROVAL_REQUIRED,
         "browser_action_denied": BrowserErrorCode.APPROVAL_DENIED,
+        "canceled": BrowserErrorCode.CANCELLED,
+        "cancelled": BrowserErrorCode.CANCELLED,
         "browser_policy_denied": BrowserErrorCode.APPROVAL_DENIED,
         "browser_observation_required": BrowserErrorCode.OBSERVATION_STALE,
         "browser_sdk_gap": BrowserErrorCode.CAPABILITY_MISSING,
         "browser_context_unavailable": BrowserErrorCode.CAPABILITY_MISSING,
         "browser_kernel_timeout": BrowserErrorCode.NETWORK_TIMEOUT,
+        "request_timeout": BrowserErrorCode.BRIDGE_REQUEST_TIMEOUT,
+        "bridge_timeout": BrowserErrorCode.BRIDGE_REQUEST_TIMEOUT,
+        "cdp_timeout": BrowserErrorCode.CDP_COMMAND_TIMEOUT,
+        "dom_timeout": BrowserErrorCode.DOM_SETTLE_TIMEOUT,
+        "network_quiescence_timeout": (
+            BrowserErrorCode.NETWORK_SETTLE_TIMEOUT
+        ),
     }
     return legacy_map.get(normalized, BrowserErrorCode.UNKNOWN)
 

@@ -118,6 +118,7 @@ async def cleanup_browser_control_request_resources(
         user_result = await cleanup_user_browser_sessions_for_request(
             session_id=session_id,
             root_session_id=root_session_id,
+            cleanup_reason=cleanup_reason,
         )
     except Exception:
         cleanup_errors += 1

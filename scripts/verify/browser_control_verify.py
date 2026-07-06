@@ -28,6 +28,7 @@ from qwenpaw.browser_sdk.error_codes import (
     classify_browser_error,
 )
 from qwenpaw.browser_sdk.progress import detect_no_progress
+from qwenpaw.browser_sdk.recovery import classify_browser_runtime_outcome
 from qwenpaw.browser_sdk.trace import (
     BrowserTraceEvent,
     validate_browser_trace_events,
@@ -2033,8 +2034,12 @@ def _aggregate_v9_evidence_report(
 def _aggregate_status(reports: list[BrowserControlReport]) -> str:
     if any(report.status == "failed" for report in reports):
         return "failed"
+    if any(report.status in {"cancelled", "canceled"} for report in reports):
+        return "cancelled"
     if any(report.status == "blocked" for report in reports):
         return "blocked"
+    if any(report.status in {"running", "in_progress"} for report in reports):
+        return "running"
     return "passed"
 
 
@@ -2133,6 +2138,28 @@ def _v9_blocker_classification(
         if reason:
             return {"status": status, "reason": reason}
     return {"status": status, "reason": ""}
+
+
+def _v9_runtime_outcome_classification(
+    *,
+    status: str,
+    error_code: str = "",
+    blocked_reason: str = "",
+    failure_reason: str = "",
+    runtime_evidence: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    evidence = dict(runtime_evidence or {})
+    evidence.update(
+        {
+            "status": status,
+            "error_code": error_code,
+            "blocked_reason": blocked_reason,
+            "failure_reason": failure_reason,
+        },
+    )
+    if status in {"running", "in_progress"}:
+        evidence["in_progress"] = True
+    return classify_browser_runtime_outcome(evidence).to_dict()
 
 
 def _aggregate_v9_source_labels(
@@ -2337,6 +2364,17 @@ def _report(
             or blocked_reason
             or "verification_failed"
         )
+    runtime_payload = dict(runtime_evidence or {})
+    runtime_payload.setdefault(
+        "runtime_outcome",
+        _v9_runtime_outcome_classification(
+            status=status,
+            error_code=error_code,
+            blocked_reason=blocked_reason,
+            failure_reason=failure_reason,
+            runtime_evidence=runtime_payload,
+        ),
+    )
     return BrowserControlReport(
         scenario=scenario,
         status=status,
@@ -2356,7 +2394,7 @@ def _report(
         safety_boundaries=list(safety_boundaries or []),
         user_preparation=list(user_preparation or []),
         scenario_reports=list(scenario_reports or []),
-        runtime_evidence=dict(runtime_evidence or {}),
+        runtime_evidence=runtime_payload,
         trace_summary=dict(trace_summary or {}),
         report_schema_version=report_schema_version,
         scenario_budget=dict(scenario_budget or {}),

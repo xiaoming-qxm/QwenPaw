@@ -12,6 +12,8 @@ from collections.abc import Callable
 from typing import Any
 from urllib.parse import urlparse
 
+from qwenpaw.browser_sdk.error_codes import BrowserErrorCode
+
 _TRUSTED_READONLY_EVALUATE_PURPOSES = {
     "snapshot.action_targets": "_CONTROL_ACTION_TARGETS_SCRIPT",
     "snapshot.page_state": "_CONTROL_PAGE_STATE_SCRIPT",
@@ -24,6 +26,20 @@ _TRUSTED_READONLY_EVALUATE_TIMEOUT_MS = 1000
 
 class CDPRelayError(RuntimeError):
     """Raised when a relayed CDP command returns a JSON-RPC error."""
+
+    browser_error_code = str(BrowserErrorCode.UNKNOWN.value)
+
+    def __init__(
+        self,
+        message: str = "",
+        *,
+        code: str | BrowserErrorCode | None = None,
+    ) -> None:
+        super().__init__(message or self.__class__.__name__)
+        if code is not None:
+            self.browser_error_code = (
+                code.value if isinstance(code, BrowserErrorCode) else str(code)
+            )
 
 
 class CDPRelayPaused(CDPRelayError):
@@ -116,15 +132,23 @@ class CDPRelaySession:
             )
         self._last_activity = self._now()
 
-        response = await self.bridge.request(
-            "cdp.send",
-            {
-                "tabId": self.tab_id,
-                "holderId": self.holder_id,
-                "method": method,
-                "params": params,
-            },
-        )
+        try:
+            response = await self.bridge.request(
+                "cdp.send",
+                {
+                    "tabId": self.tab_id,
+                    "holderId": self.holder_id,
+                    "method": method,
+                    "params": params,
+                },
+            )
+        except Exception as exc:
+            if _is_bridge_request_timeout(exc):
+                raise CDPRelayError(
+                    f"CDP command {method} timed out.",
+                    code=BrowserErrorCode.CDP_COMMAND_TIMEOUT,
+                ) from exc
+            raise
         if isinstance(response, dict) and "error" in response:
             error = response["error"]
             message = (
@@ -422,6 +446,14 @@ class CDPRelaySession:
         if hasattr(self.bridge, "now"):
             return self.bridge.now()
         return time.monotonic()
+
+
+def _is_bridge_request_timeout(exc: BaseException) -> bool:
+    code = str(getattr(exc, "browser_error_code", "") or "").casefold()
+    if code == BrowserErrorCode.BRIDGE_REQUEST_TIMEOUT.value:
+        return True
+    message = str(exc).casefold()
+    return "timed out" in message and "request" in message
 
 
 def _trusted_readonly_expression(purpose: str) -> str:

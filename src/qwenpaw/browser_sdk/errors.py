@@ -88,11 +88,18 @@ class BrowserObservationRequired(BrowserSDKError):
     code = "browser_observation_required"
 
 
+class BrowserProtocolTimeout(BrowserSDKError):
+    """Raised when a bounded low-level browser protocol wait expires."""
+
+    code = "network_timeout"
+
+
 __all__ = [
     "BrowserContextConflict",
     "BrowserContextUnavailable",
     "BrowserObservationRequired",
     "BrowserPolicyDenied",
+    "BrowserProtocolTimeout",
     "BrowserSDKError",
     "BrowserSDKGap",
 ]

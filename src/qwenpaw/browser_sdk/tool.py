@@ -21,6 +21,7 @@ from .recovery import (
     BrowserRecoveryDecision,
     BrowserRecoveryPolicy,
     BrowserRequestEvidence,
+    classify_browser_runtime_outcome,
 )
 from .trace import get_browser_trace_store, record_browser_trace_event
 from .trace import validate_browser_trace_events
@@ -83,7 +84,11 @@ async def browser(
     context: str = "auto",
     timeout_ms: int = 30000,
 ) -> ToolChunk:
-    """Execute Browser SDK Python code in a session-scoped kernel."""
+    """Execute Browser SDK Python code in a session-scoped kernel.
+
+    ``timeout_ms`` is a deprecated compatibility input. It does not limit
+    total Browser SDK execution; cancel the task to stop long-running code.
+    """
     session_id = _current_session_id()
     trace_store = get_browser_trace_store()
     trace_start_index = len(trace_store.list(session_id))
@@ -123,6 +128,10 @@ async def browser(
         trace_events=trace_events,
         metadata=metadata,
     )
+    metadata["runtime_outcome"] = classify_browser_runtime_outcome(
+        metadata,
+        trace_events=trace_events,
+    ).to_dict()
     content: list[TextBlock | DataBlock] = [
         TextBlock(type="text", text=_summary_text(result, progress_decision)),
     ]

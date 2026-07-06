@@ -325,9 +325,13 @@ class ChromeExtensionBrowserSession:
     async def stop(self) -> None:
         await self._cleanup(cleanup_reason="browser_stop")
 
-    async def cleanup_for_request(self) -> dict[str, Any]:
+    async def cleanup_for_request(
+        self,
+        *,
+        cleanup_reason: str = "finally",
+    ) -> dict[str, Any]:
         """Release all tabs held by this Browser SDK user session."""
-        return await self._cleanup(cleanup_reason="finally")
+        return await self._cleanup(cleanup_reason=cleanup_reason)
 
     async def _cleanup(self, *, cleanup_reason: str) -> dict[str, Any]:
         closed_tabs = 0
@@ -880,8 +884,9 @@ async def cleanup_user_browser_sessions_for_request(
     session_id: str = "",
     root_session_id: str = "",
     holder_id: str = "",
+    cleanup_reason: str = "finally",
     **_: Any,
-) -> dict[str, int]:
+) -> dict[str, Any]:
     """Release Browser SDK user sessions for the current request."""
     session_ids = {
         _normalize_session_id(raw_session_id)
@@ -907,7 +912,9 @@ async def cleanup_user_browser_sessions_for_request(
     skipped_protected_tabs = 0
     remaining_orphaned_tabs = 0
     for session in sessions:
-        result = await session.cleanup_for_request()
+        result = await session.cleanup_for_request(
+            cleanup_reason=cleanup_reason,
+        )
         closed_tabs += int(result.get("closed_tabs") or 0)
         released_tabs += int(result.get("released_tabs") or 0)
         closed_owned_tabs += int(result.get("closed_owned_tabs") or 0)
@@ -928,6 +935,7 @@ async def cleanup_user_browser_sessions_for_request(
         "released_borrowed_tabs": released_borrowed_tabs,
         "skipped_protected_tabs": skipped_protected_tabs,
         "remaining_orphaned_tabs": remaining_orphaned_tabs,
+        "cleanup_reason": cleanup_reason,
     }
 
 

@@ -16,7 +16,7 @@ from agentscope.message import DataBlock, URLSource
 from pydantic import AnyUrl
 
 from qwenpaw.browser_sdk._runtime import logger
-from .errors import BrowserControlRecoverableError
+from .errors import BrowserControlRecoverableError, DOMSettleTimeout
 
 _DOM_TREE_FALLBACK_DEPTH = 8
 _DOM_TREE_AX_FAILURE_FALLBACK_DEPTH = 18
@@ -393,10 +393,16 @@ async def _send_with_timeout(
     *,
     timeout: float,
 ) -> dict[str, Any]:
-    return await asyncio.wait_for(
-        session.send(method, params or {}),
-        timeout=max(float(timeout), 0.1),
-    )
+    bounded_timeout = max(float(timeout), 0.1)
+    try:
+        return await asyncio.wait_for(
+            session.send(method, params or {}),
+            timeout=bounded_timeout,
+        )
+    except asyncio.TimeoutError as exc:
+        raise DOMSettleTimeout(
+            f"{method} did not complete before {bounded_timeout}s",
+        ) from exc
 
 
 async def _send_trusted_readonly_evaluate(
@@ -414,10 +420,17 @@ async def _send_trusted_readonly_evaluate(
     }
     trusted_send = getattr(session, "send_trusted_readonly", None)
     if callable(trusted_send):
-        return await asyncio.wait_for(
-            trusted_send("Runtime.evaluate", params, purpose=purpose),
-            timeout=max(float(timeout), 0.1),
-        )
+        bounded_timeout = max(float(timeout), 0.1)
+        try:
+            return await asyncio.wait_for(
+                trusted_send("Runtime.evaluate", params, purpose=purpose),
+                timeout=bounded_timeout,
+            )
+        except asyncio.TimeoutError as exc:
+            raise DOMSettleTimeout(
+                "Runtime.evaluate did not complete before "
+                f"{bounded_timeout}s",
+            ) from exc
     return await _send_with_timeout(
         session,
         "Runtime.evaluate",

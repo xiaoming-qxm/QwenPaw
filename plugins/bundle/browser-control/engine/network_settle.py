@@ -8,6 +8,11 @@ import contextlib
 import time
 from typing import Any
 
+from qwenpaw.browser_sdk.error_codes import (
+    BrowserErrorCode,
+    classify_browser_error,
+)
+
 from .errors import CDPCommandFailed, RECOVERABLE_CONTROL_EXCEPTIONS
 from .state import StateMapping
 
@@ -149,10 +154,15 @@ class _NetworkQuiescenceMonitor:
                 timeout=self.timeout,
             )
         except asyncio.TimeoutError:
+            error_info = classify_browser_error(
+                BrowserErrorCode.NETWORK_SETTLE_TIMEOUT,
+            )
             return {
                 "async_requests_triggered": self.tracker.total_triggered,
                 "settled": False,
                 "timed_out": True,
+                "error_code": error_info.code.value,
+                "recovery_hint": error_info.recovery_hint,
             }
         return {
             "async_requests_triggered": self.tracker.total_triggered,

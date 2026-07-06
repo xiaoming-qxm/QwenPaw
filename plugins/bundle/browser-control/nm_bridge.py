@@ -29,6 +29,20 @@ logger = logging.getLogger(__name__)
 class NMBridgeError(RuntimeError):
     """Base error for Native Messaging bridge failures."""
 
+    browser_error_code = str(BrowserErrorCode.UNKNOWN.value)
+
+    def __init__(
+        self,
+        message: str = "",
+        *,
+        code: str | BrowserErrorCode | None = None,
+    ) -> None:
+        super().__init__(message or self.__class__.__name__)
+        if code is not None:
+            self.browser_error_code = (
+                code.value if isinstance(code, BrowserErrorCode) else str(code)
+            )
+
 
 class NMBridgeDisconnectedError(NMBridgeError):
     """Raised when no Native Messaging WebSocket is connected."""
@@ -270,6 +284,7 @@ class NMBridge(BridgeConnectionManager):
             _mark_request_timeout(method, timeout)
             raise NMBridgeError(
                 f"request '{method}' timed out after {timeout}s",
+                code=BrowserErrorCode.BRIDGE_REQUEST_TIMEOUT,
             ) from exc
         except NMBridgeDisconnectedError:
             raise
@@ -389,7 +404,7 @@ def _store_extension_version(payload: dict[str, Any]) -> None:
 def _mark_request_timeout(method: str, timeout: float) -> None:
     route_state = get_nm_bridge_route_state()
     now = datetime.now(UTC)
-    route_state.last_error_code = str(BrowserErrorCode.NETWORK_TIMEOUT)
+    route_state.last_error_code = BrowserErrorCode.BRIDGE_REQUEST_TIMEOUT.value
     route_state.last_error_message = (
         f"request '{method}' timed out after {timeout}s"
     )
@@ -397,7 +412,7 @@ def _mark_request_timeout(method: str, timeout: float) -> None:
     _record_lifecycle_trace(
         "request_timeout",
         status="error",
-        error_code=BrowserErrorCode.NETWORK_TIMEOUT,
+        error_code=BrowserErrorCode.BRIDGE_REQUEST_TIMEOUT,
         metadata={"method": method, "timeout": timeout},
     )
 

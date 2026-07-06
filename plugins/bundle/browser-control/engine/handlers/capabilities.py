@@ -23,7 +23,11 @@ from qwenpaw.browser_sdk.error_codes import (
 )
 from qwenpaw.security.tool_guard.engine import get_guard_engine
 
-from ..errors import BrowserControlRecoverableError, TargetResolutionFailed
+from ..errors import (
+    BrowserControlRecoverableError,
+    DownloadTimeout,
+    TargetResolutionFailed,
+)
 from ..navigation import _control_tab_id
 from ..ref_scope import _control_current_snapshot_ref
 from ..session_manager import _control_get_session
@@ -82,6 +86,12 @@ class UploadHandler:
                         "file_count": len(files),
                     },
                 },
+            )
+        except asyncio.TimeoutError:
+            return _taxonomy_error_response(
+                "upload",
+                BrowserErrorCode.UPLOAD_TIMEOUT,
+                "Upload did not complete before timeout.",
             )
         except (BrowserControlRecoverableError, OSError, ValueError) as exc:
             return _capability_error_response("upload", str(exc))
@@ -146,10 +156,10 @@ class DownloadHandler:
                     },
                 },
             )
-        except asyncio.TimeoutError:
+        except (DownloadTimeout, asyncio.TimeoutError):
             return _taxonomy_error_response(
                 "download",
-                BrowserErrorCode.NETWORK_TIMEOUT,
+                BrowserErrorCode.DOWNLOAD_TIMEOUT,
                 "Download did not complete before timeout.",
             )
         except (BrowserControlRecoverableError, OSError, ValueError) as exc:
@@ -349,6 +359,10 @@ async def _wait_for_download(
     add_listener("cdp.event", on_event)
     try:
         return await asyncio.wait_for(future, timeout=timeout_seconds)
+    except asyncio.TimeoutError as exc:
+        raise DownloadTimeout(
+            "Download did not complete before timeout.",
+        ) from exc
     finally:
         remove_listener("cdp.event", on_event)
 

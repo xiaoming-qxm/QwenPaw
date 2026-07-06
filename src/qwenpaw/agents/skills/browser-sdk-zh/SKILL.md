@@ -18,6 +18,11 @@ tab = await browser.tabs.open("https://example.com")
 snapshot = await tab.snapshot()
 ```
 
+Long-running browser 工作可以持续到真实终止状态。用户要求 cancel 或外层
+runtime 停止时，使用 task cancellation 结束它。`timeout_ms` 工具参数只是
+deprecated compatibility 输入，does not limit total Browser SDK execution；
+不要通过调大它来管理长任务。
+
 按浏览器状态选择 context，不按 API 层级选择：
 
 - `context="auto"`：默认。公开网页任务通常走 isolated backend。

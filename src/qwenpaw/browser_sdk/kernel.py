@@ -94,7 +94,6 @@ class BrowserKernel:
         self,
         code: str,
         *,
-        timeout_ms: int,
         execution_context: BrowserExecutionContext,
     ) -> BrowserKernelResult:
         """Execute Python code with top-level await support."""
@@ -103,35 +102,16 @@ class BrowserKernel:
         artifacts_token = _CURRENT_ARTIFACTS.set([])
         try:
             with contextlib.redirect_stdout(stdout_capture):
-                result = await asyncio.wait_for(
-                    self._execute_code(code),
-                    timeout=timeout_ms / 1000,
-                )
+                result = await self._execute_code(code)
             return BrowserKernelResult(
                 output=stdout_capture.getvalue(),
                 return_value=repr(result) if result is not None else None,
                 error=None,
                 artifacts=drain_browser_artifacts(),
             )
-        except asyncio.TimeoutError:
-            from .error_codes import BrowserErrorCode, classify_browser_error
-
-            error_info = classify_browser_error(
-                BrowserErrorCode.NETWORK_TIMEOUT,
-            )
-            return BrowserKernelResult(
-                output=stdout_capture.getvalue(),
-                return_value=None,
-                error={
-                    "type": "TimeoutError",
-                    "code": error_info.code.value,
-                    "outcome": error_info.outcome.value,
-                    "recovery_hint": error_info.recovery_hint,
-                    "message": f"Execution timed out after {timeout_ms}ms",
-                    "traceback": "",
-                },
-                artifacts=drain_browser_artifacts(),
-            )
+        except asyncio.CancelledError:
+            _record_kernel_cancelled(execution_context)
+            raise
         except Exception as exc:  # noqa: BLE001
             return BrowserKernelResult(
                 output=stdout_capture.getvalue(),
@@ -169,10 +149,14 @@ class BrowserKernelManager:
         requires_user_state: bool | None = None,
     ) -> BrowserKernelResult:
         """Execute code in the session-scoped browser kernel."""
+        _record_timeout_ms_compat_warning(
+            session_id=session_id,
+            context=context,
+            timeout_ms=timeout_ms,
+        )
         kernel = self._kernels.setdefault(session_id, BrowserKernel())
         return await kernel.execute(
             code,
-            timeout_ms=timeout_ms,
             execution_context=BrowserExecutionContext(
                 session_id=session_id,
                 context=context,
@@ -195,6 +179,60 @@ _DEFAULT_KERNEL_MANAGER = BrowserKernelManager()
 def get_default_kernel_manager() -> BrowserKernelManager:
     """Return the process-global browser kernel manager."""
     return _DEFAULT_KERNEL_MANAGER
+
+
+def _record_timeout_ms_compat_warning(
+    *,
+    session_id: str,
+    context: BrowserContext,
+    timeout_ms: int,
+) -> None:
+    if int(timeout_ms) == 30000:
+        return
+
+    from .trace import record_browser_trace_event
+
+    record_browser_trace_event(
+        session_id=session_id,
+        phase="tool",
+        backend_id="browser.kernel",
+        requested_context=context,
+        selected_context=context,
+        action="timeout_ms_ignored",
+        status="warning",
+        metadata={
+            "warning": "timeout_ms_deprecated_compatibility",
+            "timeout_ms": int(timeout_ms),
+            "contract": (
+                "timeout_ms is accepted for compatibility but does not "
+                "limit total Browser SDK execution; cancel the task to stop "
+                "long-running code."
+            ),
+        },
+    )
+
+
+def _record_kernel_cancelled(
+    execution_context: BrowserExecutionContext,
+) -> None:
+    from .error_codes import BrowserErrorCode, classify_browser_error
+    from .trace import record_browser_trace_event
+
+    error_info = classify_browser_error(BrowserErrorCode.CANCELLED)
+    record_browser_trace_event(
+        session_id=execution_context.session_id,
+        phase="tool",
+        backend_id="browser.kernel",
+        requested_context=execution_context.context,
+        selected_context=execution_context.context,
+        action="browser_kernel_cancelled",
+        status="cancelled",
+        error_code=error_info.code.value,
+        metadata={
+            "outcome": error_info.outcome.value,
+            "recovery_hint": error_info.recovery_hint,
+        },
+    )
 
 
 def _compile_code(code: str) -> CodeType:

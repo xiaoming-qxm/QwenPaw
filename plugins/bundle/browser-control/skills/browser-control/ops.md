@@ -7,6 +7,9 @@
   `Browser.connect(context="user", requires_user_state=True)`.
 - Use `Browser.connect(context="isolated")` for public pages that do not need
   profile cookies, extensions, or existing tabs.
+- Long-running Browser SDK calls continue until a real terminal outcome or
+  task cancellation. The `timeout_ms` parameter is deprecated compatibility
+  input and does not limit total Browser SDK execution.
 - `browser.tabs.open(...)`, `browser.tabs.active()`, `browser.tabs.select(...)`,
   `tab.snapshot()`, `tab.screenshot()`, `tab.page_info()`, and `tab.extract(...)`
   are the primary observation and tab primitives.

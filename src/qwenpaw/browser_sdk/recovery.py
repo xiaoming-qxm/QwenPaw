@@ -10,7 +10,11 @@ from typing import Any
 
 from qwenpaw.constant import QWENPAW_MESSAGE_TAG_KEY
 
-from .error_codes import BrowserErrorCode
+from .error_codes import (
+    BrowserErrorCode,
+    BrowserOutcome,
+    classify_browser_error,
+)
 from .trace import (
     BrowserTraceEvent,
     BrowserTraceStore,
@@ -56,6 +60,224 @@ class BrowserRecoveryDecision:
     final_message: str = ""
     continuation_message: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class BrowserRuntimeOutcome:
+    """Terminal or in-progress runtime classification for browser work."""
+
+    status: str
+    category: str
+    reason: str = ""
+    error_code: str = ""
+    terminal: bool = True
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "status": self.status,
+            "category": self.category,
+            "reason": self.reason,
+            "error_code": self.error_code,
+            "terminal": self.terminal,
+        }
+
+
+PROTOCOL_TIMEOUT_CODES = frozenset(
+    {
+        BrowserErrorCode.BRIDGE_REQUEST_TIMEOUT.value,
+        BrowserErrorCode.CDP_COMMAND_TIMEOUT.value,
+        BrowserErrorCode.DOM_SETTLE_TIMEOUT.value,
+        BrowserErrorCode.NETWORK_SETTLE_TIMEOUT.value,
+        BrowserErrorCode.DOWNLOAD_TIMEOUT.value,
+        BrowserErrorCode.UPLOAD_TIMEOUT.value,
+        BrowserErrorCode.NETWORK_TIMEOUT.value,
+    },
+)
+
+
+def classify_browser_runtime_outcome(
+    metadata: dict[str, Any] | None = None,
+    *,
+    trace_events: Iterable[BrowserTraceEvent | dict[str, Any]] = (),
+) -> BrowserRuntimeOutcome:
+    """Classify browser runtime state without conflating terminal causes."""
+    payload = dict(metadata or {})
+    status = str(payload.get("status") or "").strip().casefold()
+    failure_reason = str(payload.get("failure_reason") or "").strip()
+    blocked_reason = str(payload.get("blocked_reason") or "").strip()
+
+    if _runtime_in_progress(payload, status):
+        return BrowserRuntimeOutcome(
+            status=BrowserOutcome.IN_PROGRESS.value,
+            category="running",
+            reason="long_running_browser_execution",
+            terminal=False,
+        )
+
+    progress_reason = _progress_block_reason(payload)
+    if progress_reason:
+        return _model_loop_outcome(progress_reason)
+
+    if failure_reason in {"no_progress", "retry_budget_exhausted"}:
+        return _model_loop_outcome(failure_reason)
+
+    code = _runtime_error_code(payload, trace_events)
+    if code:
+        return _outcome_for_error_code(code, blocked_reason=blocked_reason)
+
+    return _outcome_for_status(
+        status,
+        blocked_reason=blocked_reason,
+        failure_reason=failure_reason,
+        ok=payload.get("ok") is True,
+    )
+
+
+def _in_progress_outcome() -> BrowserRuntimeOutcome:
+    return BrowserRuntimeOutcome(
+        status=BrowserOutcome.IN_PROGRESS.value,
+        category="running",
+        reason="long_running_browser_execution",
+        terminal=False,
+    )
+
+
+def _model_loop_outcome(reason: str) -> BrowserRuntimeOutcome:
+    return BrowserRuntimeOutcome(
+        status=BrowserOutcome.FAILED.value,
+        category="model_loop",
+        reason=reason,
+    )
+
+
+def _outcome_for_error_code(
+    code: str,
+    *,
+    blocked_reason: str,
+) -> BrowserRuntimeOutcome:
+    info = classify_browser_error(code)
+    if info.code == BrowserErrorCode.CANCELLED:
+        return BrowserRuntimeOutcome(
+            status=BrowserOutcome.CANCELLED.value,
+            category="cancellation",
+            reason=info.code.value,
+            error_code=info.code.value,
+        )
+    if info.code.value in PROTOCOL_TIMEOUT_CODES:
+        return BrowserRuntimeOutcome(
+            status=BrowserOutcome.FAILED.value,
+            category="protocol_timeout",
+            reason=info.code.value,
+            error_code=info.code.value,
+        )
+    if info.code == BrowserErrorCode.CAPABILITY_MISSING:
+        return BrowserRuntimeOutcome(
+            status=BrowserOutcome.FAILED.value,
+            category="capability_error",
+            reason=info.code.value,
+            error_code=info.code.value,
+        )
+    if info.outcome == BrowserOutcome.BLOCKED:
+        return BrowserRuntimeOutcome(
+            status=BrowserOutcome.BLOCKED.value,
+            category="user_blocker",
+            reason=info.blocked_reason or blocked_reason,
+            error_code=info.code.value,
+        )
+    return BrowserRuntimeOutcome(
+        status=info.outcome.value,
+        category="browser_error",
+        reason=info.failure_reason or info.blocked_reason,
+        error_code=info.code.value,
+    )
+
+
+def _outcome_for_status(
+    status: str,
+    *,
+    blocked_reason: str,
+    failure_reason: str,
+    ok: bool,
+) -> BrowserRuntimeOutcome:
+    if status in {"cancelled", "canceled"}:
+        return BrowserRuntimeOutcome(
+            status=BrowserOutcome.CANCELLED.value,
+            category="cancellation",
+            reason=BrowserErrorCode.CANCELLED.value,
+            error_code=BrowserErrorCode.CANCELLED.value,
+        )
+    if status == "blocked":
+        return BrowserRuntimeOutcome(
+            status=BrowserOutcome.BLOCKED.value,
+            category="user_blocker",
+            reason=blocked_reason or "blocked",
+        )
+    if status == "failed":
+        return BrowserRuntimeOutcome(
+            status=BrowserOutcome.FAILED.value,
+            category="runtime_failure",
+            reason=failure_reason or "verification_failed",
+        )
+    if status in {"passed", "pass", "success"} or ok:
+        return BrowserRuntimeOutcome(
+            status=BrowserOutcome.PASS.value,
+            category="completed",
+            reason="completed",
+            terminal=True,
+        )
+    return _in_progress_outcome()
+
+
+def _runtime_in_progress(payload: dict[str, Any], status: str) -> bool:
+    if status in {"running", "in_progress"}:
+        return True
+    if payload.get("in_progress") is True:
+        return True
+    runtime_state = str(payload.get("runtime_state") or "").casefold()
+    return runtime_state in {"running", "in_progress"}
+
+
+def _progress_block_reason(payload: dict[str, Any]) -> str:
+    progress = payload.get("progress_decision")
+    if not isinstance(progress, dict):
+        return ""
+    if progress.get("blocked") is not True:
+        return ""
+    return str(progress.get("reason") or "no_progress")
+
+
+def _runtime_error_code(
+    payload: dict[str, Any],
+    trace_events: Iterable[BrowserTraceEvent | dict[str, Any]],
+) -> str:
+    for key in ("error_code", "browser_error_code"):
+        value = str(payload.get(key) or "").strip()
+        if value:
+            return classify_browser_error(value).code.value
+    for event in reversed(list(trace_events)):
+        event_payload = (
+            event.to_dict() if isinstance(event, BrowserTraceEvent) else event
+        )
+        if not isinstance(event_payload, dict):
+            continue
+        value = str(event_payload.get("error_code") or "").strip()
+        if value:
+            return classify_browser_error(value).code.value
+        metadata = event_payload.get("metadata")
+        if isinstance(metadata, dict):
+            value = str(
+                metadata.get("browser_error_code")
+                or metadata.get("error_code")
+                or "",
+            ).strip()
+            if value:
+                return classify_browser_error(value).code.value
+        if str(event_payload.get("status") or "").casefold() in {
+            "cancelled",
+            "canceled",
+        }:
+            return BrowserErrorCode.CANCELLED.value
+    return ""
 
 
 def collect_browser_request_evidence(
