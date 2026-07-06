@@ -55,9 +55,6 @@ const BackupsPage = lazyImportWithRetry("../../pages/Settings/Backups");
 const PluginManagerPage = lazyImportWithRetry(
   "../../pages/Settings/PluginManager",
 );
-const PluginDetailPage = lazyImportWithRetry(
-  "../../pages/Settings/PluginDetail",
-);
 
 /**
  * "/" lands here. Waits for useSyncCodingMode to populate the store before
@@ -83,7 +80,7 @@ function ACPRedirect() {
 }
 
 function BrowserExtensionRedirect() {
-  return <Navigate to="/plugin-manager/browser-bridge" replace />;
+  return <Navigate to="/plugin/browser-bridge" replace />;
 }
 
 export const BUILTIN_ROUTES: Route[] = [
@@ -129,11 +126,6 @@ export const BUILTIN_ROUTES: Route[] = [
     id: "core.plugin-manager",
     path: "/plugin-manager",
     component: PluginManagerPage,
-  },
-  {
-    id: "core.plugin-detail",
-    path: "/plugin-manager/:pluginId",
-    component: PluginDetailPage,
   },
   {
     id: "core.browser-extension",

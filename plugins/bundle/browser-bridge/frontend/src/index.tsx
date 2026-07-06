@@ -19,6 +19,7 @@ const {
   Alert,
   Button,
   Card,
+  Checkbox,
   Collapse,
   Space,
   Spin,
@@ -28,11 +29,14 @@ const {
 } = antd;
 const { Paragraph, Text, Title } = Typography;
 
-const CWS_FALLBACK_URL =
-  "https://chromewebstore.google.com/detail/qwenpaw-browser-bridge/nflcgkfjgoiipklkpenmbiificbakoch";
-
 type InstallMode = "unpacked" | "cws";
-type PageState = "not_installed" | "installed" | "connected";
+type LifecycleState =
+  | "preparing"
+  | "needs_load_unpacked"
+  | "extension_loaded_bridge_disconnected"
+  | "repairing"
+  | "connected"
+  | "failed_actionable";
 type StatusKey =
   | "extension_dir"
   | "native_manifest_path"
@@ -48,11 +52,17 @@ interface ExtensionStatus {
   native_manifest_path?: string;
   native_host_path?: string;
   config_path?: string;
+  canonical_setup_url?: string;
+  setup_phase?: string;
+  recommended_action?: string;
+  repair_actions?: string[];
+  recovery_copy?: string;
   ws_url?: string;
   chrome_extensions_url?: string;
   version?: string | null;
   connected_since?: string | null;
-  cws_url?: string;
+  build_freshness?: { status?: string; repair_action?: string };
+  native_host_status?: { status?: string; repair_action?: string };
   sdk_diagnostics?: BrowserDiagnostics;
 }
 
@@ -94,6 +104,92 @@ interface ExtensionSetupRequest {
   ws_url?: string;
   reset?: boolean;
 }
+
+interface OpenChromeExtensionsResult {
+  opened: boolean;
+  url: string;
+  error?: string | null;
+}
+
+interface OpenExtensionFolderResult {
+  opened: boolean;
+  path: string;
+  error?: string | null;
+}
+
+type AcceptanceRunStatus =
+  | "queued"
+  | "running"
+  | "passed"
+  | "failed"
+  | "blocked"
+  | "cancelled";
+
+interface AcceptanceScenarioProgress {
+  scenario: string;
+  status: AcceptanceRunStatus | string;
+  failure_category?: string;
+  recovery_hint?: string;
+  repair_action?: string;
+}
+
+interface AcceptanceRun {
+  run_id: string;
+  status: AcceptanceRunStatus | string;
+  started_at: string;
+  completed_at?: string | null;
+  scenario_progress: AcceptanceScenarioProgress[];
+  live_taobao: boolean;
+  cancel_requested?: boolean;
+  report_json_path?: string;
+  report_markdown_path?: string;
+  error?: string;
+}
+
+interface AcceptanceReportResponse {
+  run_id: string;
+  json: {
+    status?: string;
+    scenario_reports?: AcceptanceScenarioProgress[];
+    [key: string]: unknown;
+  };
+  markdown: string;
+  report_json_path?: string;
+  report_markdown_path?: string;
+}
+
+interface AcceptanceRunPayload {
+  base_url?: string;
+  port?: number;
+  live_taobao: boolean;
+}
+
+interface ExtensionProbeStatus {
+  ok?: boolean;
+  connected?: boolean;
+  version?: string;
+  nativeHost?: string;
+  managedTabsCount?: number;
+  reconnectAttempts?: number;
+  lastDisconnectReason?: string;
+  reloading?: boolean;
+  error?: string;
+}
+
+interface ChromeRuntimeForProbe {
+  lastError?: { message?: string };
+  sendMessage?: (
+    extensionId: string,
+    payload: { method: string },
+    callback: (response?: ExtensionProbeStatus) => void,
+  ) => void;
+}
+
+declare const chrome:
+  | {
+      runtime?: ChromeRuntimeForProbe;
+    }
+  | undefined;
 
 interface PathRow {
   key: StatusKey;
@@ -218,6 +314,45 @@ const styles: Record<string, ReactNS.CSSProperties> = {
     borderRadius: 8,
     background: "rgba(0,0,0,0.02)",
     overflowWrap: "anywhere",
+  },
+  acceptancePanel: {
+    width: "min(100%, 720px)",
+    margin: "0 auto",
+    borderRadius: 8,
+  },
+  acceptanceActions: {
+    display: "flex",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: 8,
+  },
+  acceptanceScenarioList: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+    gap: 10,
+  },
+  acceptanceScenarioCard: {
+    minHeight: 124,
+    padding: 12,
+    borderRadius: 8,
+    border: "1px solid rgba(0,0,0,0.08)",
+    background: "#fff",
+    display: "flex",
+    flexDirection: "column",
+    gap: 6,
+  },
+  acceptanceScenarioHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  acceptanceReportPreview: {
+    maxHeight: 180,
+    overflow: "auto",
+    padding: 12,
+    borderRadius: 6,
+    background: "rgba(0,0,0,0.04)",
+    whiteSpace: "pre-wrap",
   },
   developerPanel: {
     width: "min(100%, 920px)",
@@ -355,14 +490,67 @@ function setupExtension(
   });
 }
 
-function getPageState(status: ExtensionStatus | null): PageState {
-  if (status?.connected) {
-    return "connected";
-  }
-  if (status?.installed) {
-    return "installed";
-  }
-  return "not_installed";
+function openChromeExtensionsPage(): Promise<OpenChromeExtensionsResult> {
+  return apiRequest<OpenChromeExtensionsResult>(
+    "/browser-bridge/open-chrome-extensions",
+    {
+      method: "POST",
+    },
+  );
+}
+
+function openExtensionFolder(): Promise<OpenExtensionFolderResult> {
+  return apiRequest<OpenExtensionFolderResult>(
+    "/browser-bridge/open-extension-folder",
+    {
+      method: "POST",
+    },
+  );
+}
+
+function startAcceptanceRun(
+  payload: AcceptanceRunPayload,
+): Promise<AcceptanceRun> {
+  const defaultAcceptancePayload = { live_taobao: false };
+  return apiRequest<AcceptanceRun>("/browser-bridge/acceptance-runs", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      ...currentBackendTarget(),
+      ...defaultAcceptancePayload,
+      ...payload,
+    }),
+  });
+}
+
+function loadAcceptanceRun(runId: string): Promise<AcceptanceRun> {
+  return apiRequest<AcceptanceRun>(`/browser-bridge/acceptance-runs/${runId}`);
+}
+
+function cancelAcceptanceRun(runId: string): Promise<AcceptanceRun> {
+  return apiRequest<AcceptanceRun>(
+    `/browser-bridge/acceptance-runs/${runId}/cancel`,
+    {
+      method: "POST",
+    },
+  );
+}
+
+function loadAcceptanceReport(
+  runId: string,
+): Promise<AcceptanceReportResponse> {
+  return apiRequest<AcceptanceReportResponse>(
+    `/browser-bridge/acceptance-runs/${runId}/report`,
+  );
+}
+
+function currentBackendTarget(): Omit<AcceptanceRunPayload, "live_taobao"> {
+  const baseUrl = `${window.location.protocol}//${window.location.host}`;
+  const port = Number(window.location.port);
+  return {
+    base_url: baseUrl,
+    ...(Number.isFinite(port) && port > 0 ? { port } : {}),
+  };
 }
 
 function currentBridgeWsUrl() {
@@ -370,8 +558,78 @@ function currentBridgeWsUrl() {
   return `${protocol}//${window.location.host}/ws/browser-bridge`;
 }
 
-function getCwsUrl(status: ExtensionStatus | null) {
-  return status?.cws_url || CWS_FALLBACK_URL;
+function shouldAutoPrepare(status: ExtensionStatus | null): boolean {
+  if (!status) {
+    return false;
+  }
+  return (
+    !status.installed ||
+    status.recommended_action === "setup_extension" ||
+    status.setup_phase === "setup_missing" ||
+    status.setup_phase === "native_host_repair_required" ||
+    status.setup_phase === "stale_build"
+  );
+}
+
+function shouldResetForRepair(status: ExtensionStatus | null): boolean {
+  if (!status) {
+    return false;
+  }
+  return (
+    status.setup_phase === "native_host_repair_required" ||
+    status.native_host_status?.status === "repair_required"
+  );
+}
+
+function deriveLifecycleState(
+  status: ExtensionStatus | null,
+  probe: ExtensionProbeStatus | null,
+  busy: boolean,
+  error: string | null,
+): LifecycleState {
+  if (error) {
+    return "failed_actionable";
+  }
+  if (busy && !status) {
+    return "preparing";
+  }
+  if (busy && status && shouldAutoPrepare(status)) {
+    return "repairing";
+  }
+  if (status?.connected) {
+    return "connected";
+  }
+  if (probe?.ok) {
+    return "extension_loaded_bridge_disconnected";
+  }
+  if (status?.installed) {
+    return "needs_load_unpacked";
+  }
+  return busy ? "preparing" : "failed_actionable";
+}
+
+function probeExtension(
+  extensionId: string | undefined,
+  method: "status.get" | "bridge.connect" | "extension.reload",
+): Promise<ExtensionProbeStatus | null> {
+  if (
+    !extensionId ||
+    typeof chrome === "undefined" ||
+    !chrome.runtime ||
+    !chrome.runtime.sendMessage
+  ) {
+    return Promise.resolve(null);
+  }
+  return new Promise((resolve) => {
+    chrome.runtime.sendMessage(extensionId, { method }, (response) => {
+      const error = chrome.runtime?.lastError?.message;
+      if (error) {
+        resolve({ ok: false, error });
+        return;
+      }
+      resolve(response || null);
+    });
+  });
 }
 
 const diagnosticHintKeys = new Set<MessageKey>([
@@ -699,6 +957,148 @@ function ConnectedView({
   );
 }
 
+function lifecycleTitle(state: LifecycleState): MessageKey {
+  if (state === "preparing") {
+    return "lifecyclePreparingTitle";
+  }
+  if (state === "repairing") {
+    return "lifecycleRepairingTitle";
+  }
+  if (state === "needs_load_unpacked") {
+    return "lifecycleLoadUnpackedTitle";
+  }
+  if (state === "extension_loaded_bridge_disconnected") {
+    return "lifecycleConnectTitle";
+  }
+  if (state === "connected") {
+    return "readyTitle";
+  }
+  return "lifecycleFailedTitle";
+}
+
+function lifecycleDescription(state: LifecycleState): MessageKey {
+  if (state === "preparing") {
+    return "lifecyclePreparingDescription";
+  }
+  if (state === "repairing") {
+    return "lifecycleRepairingDescription";
+  }
+  if (state === "needs_load_unpacked") {
+    return "lifecycleLoadUnpackedDescription";
+  }
+  if (state === "extension_loaded_bridge_disconnected") {
+    return "lifecycleConnectDescription";
+  }
+  if (state === "connected") {
+    return "lifecycleConnectedDescription";
+  }
+  return "lifecycleFailedDescription";
+}
+
+function lifecycleStepIndex(state: LifecycleState): number {
+  if (state === "connected") {
+    return 2;
+  }
+  if (state === "needs_load_unpacked") {
+    return 1;
+  }
+  if (state === "extension_loaded_bridge_disconnected") {
+    return 1;
+  }
+  return 0;
+}
+
+function LifecycleWizardView({
+  error,
+  locale,
+  primaryAction,
+  state,
+  status,
+}: {
+  error: string | null;
+  locale: BrowserBridgeLocale;
+  primaryAction: {
+    disabled?: boolean;
+    label: MessageKey;
+    loading?: boolean;
+    onClick: () => void;
+  };
+  state: LifecycleState;
+  status: ExtensionStatus | null;
+}) {
+  const version = status?.version || translate(locale, "versionUnknown");
+  const connectedSince = formatConnectedSince(status?.connected_since, locale);
+
+  return (
+    <Card style={styles.centeredCard}>
+      <Steps
+        size="small"
+        current={lifecycleStepIndex(state)}
+        items={[
+          {
+            title: translate(locale, "lifecycleStepPrepare"),
+            status: state === "failed_actionable" ? "error" : "finish",
+          },
+          {
+            title: translate(locale, "lifecycleStepLoad"),
+            status:
+              state === "needs_load_unpacked" ||
+              state === "extension_loaded_bridge_disconnected"
+                ? "process"
+                : state === "connected"
+                ? "finish"
+                : "wait",
+          },
+          {
+            title: translate(locale, "ready"),
+            status: state === "connected" ? "finish" : "wait",
+          },
+        ]}
+      />
+      <div style={styles.progressBody}>
+        {state === "connected" ? (
+          <div style={styles.successCircle}>✓</div>
+        ) : (
+          <div style={styles.iconCircle}>
+            <BrowserBridgeLogo />
+          </div>
+        )}
+        <Title level={3}>{translate(locale, lifecycleTitle(state))}</Title>
+        <Paragraph type="secondary">
+          {translate(locale, lifecycleDescription(state))}
+        </Paragraph>
+        {error ? <Text type="danger">{error}</Text> : null}
+        {state === "connected" ? (
+          <div style={styles.readyMeta}>
+            <Text>
+              {translate(locale, "version")}: {version}
+            </Text>
+            <Text>
+              {translate(locale, "connected")}: {connectedSince}
+            </Text>
+          </div>
+        ) : null}
+        <Button
+          type="primary"
+          size="large"
+          disabled={primaryAction.disabled}
+          loading={primaryAction.loading}
+          onClick={primaryAction.onClick}
+        >
+          {translate(locale, primaryAction.label)}
+        </Button>
+      </div>
+      {status?.recovery_copy && state !== "connected" ? (
+        <Alert
+          showIcon
+          type={state === "failed_actionable" ? "error" : "info"}
+          message={status.recovery_copy}
+        />
+      ) : null}
+    </Card>
+  );
+}
+
 function DeveloperOptions({
   locale,
   activeKey,
@@ -708,7 +1108,10 @@ function DeveloperOptions({
   status,
   onChange,
   onCopy,
+  onOpenChromeExtensions,
+  onOpenExtensionFolder,
   onRegenerate,
+  onReloadExtension,
   onReset,
 }: {
   locale: BrowserBridgeLocale;
@@ -719,7 +1122,10 @@ function DeveloperOptions({
   status: ExtensionStatus | null;
   onChange: (keys: unknown) => void;
   onCopy: (value: string) => void;
+  onOpenChromeExtensions: () => void;
+  onOpenExtensionFolder: () => void;
   onRegenerate: () => void;
+  onReloadExtension: () => void;
   onReset: () => void;
 }) {
   const wsUrl = status?.ws_url || currentBridgeWsUrl();
@@ -732,7 +1138,11 @@ function DeveloperOptions({
       items={[
         {
           key: "developer",
-          label: <Space size={8}>{translate(locale, "developerTitle")}</Space>,
+          label: (
+            <Space size={8}>
+              {translate(locale, "advancedDiagnosticsTitle")}
+            </Space>
+          ),
           children: (
             <Spin spinning={loading && !status}>
               <div style={styles.developerContent}>
@@ -753,9 +1163,9 @@ function DeveloperOptions({
                         <Button
                           disabled={!status?.[key]}
                           onClick={() => onCopy(value)}
-                          aria-label={translate(locale, "copy")}
+                          aria-label={translate(locale, "copyPathFallback")}
                         >
-                          {translate(locale, "copy")}
+                          {translate(locale, "copyPathFallback")}
                         </Button>
                       </div>
                     );
@@ -767,14 +1177,23 @@ function DeveloperOptions({
                     <code style={styles.pathValue}>{wsUrl}</code>
                     <Button
                       onClick={() => onCopy(wsUrl)}
-                      aria-label={translate(locale, "copy")}
+                      aria-label={translate(locale, "copyPathFallback")}
                     >
-                      {translate(locale, "copy")}
+                      {translate(locale, "copyPathFallback")}
                     </Button>
                   </div>
                 </div>
 
                 <div style={styles.developerActions}>
+                  <Button onClick={onOpenChromeExtensions}>
+                    {translate(locale, "openChromeExtensions")}
+                  </Button>
+                  <Button onClick={onOpenExtensionFolder}>
+                    {translate(locale, "openExtensionFolder")}
+                  </Button>
+                  <Button onClick={onReloadExtension}>
+                    {translate(locale, "reloadExtension")}
+                  </Button>
                   <Button loading={setupLoading} onClick={onRegenerate}>
                     {translate(locale, "regenerate")}
                   </Button>
@@ -800,18 +1219,280 @@ function DeveloperOptions({
   );
 }
 
+const acceptanceTerminalStatuses = new Set<string>([
+  "passed",
+  "failed",
+  "blocked",
+  "cancelled",
+]);
+
+function isAcceptanceTerminal(status: string | undefined): boolean {
+  return acceptanceTerminalStatuses.has(status || "");
+}
+
+function acceptanceRepairActionLabel(
+  locale: BrowserBridgeLocale,
+  action: string,
+): string {
+  if (action === "open_setup_page" || action === "run_setup") {
+    return translate(locale, "acceptanceRepairOpenSetup");
+  }
+  if (action === "open_chrome_extensions") {
+    return translate(locale, "openChromeExtensions");
+  }
+  if (action === "open_extension_folder") {
+    return translate(locale, "openExtensionFolder");
+  }
+  if (action === "connect_extension") {
+    return translate(locale, "connectExtension");
+  }
+  if (action === "reload_extension") {
+    return translate(locale, "reloadExtension");
+  }
+  if (action === "rerun_after_fix" || action === "rerun_acceptance") {
+    return translate(locale, "acceptanceRerun");
+  }
+  return `${translate(locale, "acceptanceRepairAction")}: ${action}`;
+}
+
+function ProductAcceptancePanel({
+  locale,
+  onRepairAction,
+}: {
+  locale: BrowserBridgeLocale;
+  onRepairAction: (repairAction: string) => void;
+}) {
+  const [acceptanceRun, setAcceptanceRun] =
+    React.useState<AcceptanceRun | null>(null);
+  const [acceptanceReport, setAcceptanceReport] =
+    React.useState<AcceptanceReportResponse | null>(null);
+  const [acceptanceLoading, setAcceptanceLoading] = React.useState(false);
+  const [taobaoLiveEnabled, setTaobaoLiveEnabled] = React.useState(false);
+  const [taobaoLiveConfirmed, setTaobaoLiveConfirmed] = React.useState(false);
+
+  const loadReport = React.useCallback(async (runId: string) => {
+    const report = await loadAcceptanceReport(runId);
+    setAcceptanceReport(report);
+  }, []);
+
+  const loadRun = React.useCallback(
+    async (runId: string) => {
+      const next = await loadAcceptanceRun(runId);
+      setAcceptanceRun(next);
+      if (isAcceptanceTerminal(next.status)) {
+        await loadReport(runId);
+      }
+      return next;
+    },
+    [loadReport],
+  );
+
+  const runAcceptance = React.useCallback(async () => {
+    setAcceptanceLoading(true);
+    setAcceptanceReport(null);
+    try {
+      const liveTaobao = taobaoLiveEnabled && taobaoLiveConfirmed;
+      const next = await startAcceptanceRun(
+        liveTaobao ? { live_taobao: true } : { live_taobao: false },
+      );
+      setAcceptanceRun(next);
+      if (isAcceptanceTerminal(next.status)) {
+        await loadReport(next.run_id);
+      }
+      message.success(translate(locale, "acceptanceStarted"));
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : String(err));
+    } finally {
+      setAcceptanceLoading(false);
+    }
+  }, [loadReport, locale, taobaoLiveConfirmed, taobaoLiveEnabled]);
+
+  const cancelRun = React.useCallback(async () => {
+    if (!acceptanceRun) {
+      return;
+    }
+    setAcceptanceLoading(true);
+    try {
+      const next = await cancelAcceptanceRun(acceptanceRun.run_id);
+      setAcceptanceRun(next);
+      message.success(translate(locale, "acceptanceCancelled"));
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : String(err));
+    } finally {
+      setAcceptanceLoading(false);
+    }
+  }, [acceptanceRun, locale]);
+
+  React.useEffect(() => {
+    if (!acceptanceRun?.run_id || isAcceptanceTerminal(acceptanceRun.status)) {
+      return undefined;
+    }
+    const pollId = window.setInterval(() => {
+      void loadRun(acceptanceRun.run_id);
+    }, 2000);
+    return () => {
+      window.clearInterval(pollId);
+    };
+  }, [acceptanceRun?.run_id, acceptanceRun?.status, loadRun]);
+
+  const scenarioProgress = acceptanceRun?.scenario_progress?.length
+    ? acceptanceRun.scenario_progress
+    : acceptanceReport?.json.scenario_reports || [];
+  const runActive = Boolean(
+    acceptanceRun && !isAcceptanceTerminal(acceptanceRun.status),
+  );
+  const taobaoRequiresConfirmation = taobaoLiveEnabled && !taobaoLiveConfirmed;
+
+  const handleScenarioRepairAction = (repairAction: string | undefined) => {
+    if (!repairAction) {
+      return;
+    }
+    if (
+      repairAction === "rerun_after_fix" ||
+      repairAction === "rerun_acceptance"
+    ) {
+      void runAcceptance();
+      return;
+    }
+    onRepairAction(repairAction);
+  };
+
+  return (
+    <Card style={styles.acceptancePanel}>
+      <Space direction="vertical" size={14} style={{ width: "100%" }}>
+        <div>
+          <Text strong>{translate(locale, "acceptanceTitle")}</Text>
+          <br />
+          <Text type="secondary">
+            {translate(locale, "acceptanceSubtitle")}
+          </Text>
+        </div>
+
+        <div style={styles.acceptanceActions}>
+          <Button
+            type="primary"
+            loading={acceptanceLoading}
+            disabled={taobaoRequiresConfirmation || runActive}
+            onClick={() => void runAcceptance()}
+          >
+            {translate(locale, "acceptanceRun")}
+          </Button>
+          <Button
+            disabled={!runActive}
+            loading={acceptanceLoading && runActive}
+            onClick={() => void cancelRun()}
+          >
+            {translate(locale, "acceptanceCancel")}
+          </Button>
+          {acceptanceRun ? (
+            <Button
+              type="link"
+              onClick={() => void loadReport(acceptanceRun.run_id)}
+            >
+              {translate(locale, "acceptanceReportLink")}
+            </Button>
+          ) : null}
+        </div>
+
+        <Space direction="vertical" size={8} style={{ width: "100%" }}>
+          <Checkbox
+            checked={taobaoLiveEnabled}
+            onChange={(event: { target: { checked: boolean } }) => {
+              setTaobaoLiveEnabled(event.target.checked);
+              if (!event.target.checked) {
+                setTaobaoLiveConfirmed(false);
+              }
+            }}
+          >
+            {translate(locale, "acceptanceTaobaoOptIn")}
+          </Checkbox>
+          {taobaoLiveEnabled ? (
+            <Alert
+              showIcon
+              type="warning"
+              message={translate(locale, "acceptanceTaobaoConfirm")}
+              action={
+                <Checkbox
+                  checked={taobaoLiveConfirmed}
+                  onChange={(event: { target: { checked: boolean } }) =>
+                    setTaobaoLiveConfirmed(event.target.checked)
+                  }
+                >
+                  {translate(locale, "acceptanceTaobaoConfirmCheckbox")}
+                </Checkbox>
+              }
+            />
+          ) : null}
+        </Space>
+
+        {acceptanceRun ? (
+          <Text>
+            {translate(locale, "acceptanceStatus")}: {acceptanceRun.status}
+          </Text>
+        ) : null}
+
+        {scenarioProgress.length ? (
+          <div style={styles.acceptanceScenarioList}>
+            {scenarioProgress.map((scenario) => (
+              <div
+                key={scenario.scenario}
+                style={styles.acceptanceScenarioCard}
+              >
+                <div style={styles.acceptanceScenarioHeader}>
+                  <Text strong>{scenario.scenario}</Text>
+                  <Text>{scenario.status}</Text>
+                </div>
+                {scenario.failure_category ? (
+                  <Text type="secondary">
+                    {translate(locale, "acceptanceFailureCategory")}:{" "}
+                    {scenario.failure_category}
+                  </Text>
+                ) : null}
+                {scenario.recovery_hint ? (
+                  <Text>{scenario.recovery_hint}</Text>
+                ) : null}
+                {scenario.repair_action ? (
+                  <Button
+                    size="small"
+                    onClick={() =>
+                      handleScenarioRepairAction(scenario.repair_action)
+                    }
+                  >
+                    {acceptanceRepairActionLabel(
+                      locale,
+                      scenario.repair_action,
+                    )}
+                  </Button>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        ) : null}
+
+        {acceptanceReport?.markdown ? (
+          <pre style={styles.acceptanceReportPreview}>
+            {acceptanceReport.markdown}
+          </pre>
+        ) : null}
+      </Space>
+    </Card>
+  );
+}
+
 function BrowserBridgeSetupPage() {
   const locale = resolveBrowserBridgeLocale();
   const developerRef = React.useRef<HTMLDivElement | null>(null);
   const [status, setStatus] = React.useState<ExtensionStatus | null>(null);
+  const [extensionProbe, setExtensionProbe] =
+    React.useState<ExtensionProbeStatus | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [setupLoading, setSetupLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
-  const [showTips, setShowTips] = React.useState(false);
   const [developerActiveKey, setDeveloperActiveKey] = React.useState<string[]>(
     [],
   );
-  const [cwsInstallStarted, setCwsInstallStarted] = React.useState(false);
+  const [lifecycleState, setLifecycleState] =
+    React.useState<LifecycleState>("preparing");
 
   const pathRows = React.useMemo(
     () => [
@@ -835,96 +1516,110 @@ function BrowserBridgeSetupPage() {
     [locale],
   );
 
-  const loadStatus =
-    React.useCallback(async (): Promise<ExtensionStatus | null> => {
+  const runExtensionProbe = React.useCallback(
+    async (
+      nextStatus: ExtensionStatus,
+    ): Promise<ExtensionProbeStatus | null> => {
+      const firstProbe = await probeExtension(
+        nextStatus.extension_id,
+        "status.get",
+      );
+      setExtensionProbe(firstProbe);
+
+      if (!firstProbe?.ok) {
+        return firstProbe;
+      }
+
+      if (
+        nextStatus.setup_phase === "stale_build" ||
+        nextStatus.build_freshness?.status === "stale"
+      ) {
+        const reloadProbe = await probeExtension(
+          nextStatus.extension_id,
+          "extension.reload",
+        );
+        setExtensionProbe(reloadProbe || firstProbe);
+        return reloadProbe || firstProbe;
+      }
+
+      if (!nextStatus.connected) {
+        const connectProbe = await probeExtension(
+          nextStatus.extension_id,
+          "bridge.connect",
+        );
+        setExtensionProbe(connectProbe || firstProbe);
+        return connectProbe || firstProbe;
+      }
+
+      return firstProbe;
+    },
+    [],
+  );
+
+  const refreshLifecycle = React.useCallback(
+    async (
+      options: { autoPrepare?: boolean } = {},
+    ): Promise<ExtensionStatus | null> => {
       setLoading(true);
       setError(null);
+      setLifecycleState((previous) =>
+        previous === "connected" ? previous : "preparing",
+      );
       try {
-        const next = await getStatus();
+        let next = await getStatus();
         setStatus(next);
-        return next;
+
+        if (options.autoPrepare && shouldAutoPrepare(next)) {
+          setLifecycleState("repairing");
+          setSetupLoading(true);
+          next = await setupExtension({
+            install_mode: "unpacked",
+            reset: shouldResetForRepair(next),
+            ws_url: currentBridgeWsUrl(),
+          });
+          setStatus(next);
+          message.success(translate(locale, "installSuccess"));
+        }
+
+        const probe = await runExtensionProbe(next);
+        const latest = await getStatus();
+        setStatus(latest);
+        setLifecycleState(deriveLifecycleState(latest, probe, false, null));
+        return latest;
       } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
-        return null;
-      } finally {
-        setLoading(false);
-      }
-    }, []);
-
-  React.useEffect(() => {
-    void loadStatus();
-  }, [loadStatus]);
-
-  const effectiveStatus = React.useMemo(() => {
-    if (status && cwsInstallStarted && !status.connected && !status.installed) {
-      return {
-        ...status,
-        installed: true,
-        install_mode: "cws" as const,
-      };
-    }
-    return status;
-  }, [cwsInstallStarted, status]);
-
-  const pageState = getPageState(effectiveStatus);
-
-  React.useEffect(() => {
-    if (pageState !== "installed") {
-      setShowTips(false);
-      return undefined;
-    }
-
-    const pollId = window.setInterval(() => {
-      void loadStatus();
-    }, 3000);
-    const tipsId = window.setTimeout(() => setShowTips(true), 10000);
-
-    return () => {
-      window.clearInterval(pollId);
-      window.clearTimeout(tipsId);
-    };
-  }, [loadStatus, pageState]);
-
-  const handleSetup = React.useCallback(
-    async (
-      installMode: InstallMode = "unpacked",
-      reset = true,
-    ): Promise<ExtensionStatus | null> => {
-      setSetupLoading(true);
-      setError(null);
-      try {
-        const next = await setupExtension({
-          install_mode: installMode,
-          reset,
-          ws_url: currentBridgeWsUrl(),
-        });
-        setStatus(next);
-        message.success(translate(locale, "installSuccess"));
-        return next;
-      } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
+        const nextError = err instanceof Error ? err.message : String(err);
+        setError(nextError);
+        setLifecycleState("failed_actionable");
         message.error(translate(locale, "installFailed"));
         return null;
       } finally {
         setSetupLoading(false);
+        setLoading(false);
       }
     },
-    [locale],
+    [locale, runExtensionProbe],
   );
 
-  const handleInstallCws = React.useCallback(async () => {
-    window.open(getCwsUrl(status), "_blank", "noopener,noreferrer");
-    const next = await handleSetup("cws", false);
-    if (!next) {
-      return;
+  React.useEffect(() => {
+    void refreshLifecycle({ autoPrepare: true });
+  }, [refreshLifecycle]);
+
+  React.useEffect(() => {
+    if (
+      lifecycleState !== "needs_load_unpacked" &&
+      lifecycleState !== "extension_loaded_bridge_disconnected"
+    ) {
+      return undefined;
     }
-    setCwsInstallStarted(true);
-    setStatus({
-      ...next,
-      installed: true,
-      install_mode: "cws",
-    });
-  }, [handleSetup, status]);
+
+    const pollId = window.setInterval(() => {
+      void refreshLifecycle();
+    }, 3000);
+
+    return () => {
+      window.clearInterval(pollId);
+    };
+  }, [lifecycleState, refreshLifecycle]);
 
   const copyValue = async (value: string) => {
     await navigator.clipboard?.writeText(value);
@@ -945,61 +1640,156 @@ function BrowserBridgeSetupPage() {
     setDeveloperActiveKey(normalizeCollapseKeys(keys));
   };
 
-  const handleTestConnection = React.useCallback(async () => {
-    const next = await loadStatus();
-    if (!next) {
-      return;
+  const handleOpenChromeExtensions = React.useCallback(async () => {
+    const result = await openChromeExtensionsPage();
+    if (!result.opened && result.error) {
+      message.warning(result.error);
     }
-    if (next.connected) {
-      message.success(translate(locale, "testSuccess"));
-      return;
-    }
-    message.warning(translate(locale, "testFailed"));
-  }, [loadStatus, locale]);
+  }, []);
 
-  const currentView = (() => {
-    if (loading && !effectiveStatus) {
-      return (
-        <Card style={styles.heroCard}>
-          <Spin />
-          <Paragraph style={{ marginTop: 12 }}>
-            {translate(locale, "loading")}
-          </Paragraph>
-        </Card>
-      );
+  const handleOpenExtensionFolder = React.useCallback(async () => {
+    const result = await openExtensionFolder();
+    if (!result.opened && result.error) {
+      message.warning(result.error);
     }
+  }, []);
 
-    if (pageState === "connected") {
-      return (
-        <ConnectedView
-          locale={locale}
-          loading={loading}
-          onRefresh={() => void handleTestConnection()}
-          status={effectiveStatus}
-        />
-      );
-    }
+  const handleConnectExtension = React.useCallback(async () => {
+    const probe = await probeExtension(status?.extension_id, "bridge.connect");
+    setExtensionProbe(probe);
+    await refreshLifecycle();
+  }, [refreshLifecycle, status?.extension_id]);
 
-    if (pageState === "installed") {
-      return (
-        <InstalledView
-          locale={locale}
-          loading={loading}
-          onRefresh={() => void loadStatus()}
-          showTips={showTips}
-        />
-      );
-    }
-
-    return (
-      <NotInstalledView
-        locale={locale}
-        onDeveloperClick={openDeveloperOptions}
-        onInstallCws={() => void handleInstallCws()}
-        setupLoading={setupLoading}
-      />
+  const handleReloadExtension = React.useCallback(async () => {
+    const probe = await probeExtension(
+      status?.extension_id,
+      "extension.reload",
     );
-  })();
+    setExtensionProbe(probe);
+    await refreshLifecycle();
+  }, [refreshLifecycle, status?.extension_id]);
+
+  const handleManualRegenerate = React.useCallback(
+    async (reset: boolean) => {
+      setSetupLoading(true);
+      setError(null);
+      try {
+        const next = await setupExtension({
+          install_mode: "unpacked",
+          reset,
+          ws_url: currentBridgeWsUrl(),
+        });
+        setStatus(next);
+        message.success(translate(locale, "installSuccess"));
+        await refreshLifecycle();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+        setLifecycleState("failed_actionable");
+        message.error(translate(locale, "installFailed"));
+      } finally {
+        setSetupLoading(false);
+      }
+    },
+    [locale, refreshLifecycle],
+  );
+
+  const handleAcceptanceRepairAction = React.useCallback(
+    (repairAction: string) => {
+      if (
+        repairAction === "open_setup_page" ||
+        repairAction === "setup_extension" ||
+        repairAction === "run_setup"
+      ) {
+        openDeveloperOptions();
+        void refreshLifecycle({ autoPrepare: true });
+        return;
+      }
+      if (repairAction === "open_chrome_extensions") {
+        void handleOpenChromeExtensions();
+        return;
+      }
+      if (repairAction === "open_extension_folder") {
+        void handleOpenExtensionFolder();
+        return;
+      }
+      if (repairAction === "connect_extension") {
+        void handleConnectExtension();
+        return;
+      }
+      if (repairAction === "reload_extension") {
+        void handleReloadExtension();
+        return;
+      }
+      message.info(repairAction);
+    },
+    [
+      handleConnectExtension,
+      handleOpenChromeExtensions,
+      handleOpenExtensionFolder,
+      handleReloadExtension,
+      refreshLifecycle,
+    ],
+  );
+
+  const primaryAction = React.useMemo(() => {
+    const busy = loading || setupLoading;
+    if (lifecycleState === "needs_load_unpacked") {
+      return {
+        label: "openChromeExtensions" as const,
+        loading: false,
+        onClick: () => void handleOpenChromeExtensions(),
+      };
+    }
+    if (lifecycleState === "extension_loaded_bridge_disconnected") {
+      return {
+        label: "connectExtension" as const,
+        loading: busy,
+        onClick: () => void handleConnectExtension(),
+      };
+    }
+    if (lifecycleState === "connected") {
+      return {
+        label: "refreshStatus" as const,
+        loading,
+        onClick: () => void refreshLifecycle(),
+      };
+    }
+    if (lifecycleState === "failed_actionable") {
+      return {
+        label: "retrySetup" as const,
+        loading: busy,
+        onClick: () => void refreshLifecycle({ autoPrepare: true }),
+      };
+    }
+    return {
+      disabled: true,
+      label:
+        lifecycleState === "repairing"
+          ? ("repairingAction" as const)
+          : ("preparingAction" as const),
+      loading: true,
+      onClick: () => undefined,
+    };
+  }, [
+    handleConnectExtension,
+    handleOpenChromeExtensions,
+    lifecycleState,
+    loading,
+    refreshLifecycle,
+    setupLoading,
+  ]);
+
+  const currentView = (
+    <LifecycleWizardView
+      error={error}
+      locale={locale}
+      primaryAction={primaryAction}
+      state={lifecycleState}
+      status={status}
+    />
+  );
+  const isAcceptanceAvailable =
+    lifecycleState === "connected" && status?.connected === true;
 
   return (
     <div style={styles.page}>
@@ -1019,7 +1809,13 @@ function BrowserBridgeSetupPage() {
       <div style={styles.content}>
         {error ? <Alert type="error" showIcon message={error} /> : null}
         {currentView}
-        <DiagnosticsPanel locale={locale} status={effectiveStatus} />
+        {isAcceptanceAvailable ? (
+          <ProductAcceptancePanel
+            locale={locale}
+            onRepairAction={handleAcceptanceRepairAction}
+          />
+        ) : null}
+        <DiagnosticsPanel locale={locale} status={status} />
         <div ref={developerRef}>
           <DeveloperOptions
             activeKey={developerActiveKey}
@@ -1027,11 +1823,14 @@ function BrowserBridgeSetupPage() {
             locale={locale}
             onChange={handleDeveloperChange}
             onCopy={(value) => void copyValue(value)}
-            onRegenerate={() => void handleSetup("unpacked", false)}
-            onReset={() => void handleSetup("unpacked", true)}
+            onOpenChromeExtensions={() => void handleOpenChromeExtensions()}
+            onOpenExtensionFolder={() => void handleOpenExtensionFolder()}
+            onRegenerate={() => void handleManualRegenerate(false)}
+            onReloadExtension={() => void handleReloadExtension()}
+            onReset={() => void handleManualRegenerate(true)}
             pathRows={pathRows}
             setupLoading={setupLoading}
-            status={effectiveStatus}
+            status={status}
           />
         </div>
       </div>

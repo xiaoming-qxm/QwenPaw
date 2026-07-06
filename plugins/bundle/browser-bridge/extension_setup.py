@@ -409,6 +409,46 @@ def extension_install_status() -> dict[str, str | bool | None]:
     }
 
 
+def open_extension_folder(
+    extension_dir: Path | None = None,
+    *,
+    platform: str | None = None,
+) -> dict[str, str | bool | None]:
+    """Open the local unpacked extension folder with a native file manager."""
+    platform = platform or sys.platform
+    target = extension_dir or (
+        _qwenpaw_home() / "chrome-extension" / "qwenpaw-browser-bridge"
+    )
+    target = target.expanduser()
+
+    if not target.exists():
+        return {
+            "opened": False,
+            "path": str(target),
+            "error": "Extension folder does not exist yet.",
+        }
+
+    if platform == "darwin":
+        commands = [["open", str(target)]]
+    elif platform == "win32":
+        commands = [["explorer", str(target)]]
+    else:
+        commands = [["xdg-open", str(target)]]
+
+    for command in commands:
+        try:
+            subprocess.Popen(  # pylint: disable=consider-using-with
+                command,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            return {"opened": True, "path": str(target), "error": None}
+        except OSError as exc:
+            last_error = str(exc)
+
+    return {"opened": False, "path": str(target), "error": last_error}
+
+
 def open_chrome_extensions_page(
     *,
     platform: str | None = None,

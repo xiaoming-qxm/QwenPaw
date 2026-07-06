@@ -44,10 +44,17 @@ from ..extension_setup import (  # type: ignore[misc]
     BRIDGE_MANIFEST_SCHEMA_VERSION,
     extension_install_status,
     open_chrome_extensions_page,
+    open_extension_folder,
     resolve_default_ws_url,
     setup_extension_files,
 )
 from ..transport.state import get_nm_bridge_route_state  # type: ignore[misc]
+from .acceptance_runs import (
+    AcceptanceReportMissing,
+    AcceptanceRunNotFound,
+    AcceptanceRunRegistry,
+    AcceptanceRunRequest,
+)
 
 ws_router = APIRouter(tags=["browser-bridge"])
 api_router = APIRouter(tags=["browser-bridge"])
@@ -56,6 +63,7 @@ router = api_router
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = PLUGIN_ROOT.parents[2]
 DEFAULT_CONFIG_PATH = Path.home() / ".qwenpaw" / "nm-bridge.json"
+CANONICAL_SETUP_URL = "/plugin/browser-bridge"
 EXTENSION_MANIFEST_PATH = (
     PLUGIN_ROOT
     / "assets"
@@ -69,6 +77,7 @@ if not _bridge_state.ws_url:
     _bridge_state.ws_url = resolve_default_ws_url()
 if _bridge_state.config_path is None:
     _bridge_state.config_path = DEFAULT_CONFIG_PATH
+acceptance_run_registry = AcceptanceRunRegistry()
 
 
 def _verifier_mode_enabled() -> bool:
@@ -96,6 +105,12 @@ class ExtensionSetupRequest(BaseModel):
 class OpenChromeExtensionsResponse(BaseModel):
     opened: bool
     url: str
+    error: str | None = None
+
+
+class OpenExtensionFolderResponse(BaseModel):
+    opened: bool
+    path: str
     error: str | None = None
 
 
@@ -594,6 +609,76 @@ def _readiness_state_and_repair_action(
     return "ready", "none"
 
 
+def _setup_lifecycle(
+    *,
+    install_status: dict[str, Any],
+    connected: bool,
+    build_freshness: dict[str, Any],
+) -> dict[str, Any]:
+    if not install_status.get("installed"):
+        setup_phase = "setup_missing"
+        recommended_action = "setup_extension"
+        repair_actions = [
+            "setup_extension",
+            "open_chrome_extensions",
+            "open_extension_folder",
+        ]
+        recovery_copy = (
+            "Open the Browser Bridge setup page and let QwenPaw prepare the "
+            "local unpacked extension files."
+        )
+    elif install_status.get("native_host_repair_required"):
+        setup_phase = "native_host_repair_required"
+        recommended_action = "setup_extension"
+        repair_actions = [
+            "setup_extension",
+            "reload_extension",
+            "open_setup_page",
+        ]
+        recovery_copy = (
+            "Open the Browser Bridge setup page to repair the Native "
+            "Messaging files, then reload the Chrome extension."
+        )
+    elif build_freshness.get("status") == "stale":
+        setup_phase = "stale_build"
+        recommended_action = "setup_extension"
+        repair_actions = [
+            "setup_extension",
+            "reload_extension",
+            "open_setup_page",
+        ]
+        recovery_copy = (
+            "Open the Browser Bridge setup page so QwenPaw can refresh the "
+            "local extension files."
+        )
+    elif not connected:
+        setup_phase = "extension_loaded_bridge_disconnected"
+        recommended_action = "reload_extension"
+        repair_actions = [
+            "reload_extension",
+            "open_setup_page",
+            "open_chrome_extensions",
+            "open_extension_folder",
+        ]
+        recovery_copy = (
+            "Open the Browser Bridge setup page at /plugin/browser-bridge, "
+            "then reload or reconnect the Chrome extension."
+        )
+    else:
+        setup_phase = "connected"
+        recommended_action = "none"
+        repair_actions = []
+        recovery_copy = "Browser Bridge is connected."
+
+    return {
+        "canonical_setup_url": CANONICAL_SETUP_URL,
+        "setup_phase": setup_phase,
+        "recommended_action": recommended_action,
+        "repair_actions": repair_actions,
+        "recovery_copy": recovery_copy,
+    }
+
+
 def _git_output(*args: str) -> str:
     try:
         result = subprocess.run(
@@ -740,6 +825,12 @@ async def run_extension_self_test() -> dict[str, Any]:
         )
     )
     connected = _bridge_connected()
+    install_status = extension_install_status()
+    lifecycle = _setup_lifecycle(
+        install_status=install_status,
+        connected=connected,
+        build_freshness=build_freshness,
+    )
     checks = [
         _check_payload(
             name="extension_bridge",
@@ -751,6 +842,11 @@ async def run_extension_self_test() -> dict[str, Any]:
                 else "Native Messaging bridge is not connected."
             ),
             repair_action="none" if connected else "reload_extension",
+            metadata={
+                "canonical_setup_url": lifecycle["canonical_setup_url"],
+                "recommended_action": lifecycle["recommended_action"],
+                "recovery_copy": lifecycle["recovery_copy"],
+            },
         ),
         _diagnostics_check(
             name="user_backend",
@@ -823,9 +919,15 @@ async def get_extension_status() -> dict[str, Any]:
     )
     trace_summary = _trace_summary()
     lifecycle_summary = dict(trace_summary.get("lifecycle") or {})
+    setup_lifecycle = _setup_lifecycle(
+        install_status=install_status,
+        connected=connected,
+        build_freshness=freshness,
+    )
 
     return {
         **install_status,
+        **setup_lifecycle,
         "connected": connected,
         "readiness_state": readiness_state,
         "repair_action": repair_action,
@@ -863,6 +965,42 @@ async def get_extension_status() -> dict[str, Any]:
 @api_router.get("/status")
 async def extension_status() -> dict[str, Any]:
     return await get_extension_status()
+
+
+@api_router.post("/acceptance-runs")
+async def start_acceptance_run(
+    request: AcceptanceRunRequest | None = None,
+) -> dict[str, Any]:
+    return acceptance_run_registry.start_run(request)
+
+
+@api_router.get("/acceptance-runs/{run_id}")
+async def acceptance_run_status(run_id: str) -> dict[str, Any]:
+    try:
+        return acceptance_run_registry.get_run(run_id)
+    except AcceptanceRunNotFound as exc:
+        raise HTTPException(status_code=404, detail="run not found") from exc
+
+
+@api_router.post("/acceptance-runs/{run_id}/cancel")
+async def cancel_acceptance_run(run_id: str) -> dict[str, Any]:
+    try:
+        return acceptance_run_registry.cancel_run(run_id)
+    except AcceptanceRunNotFound as exc:
+        raise HTTPException(status_code=404, detail="run not found") from exc
+
+
+@api_router.get("/acceptance-runs/{run_id}/report")
+async def acceptance_run_report(run_id: str) -> dict[str, Any]:
+    try:
+        return acceptance_run_registry.get_report(run_id)
+    except AcceptanceRunNotFound as exc:
+        raise HTTPException(status_code=404, detail="run not found") from exc
+    except AcceptanceReportMissing as exc:
+        raise HTTPException(
+            status_code=404,
+            detail="report not ready",
+        ) from exc
 
 
 @api_router.post("/test/bridge/disconnect")
@@ -928,3 +1066,8 @@ async def extension_setup(request: ExtensionSetupRequest) -> dict[str, Any]:
 @api_router.post("/open-chrome-extensions")
 async def open_chrome_extensions() -> OpenChromeExtensionsResponse:
     return OpenChromeExtensionsResponse(**open_chrome_extensions_page())
+
+
+@api_router.post("/open-extension-folder")
+async def open_local_extension_folder() -> OpenExtensionFolderResponse:
+    return OpenExtensionFolderResponse(**open_extension_folder())

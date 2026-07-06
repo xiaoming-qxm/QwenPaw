@@ -15,7 +15,12 @@ const PROTECTED_BROWSER_SCHEMES = new Set([
   "opera:",
   "vivaldi:",
 ]);
-const LOCAL_QWENPAW_HOSTS = new Set(["127.0.0.1", "::1", "localhost"]);
+const LOCAL_QWENPAW_HOSTS = new Set([
+  "127.0.0.1",
+  "::1",
+  "[::1]",
+  "localhost",
+]);
 const LOCAL_QWENPAW_PORTS = new Set(["8088"]);
 const TAB_OWNERSHIP_OWNED = "owned";
 const TAB_OWNERSHIP_BORROWED = "borrowed";
@@ -738,6 +743,18 @@ function runtimeLastErrorMessage() {
   return lastError && lastError.message ? lastError.message : "";
 }
 
+function extensionStatusPayload() {
+  return {
+    ok: true,
+    connected: Boolean(nmPort),
+    nativeHost: NATIVE_HOST,
+    managedTabsCount: managedTabs.size,
+    reconnectAttempts,
+    lastDisconnectReason,
+    version: chrome.runtime.getManifest().version,
+  };
+}
+
 async function handleMessage(message) {
   const id = message && message.id !== undefined ? message.id : null;
   const params = message && message.params ? message.params : {};
@@ -970,21 +987,69 @@ chrome.webNavigation.onCompleted.addListener(async (details) => {
   }
 });
 
+function externalMessageOrigin(sender) {
+  if (sender && sender.origin) {
+    return sender.origin;
+  }
+  if (sender && sender.url) {
+    try {
+      return new URL(sender.url).origin;
+    } catch (error) {
+      return "";
+    }
+  }
+  return "";
+}
+
+function isLocalQwenPawExternalOrigin(origin) {
+  try {
+    const parsed = new URL(origin);
+    return (
+      parsed.protocol === "http:" &&
+      LOCAL_QWENPAW_HOSTS.has(parsed.hostname)
+    );
+  } catch (error) {
+    return false;
+  }
+}
+
+function handleExternalMessage(message, sender, sendResponse) {
+  if (!isLocalQwenPawExternalOrigin(externalMessageOrigin(sender))) {
+    sendResponse({ ok: false, error: "origin_not_allowed" });
+    return false;
+  }
+
+  switch (message && message.method) {
+    case "status.get":
+      sendResponse(extensionStatusPayload());
+      return false;
+    case "bridge.connect":
+      if (!nmPort) {
+        connectNative();
+      }
+      sendResponse(extensionStatusPayload());
+      return false;
+    case "extension.reload":
+      sendResponse({
+        ok: true,
+        reloading: true,
+        version: chrome.runtime.getManifest().version,
+      });
+      setTimeout(() => chrome.runtime.reload(), 0);
+      return false;
+    default:
+      sendResponse({ ok: false, error: "method_not_allowed" });
+      return false;
+  }
+}
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message && message.source === "qwenpaw-browser-bridge-popup") {
     if (message.method === "status.get") {
       if (!nmPort) {
         connectNative();
       }
-      sendResponse({
-        ok: true,
-        connected: Boolean(nmPort),
-        nativeHost: NATIVE_HOST,
-        managedTabsCount: managedTabs.size,
-        reconnectAttempts,
-        lastDisconnectReason,
-        version: chrome.runtime.getManifest().version,
-      });
+      sendResponse(extensionStatusPayload());
       return false;
     }
   }
@@ -1001,6 +1066,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   sendResponse({ ok: true });
   return false;
 });
+
+chrome.runtime.onMessageExternal.addListener(handleExternalMessage);
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (!alarm || alarm.name !== RECONNECT_ALARM) {

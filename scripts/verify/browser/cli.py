@@ -5268,18 +5268,23 @@ def run_product_verifier(args: argparse.Namespace) -> BrowserBridgeReport:
     scenarios = default_scenarios(
         include_live_taobao=bool(getattr(args, "live_taobao", False)),
     )
-    scenario_reports = [
-        _run_product_scenario(args, scenario) for scenario in scenarios
-    ]
+    preflight_status = str(preflight.get("status") or "")
+    scenario_reports: list[dict[str, Any]] = []
+    if preflight_status == "passed":
+        scenario_reports = [
+            _run_product_scenario(args, scenario) for scenario in scenarios
+        ]
+    scenario_matrix_status = (
+        "passed"
+        if preflight_status == "passed"
+        and all(item["status"] == "passed" for item in scenario_reports)
+        else "blocked"
+    )
     gate_statuses = {
         "truth_gates": str(truth["status"]),
         "risk_gates": str(risk["status"]),
-        "service_preflight": str(preflight["status"]),
-        "scenario_matrix": (
-            "passed"
-            if all(item["status"] == "passed" for item in scenario_reports)
-            else "blocked"
-        ),
+        "service_preflight": preflight_status,
+        "scenario_matrix": scenario_matrix_status,
         "lifecycle_gates": _product_lifecycle_gate_status(
             _dict_value(preflight.get("cleanup_summary")),
             scenario_reports,
@@ -5315,6 +5320,12 @@ def run_product_verifier(args: argparse.Namespace) -> BrowserBridgeReport:
             ),
             "scenario_ids": [scenario.scenario_id for scenario in scenarios],
             "live_taobao_included": bool(getattr(args, "live_taobao", False)),
+            "canonical_setup_url": str(
+                preflight.get("canonical_setup_url") or "",
+            ),
+            "recovery_hint": str(preflight.get("recovery_hint") or ""),
+            "repair_action": str(preflight.get("repair_action") or "none"),
+            "can_retry": bool(preflight.get("can_retry")),
         },
         cleanup_summary=_dict_value(preflight.get("cleanup_summary")),
         runtime_evidence=_dict_value(preflight.get("runtime_evidence")),
@@ -5396,9 +5407,33 @@ def _product_service_preflight(args: argparse.Namespace) -> dict[str, Any]:
         "kernel_idle_count": 0,
         "bridge_connected": bool(status.get("connected")),
     }
+    bridge_connected = bool(status.get("connected"))
+    preflight_checks["browser_bridge_connected"] = (
+        "passed" if bridge_connected else "blocked"
+    )
     service_ok = all(value == "passed" for value in preflight_checks.values())
+    preflight_status = "passed" if service_ok else "failed"
+    canonical_setup_url = str(
+        status.get("canonical_setup_url") or "/plugin/browser-bridge",
+    )
+    recovery_hint = ""
+    repair_action = "none"
+    if not bridge_connected:
+        preflight_status = "blocked"
+        repair_action = "open_setup_page"
+        recovery_hint = str(
+            status.get("recovery_copy")
+            or (
+                "Open the Browser Bridge setup page at "
+                "/plugin/browser-bridge, then reload the extension."
+            ),
+        )
     return {
-        "status": "passed" if service_ok else "failed",
+        "status": preflight_status,
+        "canonical_setup_url": canonical_setup_url,
+        "recovery_hint": recovery_hint,
+        "repair_action": repair_action,
+        "can_retry": repair_action != "none",
         "backend_route": _backend_route(status),
         "trace_event_count": int(trace_summary.get("event_count") or 0),
         "cleanup_summary": cleanup_summary,
@@ -5409,7 +5444,10 @@ def _product_service_preflight(args: argparse.Namespace) -> dict[str, Any]:
             "service": service,
             "checks": preflight_checks,
             "browser_bridge_status_route": "available",
-            "bridge_connected": bool(status.get("connected")),
+            "bridge_connected": bridge_connected,
+            "canonical_setup_url": canonical_setup_url,
+            "recovery_hint": recovery_hint,
+            "repair_action": repair_action,
         },
     }
 
@@ -5586,7 +5624,11 @@ def _product_reconnect_delta(
             reconnect_count = 0
         if reconnect_count > 0:
             return reconnect_count
-        if event.get("reconnect_count_increased") is True:
+        if (
+            event.get("reconnect_count_increased") is True
+            and event.get("kind") == "bridge_reconnect_observed"
+            and event.get("after_connected") is True
+        ):
             return 1
     return 0
 
@@ -5603,8 +5645,18 @@ def _product_report_from_child(
 ) -> dict[str, Any]:
     scenario_id = str(scenario.scenario_id)
     child_passed = child.status == "passed"
-    passed = child_passed if accepted is None else bool(accepted)
-    status = "passed" if passed else child.status
+    if accepted is None:
+        passed = child_passed
+        status = child.status
+    else:
+        passed = bool(accepted)
+        status = (
+            "passed"
+            if passed
+            else child.status
+            if child.status in {"blocked", "failed", "cancelled"}
+            else "failed"
+        )
     if status == "passed":
         failure_category = ""
         recovery_hint = ""
@@ -5617,6 +5669,11 @@ def _product_report_from_child(
             or "scenario_not_passed"
         )
         recovery_hint = recovery_hint or _product_recovery_hint(status)
+    repair_action = _product_repair_action(
+        status=status,
+        failure_category=failure_category,
+        child=child,
+    )
     cleanup_result = dict(child.cleanup_summary or {})
     cleanup_result.setdefault("residual_tab_count", 0)
     cleanup_result.setdefault("kernel_idle_count", 0)
@@ -5628,11 +5685,43 @@ def _product_report_from_child(
         "live_opt_in": bool(scenario.live_opt_in),
         "failure_category": failure_category,
         "recovery_hint": recovery_hint,
+        "repair_action": repair_action,
+        "can_retry": repair_action != "none",
         "cleanup_result": cleanup_result,
         "reconnect_delta": reconnect_delta,
         "source_report": child.to_dict(),
         "source_reports": source_reports or [child.to_dict()],
     }
+
+
+def _product_repair_action(
+    *,
+    status: str,
+    failure_category: str,
+    child: BrowserBridgeReport,
+) -> str:
+    if status == "passed":
+        return "none"
+    evidence = child.to_dict()
+    haystack = " ".join(
+        str(value)
+        for value in (
+            child.error_code,
+            child.blocked_reason,
+            child.failure_reason,
+            failure_category,
+            evidence.get("backend_route"),
+        )
+    ).casefold()
+    if (
+        BrowserErrorCode.BRIDGE_DISCONNECTED.value in haystack
+        or "bridge disconnected" in haystack
+        or "browser_bridge_disconnected" in haystack
+    ):
+        return "reload_extension"
+    if status == "blocked":
+        return "open_setup_page"
+    return "rerun_after_fix"
 
 
 def _product_recovery_hint(status: str) -> str:
@@ -6986,8 +7075,14 @@ def _complex_fixture_code(
         '\'document.querySelector("[data-testid=fixture-frame]")'
         '.getAttribute("srcdoc")\', read_only=True)\n'
         "    assert 'Frame ready' in str(frame_srcdoc)\n"
-        "    await tab.actions.click({"
-        '"selector": "[data-testid=\'frame-action\']"})\n'
+        "    frame_clicked = await tab.evaluate("
+        "'(() => { const frame = "
+        "document.querySelector(\"[data-testid='fixture-frame']\"); "
+        "const button = frame && frame.contentWindow && "
+        "frame.contentWindow.document.querySelector("
+        '"[data-testid=frame-action]"); '
+        "if (!button) { return false; } button.click(); return true; })()')\n"
+        "    assert frame_clicked is True\n"
         "    await tab.actions.wait_for('Frame action clicked.', "
         "max_wait_ms=3000)\n"
         "    snapshot = await tab.snapshot()\n"

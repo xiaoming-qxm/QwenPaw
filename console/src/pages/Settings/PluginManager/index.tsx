@@ -1,5 +1,4 @@
 import { useTranslation } from "react-i18next";
-import { useNavigate } from "react-router-dom";
 import { useMemo } from "react";
 import { Button, Empty, Spin, Table, Tabs } from "antd";
 import { ExternalLink, Package, Plus } from "lucide-react";
@@ -14,7 +13,6 @@ import styles from "./index.module.less";
 
 export default function PluginManagerPage() {
   const { t } = useTranslation();
-  const navigate = useNavigate();
 
   const {
     plugins,
@@ -58,10 +56,6 @@ export default function PluginManagerPage() {
               rowKey="id"
               pagination={false}
               className={styles.table}
-              rowClassName={styles.clickableRow}
-              onRow={(record) => ({
-                onClick: () => navigate(`/plugin-manager/${record.id}`),
-              })}
             />
           )}
         </Spin>

@@ -118,6 +118,11 @@ export interface ExtensionStatus {
   installed: boolean;
   connected: boolean;
   install_mode: ExtensionInstallMode | string | null;
+  canonical_setup_url?: string;
+  setup_phase?: string;
+  recommended_action?: BrowserBridgeRepairAction;
+  repair_actions?: BrowserBridgeRepairAction[];
+  recovery_copy?: string;
   readiness_state?: string;
   repair_action?: BrowserBridgeRepairAction;
   native_host_status?: BrowserBridgeNativeHostStatus;
@@ -161,6 +166,12 @@ export interface OpenChromeExtensionsResult {
   error?: string | null;
 }
 
+export interface OpenExtensionFolderResult {
+  opened: boolean;
+  path: string;
+  error?: string | null;
+}
+
 export const extensionApi = {
   getStatus(): Promise<ExtensionStatus> {
     return request<ExtensionStatus>("/browser-bridge/status");
@@ -185,6 +196,15 @@ export const extensionApi = {
   openChromeExtensionsPage(): Promise<OpenChromeExtensionsResult> {
     return request<OpenChromeExtensionsResult>(
       "/browser-bridge/open-chrome-extensions",
+      {
+        method: "POST",
+      },
+    );
+  },
+
+  openExtensionFolder(): Promise<OpenExtensionFolderResult> {
+    return request<OpenExtensionFolderResult>(
+      "/browser-bridge/open-extension-folder",
       {
         method: "POST",
       },
