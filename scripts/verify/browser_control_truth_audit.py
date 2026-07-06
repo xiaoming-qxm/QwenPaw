@@ -43,7 +43,9 @@ BACKEND_PATHS = (
     "src/qwenpaw/browser_sdk/backends/user.py",
     "plugins/bundle/browser-control/engine/handlers/__init__.py",
 )
-LEGACY_SCAN_ROOTS = ("tests/local",)
+LEGACY_EVIDENCE_FIXTURES = (
+    "tests/local/fixtures/browser_control_historical_actions.json",
+)
 
 MODEL_FORBIDDEN_PATTERNS = (
     ("browser_use_call", re.compile(r"\bbrowser_use\s*\(")),
@@ -81,6 +83,14 @@ LEGACY_ACTION_CAPABILITY_MAP = {
     "wait_for": "trace.evidence",
 }
 DEFAULT_LEGACY_CAPABILITIES = ("trace.evidence", "routing.context_resolution")
+ARCHIVED_LEGACY_CAPABILITY_MAP = {
+    "claim_tab": ("tabs.multi_tab",),
+    "context_pruning": ("routing.context_resolution",),
+    "open_url": ("navigation.open",),
+    "prompt_guidance": ("trace.evidence",),
+    "snapshot": ("observation.snapshot",),
+    "wait_for_network": ("forms.submit_guard", "trace.evidence"),
+}
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -162,24 +172,27 @@ def scan_entropy_findings(repo_root: Path = REPO_ROOT) -> list[dict[str, Any]]:
 def classify_legacy_evidence(
     repo_root: Path = REPO_ROOT,
 ) -> list[dict[str, Any]]:
-    """Classify old browser_use samples as historical evidence only."""
+    """Classify archived old browser_use samples as historical evidence only."""
     entries: list[dict[str, Any]] = []
-    for root in LEGACY_SCAN_ROOTS:
-        scan_root = repo_root / root
-        if not scan_root.exists():
+    for fixture_path in LEGACY_EVIDENCE_FIXTURES:
+        archive = repo_root / fixture_path
+        if not archive.exists():
             continue
-        for path in sorted(scan_root.rglob("*")):
-            if path.suffix not in {".py", ".md"} or not path.is_file():
-                continue
-            text = _read_text(path)
-            if "browser_use" not in text:
-                continue
-            actions = _legacy_actions(text)
-            mapped_ids = {
+        for record in _legacy_fixture_records(archive):
+            old_action = str(record.get("old_action") or "")
+            archived_capability = str(record.get("capability_id") or "")
+            actions = _legacy_actions(old_action)
+            mapped_ids: set[str] = {
                 LEGACY_ACTION_CAPABILITY_MAP[action]
                 for action in actions
                 if action in LEGACY_ACTION_CAPABILITY_MAP
             }
+            mapped_ids.update(
+                ARCHIVED_LEGACY_CAPABILITY_MAP.get(
+                    archived_capability,
+                    (),
+                ),
+            )
             capability_ids = tuple(sorted(mapped_ids))
             if not capability_ids:
                 capability_ids = DEFAULT_LEGACY_CAPABILITIES
@@ -187,15 +200,16 @@ def classify_legacy_evidence(
                 {
                     "classification": "historical_evidence",
                     "old_tool": "browser_use",
-                    "source_path": _relative(path, repo_root),
+                    "source_path": _relative(archive, repo_root),
                     "matched_symbols": tuple(sorted(actions))
+                    or (archived_capability,)
                     or ("browser_use",),
                     "capability_ids": capability_ids,
                     "public_api": (),
                     "policy": (
-                        "Use old samples only to infer product capability "
-                        "classes; Browser SDK API names come from the "
-                        "product matrix."
+                        "Use archived old samples only to preserve product "
+                        "capability evidence; Browser SDK API names come "
+                        "from the product matrix."
                     ),
                 },
             )
@@ -300,11 +314,11 @@ def render_markdown_report(payload: dict[str, Any]) -> str:
             "",
             "## Legacy Evidence Policy",
             "",
-            "Old `browser_use` local tests and samples are historical "
+            "Archived old `browser_use` samples are historical "
             "capability evidence only. They map to product capability IDs "
             "and do not define Browser SDK public API names.",
             "",
-            f"- Classified legacy evidence files: `{len(legacy)}`",
+            f"- Classified legacy evidence records: `{len(legacy)}`",
             "- Public API names are sourced from `product_matrix.py`.",
             "- Removal candidates and compatibility cleanup belong to V8-C.",
             "",
@@ -468,6 +482,16 @@ def _legacy_actions(text: str) -> tuple[str, ...]:
         if action.strip().lower() != "browser_use"
     }
     return tuple(sorted(normalized))
+
+
+def _legacy_fixture_records(path: Path) -> list[dict[str, Any]]:
+    try:
+        payload = json.loads(_read_text(path))
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(payload, list):
+        return []
+    return [item for item in payload if isinstance(item, dict)]
 
 
 def _as_list(value: object) -> list[object]:

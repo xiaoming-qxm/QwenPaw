@@ -63,7 +63,11 @@ class BrowserGate(StopGate):
                 final_message=_final_message(decision),
             )
         budget = _retry_budget(decision)
-        if not _consume_budget(agent, _retry_budget_key(evidence, decision), budget):
+        if not _consume_budget(
+            agent,
+            _retry_budget_key(evidence, decision),
+            budget,
+        ):
             exhausted = _budget_exhausted(decision)
             return StopHandlerResult(
                 action=StopAction.STOP,
@@ -83,7 +87,11 @@ class BrowserLoopGateProvider:
 
     name: str = "browser-sdk"
 
-    def gates(self, workspace: Any, running_config: Any) -> tuple[StopGate, ...]:
+    def gates(
+        self,
+        workspace: Any,
+        running_config: Any,
+    ) -> tuple[StopGate, ...]:
         del workspace, running_config
         return (BrowserGate(),)
 
@@ -160,12 +168,14 @@ def _budget_exhausted(
 
 
 def _continuation_message(decision: BrowserRecoveryDecision) -> str:
+    current_context = (
+        decision.selected_context or decision.requested_context or "unknown"
+    )
     return (
         "Browser recovery required:\n"
         f"recovery_action: {decision.action.value}\n"
         f"reason: {decision.reason}\n"
-        "current_context: "
-        f"{decision.selected_context or decision.requested_context or 'unknown'}\n"
+        f"current_context: {current_context}\n"
         f"next_context: {decision.next_context}\n"
         f"required_next_step: {decision.required_next_step}\n"
         f"forbidden: {', '.join(decision.forbidden)}"
@@ -175,10 +185,13 @@ def _continuation_message(decision: BrowserRecoveryDecision) -> str:
 def _final_message(decision: BrowserRecoveryDecision) -> str:
     if decision.final_message:
         return decision.final_message
+    current_context = (
+        decision.selected_context or decision.requested_context or "unknown"
+    )
     return (
         "Browser task blocked:\n"
         f"reason: {decision.reason}\n"
-        f"context: {decision.selected_context or decision.requested_context or 'unknown'}\n"
+        f"context: {current_context}\n"
         f"backend: {decision.metadata.get('backend_id', 'unknown')}\n"
         f"required_user_action: {decision.required_next_step or 'none'}\n"
         f"status: {decision.action.value}"

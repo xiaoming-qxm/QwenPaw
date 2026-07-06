@@ -70,9 +70,7 @@ def collect_browser_request_evidence(
     session_id = _session_id(agent)
     latest_user_index = _latest_real_user_index(context)
     scoped_messages = (
-        context[latest_user_index + 1 :]
-        if latest_user_index >= 0
-        else context
+        context[latest_user_index + 1 :] if latest_user_index >= 0 else context
     )
     tool_call_ids = _browser_tool_call_ids(scoped_messages)
     metadata = _browser_tool_metadata(scoped_messages, set(tool_call_ids))
@@ -95,6 +93,9 @@ def collect_browser_request_evidence(
 class BrowserRecoveryPolicy:
     """Convert Browser evidence into structured recovery decisions."""
 
+    # The policy is a priority-ordered decision table; early returns keep the
+    # safety branches explicit and easy to audit.
+    # pylint: disable=too-many-return-statements
     def decide(
         self,
         evidence: BrowserRequestEvidence,
@@ -236,12 +237,13 @@ class BrowserRecoveryPolicy:
             BrowserRecoveryAction.RETRY_WITH_CONTEXT,
             BrowserRecoveryAction.WAIT_FOR_APPROVAL,
         }:
+            next_context_text = next_context or selected or requested or ""
             continuation = (
                 "Browser recovery required:\n"
                 f"recovery_action: {action.value}\n"
                 f"reason: {reason}\n"
                 f"current_context: {selected or requested or 'unknown'}\n"
-                f"next_context: {next_context or selected or requested or ''}\n"
+                f"next_context: {next_context_text}\n"
                 f"required_next_step: {required_next_step}\n"
                 f"forbidden: {', '.join(forbidden)}"
             )
@@ -402,7 +404,10 @@ def _latest_error_code(evidence: BrowserRequestEvidence) -> str:
 def _is_auto_isolated(event: BrowserTraceEvent | None) -> bool:
     if event is None:
         return False
-    return event.requested_context == "auto" and event.selected_context == "isolated"
+    return (
+        event.requested_context == "auto"
+        and event.selected_context == "isolated"
+    )
 
 
 def _no_progress(evidence: BrowserRequestEvidence) -> bool:
