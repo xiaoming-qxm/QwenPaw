@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Tests for Browser Control plugin route registration."""
+"""Tests for Browser Bridge plugin route registration."""
 
 from __future__ import annotations
 
@@ -16,9 +16,9 @@ def _repo_root() -> Path:
 
 
 @pytest.mark.asyncio
-async def test_browser_control_plugin_registers_bridge_routes() -> None:
+async def test_browser_bridge_plugin_registers_bridge_routes() -> None:
     app = FastAPI()
-    plugin_dir = _repo_root() / "plugins" / "bundle" / "browser-control"
+    plugin_dir = _repo_root() / "plugins" / "bundle" / "browser-bridge"
     loader = PluginLoader([plugin_dir.parent])
     loader.registry.set_plugin_http_app(app)
 
@@ -29,6 +29,6 @@ async def test_browser_control_plugin_registers_bridge_routes() -> None:
 
     paths = {getattr(route, "path", "") for route in app.router.routes}
 
-    assert "/api/extension/status" in paths
-    assert "/api/extension/setup" in paths
-    assert "/ws/nm-bridge" in paths
+    assert "/api/browser-bridge/status" in paths
+    assert "/api/browser-bridge/setup" in paths
+    assert "/ws/browser-bridge" in paths

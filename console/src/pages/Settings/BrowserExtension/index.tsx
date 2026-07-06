@@ -8,7 +8,7 @@ import {
   type ExtensionStatus,
 } from "@/api/modules/extension";
 import { useAppMessage } from "@/hooks/useAppMessage";
-import { BrowserControlReadiness } from "../browserControlReadiness";
+import { BrowserBridgeReadiness } from "../browserBridgeReadiness";
 
 const CWS_FALLBACK_URL =
   "https://chromewebstore.google.com/detail/qwenpaw-browser-bridge/nflcgkfjgoiipklkpenmbiificbakoch";
@@ -49,7 +49,7 @@ const codeStyle: CSSProperties = {
 
 function currentBridgeWsUrl() {
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  return `${protocol}//${window.location.host}/ws/nm-bridge`;
+  return `${protocol}//${window.location.host}/ws/browser-bridge`;
 }
 
 function cwsUrl(status: ExtensionStatus | null) {
@@ -318,7 +318,7 @@ export default function BrowserExtensionPage() {
 
     return (
       <div style={{ ...panelStyle, textAlign: "center" }}>
-        <h1 style={{ marginTop: 0 }}>Browser Control</h1>
+        <h1 style={{ marginTop: 0 }}>Browser Bridge</h1>
         <p style={{ color: "rgba(0,0,0,0.62)" }}>
           Connect QwenPaw to Chrome through the local browser bridge.
         </p>
@@ -357,7 +357,7 @@ export default function BrowserExtensionPage() {
     <div style={pageStyle}>
       <div style={shellStyle}>
         {content}
-        <BrowserControlReadiness
+        <BrowserBridgeReadiness
           loading={loading}
           onCopyDiagnostics={() => void handleCopyDiagnostics()}
           onOpenChrome={() => void handleOpenChrome()}

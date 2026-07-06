@@ -5,9 +5,9 @@ from __future__ import annotations
 
 import json
 
-from qwenpaw.browser.control_plugin import load_browser_control_submodule
+from tests.unit.browser_bridge_plugin import load_browser_bridge_submodule
 
-extension_cmd = load_browser_control_submodule("extension_setup")
+extension_cmd = load_browser_bridge_submodule("extension_setup")
 
 
 def test_setup_extension_files_registers_native_host(

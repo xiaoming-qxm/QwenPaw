@@ -402,8 +402,8 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 ContextVarsSetupHook,
             )
             from ..hooks.request_setup.media_hook import MediaProcessHook
-            from ..hooks.browser_control_lifecycle import (
-                BrowserControlLifecycleCleanupHook,
+            from ..hooks.browser_bridge_lifecycle import (
+                BrowserBridgeLifecycleCleanupHook,
             )
             from ..hooks.error.error_hook import (
                 ErrorNormalizeHook,
@@ -421,7 +421,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 SkillEnvHook,
                 SkillEnvCleanupHook,
                 ContextVarsSetupHook,
-                BrowserControlLifecycleCleanupHook,
+                BrowserBridgeLifecycleCleanupHook,
                 MediaProcessHook,
                 ErrorNormalizeHook,
                 CancelCleanupHook,
@@ -780,8 +780,11 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 logger.error(f"Error stopping MultiAgentManager: {e}")
 
         # These three cleanup tasks are independent; run in parallel.
-        from ..agents.tools.browser_control import stop_all_browsers
         from ..agents.skill_system.hub import aclose_hub_client
+        from ..browser.sdk.backends.registry import (
+            shutdown_registered_browser_backends,
+        )
+        from ..browser.sdk.runtime.responses import stop_all_browsers
 
         async def _stop_token_usage():
             logger.info("Stopping TokenUsageManager...")
@@ -794,6 +797,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
         async def _stop_browsers():
             try:
+                await shutdown_registered_browser_backends()
                 await stop_all_browsers()
             except Exception as e:
                 logger.error(

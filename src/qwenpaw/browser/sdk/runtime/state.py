@@ -9,7 +9,7 @@ from typing import Any
 
 
 class ControlSessionState(str, Enum):
-    """Lifecycle states for a Browser Control session."""
+    """Lifecycle states for a Browser Bridge session."""
 
     IDLE = "idle"
     CONNECTING = "connecting"

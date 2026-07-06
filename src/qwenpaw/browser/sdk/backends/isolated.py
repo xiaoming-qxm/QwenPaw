@@ -145,6 +145,10 @@ class IsolatedBrowserBackend:
             context=context,
         )
 
+    async def shutdown(self) -> None:
+        """Stop all SDK-owned isolated browser runtimes."""
+        await self._manager.stop_all()
+
 
 class IsolatedBrowserSession:
     """Connected isolated browser session."""

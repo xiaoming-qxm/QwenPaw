@@ -2,9 +2,9 @@
 """Click effect tracker behavior."""
 # pylint: disable=protected-access
 
-from qwenpaw.browser.control_plugin import load_browser_control_submodule
+from tests.unit.browser_bridge_plugin import load_browser_bridge_submodule
 
-_observation = load_browser_control_submodule("engine.observation")
+_observation = load_browser_bridge_submodule("engine.observation")
 _click_effect_check = _observation._click_effect_check
 _click_effect_record_click = _observation._click_effect_record_click
 

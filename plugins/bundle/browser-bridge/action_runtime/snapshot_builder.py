@@ -1,0 +1,1951 @@
+# -*- coding: utf-8 -*-
+"""Structured snapshot builders for Browser Bridge."""
+# pylint: disable=implicit-str-concat,too-many-boolean-expressions
+# pylint: disable=too-many-branches,too-many-return-statements
+# pylint: disable=too-many-statements
+
+from __future__ import annotations
+
+import asyncio
+import hashlib
+import re
+from typing import Any
+from typing import cast
+
+from agentscope.message import DataBlock, URLSource
+from pydantic import AnyUrl
+
+from qwenpaw.browser.sdk.runtime.responses import logger
+from qwenpaw.browser.sdk.governance.error_codes import BrowserErrorCode
+from .errors import BrowserBridgeRecoverableError, DOMSettleTimeout
+
+_OBSERVATION_ENRICHMENT_DENIED = "OBSERVATION_ENRICHMENT_DENIED"
+_DOM_TREE_FALLBACK_DEPTH = 8
+_DOM_TREE_AX_FAILURE_FALLBACK_DEPTH = 18
+_CONTROL_AX_SNAPSHOT_TIMEOUT_SECONDS = 5.0
+_CONTROL_DOM_TREE_TIMEOUT_SECONDS = 5.0
+_CONTROL_DOM_SNAPSHOT_TIMEOUT_SECONDS = 5.0
+_CONTROL_VISUAL_CONTEXT_TIMEOUT_SECONDS = 5.0
+_CONTROL_PAGE_STATE_TIMEOUT_SECONDS = 1.5
+_CONTROL_ACTION_TARGETS_TIMEOUT_SECONDS = 1.5
+_CONTROL_ACTION_TARGETS_LIMIT = 24
+_CONTROL_ACTION_CANDIDATE_LIMIT = _CONTROL_ACTION_TARGETS_LIMIT * 12
+_CONTROL_ACTION_DOM_DEPTH = 10
+_CONTROL_ACTION_DOM_TIMEOUT_SECONDS = 2.0
+_CONTROL_ACTION_QUAD_TIMEOUT_SECONDS = 0.8
+_CONTROL_LINK_REF_ENRICH_TIMEOUT_SECONDS = 1.5
+_CONTROL_LINK_REF_ENRICH_LIMIT = 30
+_CONTROL_ACTION_MAX_LABEL_LENGTH = 96
+_CONTROL_ACTION_MAX_AREA_RATIO = 0.2
+_CONTROL_ACTION_REPEAT_LIMIT = 3
+_CONTROL_ACTION_REPEAT_LIMITED_LABELS = {"cart"}
+_CONTROL_ACTION_TEXT_RE = re.compile(
+    "|".join(
+        (
+            "加入购物车",
+            "加购",
+            "购物车",
+            "购买",
+            "立即",
+            "结算",
+            "提交",
+            "确定",
+            "确认",
+            "删除",
+            "全选",
+            "勾选",
+            "选择",
+            "清空",
+            "搜索",
+            "add to cart",
+            "select all",
+            "cart",
+            "buy",
+            "checkout",
+            "submit",
+            "confirm",
+            "delete",
+            "remove",
+            "clear",
+            "checkbox",
+            "search",
+        ),
+    ),
+    re.IGNORECASE,
+)
+_CONTROL_ACTION_CLASS_RE = re.compile(
+    "|".join(
+        (
+            "btn",
+            "button",
+            "action",
+            "cart",
+            "buy",
+            "purchase",
+            "checkout",
+            "submit",
+            "confirm",
+            "delete",
+            "remove",
+            "clear",
+            "search",
+            "check",
+            "checkbox",
+            "select-all",
+            "selectall",
+            "sku",
+            "spec",
+            "variant",
+            "option",
+            "select",
+        ),
+    ),
+    re.IGNORECASE,
+)
+_CONTROL_ACTION_WEAK_ADD_CART_EXCLUSION_RE = re.compile(
+    "|".join(
+        (
+            "collect",
+            "favorite",
+            "fav",
+            "wish",
+            "heart",
+            "star",
+            "share",
+            "service",
+            "shop",
+            "store",
+            "home",
+            "more",
+            "收藏",
+            "关注",
+            "客服",
+            "店铺",
+            "进店",
+            "首页",
+            "分享",
+            "更多",
+            "举报",
+            "反馈",
+        ),
+    ),
+    re.IGNORECASE,
+)
+_CONTROL_ACTION_SEMANTIC_LABELS = (
+    (
+        re.compile(
+            r"(?:add|plus)[-_\s]*(?:to[-_\s]*)?cart|"
+            r"cart[-_\s]*(?:add|plus)|addcart|cartadd",
+            re.IGNORECASE,
+        ),
+        "add cart",
+    ),
+    (
+        re.compile(
+            r"select[-_\s]*all|all[-_\s]*select|check[-_\s]*all|全选",
+            re.IGNORECASE,
+        ),
+        "select all",
+    ),
+    (re.compile(r"delete|remove|clear|删除|清空", re.IGNORECASE), "delete"),
+    (
+        re.compile(
+            r"checkbox|check[-_\s]*box|item[-_\s]*(?:check|select)|" r"勾选|选择",
+            re.IGNORECASE,
+        ),
+        "checkbox",
+    ),
+    (re.compile(r"cart|basket|购物车", re.IGNORECASE), "cart"),
+    (
+        re.compile(r"buy[-_\s]*now|buy|purchase|购买|立即|马上", re.IGNORECASE),
+        "buy",
+    ),
+    (re.compile(r"checkout|settle|结算", re.IGNORECASE), "checkout"),
+    (re.compile(r"submit|提交", re.IGNORECASE), "submit"),
+    (re.compile(r"confirm|ok|确定|确认", re.IGNORECASE), "confirm"),
+    (re.compile(r"search|搜索", re.IGNORECASE), "search"),
+    (re.compile(r"sku|spec|variant|option|select", re.IGNORECASE), "option"),
+)
+_CONTROL_ACTION_TEXT_ATTRIBUTES = (
+    "aria-label",
+    "title",
+    "alt",
+    "placeholder",
+    "value",
+)
+_CONTROL_ACTION_SEMANTIC_ATTRIBUTES = (
+    "aria-label",
+    "title",
+    "alt",
+    "data-title",
+    "data-action",
+    "data-role",
+    "data-testid",
+    "data-test",
+    "id",
+    "class",
+    "href",
+)
+_CONTROL_ACTION_CLICK_ATTRIBUTES = {
+    "onclick",
+    "onmousedown",
+    "onmouseup",
+    "data-click",
+    "data-clickid",
+}
+_CONTROL_ACTION_SKIPPED_NODES = {
+    "script",
+    "style",
+    "noscript",
+    "template",
+    "svg",
+    "canvas",
+}
+_CONTROL_ACTION_STRUCTURAL_NODES = {
+    "#document",
+    "document",
+    "html",
+    "body",
+}
+_CONTROL_ACTION_INTERACTIVE_ROLES = {
+    "button",
+    "link",
+    "menuitem",
+    "tab",
+    "option",
+    "checkbox",
+    "radio",
+    "combobox",
+    "listbox",
+    "textbox",
+    "searchbox",
+    "switch",
+}
+
+
+def _url_source(url: str, media_type: str) -> URLSource:
+    return URLSource(url=cast(AnyUrl, url), media_type=media_type)
+
+
+def _control_snapshot_hash(snapshot: str) -> str:
+    return hashlib.md5(snapshot.encode("utf-8")).hexdigest()[:16]
+
+
+def _control_refs_have_interactive_role(refs: dict[str, dict]) -> bool:
+    if not refs:
+        return False
+    from qwenpaw.browser.sdk.runtime.snapshot import INTERACTIVE_ROLES
+
+    return any(
+        str(ref.get("role") or "").lower() in INTERACTIVE_ROLES
+        for ref in refs.values()
+        if isinstance(ref, dict)
+    )
+
+
+async def _control_visual_context_block(session: Any) -> DataBlock | None:
+    try:
+        result = await _send_with_timeout(
+            session,
+            "Page.captureScreenshot",
+            {"format": "jpeg", "quality": 60},
+            timeout=_CONTROL_VISUAL_CONTEXT_TIMEOUT_SECONDS,
+        )
+    except (BrowserBridgeRecoverableError, asyncio.TimeoutError):
+        logger.debug(
+            "Failed to capture adaptive visual fallback",
+            exc_info=True,
+        )
+        return None
+
+    data = result.get("data") if isinstance(result, dict) else None
+    if not isinstance(data, str) or not data:
+        return None
+    return DataBlock(
+        source=_url_source(f"data:image/jpeg;base64,{data}", "image/jpeg"),
+        name="browser-bridge-visual-context.jpg",
+    )
+
+
+def _control_escalation_payload(info: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "failed_ref": str(info.get("failed_ref") or ""),
+        "consecutive_no_effect": int(info.get("consecutive_no_effect") or 0),
+        "hint": (
+            "The same target did not change the structured snapshot. "
+            "Use the attached screenshot to inspect visual state before "
+            "choosing a different target or coordinate click."
+        ),
+    }
+
+
+async def build_control_snapshot(
+    session: Any,
+) -> tuple[str, dict[str, dict], bool]:
+    """Build an accessibility snapshot with a bounded DOM fallback."""
+    from qwenpaw.browser.sdk.runtime.snapshot import from_cdp_ax_tree
+
+    try:
+        ax_tree = await _send_with_timeout(
+            session,
+            "Accessibility.getFullAXTree",
+            timeout=_CONTROL_AX_SNAPSHOT_TIMEOUT_SECONDS,
+        )
+    except Exception:  # noqa: BLE001
+        logger.debug(
+            "Failed to build control AX snapshot; using bounded DOM fallback",
+            exc_info=True,
+        )
+        try:
+            fallback_snapshot, fallback_refs = await _fallback_dom_snapshot(
+                session,
+                depth=_DOM_TREE_AX_FAILURE_FALLBACK_DEPTH,
+                allow_dom_snapshot=False,
+            )
+        except Exception:
+            logger.debug(
+                "Failed to build deep DOM fallback; using shallow fallback",
+                exc_info=True,
+            )
+            fallback_snapshot, fallback_refs = await _fallback_dom_snapshot(
+                session,
+                depth=_DOM_TREE_FALLBACK_DEPTH,
+                allow_dom_snapshot=False,
+            )
+        fallback_snapshot = await _append_page_state(
+            session,
+            fallback_snapshot,
+        )
+        fallback_snapshot = await _append_action_targets(
+            session,
+            fallback_snapshot,
+            fallback_refs,
+        )
+        return fallback_snapshot, fallback_refs, True
+
+    snapshot, refs = from_cdp_ax_tree(ax_tree)
+    degradation_lines = await _enrich_ax_link_refs_with_dom_attributes(
+        session,
+        refs,
+    )
+    snapshot_text = snapshot.strip()
+    degraded_snapshot = False
+    if not refs and (
+        len(snapshot_text) < 50 or snapshot_text.startswith("- RootWebArea")
+    ):
+        degraded_snapshot = True
+        try:
+            fallback_snapshot, fallback_refs = await _fallback_dom_snapshot(
+                session,
+            )
+        except BrowserBridgeRecoverableError:
+            logger.debug(
+                "Failed to build control bounded DOM fallback",
+                exc_info=True,
+            )
+        else:
+            if fallback_snapshot != "(empty)":
+                snapshot = fallback_snapshot
+                refs = fallback_refs
+    if refs and not _control_refs_have_interactive_role(refs):
+        degraded_snapshot = True
+    snapshot = await _append_page_state(session, snapshot)
+    snapshot = await _append_action_targets(session, snapshot, refs)
+    snapshot = _prepend_observation_degradation_lines(
+        snapshot,
+        degradation_lines,
+    )
+    if _snapshot_has_observation_enrichment_denial(snapshot):
+        degraded_snapshot = True
+    return snapshot, refs, degraded_snapshot
+
+
+async def _fallback_dom_snapshot(
+    session: Any,
+    *,
+    depth: int = _DOM_TREE_FALLBACK_DEPTH,
+    allow_dom_snapshot: bool = True,
+) -> tuple[str, dict[str, dict]]:
+    dom_tree = await _send_with_timeout(
+        session,
+        "DOM.getDocument",
+        {"depth": int(depth), "pierce": True},
+        timeout=_CONTROL_DOM_TREE_TIMEOUT_SECONDS,
+    )
+    from qwenpaw.browser.sdk.runtime.snapshot import from_cdp_dom_tree
+
+    tree_snapshot, tree_refs = from_cdp_dom_tree(dom_tree)
+    if tree_snapshot != "(empty)":
+        return tree_snapshot, tree_refs
+    if not allow_dom_snapshot:
+        return tree_snapshot, tree_refs
+
+    # Some modern pages expose only the root node through AX and shallow DOM
+    # snapshots. Use DOMSnapshot only after the bounded tree produced no text.
+    dom_snapshot = await _send_with_timeout(
+        session,
+        "DOMSnapshot.captureSnapshot",
+        {
+            "computedStyles": [],
+            "includeDOMRects": True,
+            "includePaintOrder": True,
+        },
+        timeout=_CONTROL_DOM_SNAPSHOT_TIMEOUT_SECONDS,
+    )
+    from qwenpaw.browser.sdk.runtime.snapshot import from_cdp_dom_snapshot
+
+    return from_cdp_dom_snapshot(dom_snapshot)
+
+
+async def _send_with_timeout(
+    session: Any,
+    method: str,
+    params: dict[str, Any] | None = None,
+    *,
+    timeout: float,
+) -> dict[str, Any]:
+    bounded_timeout = max(float(timeout), 0.1)
+    try:
+        return await asyncio.wait_for(
+            session.send(method, params or {}),
+            timeout=bounded_timeout,
+        )
+    except asyncio.TimeoutError as exc:
+        raise DOMSettleTimeout(
+            f"{method} did not complete before {bounded_timeout}s",
+        ) from exc
+
+
+async def _send_trusted_readonly_evaluate(
+    session: Any,
+    *,
+    purpose: str,
+    expression: str,
+    timeout: float,
+) -> dict[str, Any]:
+    params = {
+        "expression": expression,
+        "returnByValue": True,
+        "awaitPromise": False,
+        "timeout": 1000,
+    }
+    trusted_send = getattr(session, "send_trusted_readonly", None)
+    if callable(trusted_send):
+        bounded_timeout = max(float(timeout), 0.1)
+        try:
+            return await asyncio.wait_for(
+                trusted_send("Runtime.evaluate", params, purpose=purpose),
+                timeout=bounded_timeout,
+            )
+        except asyncio.TimeoutError as exc:
+            raise DOMSettleTimeout(
+                "Runtime.evaluate did not complete before "
+                f"{bounded_timeout}s",
+            ) from exc
+    return await _send_with_timeout(
+        session,
+        "Runtime.evaluate",
+        params,
+        timeout=timeout,
+    )
+
+
+async def _enrich_ax_link_refs_with_dom_attributes(
+    session: Any,
+    refs: dict[str, dict],
+) -> list[str]:
+    enriched = 0
+    degradation_lines: list[str] = []
+    for target in refs.values():
+        if enriched >= _CONTROL_LINK_REF_ENRICH_LIMIT:
+            return degradation_lines
+        if not isinstance(target, dict):
+            continue
+        role = str(target.get("role") or "").strip().lower()
+        if role != "link" or target.get("href"):
+            continue
+        backend_node_id = _positive_int(target.get("backendNodeId"))
+        if backend_node_id is None:
+            continue
+        try:
+            result = await _send_with_timeout(
+                session,
+                "DOM.describeNode",
+                {"backendNodeId": backend_node_id, "depth": 0},
+                timeout=_CONTROL_LINK_REF_ENRICH_TIMEOUT_SECONDS,
+            )
+        except Exception as exc:  # noqa: BLE001
+            if _is_observation_enrichment_denied(exc):
+                degradation_lines.append(
+                    _observation_degradation_line(
+                        "snapshot.link_attributes",
+                        exc,
+                    ),
+                )
+            logger.debug("Failed to enrich AX link ref", exc_info=True)
+            continue
+        attributes = _describe_node_attributes(result)
+        href = str(attributes.get("href") or "").strip()
+        if href:
+            target["href"] = href
+        link_target = str(attributes.get("target") or "").strip()
+        if link_target:
+            target["target"] = link_target
+        enriched += 1
+    return degradation_lines
+
+
+def _describe_node_attributes(result: dict[str, Any]) -> dict[str, str]:
+    node = result.get("node") if isinstance(result, dict) else None
+    if not isinstance(node, dict):
+        result_value = (
+            result.get("result") if isinstance(result, dict) else None
+        )
+        if isinstance(result_value, dict):
+            node = result_value.get("node")
+    if not isinstance(node, dict):
+        return {}
+    attributes = node.get("attributes")
+    if not isinstance(attributes, list):
+        return {}
+    parsed: dict[str, str] = {}
+    for index in range(0, len(attributes) - 1, 2):
+        name = str(attributes[index] or "").strip().lower()
+        if not name:
+            continue
+        parsed[name] = str(attributes[index + 1] or "")
+    return parsed
+
+
+def _positive_int(value: Any) -> int | None:
+    if isinstance(value, int) and value > 0:
+        return value
+    if isinstance(value, str) and value.isdigit():
+        parsed = int(value)
+        return parsed if parsed > 0 else None
+    return None
+
+
+async def _append_page_state(session: Any, snapshot: str) -> str:
+    line = await _control_page_state_line(session)
+    if not line:
+        return snapshot
+    snapshot = snapshot.strip() or "(empty)"
+    if snapshot == "(empty)":
+        return line
+    return f"{line}\n{snapshot}"
+
+
+async def _append_action_targets(
+    session: Any,
+    snapshot: str,
+    refs: dict[str, dict],
+) -> str:
+    lines = await _control_dom_action_target_lines(session, refs)
+    seen_text = {_action_target_line_text(line) for line in lines}
+    for line in await _control_action_target_lines(session):
+        line_text = _action_target_line_text(line)
+        if line_text and line_text in seen_text:
+            continue
+        if line_text:
+            seen_text.add(line_text)
+        lines.append(line)
+    if not lines:
+        return snapshot
+    snapshot = snapshot.strip() or "(empty)"
+    if snapshot == "(empty)":
+        return "\n".join(lines)
+    snapshot_lines = snapshot.splitlines()
+    if snapshot_lines and snapshot_lines[0].startswith("- page_state "):
+        return "\n".join([snapshot_lines[0], *lines, *snapshot_lines[1:]])
+    return "\n".join([*lines, *snapshot_lines])
+
+
+async def _control_dom_action_target_lines(
+    session: Any,
+    refs: dict[str, dict],
+) -> list[str]:
+    try:
+        result = await _send_with_timeout(
+            session,
+            "DOM.getDocument",
+            {"depth": _CONTROL_ACTION_DOM_DEPTH, "pierce": True},
+            timeout=_CONTROL_ACTION_DOM_TIMEOUT_SECONDS,
+        )
+    except Exception as exc:  # noqa: BLE001
+        if _is_observation_enrichment_denied(exc):
+            return [
+                _observation_degradation_line(
+                    "snapshot.dom_action_targets",
+                    exc,
+                ),
+            ]
+        logger.debug("Failed to read DOM action targets", exc_info=True)
+        return []
+
+    root = result.get("root") if isinstance(result, dict) else None
+    if not isinstance(root, dict):
+        return []
+
+    candidates = _collect_dom_action_candidates(root)
+    if not candidates:
+        return []
+
+    has_purchase_action = _dom_action_candidates_include_purchase_action(
+        candidates,
+    )
+    viewport = await _dom_action_viewport_size(session)
+    next_ref = _next_action_ref(refs)
+    lines: list[str] = []
+    seen: set[str] = set()
+    label_counts: dict[str, int] = {}
+    for candidate in candidates:
+        if len(lines) >= _CONTROL_ACTION_TARGETS_LIMIT:
+            break
+        text = _clean_action_target_text(candidate.get("text"))
+        if not text:
+            continue
+        label = _dom_action_repeat_label(text)
+        if not (
+            has_purchase_action and label == "cart"
+        ) and _action_label_over_repeat_limit(label, label_counts):
+            continue
+        node_params = _dom_action_node_params(candidate)
+        if node_params is None:
+            continue
+        point = await _dom_action_point(
+            session,
+            node_params,
+            viewport=viewport,
+        )
+        if point is None:
+            continue
+        if candidate.get("requires_bottom_purchase_bar"):
+            viewport_height = float(viewport[1])
+            if (
+                viewport_height <= 0
+                or float(point[1]) < viewport_height * 0.72
+            ):
+                continue
+        tag = _clean_action_target_token(candidate.get("tag") or "element")
+        role = _clean_action_target_token(candidate.get("role") or "button")
+        text = _dom_action_contextual_output_text(
+            text,
+            role,
+            candidate,
+            point,
+            viewport,
+            has_purchase_action=has_purchase_action,
+        )
+        label = _dom_action_repeat_label(text)
+        x, y = (_rounded_number(point[0]), _rounded_number(point[1]))
+        dedupe_key = f"{text}|{tag}|{role}|{x}|{y}"
+        if dedupe_key in seen:
+            continue
+        seen.add(dedupe_key)
+        if label in _CONTROL_ACTION_REPEAT_LIMITED_LABELS:
+            label_counts[label] = label_counts.get(label, 0) + 1
+        ref = next_ref()
+        target = {
+            "role": role or "button",
+            "name": text,
+            "x": x,
+            "y": y,
+        }
+        target.update(node_params)
+        href = str(candidate.get("href") or "").strip()
+        if href:
+            target["href"] = href
+        link_target = str(candidate.get("target") or "").strip()
+        if link_target:
+            target["target"] = link_target
+        refs[ref] = target
+        role_part = f" role={role}" if role else ""
+        lines.append(
+            f'- action_target "{_quote_snapshot_text(text)}" '
+            f"[ref={ref}] tag={tag}{role_part} x={x} y={y}",
+        )
+    return lines
+
+
+def _collect_dom_action_candidates(
+    root: dict[str, Any],
+) -> list[dict[str, Any]]:
+    candidates: list[dict[str, Any]] = []
+    seen_nodes: set[tuple[str, str]] = set()
+    label_counts: dict[str, int] = {}
+    order = 0
+
+    def visit(
+        node: dict[str, Any],
+        siblings: list[dict[str, Any]] | None = None,
+        sibling_index: int | None = None,
+    ) -> None:
+        nonlocal order
+        if len(candidates) >= _CONTROL_ACTION_CANDIDATE_LIMIT:
+            return
+        node_name = str(node.get("nodeName") or "").lower()
+        if node_name in _CONTROL_ACTION_SKIPPED_NODES:
+            return
+        node_type = node.get("nodeType")
+        if node_type == 3 or node_name == "#text":
+            return
+
+        attributes = _dom_action_attributes(node.get("attributes"))
+        visible_text = _dom_action_text(node, attributes)
+        semantic_text = _dom_action_tree_semantic_text(node, attributes)
+        weak_add_cart_text = _dom_action_weak_add_cart_text(
+            node,
+            attributes,
+            siblings=siblings,
+            sibling_index=sibling_index,
+        )
+        text = _dom_action_preferred_text(
+            visible_text=visible_text,
+            semantic_text=semantic_text,
+            weak_add_cart_text=weak_add_cart_text,
+        )
+        role = _dom_action_role(node_name, attributes)
+        class_name = str(attributes.get("class") or "")
+        has_action_text = bool(_CONTROL_ACTION_TEXT_RE.search(text))
+        has_action_class = bool(_CONTROL_ACTION_CLASS_RE.search(class_name))
+        has_click_attr = any(
+            name in attributes for name in _CONTROL_ACTION_CLICK_ATTRIBUTES
+        )
+        is_weak_add_cart = weak_add_cart_text == "add cart"
+        is_structural = node_name in _CONTROL_ACTION_STRUCTURAL_NODES
+        is_compound_label = len(text) > _CONTROL_ACTION_MAX_LABEL_LENGTH
+        repeat_label = _dom_action_repeat_label(text)
+        if text and (
+            not is_structural
+            and not is_compound_label
+            and (
+                role is not None
+                or has_action_text
+                or has_action_class
+                or has_click_attr
+                or is_weak_add_cart
+            )
+        ):
+            node_key = (
+                str(node.get("backendNodeId") or node.get("nodeId")),
+                text,
+            )
+            if (
+                node_key not in seen_nodes
+                and not _action_label_over_repeat_limit(
+                    repeat_label,
+                    label_counts,
+                )
+            ):
+                if repeat_label in _CONTROL_ACTION_REPEAT_LIMITED_LABELS:
+                    label_counts[repeat_label] = (
+                        label_counts.get(repeat_label, 0) + 1
+                    )
+                seen_nodes.add(node_key)
+                order += 1
+                candidates.append(
+                    {
+                        "tag": node_name or "element",
+                        "role": role or "button",
+                        "text": text,
+                        "backendNodeId": node.get("backendNodeId"),
+                        "nodeId": node.get("nodeId"),
+                        "href": attributes.get("href", ""),
+                        "target": attributes.get("target", ""),
+                        "requires_bottom_purchase_bar": is_weak_add_cart,
+                        "priority": _dom_action_priority(
+                            role,
+                            text,
+                            has_action_text,
+                            has_action_class,
+                        ),
+                        "order": order,
+                    },
+                )
+        for key in ("children", "shadowRoots", "pseudoElements"):
+            children = node.get(key)
+            if not isinstance(children, list):
+                continue
+            for index, child in enumerate(children):
+                if isinstance(child, dict):
+                    visit(child, children, index)
+
+        content_document = node.get("contentDocument")
+        if isinstance(content_document, dict):
+            visit(content_document)
+
+    visit(root)
+    candidates.sort(
+        key=lambda item: (
+            _int_or_default(item.get("priority"), 99),
+            _int_or_default(item.get("order"), 0),
+        ),
+    )
+    return candidates
+
+
+def _dom_action_attributes(attributes: Any) -> dict[str, str]:
+    if not isinstance(attributes, list):
+        return {}
+    result: dict[str, str] = {}
+    for index in range(0, len(attributes) - 1, 2):
+        name = str(attributes[index] or "").strip().lower()
+        if not name:
+            continue
+        result[name] = str(attributes[index + 1] or "")
+    return result
+
+
+def _dom_action_role(
+    node_name: str,
+    attributes: dict[str, str],
+) -> str | None:
+    role = str(attributes.get("role") or "").strip().lower()
+    if role in _CONTROL_ACTION_INTERACTIVE_ROLES:
+        return role
+    if node_name == "a" and attributes.get("href"):
+        return "link"
+    if node_name in {"button", "summary"}:
+        return "button"
+    if node_name == "select":
+        return "combobox"
+    if node_name == "textarea":
+        return "textbox"
+    if node_name == "option":
+        return "option"
+    if node_name == "input":
+        input_type = str(attributes.get("type") or "text").lower()
+        if input_type == "checkbox":
+            return "checkbox"
+        if input_type == "radio":
+            return "radio"
+        if input_type == "search":
+            return "searchbox"
+        if input_type in {"button", "submit", "reset"}:
+            return "button"
+        return "textbox"
+    class_name = str(attributes.get("class") or "")
+    if _CONTROL_ACTION_CLASS_RE.search(class_name):
+        return "button"
+    if any(name in attributes for name in _CONTROL_ACTION_CLICK_ATTRIBUTES):
+        return "button"
+    return None
+
+
+def _dom_action_text(
+    node: dict[str, Any],
+    attributes: dict[str, str],
+) -> str:
+    pieces: list[str] = []
+
+    def add(value: Any) -> None:
+        text = str(value or "")
+        if text:
+            pieces.append(text)
+
+    for attr_name in _CONTROL_ACTION_TEXT_ATTRIBUTES:
+        add(attributes.get(attr_name))
+
+    def walk(current: dict[str, Any]) -> None:
+        if len(" ".join(pieces)) >= 600:
+            return
+        node_name = str(current.get("nodeName") or "").lower()
+        if node_name in _CONTROL_ACTION_SKIPPED_NODES:
+            return
+        node_type = current.get("nodeType")
+        if node_type == 3 or node_name == "#text":
+            add(current.get("nodeValue"))
+            return
+        current_attributes = _dom_action_attributes(
+            current.get("attributes"),
+        )
+        for attr_name in _CONTROL_ACTION_TEXT_ATTRIBUTES:
+            add(current_attributes.get(attr_name))
+        for key in ("children", "shadowRoots", "pseudoElements"):
+            children = current.get(key)
+            if not isinstance(children, list):
+                continue
+            for child in children:
+                if isinstance(child, dict):
+                    walk(child)
+                if len(" ".join(pieces)) >= 600:
+                    return
+
+    walk(node)
+    text = " ".join(" ".join(pieces).split())
+    return text[:180]
+
+
+def _dom_action_semantic_source(attributes: dict[str, str]) -> str:
+    return " ".join(
+        str(attributes.get(name) or "")
+        for name in _CONTROL_ACTION_SEMANTIC_ATTRIBUTES
+    )
+
+
+def _dom_action_semantic_label(source: str) -> str:
+    if not source.strip():
+        return ""
+
+    labels: list[str] = []
+    for pattern, label in _CONTROL_ACTION_SEMANTIC_LABELS:
+        if pattern.search(source) and label not in labels:
+            labels.append(label)
+        if len(labels) >= 3:
+            break
+    for preferred in (
+        "add cart",
+        "select all",
+        "delete",
+        "checkbox",
+        "buy",
+    ):
+        if preferred in labels:
+            return preferred
+    return " ".join(labels)
+
+
+def _dom_action_semantic_text(attributes: dict[str, str]) -> str:
+    return _dom_action_semantic_label(
+        _dom_action_semantic_source(attributes),
+    )
+
+
+def _dom_action_tree_semantic_text(
+    node: dict[str, Any],
+    attributes: dict[str, str],
+) -> str:
+    sources = [_dom_action_semantic_source(attributes)]
+
+    def walk(current: dict[str, Any], depth: int) -> None:
+        if len(sources) >= 40 or depth <= 0:
+            return
+        node_name = str(current.get("nodeName") or "").lower()
+        if node_name in _CONTROL_ACTION_SKIPPED_NODES:
+            return
+        current_attributes = _dom_action_attributes(
+            current.get("attributes"),
+        )
+        source = _dom_action_semantic_source(current_attributes)
+        if source.strip():
+            sources.append(source)
+        for key in ("children", "shadowRoots", "pseudoElements"):
+            children = current.get(key)
+            if not isinstance(children, list):
+                continue
+            for child in children:
+                if isinstance(child, dict):
+                    walk(child, depth - 1)
+                if len(sources) >= 40:
+                    return
+
+    for key in ("children", "shadowRoots", "pseudoElements"):
+        children = node.get(key)
+        if not isinstance(children, list):
+            continue
+        for child in children:
+            if isinstance(child, dict):
+                walk(child, 3)
+            if len(sources) >= 40:
+                break
+
+    return _dom_action_semantic_label(" ".join(sources))
+
+
+def _dom_action_weak_add_cart_text(
+    node: dict[str, Any],
+    attributes: dict[str, str],
+    *,
+    siblings: list[dict[str, Any]] | None,
+    sibling_index: int | None,
+) -> str:
+    if siblings is None or sibling_index is None:
+        return ""
+    node_name = str(node.get("nodeName") or "").lower()
+    role = _dom_action_role(node_name, attributes)
+    class_name = str(attributes.get("class") or "")
+    has_action_class = bool(_CONTROL_ACTION_CLASS_RE.search(class_name))
+    has_click_attr = any(
+        name in attributes for name in _CONTROL_ACTION_CLICK_ATTRIBUTES
+    )
+    if role is None and not has_action_class and not has_click_attr:
+        return ""
+    source = " ".join(
+        (
+            _dom_action_text(node, attributes),
+            _dom_action_tree_semantic_text(node, attributes),
+            _dom_action_semantic_source(attributes),
+        ),
+    )
+    repeat_label = _dom_action_repeat_label(source)
+    if repeat_label in {"add cart", "buy", "checkout"}:
+        return ""
+    if repeat_label == "cart" and _dom_action_is_cart_navigation(attributes):
+        return ""
+    if _CONTROL_ACTION_WEAK_ADD_CART_EXCLUSION_RE.search(source):
+        return ""
+    for sibling in siblings[sibling_index + 1 : sibling_index + 4]:
+        if not isinstance(sibling, dict):
+            continue
+        sibling_attributes = _dom_action_attributes(
+            sibling.get("attributes"),
+        )
+        sibling_text = _dom_action_text(
+            sibling,
+            sibling_attributes,
+        ) or _dom_action_tree_semantic_text(sibling, sibling_attributes)
+        if _dom_action_repeat_label(sibling_text) in {"buy", "checkout"}:
+            return "add cart"
+    return ""
+
+
+def _dom_action_preferred_text(
+    *,
+    visible_text: str,
+    semantic_text: str,
+    weak_add_cart_text: str,
+) -> str:
+    strong_text = visible_text or semantic_text
+    if weak_add_cart_text and _dom_action_repeat_label(strong_text) == "cart":
+        return weak_add_cart_text
+    return strong_text or weak_add_cart_text
+
+
+def _dom_action_is_cart_navigation(attributes: dict[str, str]) -> bool:
+    href = str(attributes.get("href") or "").strip()
+    return bool(
+        href and re.search(r"(?:^|/|\\b)cart(?:\\b|[/?#._-])", href, re.I),
+    )
+
+
+def _dom_action_repeat_label(text: str) -> str:
+    semantic = _dom_action_semantic_label(text)
+    if semantic:
+        return semantic
+    return " ".join(str(text or "").casefold().split())
+
+
+def _dom_action_candidates_include_purchase_action(
+    candidates: list[dict[str, Any]],
+) -> bool:
+    for candidate in candidates:
+        text = _clean_action_target_text(candidate.get("text"))
+        if _dom_action_repeat_label(text) in {"buy", "checkout"}:
+            return True
+    return False
+
+
+def _dom_action_contextual_output_text(
+    text: str,
+    role: str,
+    candidate: dict[str, Any],
+    point: tuple[float, float],
+    viewport: tuple[float, float],
+    *,
+    has_purchase_action: bool,
+) -> str:
+    if not has_purchase_action:
+        return text
+    if _dom_action_repeat_label(text) != "cart":
+        return text
+    if role == "link" or str(candidate.get("href") or "").strip():
+        return text
+    viewport_height = float(viewport[1])
+    if viewport_height <= 0:
+        return text
+    _, y = point
+    if float(y) < viewport_height * 0.72:
+        return text
+    return "add cart"
+
+
+def _action_label_over_repeat_limit(
+    label: str,
+    counts: dict[str, int],
+) -> bool:
+    if label not in _CONTROL_ACTION_REPEAT_LIMITED_LABELS:
+        return False
+    return counts.get(label, 0) >= _CONTROL_ACTION_REPEAT_LIMIT
+
+
+def _dom_action_priority(
+    role: str | None,
+    text: str,
+    has_action_text: bool,
+    has_action_class: bool,
+) -> int:
+    label = _dom_action_repeat_label(text)
+    if label in {"add cart", "select all", "delete"}:
+        return 0
+    if label == "checkbox" or role in {"checkbox", "radio"}:
+        return 1
+    if label in {"confirm", "checkout", "submit"}:
+        return 2
+    if label == "search":
+        return 3
+    if label == "buy":
+        return 4
+    if has_action_text:
+        return 5
+    if has_action_class:
+        return 6
+    if role in {"button", "option", "combobox"}:
+        return 7
+    return 8
+
+
+def _dom_action_node_params(
+    candidate: dict[str, Any],
+) -> dict[str, int] | None:
+    backend_node_id = _positive_int(candidate.get("backendNodeId"))
+    if backend_node_id is not None:
+        return {"backendNodeId": backend_node_id}
+    node_id = _positive_int(candidate.get("nodeId"))
+    if node_id is not None:
+        return {"nodeId": node_id}
+    return None
+
+
+async def _dom_action_point(
+    session: Any,
+    node_params: dict[str, int],
+    *,
+    viewport: tuple[float, float] = (0.0, 0.0),
+) -> tuple[float, float] | None:
+    try:
+        result = await _send_with_timeout(
+            session,
+            "DOM.getContentQuads",
+            node_params,
+            timeout=_CONTROL_ACTION_QUAD_TIMEOUT_SECONDS,
+        )
+    except Exception:  # noqa: BLE001
+        return None
+    quads = result.get("quads") if isinstance(result, dict) else None
+    if _quad_outside_viewport(quads, viewport):
+        return None
+    if _quad_area_exceeds_viewport(quads, viewport):
+        return None
+    return _quad_center(quads)
+
+
+async def _dom_action_viewport_size(session: Any) -> tuple[float, float]:
+    try:
+        metrics = await _send_with_timeout(
+            session,
+            "Page.getLayoutMetrics",
+            timeout=_CONTROL_PAGE_STATE_TIMEOUT_SECONDS,
+        )
+    except Exception:  # noqa: BLE001
+        return (0.0, 0.0)
+    if not isinstance(metrics, dict):
+        return (0.0, 0.0)
+    for key in (
+        "cssVisualViewport",
+        "visualViewport",
+        "cssLayoutViewport",
+        "layoutViewport",
+        "contentSize",
+    ):
+        viewport = metrics.get(key)
+        if not isinstance(viewport, dict):
+            continue
+        width = viewport.get("clientWidth", viewport.get("width"))
+        height = viewport.get("clientHeight", viewport.get("height"))
+        if isinstance(width, (int, float)) and isinstance(
+            height,
+            (int, float),
+        ):
+            if width > 0 and height > 0:
+                return (float(width), float(height))
+    return (0.0, 0.0)
+
+
+def _quad_center(quads: Any) -> tuple[float, float] | None:
+    if not isinstance(quads, list) or not quads:
+        return None
+    quad = quads[0]
+    if not isinstance(quad, list) or len(quad) < 8:
+        return None
+    xs = [float(quad[index]) for index in range(0, 8, 2)]
+    ys = [float(quad[index]) for index in range(1, 8, 2)]
+    return (sum(xs) / len(xs), sum(ys) / len(ys))
+
+
+def _quad_area_exceeds_viewport(
+    quads: Any,
+    viewport: tuple[float, float],
+) -> bool:
+    if not isinstance(quads, list) or not quads:
+        return False
+    viewport_width, viewport_height = viewport
+    viewport_area = float(viewport_width) * float(viewport_height)
+    if viewport_area <= 0:
+        return False
+    area = _quad_area(quads[0])
+    return area > viewport_area * _CONTROL_ACTION_MAX_AREA_RATIO
+
+
+def _quad_outside_viewport(
+    quads: Any,
+    viewport: tuple[float, float],
+) -> bool:
+    if not isinstance(quads, list) or not quads:
+        return False
+    viewport_width, viewport_height = viewport
+    if viewport_width <= 0 or viewport_height <= 0:
+        return False
+    quad = quads[0]
+    if not isinstance(quad, list) or len(quad) < 8:
+        return False
+    xs = [float(quad[index]) for index in range(0, 8, 2)]
+    ys = [float(quad[index]) for index in range(1, 8, 2)]
+    return (
+        max(xs) < 0
+        or min(xs) > viewport_width
+        or max(ys) < 0
+        or min(ys) > viewport_height
+    )
+
+
+def _quad_area(quad: Any) -> float:
+    if not isinstance(quad, list) or len(quad) < 8:
+        return 0.0
+    points = [
+        (float(quad[index]), float(quad[index + 1]))
+        for index in range(0, 8, 2)
+    ]
+    area = 0.0
+    for index, (x1, y1) in enumerate(points):
+        x2, y2 = points[(index + 1) % len(points)]
+        area += x1 * y2 - x2 * y1
+    return abs(area) / 2
+
+
+def _int_or_default(value: Any, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _next_action_ref(refs: dict[str, dict]):
+    next_index = 1
+    for ref in refs:
+        if ref.startswith("e") and ref[1:].isdigit():
+            next_index = max(next_index, int(ref[1:]) + 1)
+
+    def build() -> str:
+        nonlocal next_index
+        while f"e{next_index}" in refs:
+            next_index += 1
+        ref = f"e{next_index}"
+        next_index += 1
+        return ref
+
+    return build
+
+
+def _action_target_line_text(line: str) -> str:
+    match = re.search(r'- action_target "((?:\\"|[^"])*)"', line)
+    if not match:
+        return ""
+    return match.group(1).replace('\\"', '"').replace("\\\\", "\\")
+
+
+async def _control_action_target_lines(session: Any) -> list[str]:
+    try:
+        result = await _send_trusted_readonly_evaluate(
+            session,
+            purpose="snapshot.action_targets",
+            expression=_CONTROL_ACTION_TARGETS_SCRIPT,
+            timeout=_CONTROL_ACTION_TARGETS_TIMEOUT_SECONDS,
+        )
+    except Exception as exc:  # noqa: BLE001
+        if _is_observation_enrichment_denied(exc):
+            return [
+                _observation_degradation_line(
+                    "snapshot.action_targets",
+                    exc,
+                ),
+            ]
+        logger.debug("Failed to read control action targets", exc_info=True)
+        return []
+    value = _runtime_evaluate_value(result)
+    if not isinstance(value, list):
+        return []
+    lines: list[str] = []
+    seen: set[str] = set()
+    for item in value[:_CONTROL_ACTION_TARGETS_LIMIT]:
+        if not isinstance(item, dict):
+            continue
+        text = _clean_action_target_text(item.get("text"))
+        if not text:
+            continue
+        tag = _clean_action_target_token(item.get("tag") or "element")
+        role = _clean_action_target_token(item.get("role"))
+        x = _rounded_number(item.get("x"))
+        y = _rounded_number(item.get("y"))
+        dedupe_key = f"{text}|{tag}|{role}|{x}|{y}"
+        if dedupe_key in seen:
+            continue
+        seen.add(dedupe_key)
+        role_part = f" role={role}" if role else ""
+        lines.append(
+            f'- action_target "{_quote_snapshot_text(text)}" '
+            f"tag={tag}{role_part} x={x} y={y}",
+        )
+    return lines
+
+
+async def _control_page_state_line(session: Any) -> str:
+    try:
+        result = await _send_trusted_readonly_evaluate(
+            session,
+            purpose="snapshot.page_state",
+            expression=_CONTROL_PAGE_STATE_SCRIPT,
+            timeout=_CONTROL_PAGE_STATE_TIMEOUT_SECONDS,
+        )
+    except Exception as exc:  # noqa: BLE001
+        if _is_observation_enrichment_denied(exc):
+            return _observation_degradation_line(
+                "snapshot.page_state",
+                exc,
+            )
+        logger.debug("Failed to read control page state", exc_info=True)
+        return ""
+    value = _runtime_evaluate_value(result)
+    if not isinstance(value, dict):
+        return ""
+    scroll_y = _rounded_number(value.get("scrollY"))
+    max_scroll_y = _rounded_number(value.get("maxScrollY"))
+    percent = _rounded_number(value.get("scrollPercent"))
+    at_top = bool(value.get("atTop"))
+    at_bottom = bool(value.get("atBottom"))
+    return (
+        '- page_state "'
+        f"scroll_y={scroll_y} max_scroll_y={max_scroll_y} "
+        f"scroll={percent}% at_top={str(at_top).lower()} "
+        f"at_bottom={str(at_bottom).lower()}"
+        '"'
+    )
+
+
+def _runtime_evaluate_value(result: dict[str, Any]) -> Any:
+    remote_object = result.get("result") if isinstance(result, dict) else None
+    if isinstance(remote_object, dict) and "result" in remote_object:
+        remote_object = remote_object.get("result")
+    if isinstance(remote_object, dict):
+        return remote_object.get("value")
+    return None
+
+
+def _is_observation_enrichment_denied(exc: Exception) -> bool:
+    code = str(
+        getattr(exc, "browser_error_code", "")
+        or getattr(exc, "code", "")
+        or "",
+    ).strip()
+    if code in {
+        BrowserErrorCode.APPROVAL_DENIED.value,
+        BrowserErrorCode.APPROVAL_REQUIRED.value,
+    }:
+        return True
+    exc_type = type(exc).__name__.casefold()
+    message = str(exc).casefold()
+    if "permissiondenied" in exc_type or "approvaldenied" in exc_type:
+        return True
+    return "denied" in message and (
+        "permission" in message
+        or "approval" in message
+        or "runtime.evaluate" in message
+        or "trusted" in message
+        or "readonly" in message
+    )
+
+
+def _observation_degradation_line(purpose: str, exc: Exception) -> str:
+    safe_purpose = _clean_observation_purpose(purpose)
+    reason = " ".join(str(exc or type(exc).__name__).split())
+    if not reason:
+        reason = type(exc).__name__
+    reason = _quote_snapshot_text(reason[:160])
+    return (
+        '- observation_degradation "'
+        f"{_OBSERVATION_ENRICHMENT_DENIED} "
+        f"purpose={safe_purpose} reason={reason}"
+        '"'
+    )
+
+
+def _clean_observation_purpose(value: str) -> str:
+    purpose = "".join(
+        char
+        for char in str(value or "").strip()
+        if char.isalnum() or char in {"_", "-", "."}
+    )
+    return purpose[:64] or "snapshot"
+
+
+def _prepend_observation_degradation_lines(
+    snapshot: str,
+    lines: list[str],
+) -> str:
+    unique_lines = list(dict.fromkeys(line for line in lines if line))
+    if not unique_lines:
+        return snapshot
+    snapshot = snapshot.strip() or "(empty)"
+    if snapshot == "(empty)":
+        return "\n".join(unique_lines)
+    return "\n".join([*unique_lines, *snapshot.splitlines()])
+
+
+def _snapshot_has_observation_enrichment_denial(snapshot: str) -> bool:
+    return _OBSERVATION_ENRICHMENT_DENIED in str(snapshot or "")
+
+
+def _rounded_number(value: Any) -> int:
+    if isinstance(value, (int, float)):
+        return int(round(float(value)))
+    try:
+        return int(round(float(str(value))))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _clean_action_target_text(value: Any) -> str:
+    text = " ".join(str(value or "").split())
+    if len(text) > 80:
+        text = f"{text[:77]}..."
+    return text
+
+
+def _clean_action_target_token(value: Any) -> str:
+    token = "".join(
+        char.lower()
+        for char in str(value or "").strip()
+        if char.isalnum() or char in {"_", "-"}
+    )
+    return token[:32]
+
+
+def _quote_snapshot_text(value: str) -> str:
+    return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
+_CONTROL_PAGE_STATE_SCRIPT = """
+(() => {
+  const doc = document.scrollingElement
+    || document.documentElement
+    || document.body;
+  const viewportHeight = window.innerHeight || doc.clientHeight || 0;
+  const scrollHeight = Math.max(
+    doc.scrollHeight || 0,
+    document.documentElement ? document.documentElement.scrollHeight || 0 : 0,
+    document.body ? document.body.scrollHeight || 0 : 0
+  );
+  const scrollY = window.scrollY || doc.scrollTop || 0;
+  const maxScrollY = Math.max(0, scrollHeight - viewportHeight);
+  const scrollPercent = maxScrollY > 0
+    ? Math.round((scrollY / maxScrollY) * 100)
+    : 0;
+  return {
+    scrollY: Math.round(scrollY),
+    maxScrollY: Math.round(maxScrollY),
+    scrollPercent,
+    atTop: scrollY <= 2,
+    atBottom: maxScrollY <= 2 || scrollY >= maxScrollY - 2,
+  };
+})()
+""".strip()
+
+
+_CONTROL_ACTION_TARGETS_SCRIPT = """
+(() => {
+  function qwenpawCollectActionTargets() {
+    const normalize = (value) => String(value || "")
+      .replace(/\\s+/g, " ")
+      .trim();
+    const actionText = new RegExp([
+      "加入购物车", "加购", "购物车", "购买", "立即", "马上",
+      "结算", "提交", "确定", "确认", "删除", "全选", "清空",
+      "勾选", "选择", "搜索", "add to cart", "select all", "cart",
+      "buy", "checkout", "submit", "confirm", "delete", "remove",
+      "clear", "checkbox", "search"
+    ].join("|"), "i");
+    const actionClass = new RegExp([
+      "btn", "button", "action", "cart", "buy", "purchase",
+      "checkout", "submit", "confirm", "delete", "remove", "clear",
+      "search", "check", "checkbox", "select-all", "selectall",
+      "add", "plus", "sku", "spec", "variant", "option", "select"
+    ].join("|"), "i");
+    const purchaseActionText = new RegExp([
+      "buy[-_\\\\s]*now",
+      "buy",
+      "purchase",
+      "checkout",
+      "settle",
+      "购买",
+      "领券购买",
+      "立即",
+      "马上",
+      "结算"
+    ].join("|"), "i");
+    const cartActionText = /cart|basket|购物车/i;
+    const actionSemanticLabels = [
+      {
+        pattern: new RegExp([
+          "(?:add|plus)[-_\\\\s]*(?:to[-_\\\\s]*)?cart",
+          "cart[-_\\\\s]*(?:add|plus)",
+          "addcart",
+          "cartadd",
+          "加入购物车",
+          "加购"
+        ].join("|"), "i"),
+        label: "add cart",
+        priority: 0
+      },
+      {
+        pattern: /select[-_\\s]*all|all[-_\\s]*select|check[-_\\s]*all|全选/i,
+        label: "select all",
+        priority: 0
+      },
+      {
+        pattern: /delete|remove|clear|删除|清空/i,
+        label: "delete",
+        priority: 0
+      },
+      {
+        pattern: new RegExp([
+          "checkbox",
+          "check[-_\\\\s]*box",
+          "item[-_\\\\s]*(?:check|select)",
+          "勾选",
+          "选择"
+        ].join("|"), "i"),
+        label: "checkbox",
+        priority: 1
+      },
+      {
+        pattern: /buy[-_\\s]*now|buy|purchase|购买|立即|马上/i,
+        label: "buy",
+        priority: 4
+      },
+      {
+        pattern: /checkout|settle|结算/i,
+        label: "checkout",
+        priority: 2
+      },
+      {
+        pattern: /submit|提交/i,
+        label: "submit",
+        priority: 3
+      },
+      {
+        pattern: /confirm|ok|确定|确认/i,
+        label: "confirm",
+        priority: 2
+      },
+      {
+        pattern: /search|搜索/i,
+        label: "search",
+        priority: 3
+      },
+      {
+        pattern: /cart|basket|购物车/i,
+        label: "cart",
+        priority: 7
+      }
+    ];
+    const selector = [
+      "button",
+      "a[href]",
+      "input",
+      "textarea",
+      "select",
+      "summary",
+      "[role='button']",
+      "[role='link']",
+      "[role='menuitem']",
+      "[role='tab']",
+      "[role='checkbox']",
+      "[role='radio']",
+      "[tabindex]:not([tabindex='-1'])",
+      "[onclick]",
+      "[data-spm-click]",
+      "[data-click]",
+      "[data-clickid]",
+      "[data-action]",
+      "[data-role]",
+      "[aria-label]",
+      "[title]",
+      "[class*='btn' i]",
+      "[class*='button' i]",
+      "[class*='action' i]",
+      "[class*='cart' i]",
+      "[class*='buy' i]",
+      "[class*='add' i]",
+      "[class*='plus' i]",
+      "[class*='sku' i]",
+      "[class*='spec' i]",
+      "[class*='variant' i]",
+      "[class*='option' i]",
+      "[class*='select' i]",
+      "[class*='purchase' i]",
+      "[class*='submit' i]",
+      "[class*='confirm' i]",
+      "[class*='delete' i]",
+      "[class*='remove' i]",
+      "[class*='clear' i]",
+      "[class*='check' i]",
+      "[class*='checkbox' i]",
+      "[class*='search' i]",
+      "[class*='icon' i]"
+    ].join(",");
+    const semanticAttributes = [
+      "aria-label",
+      "title",
+      "alt",
+      "data-title",
+      "data-action",
+      "data-role",
+      "data-testid",
+      "data-test",
+      "id",
+      "class",
+      "href"
+    ];
+    const ownSourceTextOf = (element) => normalize(
+      semanticAttributes
+        .map((name) => element.getAttribute(name))
+        .filter(Boolean)
+        .join(" ")
+        .replace(/[-_]+/g, " ")
+    );
+    const descendantSourceText = (element) => {
+      const pieces = [];
+      let inspected = 0;
+      for (const child of Array.from(element.querySelectorAll("*"))) {
+        if (++inspected > 60) break;
+        const text = ownSourceTextOf(child);
+        if (text) pieces.push(text);
+      }
+      return normalize(pieces.join(" "));
+    };
+    const ancestorSourceText = (element) => {
+      const pieces = [];
+      let current = element.parentElement;
+      let depth = 0;
+      while (current && depth < 2) {
+        const text = ownSourceTextOf(current);
+        if (text) pieces.push(text);
+        current = current.parentElement;
+        depth += 1;
+      }
+      return normalize(pieces.join(" "));
+    };
+    const sourceTextOf = (element) => normalize([
+      ownSourceTextOf(element),
+      descendantSourceText(element),
+      ancestorSourceText(element)
+    ].filter(Boolean).join(" "));
+    const semanticTextOf = (element) => {
+      const source = sourceTextOf(element);
+      if (!source) return "";
+      for (const item of actionSemanticLabels) {
+        if (item.pattern.test(source)) return item.label;
+      }
+      return "";
+    };
+    const rawTextOf = (element) => normalize([
+      element.getAttribute("aria-label"),
+      element.getAttribute("title"),
+      element.getAttribute("alt"),
+      "value" in element ? element.value : "",
+      element.innerText || element.textContent
+    ].filter(Boolean).join(" "));
+    const textOf = (element) => normalize([
+      rawTextOf(element),
+      semanticTextOf(element)
+    ].filter(Boolean).join(" "));
+    const priorityOf = (text) => {
+      for (const item of actionSemanticLabels) {
+        if (text === item.label || item.pattern.test(text)) {
+          return item.priority;
+        }
+      }
+      return actionText.test(text) ? 8 : 9;
+    };
+    const labelOf = (text) => {
+      for (const item of actionSemanticLabels) {
+        if (text === item.label || item.pattern.test(text)) {
+          return item.label;
+        }
+      }
+      return normalize(text).toLowerCase();
+    };
+    const visibleRect = (element) => {
+      if (!element || element.nodeType !== Node.ELEMENT_NODE) return null;
+      const style = window.getComputedStyle(element);
+      if (
+        style.display === "none" ||
+        style.visibility === "hidden" ||
+        Number(style.opacity || "1") === 0
+      ) return null;
+      const rect = element.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return null;
+      if (
+        rect.bottom < 0 ||
+        rect.right < 0 ||
+        rect.top > window.innerHeight ||
+        rect.left > window.innerWidth
+      ) return null;
+      return rect;
+    };
+    const weakActionExclusionText = new RegExp([
+      "collect",
+      "favorite",
+      "fav",
+      "wish",
+      "heart",
+      "star",
+      "share",
+      "service",
+      "shop",
+      "store",
+      "home",
+      "more",
+      "收藏",
+      "关注",
+      "客服",
+      "店铺",
+      "进店",
+      "首页",
+      "分享",
+      "更多",
+      "举报",
+      "反馈"
+    ].join("|"), "i");
+    const rowOverlapRatio = (a, b) => {
+      const overlap = Math.max(
+        0,
+        Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top)
+      );
+      return overlap / Math.max(1, Math.min(a.height, b.height));
+    };
+    let bottomPurchaseBarControlsCache;
+    const bottomPurchaseBarControls = () => {
+      if (bottomPurchaseBarControlsCache !== undefined) {
+        return bottomPurchaseBarControlsCache;
+      }
+      const viewportWidth = window.innerWidth || 0;
+      const viewportHeight = window.innerHeight || 0;
+      const seenElements = new Set();
+      const controls = [];
+      const addControl = (element) => {
+        if (!element || seenElements.has(element)) return;
+        const rect = visibleRect(element);
+        if (!rect || !viewportHeight) return;
+        if (rect.top < viewportHeight * 0.68) return;
+        if (rect.width < 28 || rect.height < 24) return;
+        if (rect.width > Math.max(320, viewportWidth * 0.75)) return;
+        const text = normalize([
+          rawTextOf(element),
+          sourceTextOf(element)
+        ].filter(Boolean).join(" "));
+        seenElements.add(element);
+        controls.push({ element, rect, text });
+      };
+      for (const element of Array.from(document.querySelectorAll(selector))) {
+        addControl(element);
+      }
+      const xFractions = [0.08, 0.18, 0.30, 0.42, 0.54, 0.66, 0.78, 0.90];
+      const yFractions = [0.76, 0.84, 0.92];
+      for (const yFraction of yFractions) {
+        for (const xFraction of xFractions) {
+          const x = Math.max(
+            1,
+            Math.min(viewportWidth - 1, viewportWidth * xFraction)
+          );
+          const y = Math.max(
+            1,
+            Math.min(viewportHeight - 1, viewportHeight * yFraction)
+          );
+          for (const element of document.elementsFromPoint(x, y)) {
+            if (!(element instanceof Element)) continue;
+            addControl(element.closest(selector) || element);
+          }
+        }
+      }
+      bottomPurchaseBarControlsCache = controls;
+      return controls;
+    };
+    let weakAddCartCandidateCache;
+    const cartRowCandidateCanBeAddCart = (item) => {
+      if (!cartActionText.test(item.text)) return false;
+      const tag = item.element.tagName;
+      const href = String(item.element.getAttribute("href") || "");
+      if (tag === "A" && /cart/i.test(href)) return false;
+      if (weakActionExclusionText.test(item.text)) return false;
+      return true;
+    };
+    const weakAddCartCandidate = () => {
+      if (weakAddCartCandidateCache !== undefined) {
+        return weakAddCartCandidateCache;
+      }
+      const controls = bottomPurchaseBarControls();
+      const purchaseControls = controls
+        .filter((item) => purchaseActionText.test(item.text))
+        .sort((a, b) => a.rect.left - b.rect.left);
+      for (const purchase of purchaseControls) {
+        const candidates = controls.filter((item) => {
+          if (item.element === purchase.element) return false;
+          if (item.rect.right > purchase.rect.left + 8) return false;
+          if (rowOverlapRatio(item.rect, purchase.rect) < 0.45) return false;
+          if (purchaseActionText.test(item.text)) return false;
+          if (
+            cartActionText.test(item.text) &&
+            !cartRowCandidateCanBeAddCart(item)
+          ) return false;
+          if (weakActionExclusionText.test(item.text)) return false;
+          return true;
+        });
+        candidates.sort((a, b) => (
+          Math.abs(a.rect.right - purchase.rect.left) -
+          Math.abs(b.rect.right - purchase.rect.left)
+        ));
+        if (candidates[0]) {
+          weakAddCartCandidateCache = candidates[0];
+          return weakAddCartCandidateCache;
+        }
+      }
+      weakAddCartCandidateCache = null;
+      return null;
+    };
+    const cartActsLikeAddCart = (element, rect, text) => {
+      const source = sourceTextOf(element);
+      const combined = normalize([text, source].filter(Boolean).join(" "));
+      if (!cartActionText.test(combined)) return false;
+      const tag = element.tagName;
+      const href = String(element.getAttribute("href") || "");
+      if (tag === "A" && /cart/i.test(href)) return false;
+      const viewportHeight = window.innerHeight || 0;
+      if (!viewportHeight || rect.top < viewportHeight * 0.72) return false;
+      let current = element.parentElement;
+      let depth = 0;
+      while (current && depth < 3) {
+        const context = normalize([
+          current.innerText || current.textContent,
+          sourceTextOf(current)
+        ].filter(Boolean).join(" "));
+        if (purchaseActionText.test(context)) return true;
+        current = current.parentElement;
+        depth += 1;
+      }
+      return false;
+    };
+    const isSemantic = (element) => {
+      const tag = element.tagName;
+      const role = String(element.getAttribute("role") || "").toLowerCase();
+      return (
+        tag === "A" ||
+        tag === "BUTTON" ||
+        tag === "INPUT" ||
+        tag === "SELECT" ||
+        tag === "TEXTAREA" ||
+        role === "button" ||
+        role === "link" ||
+        role === "menuitem" ||
+        role === "tab" ||
+        role === "checkbox" ||
+        role === "radio" ||
+        element.hasAttribute("onclick") ||
+        element.hasAttribute("tabindex")
+      );
+    };
+    const targets = [];
+    const seen = new Set();
+    const repeatCounts = new Map();
+    const repeatLimitedLabels = new Set(["cart"]);
+    const addTarget = (element, text, rect) => {
+      if (!text) return;
+      const viewportArea = Math.max(
+        0,
+        (window.innerWidth || 0) * (window.innerHeight || 0)
+      );
+      const area = Math.max(0, rect.width * rect.height);
+      if (viewportArea > 0 && area > viewportArea * 0.2) return;
+      const x = Math.round(rect.left + rect.width / 2);
+      const y = Math.round(rect.top + rect.height / 2);
+      const role = String(element.getAttribute("role") || "").toLowerCase();
+      const label = labelOf(text);
+      if (repeatLimitedLabels.has(label)) {
+        const count = Number(repeatCounts.get(label) || 0);
+        if (count >= 3) return;
+        repeatCounts.set(label, count + 1);
+      }
+      const key = `${text}|${element.tagName}|${role}|${x}|${y}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      targets.push({
+        text: text.slice(0, 100),
+        tag: element.tagName.toLowerCase(),
+        role,
+        priority: priorityOf(text),
+        x,
+        y
+      });
+    };
+    for (const element of Array.from(document.querySelectorAll(selector))) {
+      const rect = visibleRect(element);
+      if (!rect) continue;
+      let text = textOf(element);
+      const inferred = weakAddCartCandidate();
+      if (!text && inferred && inferred.element === element) text = "add cart";
+      if (!text) continue;
+      if (cartActsLikeAddCart(element, rect, text)) text = "add cart";
+      const cls = String(element.className || "");
+      const semantic = isSemantic(element);
+      const classLooksActionable = actionClass.test(cls);
+      if (!semantic && !classLooksActionable && !actionText.test(text)) {
+        continue;
+      }
+      if (!semantic && text.length > 120) continue;
+      addTarget(element, text, rect);
+    }
+    const inferred = weakAddCartCandidate();
+    if (inferred) addTarget(inferred.element, "add cart", inferred.rect);
+    const genericActionTextCandidates = document.body
+      ? Array.from(document.body.querySelectorAll("*"))
+      : [];
+    for (const element of genericActionTextCandidates) {
+      const rect = visibleRect(element);
+      if (!rect) continue;
+      let text = textOf(element);
+      if (!text || !actionText.test(text)) continue;
+      if (cartActsLikeAddCart(element, rect, text)) text = "add cart";
+      if (text.length > 120) continue;
+      addTarget(element, text, rect);
+    }
+    targets.sort((a, b) => (
+      a.priority - b.priority ||
+      a.y - b.y ||
+      a.x - b.x
+    ));
+    return targets.slice(0, 24);
+  }
+  return qwenpawCollectActionTargets();
+})()
+""".strip()
+
+
+__all__ = [
+    "_control_escalation_payload",
+    "_control_action_target_lines",
+    "_control_page_state_line",
+    "_control_snapshot_hash",
+    "_control_visual_context_block",
+    "_url_source",
+    "build_control_snapshot",
+]

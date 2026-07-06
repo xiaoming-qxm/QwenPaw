@@ -5,36 +5,18 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Generator
 from typing import Any
 
-import pytest
 from agentscope.message import DataBlock
 
-from qwenpaw.agents.tools import browser_control
-from qwenpaw.browser.connection_manager import (
-    clear_bridge_connection_manager,
-    set_bridge_connection_manager,
-)
-from qwenpaw.browser.control_engine import (
-    clear_control_engine,
-    register_control_engine,
-)
-from qwenpaw.browser.control_plugin import load_browser_control_submodule
+from tests.unit.browser_bridge_plugin import load_browser_bridge_submodule
 
 from tests.unit.agents.tools.test_browser_control_enriched_snapshot import (
     _BridgeManager,
     _interactive_ax_tree,
 )
 
-_engine_impl = load_browser_control_submodule("engine_impl")
-
-
-@pytest.fixture(autouse=True)
-def _register_control_engine() -> Generator[None, None, None]:
-    register_control_engine(_engine_impl.ControlEngineImpl())
-    yield
-    clear_control_engine()
+_engine_impl = load_browser_bridge_submodule("engine_impl")
 
 
 class _EscalationBridge:
@@ -100,17 +82,15 @@ async def _action(
     bridge: _EscalationBridge,
     action: str,
 ):
-    clear_bridge_connection_manager()
-    set_bridge_connection_manager(_BridgeManager(bridge))
-    try:
-        return await browser_control._action_control(
-            state,
-            action,
-            page_id="42",
-            ref="e1" if action == "click" else "",
-        )
-    finally:
-        clear_bridge_connection_manager()
+    engine = _engine_impl.ControlEngineImpl(
+        bridge_manager=_BridgeManager(bridge),
+    )
+    return await engine.dispatch(
+        state,
+        action,
+        page_id="42",
+        ref="e1" if action == "click" else "",
+    )
 
 
 async def test_click_records_ref_and_snapshot_hash() -> None:

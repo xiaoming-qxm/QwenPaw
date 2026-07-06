@@ -142,7 +142,6 @@ def _new_namespace(guard: CapabilityGuard) -> dict[str, Any]:
         BrowserContextConflict,
         BrowserContextUnavailable,
         BrowserObservationRequired,
-        BrowserPolicyDenied,
         BrowserSDKError,
         BrowserSDKGap,
     )

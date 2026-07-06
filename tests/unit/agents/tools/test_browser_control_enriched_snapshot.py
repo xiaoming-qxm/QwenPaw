@@ -5,31 +5,13 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Generator
 from typing import Any
 
-import pytest
 from agentscope.message import DataBlock
 
-from qwenpaw.agents.tools import browser_control
-from qwenpaw.browser.connection_manager import (
-    clear_bridge_connection_manager,
-    set_bridge_connection_manager,
-)
-from qwenpaw.browser.control_engine import (
-    clear_control_engine,
-    register_control_engine,
-)
-from qwenpaw.browser.control_plugin import load_browser_control_submodule
+from tests.unit.browser_bridge_plugin import load_browser_bridge_submodule
 
-_engine_impl = load_browser_control_submodule("engine_impl")
-
-
-@pytest.fixture(autouse=True)
-def _register_control_engine() -> Generator[None, None, None]:
-    register_control_engine(_engine_impl.ControlEngineImpl())
-    yield
-    clear_control_engine()
+_engine_impl = load_browser_bridge_submodule("engine_impl")
 
 
 class _BridgeManager:
@@ -38,6 +20,9 @@ class _BridgeManager:
 
     def get_connection(self) -> Any:
         return self.bridge
+
+    def is_connected(self) -> bool:
+        return bool(getattr(self.bridge, "connected", False))
 
 
 class _SnapshotBridge:
@@ -174,16 +159,14 @@ def _dom_snapshot(text: str) -> dict[str, Any]:
 
 
 async def _snapshot(bridge: _SnapshotBridge):
-    clear_bridge_connection_manager()
-    set_bridge_connection_manager(_BridgeManager(bridge))
-    try:
-        return await browser_control._action_control(
-            _state(),
-            "snapshot",
-            page_id="42",
-        )
-    finally:
-        clear_bridge_connection_manager()
+    engine = _engine_impl.ControlEngineImpl(
+        bridge_manager=_BridgeManager(bridge),
+    )
+    return await engine.dispatch(
+        _state(),
+        "snapshot",
+        page_id="42",
+    )
 
 
 async def test_degraded_dom_snapshot_fallback_includes_screenshot() -> None:

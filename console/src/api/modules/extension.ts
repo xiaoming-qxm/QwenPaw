@@ -3,7 +3,7 @@ import type { BrowserDiagnostics } from "./plugin";
 
 export type ExtensionInstallMode = "unpacked" | "cws";
 
-export interface BrowserControlBridgeLifecycle {
+export interface BrowserBridgeBridgeLifecycle {
   connected?: boolean;
   connected_since?: string | null;
   last_connected_at?: string | null;
@@ -12,19 +12,19 @@ export interface BrowserControlBridgeLifecycle {
   reconnect_count?: number;
 }
 
-export interface BrowserControlBuildFingerprint {
+export interface BrowserBridgeBuildFingerprint {
   git_commit?: string;
   repo_dirty?: boolean;
   frontend_fingerprint?: string;
 }
 
-export interface BrowserControlBuildFreshness {
+export interface BrowserBridgeBuildFreshness {
   status: string;
   message?: string;
-  repair_action?: BrowserControlRepairAction;
+  repair_action?: BrowserBridgeRepairAction;
 }
 
-export type BrowserControlRepairAction =
+export type BrowserBridgeRepairAction =
   | "none"
   | "reload_extension"
   | "run_setup"
@@ -38,16 +38,16 @@ export type BrowserControlRepairAction =
   | "retry"
   | string;
 
-export interface BrowserControlNativeHostStatus {
+export interface BrowserBridgeNativeHostStatus {
   status: string;
   message?: string;
-  repair_action?: BrowserControlRepairAction;
+  repair_action?: BrowserBridgeRepairAction;
 }
 
-export interface BrowserControlTraceSummary {
+export interface BrowserBridgeTraceSummary {
   event_count: number;
   session_count: number;
-  lifecycle?: BrowserControlLifecycleSummary;
+  lifecycle?: BrowserBridgeLifecycleSummary;
   ownership_summary?: {
     counts?: Record<string, number>;
     transition_count?: number;
@@ -64,14 +64,14 @@ export interface BrowserControlTraceSummary {
   } | null;
 }
 
-export interface BrowserControlLifecycleSummary {
+export interface BrowserBridgeLifecycleSummary {
   controlled_tab_count?: number;
   residual_tab_count?: number;
   last_cleanup_reason?: string;
   protected_origin_status?: string;
 }
 
-export interface BrowserControlCurrentTab {
+export interface BrowserBridgeCurrentTab {
   tab_id?: string;
   url?: string;
   domain?: string;
@@ -79,7 +79,7 @@ export interface BrowserControlCurrentTab {
   ownership?: string;
 }
 
-export interface BrowserControlProgressState {
+export interface BrowserBridgeProgressState {
   status?: string;
   action?: string;
   reason?: string;
@@ -89,7 +89,7 @@ export interface BrowserControlProgressState {
   approval_state?: string;
 }
 
-export interface BrowserControlCleanupResult {
+export interface BrowserBridgeCleanupResult {
   cleanup_ok?: boolean;
   cleanup_result?: string;
   last_cleanup_reason?: string;
@@ -97,21 +97,21 @@ export interface BrowserControlCleanupResult {
   residual_tab_count?: number;
 }
 
-export interface BrowserControlSelfTestCheck {
+export interface BrowserBridgeSelfTestCheck {
   name: string;
   passed: boolean;
   code: string;
   message: string;
   status?: "passed" | "failed" | "warning" | string;
-  repair_action?: BrowserControlRepairAction;
+  repair_action?: BrowserBridgeRepairAction;
   metadata?: Record<string, unknown>;
 }
 
-export interface BrowserControlSelfTestResult {
+export interface BrowserBridgeSelfTestResult {
   status: "passed" | "failed";
   checked_at: string;
   duration_ms?: number;
-  checks: BrowserControlSelfTestCheck[];
+  checks: BrowserBridgeSelfTestCheck[];
 }
 
 export interface ExtensionStatus {
@@ -119,8 +119,8 @@ export interface ExtensionStatus {
   connected: boolean;
   install_mode: ExtensionInstallMode | string | null;
   readiness_state?: string;
-  repair_action?: BrowserControlRepairAction;
-  native_host_status?: BrowserControlNativeHostStatus;
+  repair_action?: BrowserBridgeRepairAction;
+  native_host_status?: BrowserBridgeNativeHostStatus;
   selected_backend_id?: string | null;
   extension_id?: string;
   extension_dir?: string;
@@ -133,19 +133,19 @@ export interface ExtensionStatus {
   version?: string | null;
   extension_version?: string | null;
   connected_since?: string | null;
-  bridge_lifecycle?: BrowserControlBridgeLifecycle;
-  build_fingerprint?: BrowserControlBuildFingerprint;
-  build_freshness?: BrowserControlBuildFreshness;
-  trace_summary?: BrowserControlTraceSummary;
+  bridge_lifecycle?: BrowserBridgeBridgeLifecycle;
+  build_fingerprint?: BrowserBridgeBuildFingerprint;
+  build_freshness?: BrowserBridgeBuildFreshness;
+  trace_summary?: BrowserBridgeTraceSummary;
   controlled_tab_count?: number;
   residual_tab_count?: number;
   last_cleanup_reason?: string;
   protected_origin_status?: string;
-  current_tab?: BrowserControlCurrentTab | null;
+  current_tab?: BrowserBridgeCurrentTab | null;
   connection_state?: string;
-  browser_progress?: BrowserControlProgressState | null;
-  cleanup_result?: BrowserControlCleanupResult | null;
-  last_self_test?: BrowserControlSelfTestResult | null;
+  browser_progress?: BrowserBridgeProgressState | null;
+  cleanup_result?: BrowserBridgeCleanupResult | null;
+  last_self_test?: BrowserBridgeSelfTestResult | null;
   sdk_diagnostics?: BrowserDiagnostics;
 }
 
@@ -163,25 +163,28 @@ export interface OpenChromeExtensionsResult {
 
 export const extensionApi = {
   getStatus(): Promise<ExtensionStatus> {
-    return request<ExtensionStatus>("/extension/status");
+    return request<ExtensionStatus>("/browser-bridge/status");
   },
 
   setup(payload: ExtensionSetupRequest): Promise<ExtensionStatus> {
-    return request<ExtensionStatus>("/extension/setup", {
+    return request<ExtensionStatus>("/browser-bridge/setup", {
       method: "POST",
       body: JSON.stringify(payload),
     });
   },
 
-  selfTest(): Promise<BrowserControlSelfTestResult> {
-    return request<BrowserControlSelfTestResult>("/extension/self-test", {
-      method: "POST",
-    });
+  selfTest(): Promise<BrowserBridgeSelfTestResult> {
+    return request<BrowserBridgeSelfTestResult>(
+      "/browser-bridge/self-test",
+      {
+        method: "POST",
+      },
+    );
   },
 
   openChromeExtensionsPage(): Promise<OpenChromeExtensionsResult> {
     return request<OpenChromeExtensionsResult>(
-      "/extension/open-chrome-extensions",
+      "/browser-bridge/open-chrome-extensions",
       {
         method: "POST",
       },

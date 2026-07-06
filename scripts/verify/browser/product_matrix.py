@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Product-level Browser Control capability truth matrix."""
+"""Product-level Browser Bridge capability truth matrix."""
 
 from __future__ import annotations
 
@@ -72,7 +72,7 @@ BROWSER_PRODUCT_CAPABILITIES: tuple[BrowserProductCapability, ...] = (
             "supported",
             (
                 "src/qwenpaw/browser/sdk/backends/user.py:open_tab",
-                "plugins/bundle/browser-control/engine/handlers/open.py",
+                "plugins/bundle/browser-bridge/action_runtime/handlers/open.py",
             ),
             backend_symbols=("open_tab", "handler:open"),
         ),
@@ -96,9 +96,9 @@ BROWSER_PRODUCT_CAPABILITIES: tuple[BrowserProductCapability, ...] = (
         user_support=_support(
             "supported",
             (
-                "plugins/bundle/browser-control/engine/handlers/"
+                "plugins/bundle/browser-bridge/action_runtime/handlers/"
                 "navigate_back.py",
-                "plugins/bundle/browser-control/engine/handlers/reload.py",
+                "plugins/bundle/browser-bridge/action_runtime/handlers/reload.py",
             ),
             backend_symbols=(
                 "handler:navigate_back",
@@ -124,7 +124,7 @@ BROWSER_PRODUCT_CAPABILITIES: tuple[BrowserProductCapability, ...] = (
             "supported",
             (
                 "src/qwenpaw/browser/sdk/backends/user.py:snapshot",
-                "plugins/bundle/browser-control/engine/handlers/snapshot.py",
+                "plugins/bundle/browser-bridge/action_runtime/handlers/snapshot.py",
             ),
             backend_symbols=("snapshot", "handler:snapshot"),
         ),
@@ -145,7 +145,7 @@ BROWSER_PRODUCT_CAPABILITIES: tuple[BrowserProductCapability, ...] = (
             "supported",
             (
                 "src/qwenpaw/browser/sdk/backends/user.py:screenshot",
-                "plugins/bundle/browser-control/engine/handlers/screenshot.py",
+                "plugins/bundle/browser-bridge/action_runtime/handlers/screenshot.py",
             ),
             backend_symbols=("screenshot", "handler:screenshot"),
         ),
@@ -189,8 +189,8 @@ BROWSER_PRODUCT_CAPABILITIES: tuple[BrowserProductCapability, ...] = (
         user_support=_support(
             "supported",
             (
-                "plugins/bundle/browser-control/engine/handlers/type.py",
-                "plugins/bundle/browser-control/engine/handlers/press_key.py",
+                "plugins/bundle/browser-bridge/action_runtime/handlers/type.py",
+                "plugins/bundle/browser-bridge/action_runtime/handlers/press_key.py",
             ),
             backend_symbols=("handler:type", "handler:press_key"),
         ),
@@ -211,7 +211,7 @@ BROWSER_PRODUCT_CAPABILITIES: tuple[BrowserProductCapability, ...] = (
         user_support=_support(
             "supported",
             (
-                "plugins/bundle/browser-control/engine/handlers/"
+                "plugins/bundle/browser-bridge/action_runtime/handlers/"
                 "select_option.py",
             ),
             backend_symbols=("handler:select_option",),
@@ -266,9 +266,9 @@ BROWSER_PRODUCT_CAPABILITIES: tuple[BrowserProductCapability, ...] = (
         user_support=_support(
             "supported",
             (
-                "plugins/bundle/browser-control/engine/handlers/"
+                "plugins/bundle/browser-bridge/action_runtime/handlers/"
                 "capabilities.py:DialogHandler",
-                "plugins/bundle/browser-control/engine/session_manager.py:"
+                "plugins/bundle/browser-bridge/action_runtime/session_manager.py:"
                 "_control_pop_next_dialog_decision",
             ),
             backend_symbols=("handler:dialog", "dialog.set"),
@@ -292,7 +292,7 @@ BROWSER_PRODUCT_CAPABILITIES: tuple[BrowserProductCapability, ...] = (
         isolated_support=_support(
             "partial",
             (
-                "scripts/verify/browser_control_v8_capability_fixture.html:"
+                "scripts/verify/browser_bridge_v8_capability_fixture.html:"
                 "capability-frame",
             ),
             limitations=("No first-class frame selector API yet.",),
@@ -300,7 +300,7 @@ BROWSER_PRODUCT_CAPABILITIES: tuple[BrowserProductCapability, ...] = (
         user_support=_support(
             "partial",
             (
-                "scripts/verify/browser_control_v8_capability_fixture.html:"
+                "scripts/verify/browser_bridge_v8_capability_fixture.html:"
                 "capability-frame",
             ),
             limitations=("No explicit iframe traversal contract yet.",),
@@ -324,7 +324,7 @@ BROWSER_PRODUCT_CAPABILITIES: tuple[BrowserProductCapability, ...] = (
         isolated_support=_support(
             "partial",
             (
-                "scripts/verify/browser_control_v8_capability_fixture.html:"
+                "scripts/verify/browser_bridge_v8_capability_fixture.html:"
                 "capability-shadow-host",
             ),
             limitations=("No first-class shadow-root API yet.",),
@@ -332,7 +332,7 @@ BROWSER_PRODUCT_CAPABILITIES: tuple[BrowserProductCapability, ...] = (
         user_support=_support(
             "partial",
             (
-                "scripts/verify/browser_control_v8_capability_fixture.html:"
+                "scripts/verify/browser_bridge_v8_capability_fixture.html:"
                 "capability-shadow-host",
             ),
             limitations=("No explicit shadow DOM targeting contract yet.",),
@@ -363,7 +363,7 @@ BROWSER_PRODUCT_CAPABILITIES: tuple[BrowserProductCapability, ...] = (
             "supported",
             (
                 "src/qwenpaw/browser/sdk/backends/user.py:list_tabs",
-                "plugins/bundle/browser-control/engine/handlers/tabs.py",
+                "plugins/bundle/browser-bridge/action_runtime/handlers/tabs.py",
             ),
             backend_symbols=("list_tabs", "select_tab", "handler:tabs"),
         ),
@@ -387,9 +387,9 @@ BROWSER_PRODUCT_CAPABILITIES: tuple[BrowserProductCapability, ...] = (
         user_support=_support(
             "supported",
             (
-                "plugins/bundle/browser-control/engine/handlers/"
+                "plugins/bundle/browser-bridge/action_runtime/handlers/"
                 "capabilities.py:DownloadHandler",
-                "plugins/bundle/browser-control/assets/extensions/"
+                "plugins/bundle/browser-bridge/assets/extensions/"
                 "qwenpaw-browser-bridge/service_worker.js:download.read",
             ),
             backend_symbols=(
@@ -420,9 +420,9 @@ BROWSER_PRODUCT_CAPABILITIES: tuple[BrowserProductCapability, ...] = (
         user_support=_support(
             "supported",
             (
-                "plugins/bundle/browser-control/engine/handlers/"
+                "plugins/bundle/browser-bridge/action_runtime/handlers/"
                 "capabilities.py:UploadHandler",
-                "plugins/bundle/browser-control/engine/handlers/"
+                "plugins/bundle/browser-bridge/action_runtime/handlers/"
                 "capabilities.py:_enforce_file_guard",
             ),
             backend_symbols=("handler:upload", "DOM.setFileInputFiles"),
@@ -449,7 +449,7 @@ BROWSER_PRODUCT_CAPABILITIES: tuple[BrowserProductCapability, ...] = (
             (
                 "src/qwenpaw/browser/sdk/backends/user.py:"
                 "cleanup_user_browser_sessions_for_request",
-                "src/qwenpaw/hooks/browser_control_lifecycle.py",
+                "src/qwenpaw/hooks/browser_bridge_lifecycle.py",
             ),
             backend_symbols=("cleanup_for_request", "FINALLY hook"),
         ),
@@ -511,7 +511,7 @@ BROWSER_PRODUCT_CAPABILITIES: tuple[BrowserProductCapability, ...] = (
             "supported",
             (
                 "src/qwenpaw/browser/sdk/telemetry/trace.py",
-                "plugins/bundle/browser-control/routes.py:/extension/traces",
+                "plugins/bundle/browser-bridge/api/routes.py:/browser-bridge/traces",
             ),
             backend_symbols=("record_browser_trace_event",),
         ),
@@ -527,7 +527,7 @@ BROWSER_PRODUCT_CAPABILITIES: tuple[BrowserProductCapability, ...] = (
     ),
     BrowserProductCapability(
         capability_id="ux.readiness",
-        product_task="Expose Browser Control readiness and approval evidence.",
+        product_task="Expose Browser Bridge readiness and approval evidence.",
         public_api=("Browser.diagnostics(context='user')",),
         isolated_support=_support(
             "partial",
@@ -537,8 +537,8 @@ BROWSER_PRODUCT_CAPABILITIES: tuple[BrowserProductCapability, ...] = (
         user_support=_support(
             "supported",
             (
-                "console/src/pages/Settings/browserControlReadiness.tsx",
-                "plugins/bundle/browser-control/routes.py:/extension/status",
+                "console/src/pages/Settings/browserBridgeReadiness.tsx",
+                "plugins/bundle/browser-bridge/api/routes.py:/browser-bridge/status",
             ),
             backend_symbols=("Browser.diagnostics", "extension/status"),
         ),

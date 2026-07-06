@@ -1,0 +1,36 @@
+{
+  "id": "browser-bridge",
+  "name": "Browser Bridge",
+  "version": "0.1.0",
+  "type": "general",
+  "description": "Connect QwenPaw to Chrome through the local browser bridge for live browser control.",
+  "author": "QwenPaw",
+  "icon": "Chrome",
+  "qwenpaw_version": {
+    "min": "2.0.0"
+  },
+  "capabilities": [
+    {
+      "id": "browser-bridge",
+      "name": "Browser bridge",
+      "description": "Control Chrome through the QwenPaw browser bridge."
+    }
+  ],
+  "setup": {
+    "kind": "native-messaging",
+    "route": "/plugin/browser-bridge",
+    "requires": [
+      "chrome-extension",
+      "native-messaging-host"
+    ]
+  },
+  "meta": {
+    "builtin": true
+  },
+  "entry": {
+    "backend": "main.py",
+    "frontend": "dist/index.js"
+  },
+  "dependencies": [],
+  "min_version": "1.1.7"
+}

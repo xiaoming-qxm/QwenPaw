@@ -27,7 +27,7 @@ const baseStatus = {
   native_manifest_path: "/tmp/NativeMessagingHosts/com.qwenpaw.browser.json",
   native_host_path: "/tmp/.qwenpaw/bin/qwenpaw-nm-host",
   config_path: "/tmp/.qwenpaw/nm-bridge.json",
-  ws_url: "ws://127.0.0.1:8088/ws/nm-bridge",
+  ws_url: "ws://127.0.0.1:8088/ws/browser-bridge",
   chrome_extensions_url: "chrome://extensions",
   cws_url:
     "https://chromewebstore.google.com/detail/qwenpaw-browser-bridge/nflcgkfjgoiipklkpenmbiificbakoch",
@@ -123,7 +123,7 @@ describe("BrowserExtensionPage", () => {
     });
 
     expect(
-      await screen.findByRole("heading", { name: "Browser Control" }),
+      await screen.findByRole("heading", { name: "Browser Bridge" }),
     ).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Install from Chrome Web Store" }),
@@ -131,7 +131,7 @@ describe("BrowserExtensionPage", () => {
     expect(screen.getByText("Developer Options")).toBeInTheDocument();
     expect(screen.queryByText("Extension folder")).not.toBeInTheDocument();
     expect(
-      screen.queryByText("ws://127.0.0.1:8088/ws/nm-bridge"),
+      screen.queryByText("ws://127.0.0.1:8088/ws/browser-bridge"),
     ).not.toBeInTheDocument();
     expect(screen.getByText("browser_bridge_disconnected")).toBeInTheDocument();
     expect(
@@ -157,7 +157,7 @@ describe("BrowserExtensionPage", () => {
         expect.objectContaining({
           install_mode: "cws",
           reset: false,
-          ws_url: expect.stringMatching(/^ws:\/\/.+\/ws\/nm-bridge$/),
+          ws_url: expect.stringMatching(/^ws:\/\/.+\/ws\/browser-bridge$/),
         }),
       );
     });

@@ -83,7 +83,7 @@ function ACPRedirect() {
 }
 
 function BrowserExtensionRedirect() {
-  return <Navigate to="/plugin-manager/browser-control" replace />;
+  return <Navigate to="/plugin-manager/browser-bridge" replace />;
 }
 
 export const BUILTIN_ROUTES: Route[] = [

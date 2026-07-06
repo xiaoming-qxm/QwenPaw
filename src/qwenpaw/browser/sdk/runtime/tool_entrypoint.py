@@ -23,7 +23,10 @@ from ..recovery import (
 )
 from ..telemetry.progress import BrowserProgressDecision, detect_no_progress
 from ..telemetry.trace import BrowserTraceEvent
-from ..telemetry.trace import get_browser_trace_store, record_browser_trace_event
+from ..telemetry.trace import (
+    get_browser_trace_store,
+    record_browser_trace_event,
+)
 from ..telemetry.trace import validate_browser_trace_events
 from .kernel import BrowserKernelResult, get_default_kernel_manager
 
@@ -72,8 +75,8 @@ _ERROR_HINTS = {
     "browser_backend_unavailable": (
         "Refresh the status after the backend is available."
     ),
-    "browser_control_engine_missing": (
-        "Restart QwenPaw or reload the Browser Control plugin."
+    "browser_bridge_action_runtime_missing": (
+        "Restart QwenPaw or reload the Browser Bridge plugin."
     ),
     "isolated_backend_unavailable": (
         "Install or restart the isolated browser runtime."

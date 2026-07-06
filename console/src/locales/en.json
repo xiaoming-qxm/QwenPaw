@@ -33,8 +33,8 @@
     "yes": "Yes",
     "no": "No"
   },
-  "browserControl": {
-    "name": "Browser Control",
+  "browserBridge": {
+    "name": "Browser Bridge",
     "description": "Let QwenPaw inspect and operate your active Chrome tab through a local extension.",
     "status": {
       "connected": "Chrome connected",
@@ -58,7 +58,7 @@
       "backend": "Backend",
       "browser_bridge_disconnected": "Reload the extension or reopen the target browser tab.",
       "browser_backend_unavailable": "Refresh the status after the backend is available.",
-      "browser_control_engine_missing": "Restart QwenPaw or reload the Browser Control plugin.",
+      "browser_bridge_action_runtime_missing": "Restart QwenPaw or reload the Browser Bridge plugin.",
       "isolated_backend_unavailable": "Install or restart the isolated browser runtime.",
       "status": {
         "available": "Available",
@@ -98,7 +98,7 @@
       "retry": "Try again"
     },
     "explain": {
-      "connected": "Browser Control is ready and using the selected backend.",
+      "connected": "Browser Bridge is ready and using the selected backend.",
       "disconnected": "Chrome is not connected; reload the extension or reopen Chrome.",
       "setupRequired": "Setup is incomplete; run setup and install the Chrome extension.",
       "staleBuild": "The frontend or backend build is stale; rebuild before validation.",
@@ -107,7 +107,7 @@
       "loginRequired": "The page needs your signed-in browser state before continuing.",
       "riskControl": "The website blocked progress; review the page and retry safely.",
       "noProgress": "The last browser action made no visible progress; observe again and choose a safer next step.",
-      "cleanupComplete": "Browser Control cleanup finished and released request-owned browser resources."
+      "cleanupComplete": "Browser Bridge cleanup finished and released request-owned browser resources."
     }
   },
   "pluginDetail": {

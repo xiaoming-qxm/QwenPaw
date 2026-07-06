@@ -57,7 +57,7 @@ const runtimeStatus = {
   native_manifest_path: "/tmp/NativeMessagingHosts/com.qwenpaw.browser.json",
   native_host_path: "/tmp/.qwenpaw/bin/qwenpaw-nm-host",
   config_path: "/tmp/.qwenpaw/nm-bridge.json",
-  ws_url: "ws://127.0.0.1:8088/ws/nm-bridge",
+  ws_url: "ws://127.0.0.1:8088/ws/browser-bridge",
   chrome_extensions_url: "chrome://extensions",
   version: null,
   extension_version: "0.1.0",
@@ -114,9 +114,9 @@ const runtimeStatus = {
   },
 };
 
-const browserControlDetail = {
-  id: "browser-control",
-  name: "Browser Control",
+const browserBridgeDetail = {
+  id: "browser-bridge",
+  name: "Browser Bridge",
   version: "0.1.0",
   description:
     "Let QwenPaw inspect and operate your active Chrome tab through a local extension.",
@@ -141,8 +141,8 @@ const browserControlDetail = {
   },
   meta: { builtin: true },
   manifest: {
-    id: "browser-control",
-    name: "Browser Control",
+    id: "browser-bridge",
+    name: "Browser Bridge",
     version: "0.1.0",
     description:
       "Let QwenPaw inspect and operate your active Chrome tab through a local extension.",
@@ -173,15 +173,15 @@ function renderPluginDetail() {
     <Routes>
       <Route path="/plugin-manager/:pluginId" element={<PluginDetailPage />} />
     </Routes>,
-    { initialEntries: ["/plugin-manager/browser-control"] },
+    { initialEntries: ["/plugin-manager/browser-bridge"] },
   );
 }
 
-describe("PluginDetailPage browser control setup", () => {
+describe("PluginDetailPage browser bridge setup", () => {
   beforeEach(() => {
-    mockFetchPluginDetail.mockResolvedValue(browserControlDetail);
+    mockFetchPluginDetail.mockResolvedValue(browserBridgeDetail);
     mockUpdatePluginEnabled.mockResolvedValue({
-      ...browserControlDetail,
+      ...browserBridgeDetail,
       enabled: true,
     });
     mockSetup.mockResolvedValue({

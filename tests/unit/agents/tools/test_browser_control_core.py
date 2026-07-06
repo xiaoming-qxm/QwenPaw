@@ -13,7 +13,6 @@ from typing import Any
 
 import pytest
 
-from qwenpaw.agents.tools import browser_control
 from qwenpaw.agents.tools.browser_snapshot import from_cdp_ax_tree
 from qwenpaw.agents.tools.cdp_permissions import (
     DEFAULT_POLICIES,
@@ -21,22 +20,14 @@ from qwenpaw.agents.tools.cdp_permissions import (
     check_permission,
     load_permissions,
 )
-from qwenpaw.browser.connection_manager import (
-    clear_bridge_connection_manager,
-    set_bridge_connection_manager,
-)
-from qwenpaw.browser.control_engine import (
-    clear_control_engine,
-    register_control_engine,
-)
-from qwenpaw.browser.control_plugin import load_browser_control_submodule
+from tests.unit.browser_bridge_plugin import load_browser_bridge_submodule
 
-_cdp_relay = load_browser_control_submodule("engine.cdp_relay")
+_cdp_relay = load_browser_bridge_submodule("engine.cdp_relay")
 CDPPermissionDenied = _cdp_relay.CDPPermissionDenied
 CDPRelayError = _cdp_relay.CDPRelayError
 CDPRelaySession = _cdp_relay.CDPRelaySession
-_engine_impl = load_browser_control_submodule("engine_impl")
-_nm_bridge = load_browser_control_submodule("nm_bridge")
+_engine_impl = load_browser_bridge_submodule("engine_impl")
+_nm_bridge = load_browser_bridge_submodule("nm_bridge")
 LEASE_TTL_SECONDS = _nm_bridge.LEASE_TTL_SECONDS
 NMBridge = _nm_bridge.NMBridge
 NMBridgeDisconnectedError = _nm_bridge.NMBridgeDisconnectedError
@@ -55,17 +46,10 @@ class _BridgeManager:
         return bool(getattr(self.bridge, "connected", False))
 
 
-@pytest.fixture(autouse=True)
-def _clear_bridge_manager():
-    clear_bridge_connection_manager()
-    register_control_engine(_engine_impl.ControlEngineImpl())
-    yield
-    clear_bridge_connection_manager()
-    clear_control_engine()
-
-
-def _set_test_bridge(bridge: Any) -> None:
-    set_bridge_connection_manager(_BridgeManager(bridge))
+def _runtime(bridge: Any):
+    return _engine_impl.ControlEngineImpl(
+        bridge_manager=_BridgeManager(bridge),
+    )
 
 
 class _FakeWebSocket:
@@ -315,7 +299,6 @@ async def test_control_session_uses_request_context_for_approval(
         return ApprovalService()
 
     bridge = Bridge()
-    _set_test_bridge(bridge)
     monkeypatch.setattr(
         "qwenpaw.app.approvals.get_approval_service",
         get_approval_service,
@@ -325,7 +308,7 @@ async def test_control_session_uses_request_context_for_approval(
     agent_context.set_current_root_session_id("root-session-1")
 
     state: dict[str, Any] = {"workspace_id": "workspace-1"}
-    await browser_control._action_control(
+    await _runtime(bridge).dispatch(
         state,
         "claim_tab",
         page_id="tab_3",
@@ -450,7 +433,7 @@ def test_cdp_permission_defaults_and_domain_severity(tmp_path) -> None:
 
 def test_cdp_default_policies_deny_storage_and_browser_control() -> None:
     assert DEFAULT_POLICIES["storage"] == "deny"
-    assert DEFAULT_POLICIES["browser_control"] == "deny"
+    assert DEFAULT_POLICIES["browser_bridge"] == "deny"
 
 
 def test_load_permissions_accepts_control_nested_schema(tmp_path) -> None:
@@ -508,7 +491,6 @@ async def test_claim_tab_denied_domain_does_not_create_tab(
     from qwenpaw.agents.tools import cdp_permissions
 
     bridge = Bridge()
-    _set_test_bridge(bridge)
     monkeypatch.setattr(
         cdp_permissions,
         "load_permissions",
@@ -519,7 +501,7 @@ async def test_claim_tab_denied_domain_does_not_create_tab(
         ),
     )
 
-    response = await browser_control._action_control(
+    response = await _runtime(bridge).dispatch(
         {"workspace_id": "workspace-1"},
         "claim_tab",
         url="https://denied.example.com/path",
@@ -563,9 +545,8 @@ async def test_claim_tab_attach_rollback_releases_lease() -> None:
             self.released.append((tab_id, holder_id))
 
     bridge = Bridge()
-    _set_test_bridge(bridge)
 
-    response = await browser_control._action_control(
+    response = await _runtime(bridge).dispatch(
         {"workspace_id": "workspace-1"},
         "claim_tab",
         page_id="tab_7",
@@ -622,9 +603,11 @@ async def test_browser_use_routes_control_start() -> None:
     class Bridge:
         connected = True
 
-    _set_test_bridge(Bridge())
-
-    response = await browser_control._action_control("start", mode="control")
+    response = await _runtime(Bridge()).dispatch(
+        {"workspace_id": "default"},
+        "start",
+        mode="control",
+    )
     payload = json.loads(response.content[0].text)
 
     assert payload["ok"] is True

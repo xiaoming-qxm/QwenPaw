@@ -3,13 +3,14 @@
 
 from .actions.tab_actions import BrowserActions, TabActions
 from .backends import (
-    ChromeExtensionBrowserBackend,
     IsolatedBrowserBackend,
     register_isolated_backend_once,
-    register_user_backend_once,
 )
 from .backends.protocols import BrowserBackend, BrowserSession
-from .backends.registry import BrowserBackendRegistry, get_default_backend_registry
+from .backends.registry import (
+    BrowserBackendRegistry,
+    get_default_backend_registry,
+)
 from .docs.capabilities import (
     browser_capabilities,
     browser_sdk_help,
@@ -127,7 +128,6 @@ __all__ = [
     "BrowserTabs",
     "BrowserTraceEvent",
     "BrowserTraceStore",
-    "ChromeExtensionBrowserBackend",
     "ConcreteBrowserContext",
     "DefaultBrowserPolicy",
     "ExtractionFormat",
@@ -148,6 +148,5 @@ __all__ = [
     "record_browser_trace_event",
     "register_browser_loop_gate_provider_once",
     "register_isolated_backend_once",
-    "register_user_backend_once",
     "reset_browser_trace_store_for_tests",
 ]

@@ -19,7 +19,7 @@ class BrowserOutcome(StrEnum):
 
 
 class BrowserErrorCode(StrEnum):
-    """Stable machine-readable Browser Control error codes."""
+    """Stable machine-readable Browser Bridge error codes."""
 
     NONE = "none"
     UNKNOWN = "unknown"

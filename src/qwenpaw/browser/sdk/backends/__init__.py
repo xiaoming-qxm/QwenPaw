@@ -13,22 +13,20 @@ from qwenpaw.browser.sdk.backends.isolated import (
     get_isolated_runtime_manager,
     register_isolated_backend_once,
 )
-from qwenpaw.browser.sdk.backends.user import (
-    ChromeExtensionBrowserBackend,
-    ChromeExtensionBrowserSession,
-    register_user_backend_once,
+from qwenpaw.browser.sdk.backends.registry import (
+    cleanup_browser_backend_request_resources,
+    shutdown_registered_browser_backends,
 )
 
 __all__ = [
     "BrowserBackend",
     "BrowserSession",
-    "ChromeExtensionBrowserBackend",
-    "ChromeExtensionBrowserSession",
+    "cleanup_browser_backend_request_resources",
     "IsolatedBrowserBackend",
     "IsolatedBrowserSession",
     "IsolatedPlaywrightRuntime",
     "IsolatedPlaywrightRuntimeManager",
     "get_isolated_runtime_manager",
     "register_isolated_backend_once",
-    "register_user_backend_once",
+    "shutdown_registered_browser_backends",
 ]

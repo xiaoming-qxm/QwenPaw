@@ -20,9 +20,9 @@ export function buildCommandSuggestions(
       description: t("chat.commands.compact.description"),
     },
     {
-      command: "/browser-control",
-      value: "browser-control ",
-      description: t("chat.commands.browserControl.description"),
+      command: "/browser",
+      value: "browser ",
+      description: t("chat.commands.browserBridge.description"),
     },
     {
       command: "/mission",

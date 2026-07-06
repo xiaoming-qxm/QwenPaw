@@ -217,7 +217,10 @@ def get_default_kernel_manager() -> BrowserKernelManager:
 def _record_kernel_cancelled(
     execution_context: BrowserExecutionContext,
 ) -> None:
-    from ..governance.error_codes import BrowserErrorCode, classify_browser_error
+    from ..governance.error_codes import (
+        BrowserErrorCode,
+        classify_browser_error,
+    )
     from ..telemetry.trace import record_browser_trace_event
 
     error_info = classify_browser_error(BrowserErrorCode.CANCELLED)

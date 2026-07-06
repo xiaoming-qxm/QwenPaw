@@ -84,7 +84,7 @@ export interface BrowserDiagnostics {
   backends: BrowserBackendDiagnostic[];
 }
 
-export interface BrowserControlBridgeLifecycle {
+export interface BrowserBridgeBridgeLifecycle {
   connected?: boolean;
   connected_since?: string | null;
   last_connected_at?: string | null;
@@ -93,19 +93,19 @@ export interface BrowserControlBridgeLifecycle {
   reconnect_count?: number;
 }
 
-export interface BrowserControlBuildFingerprint {
+export interface BrowserBridgeBuildFingerprint {
   git_commit?: string;
   repo_dirty?: boolean;
   frontend_fingerprint?: string;
 }
 
-export interface BrowserControlBuildFreshness {
+export interface BrowserBridgeBuildFreshness {
   status: string;
   message?: string;
-  repair_action?: BrowserControlRepairAction;
+  repair_action?: BrowserBridgeRepairAction;
 }
 
-export type BrowserControlRepairAction =
+export type BrowserBridgeRepairAction =
   | "none"
   | "reload_extension"
   | "run_setup"
@@ -119,13 +119,13 @@ export type BrowserControlRepairAction =
   | "retry"
   | string;
 
-export interface BrowserControlNativeHostStatus {
+export interface BrowserBridgeNativeHostStatus {
   status: string;
   message?: string;
-  repair_action?: BrowserControlRepairAction;
+  repair_action?: BrowserBridgeRepairAction;
 }
 
-export interface BrowserControlTraceSummary {
+export interface BrowserBridgeTraceSummary {
   event_count: number;
   session_count: number;
   latest_event?: {
@@ -139,21 +139,21 @@ export interface BrowserControlTraceSummary {
   } | null;
 }
 
-export interface BrowserControlSelfTestCheck {
+export interface BrowserBridgeSelfTestCheck {
   name: string;
   passed: boolean;
   code: string;
   message: string;
   status?: "passed" | "failed" | "warning" | string;
-  repair_action?: BrowserControlRepairAction;
+  repair_action?: BrowserBridgeRepairAction;
   metadata?: Record<string, unknown>;
 }
 
-export interface BrowserControlSelfTestResult {
+export interface BrowserBridgeSelfTestResult {
   status: "passed" | "failed";
   checked_at: string;
   duration_ms?: number;
-  checks: BrowserControlSelfTestCheck[];
+  checks: BrowserBridgeSelfTestCheck[];
 }
 
 export interface PluginManifest {
@@ -173,17 +173,17 @@ export interface PluginRuntimeStatus {
   installed?: boolean;
   connected?: boolean;
   readiness_state?: string;
-  repair_action?: BrowserControlRepairAction;
-  native_host_status?: BrowserControlNativeHostStatus;
+  repair_action?: BrowserBridgeRepairAction;
+  native_host_status?: BrowserBridgeNativeHostStatus;
   selected_backend_id?: string | null;
   version?: string | null;
   extension_version?: string | null;
   connected_since?: string | null;
-  bridge_lifecycle?: BrowserControlBridgeLifecycle;
-  build_fingerprint?: BrowserControlBuildFingerprint;
-  build_freshness?: BrowserControlBuildFreshness;
-  trace_summary?: BrowserControlTraceSummary;
-  last_self_test?: BrowserControlSelfTestResult | null;
+  bridge_lifecycle?: BrowserBridgeBridgeLifecycle;
+  build_fingerprint?: BrowserBridgeBuildFingerprint;
+  build_freshness?: BrowserBridgeBuildFreshness;
+  trace_summary?: BrowserBridgeTraceSummary;
+  last_self_test?: BrowserBridgeSelfTestResult | null;
   install_mode?: string | null;
   extension_id?: string;
   extension_dir?: string;

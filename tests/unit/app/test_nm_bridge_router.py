@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Unit tests for the Native Messaging bridge router."""
+"""Unit tests for the Browser Bridge Native Messaging router."""
 
 from __future__ import annotations
 
@@ -11,9 +11,9 @@ import pytest
 
 from qwenpaw.app import auth as auth_module
 from qwenpaw.app.auth import AuthMiddleware
-from qwenpaw.browser.control_plugin import load_browser_control_submodule
+from tests.unit.browser_bridge_plugin import load_browser_bridge_submodule
 
-nm_bridge_router = load_browser_control_submodule("routes")
+nm_bridge_router = load_browser_bridge_submodule("routes")
 
 
 class _Bridge:
@@ -39,7 +39,7 @@ def _include_nm_bridge_routes(app: FastAPI) -> None:
         nm_bridge_router.router,
     )
     app.include_router(ws_router, prefix="/ws")
-    app.include_router(api_router, prefix="/api/extension")
+    app.include_router(api_router, prefix="/api/browser-bridge")
 
 
 def _app_with_router(bridge: _Bridge) -> FastAPI:
@@ -80,7 +80,7 @@ def test_configure_nm_bridge_writes_private_config(tmp_path) -> None:
 
     token = nm_bridge_router.configure_nm_bridge(
         token="secret",
-        ws_url="ws://127.0.0.1:8088/ws/nm-bridge",
+        ws_url="ws://127.0.0.1:8088/ws/browser-bridge",
         config_path=config_path,
     )
 
@@ -98,14 +98,14 @@ def test_ws_accepts_valid_bearer_token_and_rejects_invalid(tmp_path) -> None:
     client = TestClient(_app_with_router(bridge))
 
     with client.websocket_connect(
-        "/ws/nm-bridge",
+        "/ws/browser-bridge",
         headers={"Authorization": "Bearer secret"},
     ):
         assert bridge.attached is True
 
     with pytest.raises(Exception) as exc_info:
         with client.websocket_connect(
-            "/ws/nm-bridge",
+            "/ws/browser-bridge",
             headers={"Authorization": "Bearer wrong"},
         ):
             pass
@@ -127,12 +127,12 @@ def test_extension_status_api_reports_bridge_state(monkeypatch) -> None:
             "native_manifest_path": "/tmp/host.json",
             "native_host_path": "/tmp/host",
             "config_path": "/tmp/nm.json",
-            "ws_url": "ws://127.0.0.1:8088/ws/nm-bridge",
+            "ws_url": "ws://127.0.0.1:8088/ws/browser-bridge",
             "chrome_extensions_url": "chrome://extensions",
         },
     )
 
-    response = client.get("/api/extension/status")
+    response = client.get("/api/browser-bridge/status")
 
     assert response.status_code == 200
     payload = response.json()
@@ -154,7 +154,7 @@ def test_extension_setup_rest_requires_api_auth(monkeypatch) -> None:
             "native_manifest_path": "/tmp/host.json",
             "native_host_path": "/tmp/host",
             "config_path": "/tmp/nm.json",
-            "ws_url": "ws://127.0.0.1:8088/ws/nm-bridge",
+            "ws_url": "ws://127.0.0.1:8088/ws/browser-bridge",
             "chrome_extensions_url": "chrome://extensions",
         },
     )
@@ -174,15 +174,18 @@ def test_extension_setup_rest_requires_api_auth(monkeypatch) -> None:
             "native_manifest_path": "/tmp/host.json",
             "native_host_path": "/tmp/host",
             "config_path": "/tmp/nm.json",
-            "ws_url": "ws://127.0.0.1:8088/ws/nm-bridge",
+            "ws_url": "ws://127.0.0.1:8088/ws/browser-bridge",
             "chrome_extensions_url": "chrome://extensions",
         },
     )
     client = TestClient(_app_with_auth_router(_Bridge()))
 
-    unauthenticated_response = client.post("/api/extension/setup", json={})
+    unauthenticated_response = client.post(
+        "/api/browser-bridge/setup",
+        json={},
+    )
     api_response = client.post(
-        "/api/extension/setup",
+        "/api/browser-bridge/setup",
         json={},
         headers={"Authorization": "Bearer valid"},
     )

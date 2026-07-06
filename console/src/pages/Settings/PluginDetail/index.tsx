@@ -25,7 +25,7 @@ import {
   type PluginRuntimeStatus,
   type PluginSetupStep,
 } from "@/api/modules/plugin";
-import { BrowserControlReadiness } from "../browserControlReadiness";
+import { BrowserBridgeReadiness } from "../browserBridgeReadiness";
 import styles from "./index.module.less";
 
 const capabilityIcons = [Eye, MousePointerClick, Monitor, Code2];
@@ -49,7 +49,7 @@ export default function PluginDetailPage() {
   const [selfTestLoading, setSelfTestLoading] = useState(false);
   const [devOpen, setDevOpen] = useState(false);
 
-  const isBrowserControl = detail?.id === "browser-control";
+  const isBrowserBridge = detail?.id === "browser-bridge";
 
   const loadDetail = useCallback(
     async (showLoading = true) => {
@@ -78,24 +78,24 @@ export default function PluginDetailPage() {
   }, [loadDetail]);
 
   const setupSteps = useMemo(() => {
-    if (isBrowserControl) {
+    if (isBrowserBridge) {
       return [
         {
           id: "prepare",
-          title: t("browserControl.setup.prepare", "Prepare bridge files"),
+          title: t("browserBridge.setup.prepare", "Prepare bridge files"),
         },
         {
           id: "install",
-          title: t("browserControl.setup.install", "Install Chrome extension"),
+          title: t("browserBridge.setup.install", "Install Chrome extension"),
         },
         {
           id: "connect",
-          title: t("browserControl.setup.connect", "Wait for Chrome"),
+          title: t("browserBridge.setup.connect", "Wait for Chrome"),
         },
       ];
     }
     return detail?.setup?.steps ?? detail?.manifest.setup?.steps ?? [];
-  }, [detail, isBrowserControl, t]);
+  }, [detail, isBrowserBridge, t]);
 
   const capabilities: PluginCapability[] = useMemo(
     () =>
@@ -160,7 +160,7 @@ export default function PluginDetailPage() {
   };
 
   const handleCopyDiagnostics = async () => {
-    await copyValue(JSON.stringify(browserControlDiagnostics(detail), null, 2));
+    await copyValue(JSON.stringify(browserBridgeDiagnostics(detail), null, 2));
   };
 
   if (loading) {
@@ -178,11 +178,11 @@ export default function PluginDetailPage() {
   const runtime: PluginRuntimeStatus = detail.runtime_status ?? {};
   const connected = Boolean(runtime.connected);
   const installed = Boolean(runtime.installed ?? detail.installed ?? true);
-  const displayName = isBrowserControl
-    ? t("browserControl.name", detail.name)
+  const displayName = isBrowserBridge
+    ? t("browserBridge.name", detail.name)
     : detail.name;
-  const displayDescription = isBrowserControl
-    ? t("browserControl.description", detail.description)
+  const displayDescription = isBrowserBridge
+    ? t("browserBridge.description", detail.description)
     : detail.description;
   const hasFrontendEntry = Boolean(detail.frontend_entry);
   const devRows = [
@@ -288,8 +288,8 @@ export default function PluginDetailPage() {
           </div>
         ) : null}
 
-        {isBrowserControl ? (
-          <BrowserControlReadiness
+        {isBrowserBridge ? (
+          <BrowserBridgeReadiness
             loading={refreshing}
             onCopyDiagnostics={() => void handleCopyDiagnostics()}
             onOpenChrome={() => void handleOpenChromeExtensions()}
@@ -438,7 +438,7 @@ export default function PluginDetailPage() {
   );
 }
 
-function browserControlDiagnostics(
+function browserBridgeDiagnostics(
   detail: Awaited<ReturnType<typeof fetchPluginDetail>> | null,
 ) {
   const runtime = detail?.runtime_status ?? {};
