@@ -399,6 +399,33 @@ async def _send_with_timeout(
     )
 
 
+async def _send_trusted_readonly_evaluate(
+    session: Any,
+    *,
+    purpose: str,
+    expression: str,
+    timeout: float,
+) -> dict[str, Any]:
+    params = {
+        "expression": expression,
+        "returnByValue": True,
+        "awaitPromise": False,
+        "timeout": 1000,
+    }
+    trusted_send = getattr(session, "send_trusted_readonly", None)
+    if callable(trusted_send):
+        return await asyncio.wait_for(
+            trusted_send("Runtime.evaluate", params, purpose=purpose),
+            timeout=max(float(timeout), 0.1),
+        )
+    return await _send_with_timeout(
+        session,
+        "Runtime.evaluate",
+        params,
+        timeout=timeout,
+    )
+
+
 async def _enrich_ax_link_refs_with_dom_attributes(
     session: Any,
     refs: dict[str, dict],
@@ -1189,15 +1216,10 @@ def _action_target_line_text(line: str) -> str:
 
 async def _control_action_target_lines(session: Any) -> list[str]:
     try:
-        result = await _send_with_timeout(
+        result = await _send_trusted_readonly_evaluate(
             session,
-            "Runtime.evaluate",
-            {
-                "expression": _CONTROL_ACTION_TARGETS_SCRIPT,
-                "returnByValue": True,
-                "awaitPromise": False,
-                "timeout": 1000,
-            },
+            purpose="snapshot.action_targets",
+            expression=_CONTROL_ACTION_TARGETS_SCRIPT,
             timeout=_CONTROL_ACTION_TARGETS_TIMEOUT_SECONDS,
         )
     except Exception:  # noqa: BLE001
@@ -1232,15 +1254,10 @@ async def _control_action_target_lines(session: Any) -> list[str]:
 
 async def _control_page_state_line(session: Any) -> str:
     try:
-        result = await _send_with_timeout(
+        result = await _send_trusted_readonly_evaluate(
             session,
-            "Runtime.evaluate",
-            {
-                "expression": _CONTROL_PAGE_STATE_SCRIPT,
-                "returnByValue": True,
-                "awaitPromise": False,
-                "timeout": 1000,
-            },
+            purpose="snapshot.page_state",
+            expression=_CONTROL_PAGE_STATE_SCRIPT,
             timeout=_CONTROL_PAGE_STATE_TIMEOUT_SECONDS,
         )
     except Exception:  # noqa: BLE001

@@ -12,6 +12,15 @@ from collections.abc import Callable
 from typing import Any
 from urllib.parse import urlparse
 
+_TRUSTED_READONLY_EVALUATE_PURPOSES = {
+    "snapshot.action_targets": "_CONTROL_ACTION_TARGETS_SCRIPT",
+    "snapshot.page_state": "_CONTROL_PAGE_STATE_SCRIPT",
+}
+_TRUSTED_READONLY_EVALUATE_PARAM_KEYS = frozenset(
+    {"expression", "returnByValue", "awaitPromise", "timeout"},
+)
+_TRUSTED_READONLY_EVALUATE_TIMEOUT_MS = 1000
+
 
 class CDPRelayError(RuntimeError):
     """Raised when a relayed CDP command returns a JSON-RPC error."""
@@ -78,7 +87,27 @@ class CDPRelaySession:
         method: str,
         params: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        await self._ensure_approved(method, params or {})
+        safe_params = params or {}
+        await self._ensure_approved(method, safe_params)
+        return await self._send_unchecked(method, safe_params)
+
+    async def send_trusted_readonly(
+        self,
+        method: str,
+        params: dict[str, Any] | None = None,
+        *,
+        purpose: str,
+    ) -> dict[str, Any]:
+        """Send one allowlisted internal read-only CDP command."""
+        safe_params = dict(params or {})
+        self._ensure_trusted_readonly(method, safe_params, purpose)
+        return await self._send_unchecked(method, safe_params)
+
+    async def _send_unchecked(
+        self,
+        method: str,
+        params: dict[str, Any],
+    ) -> dict[str, Any]:
         if hasattr(self.bridge, "validate_lease"):
             self.bridge.validate_lease(
                 self.tab_id,
@@ -93,7 +122,7 @@ class CDPRelaySession:
                 "tabId": self.tab_id,
                 "holderId": self.holder_id,
                 "method": method,
-                "params": params or {},
+                "params": params,
             },
         )
         if isinstance(response, dict) and "error" in response:
@@ -107,6 +136,43 @@ class CDPRelaySession:
         if isinstance(response, dict) and response.get("jsonrpc") == "2.0":
             return response.get("result", {})
         return response
+
+    def _ensure_trusted_readonly(
+        self,
+        method: str,
+        params: dict[str, Any],
+        purpose: str,
+    ) -> None:
+        if method != "Runtime.evaluate":
+            raise CDPPermissionDenied(
+                f"CDP command {method} denied by trusted readonly policy",
+            )
+        expected_expression = _trusted_readonly_expression(purpose)
+        if str(params.get("expression") or "") != expected_expression:
+            raise CDPPermissionDenied(
+                "CDP Runtime.evaluate expression denied by trusted "
+                "readonly policy",
+            )
+        if set(params) - _TRUSTED_READONLY_EVALUATE_PARAM_KEYS:
+            raise CDPPermissionDenied(
+                "CDP Runtime.evaluate params denied by trusted readonly "
+                "policy",
+            )
+        timeout = params.get("timeout")
+        timeout_ok = (
+            isinstance(timeout, (int, float))
+            and not isinstance(timeout, bool)
+            and 0 < float(timeout) <= _TRUSTED_READONLY_EVALUATE_TIMEOUT_MS
+        )
+        if (
+            params.get("returnByValue") is not True
+            or params.get("awaitPromise") is not False
+            or not timeout_ok
+        ):
+            raise CDPPermissionDenied(
+                "CDP Runtime.evaluate params denied by trusted readonly "
+                "policy",
+            )
 
     async def show_banner(
         self,
@@ -356,3 +422,14 @@ class CDPRelaySession:
         if hasattr(self.bridge, "now"):
             return self.bridge.now()
         return time.monotonic()
+
+
+def _trusted_readonly_expression(purpose: str) -> str:
+    attribute = _TRUSTED_READONLY_EVALUATE_PURPOSES.get(str(purpose or ""))
+    if attribute is None:
+        raise CDPPermissionDenied(
+            "CDP Runtime.evaluate purpose denied by trusted readonly policy",
+        )
+    from . import snapshot_builder
+
+    return str(getattr(snapshot_builder, attribute))
