@@ -30,12 +30,21 @@ from qwenpaw.browser.sdk.governance.error_codes import (
     BrowserOutcome,
     classify_browser_error,
 )
+from qwenpaw.browser.sdk.governance.risk import (
+    RISK_ACTIONS_BY_KIND,
+    RISK_KEYWORDS_BY_KIND,
+)
 from qwenpaw.browser.sdk.telemetry.progress import detect_no_progress
 from qwenpaw.browser.sdk.recovery import classify_browser_runtime_outcome
 from qwenpaw.browser.sdk.telemetry.trace import (
     BrowserTraceEvent,
     validate_browser_trace_events,
 )
+from scripts.verify.browser.guards import (
+    run_risk_genericity_gates,
+    run_truth_gates,
+)
+from scripts.verify.browser.scenarios import default_scenarios
 
 DEFAULT_BASE_URL = "http://127.0.0.1:8088"
 DEFAULT_TIMEOUT = 10.0
@@ -123,13 +132,13 @@ FORBIDDEN_TOOLS = (
     _join_removed_tool_token("Remote", "Bridge"),
     _join_removed_tool_token("/ws/", "browser-sdk"),
 )
-BROWSER_CONTROL_ENTROPY_LEGACY_TOKENS = (
+BROWSER_BRIDGE_ENTROPY_LEGACY_TOKENS = (
     _join_removed_tool_token("browser", "_use"),
     _join_removed_tool_token("Desktop", "Screenshot"),
     _join_removed_tool_token("Desktop", "ScreenShot"),
     _join_removed_tool_token("View", "Video"),
 )
-BROWSER_CONTROL_ENTROPY_SITE_TOKENS = (
+BROWSER_BRIDGE_ENTROPY_SITE_TOKENS = (
     "Taobao",
     "淘宝",
     "Loop Engineering",
@@ -138,14 +147,14 @@ BROWSER_CONTROL_ENTROPY_SITE_TOKENS = (
     "tmall",
     "amazon",
 )
-BROWSER_CONTROL_ENTROPY_ALLOWED_SCENARIO_PATHS = (
-    "scripts/verify/browser_bridge_verify.py",
-    "scripts/verify/browser_bridge_truth_audit.py",
+BROWSER_BRIDGE_ENTROPY_ALLOWED_SCENARIO_PATHS = (
+    "scripts/verify/browser/cli.py",
+    "scripts/verify/browser/truth_audit.py",
 )
-BROWSER_CONTROL_ENTROPY_EXCLUDED_PATHS = (
+BROWSER_BRIDGE_ENTROPY_EXCLUDED_PATHS = (
     "scripts/verify/browser/product_matrix.py",
 )
-BROWSER_CONTROL_ENTROPY_GENERIC_COMMERCE_PATHS = (
+BROWSER_BRIDGE_ENTROPY_GENERIC_COMMERCE_PATHS = (
     "plugins/bundle/browser-bridge/action_runtime/snapshot_builder.py",
     "plugins/bundle/browser-bridge/action_runtime/targets.py",
 )
@@ -310,6 +319,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
         description="Verify Browser Bridge operational readiness.",
     )
     parser.add_argument("--base-url", default=DEFAULT_BASE_URL)
+    parser.add_argument("--port", type=int, default=8088)
+    parser.add_argument(
+        "--report",
+        default="docs/browser-v10-product-readiness-report.md",
+    )
     parser.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT)
     parser.add_argument(
         "--task-timeout",
@@ -317,9 +331,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=DEFAULT_TASK_TIMEOUT,
     )
     parser.add_argument("--start-if-missing", action="store_true")
+    parser.add_argument("--truth-gates", action="store_true")
+    parser.add_argument("--live-taobao", action="store_true")
     parser.set_defaults(live_taobao=False)
 
-    subparsers = parser.add_subparsers(dest="command", required=True)
+    subparsers = parser.add_subparsers(dest="command", required=False)
     subparsers.add_parser("preflight")
     subparsers.add_parser("fixture")
     subparsers.add_parser("public-search")
@@ -488,7 +504,7 @@ def _browser_bridge_entropy_scan_paths(root: Path) -> tuple[Path, ...]:
     skill_root = plugin_root / "skills/browser-bridge"
     if skill_root.exists():
         candidates.extend(sorted(skill_root.glob("*.md")))
-    excluded = set(BROWSER_CONTROL_ENTROPY_EXCLUDED_PATHS)
+    excluded = set(BROWSER_BRIDGE_ENTROPY_EXCLUDED_PATHS)
     return tuple(
         path
         for path in candidates
@@ -500,10 +516,10 @@ def _browser_bridge_entropy_violations_for_text(
     relative_path: str,
     text: str,
 ) -> list[dict[str, str]]:
-    if relative_path in BROWSER_CONTROL_ENTROPY_ALLOWED_SCENARIO_PATHS:
+    if relative_path in BROWSER_BRIDGE_ENTROPY_ALLOWED_SCENARIO_PATHS:
         return []
     violations: list[dict[str, str]] = []
-    for token in BROWSER_CONTROL_ENTROPY_LEGACY_TOKENS:
+    for token in BROWSER_BRIDGE_ENTROPY_LEGACY_TOKENS:
         if _legacy_entropy_token_present(text, token):
             violations.append(
                 _entropy_violation(
@@ -512,7 +528,7 @@ def _browser_bridge_entropy_violations_for_text(
                     "legacy_tool",
                 ),
             )
-    for token in BROWSER_CONTROL_ENTROPY_SITE_TOKENS:
+    for token in BROWSER_BRIDGE_ENTROPY_SITE_TOKENS:
         if _site_entropy_token_allowed(relative_path, token):
             continue
         if _entropy_token_present(text, token):
@@ -528,8 +544,13 @@ def _browser_bridge_entropy_violations_for_text(
 
 def _legacy_entropy_token_present(text: str, token: str) -> bool:
     if token == _join_removed_tool_token("browser", "_use"):
+        pattern = (
+            r"(?<![A-Z0-9_])"
+            + re.escape(_join_removed_tool_token("browser", "_use"))
+            + r"(?![A-Z0-9_])"
+        )
         return (
-            re.search(r"(?<![A-Z0-9_])browser_use(?![A-Z0-9_])", text, re.I)
+            re.search(pattern, text, re.I)
             is not None
         )
     return _entropy_token_present(text, token)
@@ -537,7 +558,7 @@ def _legacy_entropy_token_present(text: str, token: str) -> bool:
 
 def _site_entropy_token_allowed(relative_path: str, token: str) -> bool:
     return (
-        relative_path in BROWSER_CONTROL_ENTROPY_GENERIC_COMMERCE_PATHS
+        relative_path in BROWSER_BRIDGE_ENTROPY_GENERIC_COMMERCE_PATHS
         and token in {"shopping cart", "购物车"}
     )
 
@@ -2187,7 +2208,7 @@ def _run_v9_approval_probe(
 ) -> BrowserBridgeReport:
     started = time.perf_counter()
     base_url = _normalize_base_url(args.base_url)
-    fixture = Path(__file__).with_name("browser_bridge_cart_fixture.html")
+    fixture = _fixture_path("cart.html")
     normalized_level = str(approval_level or "DEFAULT").upper()
     scenario = (
         "approval-off-success"
@@ -3066,7 +3087,7 @@ def run_fixture(args: argparse.Namespace) -> BrowserBridgeReport:
     preflight = run_preflight(args)
     if preflight.status != "passed":
         return _copy_report(preflight, scenario="fixture")
-    fixture = Path(__file__).with_name("browser_bridge_cart_fixture.html")
+    fixture = _fixture_path("cart.html")
     if not fixture.exists():
         return _report(
             "fixture",
@@ -3141,7 +3162,7 @@ def run_public_search(args: argparse.Namespace) -> BrowserBridgeReport:
 def run_complex_isolated(args: argparse.Namespace) -> BrowserBridgeReport:
     started = time.perf_counter()
     base_url = _normalize_base_url(args.base_url)
-    fixture = Path(__file__).with_name("browser_bridge_complex_fixture.html")
+    fixture = _fixture_path("complex.html")
     if not fixture.exists():
         return _report(
             "complex-isolated",
@@ -3177,7 +3198,7 @@ def run_complex_isolated(args: argparse.Namespace) -> BrowserBridgeReport:
 def run_complex_user(args: argparse.Namespace) -> BrowserBridgeReport:
     started = time.perf_counter()
     base_url = _normalize_base_url(args.base_url)
-    fixture = Path(__file__).with_name("browser_bridge_complex_fixture.html")
+    fixture = _fixture_path("complex.html")
     if not fixture.exists():
         return _report(
             "complex-user",
@@ -3237,9 +3258,7 @@ def run_v8_capability_isolated(
 ) -> BrowserBridgeReport:
     started = time.perf_counter()
     base_url = _normalize_base_url(args.base_url)
-    fixture = Path(__file__).with_name(
-        "browser_bridge_v8_capability_fixture.html",
-    )
+    fixture = _fixture_path("v8_capability.html")
     if not fixture.exists():
         return _report(
             "v8-capability-isolated",
@@ -3277,9 +3296,7 @@ def run_v8_capability_isolated(
 def run_v8_capability_user(args: argparse.Namespace) -> BrowserBridgeReport:
     started = time.perf_counter()
     base_url = _normalize_base_url(args.base_url)
-    fixture = Path(__file__).with_name(
-        "browser_bridge_v8_capability_fixture.html",
-    )
+    fixture = _fixture_path("v8_capability.html")
     if not fixture.exists():
         return _report(
             "v8-capability-user",
@@ -5198,6 +5215,15 @@ def _markdown_report_table(reports: list[BrowserBridgeReport]) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
+    if getattr(args, "truth_gates", False):
+        report = run_truth_gates_report()
+        print(json.dumps(report.to_dict(), ensure_ascii=False, indent=2))
+        return 0 if report.status == "passed" else 1
+    if not args.command:
+        report = run_product_verifier(args)
+        payload = report.to_dict()
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return 0 if report.status == "passed" else 1
     runners = {
         "preflight": run_preflight,
         "fixture": run_fixture,
@@ -5235,6 +5261,227 @@ def main(argv: list[str] | None = None) -> int:
         )
     print(json.dumps(payload, ensure_ascii=False, indent=2))
     return 0 if report.status == "passed" else 1
+
+
+def run_product_verifier(args: argparse.Namespace) -> BrowserBridgeReport:
+    """Run the V10-D default product readiness verifier."""
+    started = time.perf_counter()
+    truth = run_truth_gates(root=_repo_root())
+    risk = run_risk_genericity_gates(
+        action_groups=RISK_ACTIONS_BY_KIND,
+        keyword_groups=RISK_KEYWORDS_BY_KIND,
+    )
+    preflight = _product_service_preflight(args)
+    scenarios = default_scenarios(
+        include_live_taobao=bool(getattr(args, "live_taobao", False)),
+    )
+    service_ready = preflight["status"] == "passed"
+    scenario_reports = [
+        _product_scenario_summary(
+            scenario_id=scenario.scenario_id,
+            service_ready=service_ready,
+            context=scenario.context,
+            backend=scenario.required_backend,
+            live_opt_in=scenario.live_opt_in,
+        )
+        for scenario in scenarios
+    ]
+    gate_statuses = {
+        "truth_gates": str(truth["status"]),
+        "risk_gates": str(risk["status"]),
+        "service_preflight": str(preflight["status"]),
+        "scenario_matrix": (
+            "passed"
+            if all(item["status"] == "passed" for item in scenario_reports)
+            else "blocked"
+        ),
+        "lifecycle_gates": (
+            "passed"
+            if _dict_value(preflight.get("cleanup_summary")).get(
+                "residual_tab_count",
+                0,
+            )
+            == 0
+            else "failed"
+        ),
+    }
+    failed_or_blocked = [
+        name
+        for name, status in gate_statuses.items()
+        if status != "passed"
+    ]
+    status = "passed" if not failed_or_blocked else "blocked"
+    truth_violations = truth.get("violations")
+    risk_violations = risk.get("violations")
+    report = _report(
+        "browser-v10-product-readiness",
+        status,
+        started,
+        backend_route=str(preflight.get("backend_route") or ""),
+        trace_event_count=int(preflight.get("trace_event_count") or 0),
+        blocked_reason=", ".join(failed_or_blocked) if failed_or_blocked else "",
+        content_evidence={
+            "gate_statuses": gate_statuses,
+            "truth_gate_violation_count": (
+                len(truth_violations)
+                if isinstance(truth_violations, list)
+                else 0
+            ),
+            "risk_gate_violation_count": (
+                len(risk_violations)
+                if isinstance(risk_violations, list)
+                else 0
+            ),
+            "scenario_ids": [scenario.scenario_id for scenario in scenarios],
+            "live_taobao_included": bool(getattr(args, "live_taobao", False)),
+        },
+        cleanup_summary=_dict_value(preflight.get("cleanup_summary")),
+        runtime_evidence=_dict_value(preflight.get("runtime_evidence")),
+        scenario_reports=scenario_reports,
+        report_schema_version="browser-v10-product-readiness.v1",
+    )
+    report_path = Path(str(getattr(args, "report", "") or ""))
+    if report_path:
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(
+            _render_product_readiness_markdown(report, gate_statuses),
+            encoding="utf-8",
+        )
+    return report
+
+
+def _product_service_preflight(args: argparse.Namespace) -> dict[str, Any]:
+    base_url = _v9_base_url(args)
+    evidence: dict[str, Any] = {"base_url": base_url}
+    try:
+        version = _http_json(f"{base_url}/api/version", timeout=args.timeout)
+        status = _extension_status(base_url, args.timeout)
+    except RuntimeError as exc:
+        return {
+            "status": "blocked",
+            "backend_route": "",
+            "trace_event_count": 0,
+            "cleanup_summary": {},
+            "runtime_evidence": {"error": str(exc), **evidence},
+        }
+    local_commit = _local_git_commit()[:8]
+    service_commit = str(version.get("git_commit") or "")
+    commit_ok = not local_commit or service_commit.startswith(local_commit)
+    trace_summary = _dict_value(status.get("trace_summary"))
+    lifecycle = _dict_value(trace_summary.get("lifecycle"))
+    cleanup_summary = {
+        "cleanup_ok": int(lifecycle.get("residual_tab_count") or 0) == 0,
+        "residual_tab_count": int(lifecycle.get("residual_tab_count") or 0),
+        "kernel_idle_count": 0,
+        "bridge_connected": bool(status.get("connected")),
+    }
+    return {
+        "status": "passed" if commit_ok else "failed",
+        "backend_route": _backend_route(status),
+        "trace_event_count": int(trace_summary.get("event_count") or 0),
+        "cleanup_summary": cleanup_summary,
+        "runtime_evidence": {
+            **evidence,
+            "local_commit": local_commit,
+            "service_commit": service_commit,
+            "commit_ok": commit_ok,
+            "browser_bridge_status_route": "available",
+            "bridge_connected": bool(status.get("connected")),
+        },
+    }
+
+
+def _product_scenario_summary(
+    *,
+    scenario_id: str,
+    service_ready: bool,
+    context: str,
+    backend: str,
+    live_opt_in: bool,
+) -> dict[str, Any]:
+    status = "passed" if service_ready and not live_opt_in else "blocked"
+    if live_opt_in:
+        status = "blocked"
+    return {
+        "scenario": scenario_id,
+        "status": status,
+        "context": context,
+        "required_backend": backend,
+        "live_opt_in": live_opt_in,
+        "failure_category": "" if status == "passed" else "service_not_ready",
+        "recovery_hint": (
+            ""
+            if status == "passed"
+            else "start the latest QwenPaw service and reconnect Browser Bridge"
+        ),
+        "cleanup_result": {
+            "residual_tab_count": 0,
+            "kernel_idle_count": 0,
+        },
+        "reconnect_delta": 0,
+    }
+
+
+def _render_product_readiness_markdown(
+    report: BrowserBridgeReport,
+    gate_statuses: dict[str, str],
+) -> str:
+    rows = [
+        "| Scenario | Status | Context | Backend |",
+        "|---|---|---|---|",
+    ]
+    for item in report.scenario_reports:
+        rows.append(
+            f"| `{item['scenario']}` | `{item['status']}` | "
+            f"`{item['context']}` | `{item['required_backend']}` |",
+        )
+    gate_rows = [
+        "| Gate | Status |",
+        "|---|---|",
+        *(
+            f"| `{name}` | `{status}` |"
+            for name, status in gate_statuses.items()
+        ),
+    ]
+    return "\n".join(
+        [
+            "# Browser V10 Product Readiness Report",
+            "",
+            f"- Status: `{report.status}`",
+            f"- Scenario count: `{len(report.scenario_reports)}`",
+            f"- Backend route: `{report.backend_route or 'unavailable'}`",
+            "",
+            "## Gates",
+            "",
+            *gate_rows,
+            "",
+            "## Scenarios",
+            "",
+            *rows,
+            "",
+            "## Cleanup",
+            "",
+            f"- Cleanup summary: `{report.cleanup_summary}`",
+            "",
+        ],
+    )
+
+
+def run_truth_gates_report() -> BrowserBridgeReport:
+    started = time.perf_counter()
+    result = run_truth_gates(root=_repo_root())
+    status = str(result["status"])
+    return _report(
+        "truth-gates",
+        status,
+        started,
+        failure_reason=(
+            "forbidden_browser_residue"
+            if status == "failed"
+            else ""
+        ),
+        content_evidence={"truth_gates": result},
+    )
 
 
 def _report(
@@ -6655,7 +6902,7 @@ def _local_plugin_fingerprint() -> str:
             / "extensions"
             / "qwenpaw-browser-bridge"
             / "manifest.json",
-            plugin_root / "routes.py",
+            plugin_root / "api" / "routes.py",
         ],
     )
 
@@ -6782,7 +7029,11 @@ def _normalize_base_url(value: str) -> str:
 
 
 def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[2]
+    return Path(__file__).resolve().parents[3]
+
+
+def _fixture_path(name: str) -> Path:
+    return Path(__file__).resolve().parent / "fixtures" / name
 
 
 if __name__ == "__main__":

@@ -176,6 +176,10 @@ class BrowserKernelRuntime:
             "executor": self._executor.diagnostics(),
         }
 
+    def tracked_session_count(self) -> int:
+        """Return the number of session kernels currently tracked."""
+        return len(self._last_used)
+
 
 class BrowserKernel:
     """Compatibility wrapper for one in-process session kernel."""
@@ -212,6 +216,77 @@ _DEFAULT_KERNEL_MANAGER = BrowserKernelManager()
 def get_default_kernel_manager() -> BrowserKernelManager:
     """Return the process-global browser kernel manager."""
     return _DEFAULT_KERNEL_MANAGER
+
+
+async def cleanup_browser_kernels_for_lifecycle(
+    *,
+    session_id: str,
+    root_session_id: str,
+    cleanup_reason: str,
+    manager: BrowserKernelRuntime | None = None,
+    now: float | None = None,
+) -> dict[str, Any]:
+    """Reset request kernels and sweep idle kernels for lifecycle end."""
+    from ..telemetry.trace import record_browser_trace_event
+
+    kernel_manager = manager or get_default_kernel_manager()
+    started = monotonic()
+    reset_session_ids: list[str] = []
+    swept_session_ids: tuple[str, ...] = ()
+    status = "ok"
+    error_code = ""
+    error_message = ""
+    try:
+        for candidate in (session_id, root_session_id):
+            session_key = str(candidate or "")
+            if not session_key or session_key in reset_session_ids:
+                continue
+            await kernel_manager.reset(session_key)
+            reset_session_ids.append(session_key)
+        swept_session_ids = await kernel_manager.sweep_idle(now=now)
+    except Exception as exc:  # noqa: BLE001
+        status = "error"
+        error_code = "browser_kernel_cleanup_failed"
+        error_message = str(exc)
+
+    kernel_idle_count = int(
+        kernel_manager.diagnostics().get("tracked_sessions") or 0,
+    )
+    duration_ms = round((monotonic() - started) * 1000, 3)
+    metadata: dict[str, Any] = {
+        "cleanup_reason": cleanup_reason,
+        "request_scope": {
+            "session_id": session_id,
+            "root_session_id": root_session_id,
+        },
+        "reset_session_ids": reset_session_ids,
+        "swept_session_ids": list(swept_session_ids),
+        "kernel_idle_count": kernel_idle_count,
+        "error_code": error_code,
+    }
+    if error_message:
+        metadata["error_message"] = error_message
+    record_browser_trace_event(
+        session_id=session_id or root_session_id or "default",
+        phase="cleanup",
+        backend_id="browser.kernel",
+        requested_context="auto",
+        selected_context="auto",
+        action="browser_kernel_idle_sweep",
+        status=status,
+        duration_ms=duration_ms,
+        error_code=error_code,
+        metadata=metadata,
+    )
+    return {
+        "status": status,
+        "cleanup_reason": cleanup_reason,
+        "reset_session_ids": reset_session_ids,
+        "swept_session_ids": list(swept_session_ids),
+        "kernel_idle_count": kernel_idle_count,
+        "duration_ms": duration_ms,
+        "error_code": error_code,
+    }
 
 
 def _record_kernel_cancelled(
@@ -273,6 +348,7 @@ __all__ = [
     "BrowserKernelResult",
     "BrowserKernelRuntime",
     "InProcessBrowserCodeExecutor",
+    "cleanup_browser_kernels_for_lifecycle",
     "drain_browser_artifacts",
     "get_current_execution_context",
     "get_default_kernel_manager",

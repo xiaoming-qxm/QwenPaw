@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from typing import Any
 
 from ..primitives.types import BrowserActionRisk, BrowserRiskKind
@@ -30,42 +30,41 @@ _NAVIGATION_ACTIONS = {
     "type",
     "wait_for",
 }
+RISK_ACTIONS_BY_KIND: dict[BrowserRiskKind, frozenset[str]] = {
+    "destructive": frozenset({"clear", "delete", "remove"}),
+    "purchase": frozenset({"buy", "checkout", "purchase"}),
+    "payment": frozenset({"pay", "payment"}),
+    "submission": frozenset({"submit"}),
+    "upload": frozenset({"upload"}),
+    "download": frozenset({"download"}),
+}
+
+RISK_KEYWORDS_BY_KIND: dict[BrowserRiskKind, frozenset[str]] = {
+    "credential": frozenset(
+        {"credential", "login", "otp", "password", "secret", "token"},
+    ),
+    "destructive": frozenset({"clear", "delete", "remove"}),
+    "purchase": frozenset({"buy", "cart", "checkout", "purchase"}),
+    "payment": frozenset({"pay", "payment"}),
+    "submission": frozenset({"submit"}),
+    "upload": frozenset({"upload"}),
+    "download": frozenset({"download"}),
+    "unknown_sensitive": frozenset({"reveal"}),
+}
+
 _STRUCTURED_SENSITIVE_ACTIONS: dict[str, BrowserRiskKind] = {
-    "clear": "destructive",
-    "delete": "destructive",
-    "remove": "destructive",
-    "buy": "purchase",
-    "checkout": "purchase",
-    "purchase": "purchase",
-    "pay": "payment",
-    "payment": "payment",
-    "submit": "submission",
-    "upload": "upload",
-    "download": "download",
+    action: kind
+    for kind, actions in RISK_ACTIONS_BY_KIND.items()
+    for action in actions
 }
-_CREDENTIAL_KEYWORDS = {
-    "credential",
-    "login",
-    "otp",
-    "password",
-    "secret",
-    "token",
-}
-_SENSITIVE_KEYWORDS = {
-    "buy",
-    "cart",
-    "checkout",
-    "clear",
-    "delete",
-    "download",
-    "pay",
-    "payment",
-    "purchase",
-    "remove",
-    "reveal",
-    "submit",
-    "upload",
-}
+_CREDENTIAL_KEYWORDS = set(RISK_KEYWORDS_BY_KIND["credential"])
+_SENSITIVE_KEYWORDS = set().union(
+    *(
+        set(keywords)
+        for kind, keywords in RISK_KEYWORDS_BY_KIND.items()
+        if kind != "credential"
+    ),
+)
 
 
 # pylint: disable-next=too-many-return-statements
@@ -151,7 +150,7 @@ def _normalize(value: Any) -> str:
 
 
 def _matches(
-    keywords: set[str],
+    keywords: Collection[str],
     action: str,
     kwargs: Mapping[str, Any],
 ) -> tuple[str, ...]:
@@ -182,4 +181,8 @@ def _bool_arg(value: Any) -> bool:
     return bool(value)
 
 
-__all__ = ["classify_browser_action"]
+__all__ = [
+    "RISK_ACTIONS_BY_KIND",
+    "RISK_KEYWORDS_BY_KIND",
+    "classify_browser_action",
+]

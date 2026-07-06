@@ -12,7 +12,10 @@ from types import ModuleType
 
 _PACKAGE_NAME = "test_browser_bridge_plugin"
 _PLUGIN_DIR = (
-    Path(__file__).resolve().parents[2] / "plugins" / "bundle" / "browser-bridge"
+    Path(__file__).resolve().parents[2]
+    / "plugins"
+    / "bundle"
+    / "browser-bridge"
 )
 _SUBMODULE_ALIASES = {
     "routes": "api.routes",
@@ -64,7 +67,9 @@ def _ensure_package(package_name: str, package_dir: Path) -> ModuleType:
             submodule_search_locations=[str(package_dir)],
         )
         if spec is None or spec.loader is None:
-            raise ImportError(f"Cannot load Browser Bridge package: {package_name}")
+            raise ImportError(
+                f"Cannot load Browser Bridge package: {package_name}",
+            )
         package = importlib.util.module_from_spec(spec)
         sys.modules[package_name] = package
         spec.loader.exec_module(package)
@@ -94,7 +99,9 @@ def _submodule_spec(
     else:
         module_path = parent_dir / f"{final_name}.py"
         if not module_path.exists():
-            raise ImportError(f"Cannot load Browser Bridge module: {public_name}")
+            raise ImportError(
+                f"Cannot load Browser Bridge module: {public_name}",
+            )
         spec = importlib.util.spec_from_file_location(module_name, module_path)
     if spec is None or spec.loader is None:
         raise ImportError(f"Cannot load Browser Bridge module: {public_name}")

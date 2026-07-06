@@ -90,16 +90,34 @@ class ControlEngineImpl:
         tabs = state.get("control_tabs")
         return isinstance(tabs, dict) and bool(tabs)
 
-    async def cleanup_for_request(self, **kwargs: Any) -> dict[str, int]:
+    async def cleanup_for_request(
+        self,
+        *,
+        session_id: str,
+        root_session_id: str = "",
+        workspace_id: str = "",
+        cleanup_reason: str = "",
+    ) -> dict[str, int]:
         """Release action runtime resources owned by one request."""
         return await control_tab_manager.cleanup_control_sessions_for_request(
+            session_id=session_id,
+            root_session_id=root_session_id,
+            workspace_id=workspace_id,
             bridge_manager=self._bridge_manager,
-            **kwargs,
+            cleanup_reason=cleanup_reason,
         )
 
-    async def release_for_request(self, **kwargs: Any) -> dict[str, int]:
+    async def release_for_request(
+        self,
+        *,
+        session_id: str,
+        root_session_id: str = "",
+        workspace_id: str = "",
+    ) -> dict[str, int]:
         """Release action runtime leases owned by one completed request."""
         return await control_tab_manager.release_control_sessions_for_request(
+            session_id=session_id,
+            root_session_id=root_session_id,
+            workspace_id=workspace_id,
             bridge_manager=self._bridge_manager,
-            **kwargs,
         )

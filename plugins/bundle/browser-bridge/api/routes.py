@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import hashlib
+import os
 import secrets
 import contextlib
 import subprocess
@@ -39,14 +40,14 @@ from qwenpaw.browser.sdk.primitives.types import (
     BrowserDiagnostics,
 )
 
-from ..extension_setup import (
+from ..extension_setup import (  # type: ignore[misc]
     BRIDGE_MANIFEST_SCHEMA_VERSION,
     extension_install_status,
     open_chrome_extensions_page,
     resolve_default_ws_url,
     setup_extension_files,
 )
-from ..transport.state import get_nm_bridge_route_state
+from ..transport.state import get_nm_bridge_route_state  # type: ignore[misc]
 
 ws_router = APIRouter(tags=["browser-bridge"])
 api_router = APIRouter(tags=["browser-bridge"])
@@ -66,6 +67,11 @@ if not _bridge_state.ws_url:
     _bridge_state.ws_url = resolve_default_ws_url()
 if _bridge_state.config_path is None:
     _bridge_state.config_path = DEFAULT_CONFIG_PATH
+
+
+def _verifier_mode_enabled() -> bool:
+    value = os.environ.get("QWENPAW_BROWSER_BRIDGE_VERIFIER_MODE", "")
+    return value.strip().casefold() in {"1", "true", "yes", "on"}
 
 
 def _read_existing_token(config_path: Path) -> str | None:
@@ -140,7 +146,9 @@ def _resolve_bridge(websocket: WebSocket) -> Any | None:
         return bridge
 
     try:
-        from ..transport.native_messaging import get_nm_bridge
+        from ..transport.native_messaging import (  # type: ignore[misc]
+            get_nm_bridge,
+        )
     except ImportError:
         return None
     return get_nm_bridge()
@@ -148,7 +156,9 @@ def _resolve_bridge(websocket: WebSocket) -> Any | None:
 
 def _default_bridge() -> Any | None:
     try:
-        from ..transport.native_messaging import get_nm_bridge
+        from ..transport.native_messaging import (  # type: ignore[misc]
+            get_nm_bridge,
+        )
     except ImportError:
         return None
     return get_nm_bridge()
@@ -185,7 +195,7 @@ async def shutdown_nm_bridge() -> None:
     bridge = _default_bridge()
     await _drop_connected_websocket(bridge, reason="shutdown")
     try:
-        from ..transport.native_messaging import (
+        from ..transport.native_messaging import (  # type: ignore[misc]
             shutdown_nm_bridge as shutdown_global_bridge,
         )
     except ImportError:
@@ -855,6 +865,8 @@ async def disconnect_bridge_for_verifier(
     confirm: bool = Query(False),
 ) -> dict[str, Any]:
     """Force-disconnect the current bridge for verifier lifecycle tests."""
+    if not _verifier_mode_enabled():
+        raise HTTPException(status_code=404, detail="not found")
     if not confirm:
         raise HTTPException(
             status_code=400,

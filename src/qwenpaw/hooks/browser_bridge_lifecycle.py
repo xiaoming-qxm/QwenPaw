@@ -13,6 +13,7 @@ from ..browser.sdk.backends.registry import (
     cleanup_browser_backend_request_resources,
 )
 from ..browser.sdk.governance.errors import BrowserPolicyDenied
+from ..browser.sdk.runtime.kernel import cleanup_browser_kernels_for_lifecycle
 from ..browser.sdk.telemetry.trace import record_browser_trace_event
 from ..runtime.hooks import HookContext, HookResult
 from ..runtime.phases import Phase
@@ -21,6 +22,7 @@ logger = logging.getLogger(__name__)
 
 BROWSER_BRIDGE_CLEANUP_EXTRA = "browser_bridge_cleanup"
 BROWSER_BRIDGE_CLEANUP_ERROR_EXTRA = "browser_bridge_cleanup_error"
+BROWSER_BRIDGE_KERNEL_CLEANUP_EXTRA = "browser_bridge_kernel_cleanup"
 
 
 class BrowserBridgeLifecycleCleanupHook(LifecycleHook):
@@ -38,6 +40,15 @@ class BrowserBridgeLifecycleCleanupHook(LifecycleHook):
 
         started = perf_counter()
         cleanup_reason = _cleanup_reason(ctx)
+        _record_cleanup_start_trace(
+            session_id=session_id or root_session_id,
+            cleanup_reason=cleanup_reason,
+            request_scope={
+                "session_id": session_id,
+                "root_session_id": root_session_id,
+                "workspace_id": _workspace_id(ctx),
+            },
+        )
         try:
             result = await cleanup_browser_bridge_request_resources(
                 session_id=session_id,
@@ -95,10 +106,20 @@ class BrowserBridgeLifecycleCleanupHook(LifecycleHook):
                 remaining_orphaned_tabs=int(
                     (result or {}).get("remaining_orphaned_tabs") or 0,
                 ),
+                owned_tabs_remaining=int(
+                    (result or {}).get("owned_tabs_remaining") or 0,
+                ),
                 error_code=(
                     "browser_cleanup_failed" if cleanup_errors else ""
                 ),
             )
+        ctx.extras[
+            BROWSER_BRIDGE_KERNEL_CLEANUP_EXTRA
+        ] = await cleanup_browser_kernels_for_lifecycle(
+            session_id=session_id,
+            root_session_id=root_session_id,
+            cleanup_reason=cleanup_reason,
+        )
         return HookResult()
 
 
@@ -260,6 +281,7 @@ def _record_cleanup_trace(
     released_borrowed_tabs: int,
     skipped_protected_tabs: int = 0,
     remaining_orphaned_tabs: int = 0,
+    owned_tabs_remaining: int = 0,
     error_code: str = "",
 ) -> None:
     record_browser_trace_event(
@@ -277,8 +299,30 @@ def _record_cleanup_trace(
             "released_borrowed_tabs": released_borrowed_tabs,
             "skipped_protected_tabs": skipped_protected_tabs,
             "remaining_orphaned_tabs": remaining_orphaned_tabs,
+            "owned_tabs_remaining": owned_tabs_remaining,
             "cleanup_reason": cleanup_reason,
             "error_code": error_code,
+        },
+    )
+
+
+def _record_cleanup_start_trace(
+    *,
+    session_id: str,
+    cleanup_reason: str,
+    request_scope: dict[str, Any],
+) -> None:
+    record_browser_trace_event(
+        session_id=session_id,
+        phase="cleanup",
+        backend_id="user.chrome_extension",
+        requested_context="user",
+        selected_context="user",
+        action="browser_bridge_lifecycle_cleanup_start",
+        status="started",
+        metadata={
+            "cleanup_reason": cleanup_reason,
+            "request_scope": request_scope,
         },
     )
 
@@ -290,6 +334,7 @@ def _duration_ms(started: float) -> float:
 __all__ = [
     "BROWSER_BRIDGE_CLEANUP_ERROR_EXTRA",
     "BROWSER_BRIDGE_CLEANUP_EXTRA",
+    "BROWSER_BRIDGE_KERNEL_CLEANUP_EXTRA",
     "BrowserBridgeLifecycleCleanupHook",
     "cleanup_browser_bridge_request_resources",
 ]

@@ -38,7 +38,10 @@ from qwenpaw.browser.sdk.primitives.types import (
     BrowserPolicyDecision,
     ResolvedBrowserContext,
 )
-from qwenpaw.browser.sdk.primitives.types import BrowserObservation, BrowserScreenshot
+from qwenpaw.browser.sdk.primitives.types import (
+    BrowserObservation,
+    BrowserScreenshot,
+)
 
 BACKEND_ID = "user.chrome_extension"
 logger = logging.getLogger(__name__)

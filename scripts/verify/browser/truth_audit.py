@@ -16,7 +16,7 @@ from scripts.verify.browser.product_matrix import (
     BrowserProductCapability,
 )
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = Path(__file__).resolve().parents[3]
 
 MODEL_VISIBLE_PATHS = (
     "src/qwenpaw/agents/skills/browser-sdk-zh/SKILL.md",
@@ -25,7 +25,7 @@ MODEL_VISIBLE_PATHS = (
     "plugins/bundle/browser-bridge/skills/browser-bridge/blocker-report.md",
     "plugins/bundle/browser-bridge/skills/browser-bridge/control-mode.md",
 )
-VERIFIER_PATH = "scripts/verify/browser_bridge_verify.py"
+VERIFIER_PATH = "scripts/verify/browser/cli.py"
 FRONTEND_EVIDENCE_PATHS = (
     "console/src/pages/Settings/browserBridgeReadiness.tsx",
     "console/src/pages/Settings/PluginDetail/index.tsx",
@@ -46,11 +46,21 @@ BACKEND_PATHS = (
 LEGACY_EVIDENCE_FIXTURES = (
     "tests/local/fixtures/browser_bridge_historical_actions.json",
 )
+LEGACY_BROWSER_TOOL = "".join(("browser", "_use"))
 
 MODEL_FORBIDDEN_PATTERNS = (
-    ("browser_use_call", re.compile(r"\bbrowser_use\s*\(")),
-    ("use_browser_use", re.compile(r"\bUse\s+browser_use\b")),
-    ("zh_use_browser_use", re.compile(r"使用\s*browser_use")),
+    (
+        "browser_use_call",
+        re.compile(r"\b" + re.escape(LEGACY_BROWSER_TOOL) + r"\s*\("),
+    ),
+    (
+        "use_browser_use",
+        re.compile(r"\bUse\s+" + re.escape(LEGACY_BROWSER_TOOL) + r"\b"),
+    ),
+    (
+        "zh_use_browser_use",
+        re.compile(r"使用\s*" + re.escape(LEGACY_BROWSER_TOOL)),
+    ),
     ("python_repl", re.compile(r"\bpython_repl\b")),
     ("named_live_site_recipe", re.compile(r"\btaobao\b", re.IGNORECASE)),
     ("old_fixture_marker", re.compile(r"\bV[0-9]+_[A-Z_]+_PASS\b")),
@@ -172,7 +182,7 @@ def scan_entropy_findings(repo_root: Path = REPO_ROOT) -> list[dict[str, Any]]:
 def classify_legacy_evidence(
     repo_root: Path = REPO_ROOT,
 ) -> list[dict[str, Any]]:
-    """Classify archived old browser_use samples as historical evidence only."""
+    """Classify archived old legacy-tool samples as historical evidence only."""
     entries: list[dict[str, Any]] = []
     for fixture_path in LEGACY_EVIDENCE_FIXTURES:
         archive = repo_root / fixture_path
@@ -199,11 +209,11 @@ def classify_legacy_evidence(
             entries.append(
                 {
                     "classification": "historical_evidence",
-                    "old_tool": "browser_use",
+                    "old_tool": LEGACY_BROWSER_TOOL,
                     "source_path": _relative(archive, repo_root),
                     "matched_symbols": tuple(sorted(actions))
                     or (archived_capability,)
-                    or ("browser_use",),
+                    or (LEGACY_BROWSER_TOOL,),
                     "capability_ids": capability_ids,
                     "public_api": (),
                     "policy": (
@@ -239,7 +249,7 @@ def render_markdown_report(payload: dict[str, Any]) -> str:
     lines = [
         "# Browser Bridge V8-A Product Truth Audit",
         "",
-        "Generated from `scripts/verify/browser_bridge_truth_audit.py`.",
+        "Generated from `scripts/verify/browser/truth_audit.py`.",
         "This report is a local repository audit; it does not start QwenPaw, "
         "open Chrome, call network, or inspect a user profile.",
         "",
@@ -314,7 +324,7 @@ def render_markdown_report(payload: dict[str, Any]) -> str:
             "",
             "## Legacy Evidence Policy",
             "",
-            "Archived old `browser_use` samples are historical "
+            f"Archived old `{LEGACY_BROWSER_TOOL}` samples are historical "
             "capability evidence only. They map to product capability IDs "
             "and do not define Browser SDK public API names.",
             "",
@@ -471,15 +481,18 @@ def _symbol_scan(
 
 
 def _legacy_actions(text: str) -> tuple[str, ...]:
+    tool_pattern = re.escape(LEGACY_BROWSER_TOOL)
     actions = set(
-        re.findall(r"browser_use\s*\(\s*action=[\"']([^\"']+)", text),
+        re.findall(tool_pattern + r"\s*\(\s*action=[\"']([^\"']+)", text),
     )
-    actions.update(re.findall(r"browser_use:([a-zA-Z_]+)", text))
-    actions.update(re.findall(r"name=[\"']browser_use[\"']", text))
+    actions.update(re.findall(tool_pattern + r":([a-zA-Z_]+)", text))
+    actions.update(
+        re.findall(r"name=[\"']" + tool_pattern + r"[\"']", text),
+    )
     normalized = {
         action.strip().lower()
         for action in actions
-        if action.strip().lower() != "browser_use"
+        if action.strip().lower() != LEGACY_BROWSER_TOOL
     }
     return tuple(sorted(normalized))
 

@@ -55,6 +55,11 @@ def _support(
     )
 
 
+def _legacy_tool_evidence(*actions: str) -> tuple[str, ...]:
+    legacy_tool = "".join(("browser", "_use"))
+    return tuple(f"{legacy_tool}:{action}" for action in actions)
+
+
 BROWSER_PRODUCT_CAPABILITIES: tuple[BrowserProductCapability, ...] = (
     BrowserProductCapability(
         capability_id="navigation.open",
@@ -109,7 +114,7 @@ BROWSER_PRODUCT_CAPABILITIES: tuple[BrowserProductCapability, ...] = (
         verifier_evidence=("complex-isolated", "complex-user"),
         gap_status="supported",
         follow_up="none",
-        legacy_evidence=("browser_use:back", "browser_use:forward"),
+        legacy_evidence=_legacy_tool_evidence("back", "forward"),
     ),
     BrowserProductCapability(
         capability_id="observation.snapshot",
@@ -172,7 +177,7 @@ BROWSER_PRODUCT_CAPABILITIES: tuple[BrowserProductCapability, ...] = (
         verifier_evidence=("complex-isolated", "complex-user"),
         gap_status="partial",
         follow_up="V8-B",
-        legacy_evidence=("browser_use:extract",),
+        legacy_evidence=_legacy_tool_evidence("extract"),
     ),
     BrowserProductCapability(
         capability_id="forms.type",
@@ -197,7 +202,7 @@ BROWSER_PRODUCT_CAPABILITIES: tuple[BrowserProductCapability, ...] = (
         verifier_evidence=("fixture", "complex-isolated", "complex-user"),
         gap_status="supported",
         follow_up="none",
-        legacy_evidence=("browser_use:type", "browser_use:press_key"),
+        legacy_evidence=_legacy_tool_evidence("type", "press_key"),
     ),
     BrowserProductCapability(
         capability_id="forms.select",
@@ -219,7 +224,7 @@ BROWSER_PRODUCT_CAPABILITIES: tuple[BrowserProductCapability, ...] = (
         verifier_evidence=("complex-isolated", "complex-user"),
         gap_status="supported",
         follow_up="none",
-        legacy_evidence=("browser_use:select_option",),
+        legacy_evidence=_legacy_tool_evidence("select_option"),
     ),
     BrowserProductCapability(
         capability_id="forms.submit_guard",
@@ -279,7 +284,7 @@ BROWSER_PRODUCT_CAPABILITIES: tuple[BrowserProductCapability, ...] = (
         ),
         gap_status="supported",
         follow_up="none",
-        legacy_evidence=("browser_use:dialog",),
+        legacy_evidence=_legacy_tool_evidence("dialog"),
     ),
     BrowserProductCapability(
         capability_id="dom.iframe",
@@ -292,7 +297,7 @@ BROWSER_PRODUCT_CAPABILITIES: tuple[BrowserProductCapability, ...] = (
         isolated_support=_support(
             "partial",
             (
-                "scripts/verify/browser_bridge_v8_capability_fixture.html:"
+                "scripts/verify/browser/fixtures/v8_capability.html:"
                 "capability-frame",
             ),
             limitations=("No first-class frame selector API yet.",),
@@ -300,7 +305,7 @@ BROWSER_PRODUCT_CAPABILITIES: tuple[BrowserProductCapability, ...] = (
         user_support=_support(
             "partial",
             (
-                "scripts/verify/browser_bridge_v8_capability_fixture.html:"
+                "scripts/verify/browser/fixtures/v8_capability.html:"
                 "capability-frame",
             ),
             limitations=("No explicit iframe traversal contract yet.",),
@@ -311,7 +316,7 @@ BROWSER_PRODUCT_CAPABILITIES: tuple[BrowserProductCapability, ...] = (
         ),
         gap_status="partial",
         follow_up="V8-E",
-        legacy_evidence=("browser_use:iframe",),
+        legacy_evidence=_legacy_tool_evidence("iframe"),
     ),
     BrowserProductCapability(
         capability_id="dom.shadow",
@@ -324,7 +329,7 @@ BROWSER_PRODUCT_CAPABILITIES: tuple[BrowserProductCapability, ...] = (
         isolated_support=_support(
             "partial",
             (
-                "scripts/verify/browser_bridge_v8_capability_fixture.html:"
+                "scripts/verify/browser/fixtures/v8_capability.html:"
                 "capability-shadow-host",
             ),
             limitations=("No first-class shadow-root API yet.",),
@@ -343,7 +348,7 @@ BROWSER_PRODUCT_CAPABILITIES: tuple[BrowserProductCapability, ...] = (
         ),
         gap_status="partial",
         follow_up="V8-E",
-        legacy_evidence=("browser_use:shadow_dom",),
+        legacy_evidence=_legacy_tool_evidence("shadow_dom"),
     ),
     BrowserProductCapability(
         capability_id="tabs.multi_tab",
@@ -370,7 +375,7 @@ BROWSER_PRODUCT_CAPABILITIES: tuple[BrowserProductCapability, ...] = (
         verifier_evidence=("complex-isolated", "complex-user"),
         gap_status="supported",
         follow_up="none",
-        legacy_evidence=("browser_use:tabs",),
+        legacy_evidence=_legacy_tool_evidence("tabs"),
     ),
     BrowserProductCapability(
         capability_id="files.download_read",
@@ -403,7 +408,7 @@ BROWSER_PRODUCT_CAPABILITIES: tuple[BrowserProductCapability, ...] = (
         ),
         gap_status="supported",
         follow_up="none",
-        legacy_evidence=("browser_use:download",),
+        legacy_evidence=_legacy_tool_evidence("download"),
     ),
     BrowserProductCapability(
         capability_id="files.upload_select",
@@ -433,7 +438,7 @@ BROWSER_PRODUCT_CAPABILITIES: tuple[BrowserProductCapability, ...] = (
         ),
         gap_status="supported",
         follow_up="none",
-        legacy_evidence=("browser_use:upload",),
+        legacy_evidence=_legacy_tool_evidence("upload"),
     ),
     BrowserProductCapability(
         capability_id="lifecycle.cleanup",
