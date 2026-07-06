@@ -82,6 +82,15 @@ class BrowserRuntimeOutcome:
         }
 
 
+@dataclass(frozen=True)
+class _RecoveryTemplate:
+    action: BrowserRecoveryAction
+    reason: str
+    required_next_step: str
+    forbidden: tuple[str, ...] = ()
+    next_context: str = ""
+
+
 PROTOCOL_TIMEOUT_CODES = frozenset(
     {
         BrowserErrorCode.BRIDGE_REQUEST_TIMEOUT.value,
@@ -93,6 +102,67 @@ PROTOCOL_TIMEOUT_CODES = frozenset(
         BrowserErrorCode.NETWORK_TIMEOUT.value,
     },
 )
+_CONTEXT_SWITCH_ERROR_CODES = frozenset(
+    {
+        BrowserErrorCode.LOGIN_REQUIRED.value,
+        BrowserErrorCode.CAPTCHA_OR_RISK_CONTROL.value,
+    },
+)
+_ERROR_CODE_RECOVERY_TEMPLATES = {
+    BrowserErrorCode.APPROVAL_DENIED.value: _RecoveryTemplate(
+        BrowserRecoveryAction.BLOCKED,
+        "approval_denied",
+        "stop_browser_action",
+    ),
+    BrowserErrorCode.APPROVAL_REQUIRED.value: _RecoveryTemplate(
+        BrowserRecoveryAction.WAIT_FOR_APPROVAL,
+        "approval_pending",
+        "wait_for_user_approval",
+    ),
+    BrowserErrorCode.BRIDGE_DISCONNECTED.value: _RecoveryTemplate(
+        BrowserRecoveryAction.BLOCKED,
+        "bridge_disconnected",
+        "reconnect_browser_bridge",
+        ("isolated_fallback",),
+    ),
+    BrowserErrorCode.OBSERVATION_STALE.value: _RecoveryTemplate(
+        BrowserRecoveryAction.CONTINUE,
+        "fresh_observation_required",
+        "tab.snapshot()",
+        ("repeat_mutation_without_observation",),
+    ),
+    BrowserErrorCode.OBSERVATION_ENRICHMENT_DENIED.value: _RecoveryTemplate(
+        BrowserRecoveryAction.CONTINUE,
+        "observation_enrichment_denied",
+        "tab.screenshot()",
+        (
+            "repeat_enrichment_without_fallback",
+            "repeat_mutation_without_observation",
+        ),
+    ),
+    BrowserErrorCode.INVALID_SDK_USAGE.value: _RecoveryTemplate(
+        BrowserRecoveryAction.CONTINUE,
+        "invalid_sdk_usage",
+        "use_supported_browser_sdk_api",
+        ("invent_browser_sdk_methods",),
+    ),
+    BrowserErrorCode.CLICK_WITHOUT_NAVIGATION.value: _RecoveryTemplate(
+        BrowserRecoveryAction.CONTINUE,
+        "click_without_navigation",
+        "tab.snapshot()",
+        ("assume_navigation_completed",),
+    ),
+    BrowserErrorCode.CAPABILITY_MISSING.value: _RecoveryTemplate(
+        BrowserRecoveryAction.FAILED,
+        "capability_missing",
+        "use_generic_browser_capability",
+    ),
+    BrowserErrorCode.NETWORK_TIMEOUT.value: _RecoveryTemplate(
+        BrowserRecoveryAction.CONTINUE,
+        "network_timeout",
+        "retry_after_page_settles",
+    ),
+}
 
 
 def classify_browser_runtime_outcome(
@@ -350,68 +420,20 @@ class BrowserRecoveryPolicy:
             )
 
         error_code = _latest_error_code(evidence)
-        if error_code == BrowserErrorCode.APPROVAL_DENIED.value:
+        template = _error_code_recovery_template(error_code, event)
+        if template is not None:
             return self._decision(
-                BrowserRecoveryAction.BLOCKED,
-                reason="approval_denied",
+                template.action,
+                reason=template.reason,
                 event=event,
-                required_next_step="stop_browser_action",
-            )
-        if error_code == BrowserErrorCode.APPROVAL_REQUIRED.value:
-            return self._decision(
-                BrowserRecoveryAction.WAIT_FOR_APPROVAL,
-                reason="approval_pending",
-                event=event,
-                required_next_step="wait_for_user_approval",
-                metadata=_approval_metadata(evidence),
-            )
-        if error_code == BrowserErrorCode.BRIDGE_DISCONNECTED.value:
-            return self._decision(
-                BrowserRecoveryAction.BLOCKED,
-                reason="bridge_disconnected",
-                event=event,
-                required_next_step="reconnect_browser_bridge",
-            )
-        if error_code in {
-            BrowserErrorCode.LOGIN_REQUIRED.value,
-            BrowserErrorCode.CAPTCHA_OR_RISK_CONTROL.value,
-        }:
-            if _is_auto_isolated(event):
-                return self._decision(
-                    BrowserRecoveryAction.RETRY_WITH_CONTEXT,
-                    reason=error_code,
-                    event=event,
-                    next_context="user",
-                    required_next_step="retry_with_user_context",
-                    forbidden=("isolated_fallback",),
-                )
-            return self._decision(
-                BrowserRecoveryAction.BLOCKED,
-                reason=error_code,
-                event=event,
-                required_next_step="ask_user_to_prepare_browser",
-            )
-        if error_code == BrowserErrorCode.OBSERVATION_STALE.value:
-            return self._decision(
-                BrowserRecoveryAction.CONTINUE,
-                reason="fresh_observation_required",
-                event=event,
-                required_next_step="tab.snapshot()",
-                forbidden=("repeat_mutation_without_observation",),
-            )
-        if error_code == BrowserErrorCode.CAPABILITY_MISSING.value:
-            return self._decision(
-                BrowserRecoveryAction.FAILED,
-                reason="capability_missing",
-                event=event,
-                required_next_step="use_generic_browser_capability",
-            )
-        if error_code == BrowserErrorCode.NETWORK_TIMEOUT.value:
-            return self._decision(
-                BrowserRecoveryAction.CONTINUE,
-                reason="network_timeout",
-                event=event,
-                required_next_step="retry_after_page_settles",
+                next_context=template.next_context,
+                required_next_step=template.required_next_step,
+                forbidden=template.forbidden,
+                metadata=(
+                    _approval_metadata(evidence)
+                    if template.reason == "approval_pending"
+                    else None
+                ),
             )
         if _no_progress(evidence):
             return self._decision(
@@ -420,6 +442,33 @@ class BrowserRecoveryPolicy:
                 event=event,
                 required_next_step="change_strategy_or_observe",
                 forbidden=("repeat_identical_action",),
+            )
+        if _observation_enrichment_denied(evidence):
+            return self._decision(
+                BrowserRecoveryAction.CONTINUE,
+                reason="observation_enrichment_denied",
+                event=event,
+                required_next_step="tab.screenshot()",
+                forbidden=(
+                    "repeat_enrichment_without_fallback",
+                    "repeat_mutation_without_observation",
+                ),
+            )
+        if _invalid_sdk_usage(evidence):
+            return self._decision(
+                BrowserRecoveryAction.CONTINUE,
+                reason="invalid_sdk_usage",
+                event=event,
+                required_next_step="use_supported_browser_sdk_api",
+                forbidden=("invent_browser_sdk_methods",),
+            )
+        if _click_without_navigation(evidence):
+            return self._decision(
+                BrowserRecoveryAction.CONTINUE,
+                reason="click_without_navigation",
+                event=event,
+                required_next_step="tab.snapshot()",
+                forbidden=("assume_navigation_completed",),
             )
         return BrowserRecoveryDecision(
             action=BrowserRecoveryAction.NO_OP,
@@ -484,6 +533,27 @@ class BrowserRecoveryPolicy:
             continuation_message=continuation,
             metadata=merged_metadata,
         )
+
+
+def _error_code_recovery_template(
+    error_code: str,
+    event: BrowserTraceEvent | None,
+) -> _RecoveryTemplate | None:
+    if error_code in _CONTEXT_SWITCH_ERROR_CODES:
+        if _is_auto_isolated(event):
+            return _RecoveryTemplate(
+                BrowserRecoveryAction.RETRY_WITH_CONTEXT,
+                error_code,
+                "retry_with_user_context",
+                ("isolated_fallback",),
+                "user",
+            )
+        return _RecoveryTemplate(
+            BrowserRecoveryAction.BLOCKED,
+            error_code,
+            "ask_user_to_prepare_browser",
+        )
+    return _ERROR_CODE_RECOVERY_TEMPLATES.get(error_code)
 
 
 def _session_id(agent: Any) -> str:
@@ -611,7 +681,7 @@ def _approval_metadata(evidence: BrowserRequestEvidence) -> dict[str, Any]:
 def _latest_error_code(evidence: BrowserRequestEvidence) -> str:
     for event in reversed(evidence.trace_events):
         if event.error_code:
-            return event.error_code
+            return classify_browser_error(event.error_code).code.value
     for metadata in reversed(evidence.tool_metadata):
         value = (
             metadata.get("browser_error_code")
@@ -619,7 +689,7 @@ def _latest_error_code(evidence: BrowserRequestEvidence) -> str:
             or metadata.get("code")
         )
         if value:
-            return str(value)
+            return classify_browser_error(str(value)).code.value
     return ""
 
 
@@ -638,6 +708,103 @@ def _no_progress(evidence: BrowserRequestEvidence) -> bool:
         if isinstance(decision, dict) and decision.get("blocked") is True:
             return str(decision.get("reason") or "") == "no_progress"
     return False
+
+
+def _observation_enrichment_denied(
+    evidence: BrowserRequestEvidence,
+) -> bool:
+    return any(
+        _metadata_flag(event.metadata, "observation_enrichment_denied")
+        or _metadata_value(
+            event.metadata,
+            "degradation_code",
+            BrowserErrorCode.OBSERVATION_ENRICHMENT_DENIED.value,
+        )
+        or _metadata_value(
+            event.metadata,
+            "observation_degradation",
+            BrowserErrorCode.OBSERVATION_ENRICHMENT_DENIED.value,
+        )
+        for event in reversed(evidence.trace_events)
+    ) or any(
+        _metadata_flag(metadata, "observation_enrichment_denied")
+        or _metadata_value(
+            metadata,
+            "degradation_code",
+            BrowserErrorCode.OBSERVATION_ENRICHMENT_DENIED.value,
+        )
+        or _metadata_value(
+            metadata,
+            "observation_degradation",
+            BrowserErrorCode.OBSERVATION_ENRICHMENT_DENIED.value,
+        )
+        for metadata in reversed(evidence.tool_metadata)
+    )
+
+
+def _invalid_sdk_usage(evidence: BrowserRequestEvidence) -> bool:
+    invalid_error_types = {"attributeerror", "nameerror", "typeerror"}
+    return any(
+        _metadata_value(
+            event.metadata,
+            "browser_error_code",
+            BrowserErrorCode.INVALID_SDK_USAGE.value,
+        )
+        or _metadata_value(
+            event.metadata,
+            "error_code",
+            BrowserErrorCode.INVALID_SDK_USAGE.value,
+        )
+        or _metadata_value(
+            event.metadata,
+            "error_type",
+            *invalid_error_types,
+        )
+        for event in reversed(evidence.trace_events)
+    ) or any(
+        _metadata_value(
+            metadata,
+            "browser_error_code",
+            BrowserErrorCode.INVALID_SDK_USAGE.value,
+        )
+        or _metadata_value(
+            metadata,
+            "error_code",
+            BrowserErrorCode.INVALID_SDK_USAGE.value,
+        )
+        or _metadata_value(metadata, "error_type", *invalid_error_types)
+        for metadata in reversed(evidence.tool_metadata)
+    )
+
+
+def _click_without_navigation(evidence: BrowserRequestEvidence) -> bool:
+    return any(
+        event.action == "click"
+        and event.status == "ok"
+        and _metadata_flag(event.metadata, "expected_navigation")
+        and _metadata_value(event.metadata, "navigation_occurred", "false")
+        for event in reversed(evidence.trace_events)
+    ) or any(
+        _metadata_flag(metadata, "expected_navigation")
+        and _metadata_value(metadata, "navigation_occurred", "false")
+        for metadata in reversed(evidence.tool_metadata)
+    )
+
+
+def _metadata_flag(metadata: dict[str, Any], key: str) -> bool:
+    return metadata.get(key) is True
+
+
+def _metadata_value(
+    metadata: dict[str, Any],
+    key: str,
+    *expected: str,
+) -> bool:
+    value = metadata.get(key)
+    if value is None:
+        return False
+    normalized = str(value).strip().casefold().replace("-", "_")
+    return normalized in {item.casefold() for item in expected}
 
 
 __all__ = [

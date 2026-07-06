@@ -12,6 +12,7 @@ import argparse
 import contextlib
 import hashlib
 import json
+import re
 import subprocess
 import sys
 import time
@@ -46,6 +47,51 @@ V9_SOURCE_LABELS = (
     "public_live",
     "commerce_live",
 )
+V9_BUDGET_PROFILES: dict[str, dict[str, int | str]] = {
+    "public_isolated": {
+        "profile": "public_isolated",
+        "iteration_limit": 12,
+        "browser_call_limit": 8,
+        "elapsed_ms_limit": 120_000,
+        "token_limit": 25_000,
+    },
+    "user_read_only": {
+        "profile": "user_read_only",
+        "iteration_limit": 12,
+        "browser_call_limit": 8,
+        "elapsed_ms_limit": 120_000,
+        "token_limit": 25_000,
+    },
+    "deterministic_complex": {
+        "profile": "deterministic_complex",
+        "iteration_limit": 25,
+        "browser_call_limit": 20,
+        "elapsed_ms_limit": 300_000,
+        "token_limit": 50_000,
+    },
+    "commerce_live_mutation": {
+        "profile": "commerce_live_mutation",
+        "iteration_limit": 60,
+        "browser_call_limit": 45,
+        "elapsed_ms_limit": 900_000,
+        "token_limit": 90_000,
+    },
+}
+V9_SCENARIO_BUDGET_PROFILES = {
+    "public-isolated": "public_isolated",
+    "public-search": "public_isolated",
+    "stable-public-page": "public_isolated",
+    "v8-public-live": "public_isolated",
+    "user-read-only": "user_read_only",
+    "v8-user-live": "user_read_only",
+    "complex-isolated": "deterministic_complex",
+    "complex-user": "deterministic_complex",
+    "deterministic-complex": "deterministic_complex",
+    "v8-deterministic": "deterministic_complex",
+    "v8-taobao-live": "commerce_live_mutation",
+    "taobao-live-mutation": "commerce_live_mutation",
+    "commerce-live-mutation": "commerce_live_mutation",
+}
 
 
 def _join_removed_tool_token(*parts: str) -> str:
@@ -59,6 +105,32 @@ FORBIDDEN_TOOLS = (
     _join_removed_tool_token("View", "Video"),
     _join_removed_tool_token("Remote", "Bridge"),
     _join_removed_tool_token("/ws/", "browser-sdk"),
+)
+BROWSER_CONTROL_ENTROPY_LEGACY_TOKENS = (
+    _join_removed_tool_token("browser", "_use"),
+    _join_removed_tool_token("Desktop", "Screenshot"),
+    _join_removed_tool_token("Desktop", "ScreenShot"),
+    _join_removed_tool_token("View", "Video"),
+)
+BROWSER_CONTROL_ENTROPY_SITE_TOKENS = (
+    "Taobao",
+    "淘宝",
+    "Loop Engineering",
+    "shopping cart",
+    "购物车",
+    "tmall",
+    "amazon",
+)
+BROWSER_CONTROL_ENTROPY_ALLOWED_SCENARIO_PATHS = (
+    "scripts/verify/browser_control_verify.py",
+    "scripts/verify/browser_control_truth_audit.py",
+)
+BROWSER_CONTROL_ENTROPY_EXCLUDED_PATHS = (
+    "src/qwenpaw/browser_sdk/product_matrix.py",
+)
+BROWSER_CONTROL_ENTROPY_GENERIC_COMMERCE_PATHS = (
+    "plugins/bundle/browser-control/engine/snapshot_builder.py",
+    "plugins/bundle/browser-control/engine/targets.py",
 )
 MUTATING_TRACE_ACTIONS = {
     "back",
@@ -329,6 +401,117 @@ def detect_forbidden_tools(text: str | list[str]) -> list[str]:
     return [tool for tool in FORBIDDEN_TOOLS if tool in haystack]
 
 
+def scan_browser_control_entropy_guardrails(
+    root: str | Path | None = None,
+) -> dict[str, Any]:
+    """Scan Browser Control hot paths for prompt and legacy-tool entropy."""
+    repo_root = Path(root or Path.cwd())
+    scanned_files: list[str] = []
+    violations: list[dict[str, str]] = []
+    for path in _browser_control_entropy_scan_paths(repo_root):
+        relative = path.relative_to(repo_root).as_posix()
+        scanned_files.append(relative)
+        try:
+            text = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            continue
+        violations.extend(
+            _browser_control_entropy_violations_for_text(relative, text),
+        )
+    return {
+        "ok": not violations,
+        "violations": violations,
+        "scanned_files": scanned_files,
+    }
+
+
+def _browser_control_entropy_scan_paths(root: Path) -> tuple[Path, ...]:
+    candidates: list[Path] = []
+    sdk_root = root / "src/qwenpaw/browser_sdk"
+    if sdk_root.exists():
+        candidates.extend(sorted(sdk_root.glob("*.py")))
+    plugin_root = root / "plugins/bundle/browser-control"
+    for relative in ("*.py", "engine/**/*.py"):
+        candidates.extend(sorted(plugin_root.glob(relative)))
+    skill_root = plugin_root / "skills/browser-control"
+    if skill_root.exists():
+        candidates.extend(sorted(skill_root.glob("*.md")))
+    excluded = set(BROWSER_CONTROL_ENTROPY_EXCLUDED_PATHS)
+    return tuple(
+        path
+        for path in candidates
+        if path.is_file() and path.relative_to(root).as_posix() not in excluded
+    )
+
+
+def _browser_control_entropy_violations_for_text(
+    relative_path: str,
+    text: str,
+) -> list[dict[str, str]]:
+    if relative_path in BROWSER_CONTROL_ENTROPY_ALLOWED_SCENARIO_PATHS:
+        return []
+    violations: list[dict[str, str]] = []
+    for token in BROWSER_CONTROL_ENTROPY_LEGACY_TOKENS:
+        if _legacy_entropy_token_present(text, token):
+            violations.append(
+                _entropy_violation(
+                    relative_path,
+                    token,
+                    "legacy_tool",
+                ),
+            )
+    for token in BROWSER_CONTROL_ENTROPY_SITE_TOKENS:
+        if _site_entropy_token_allowed(relative_path, token):
+            continue
+        if _entropy_token_present(text, token):
+            violations.append(
+                _entropy_violation(
+                    relative_path,
+                    token,
+                    "site_specific",
+                ),
+            )
+    return violations
+
+
+def _legacy_entropy_token_present(text: str, token: str) -> bool:
+    if token == _join_removed_tool_token("browser", "_use"):
+        return (
+            re.search(r"(?<![A-Z0-9_])browser_use(?![A-Z0-9_])", text, re.I)
+            is not None
+        )
+    return _entropy_token_present(text, token)
+
+
+def _site_entropy_token_allowed(relative_path: str, token: str) -> bool:
+    return (
+        relative_path in BROWSER_CONTROL_ENTROPY_GENERIC_COMMERCE_PATHS
+        and token in {"shopping cart", "购物车"}
+    )
+
+
+def _entropy_token_present(text: str, token: str) -> bool:
+    if any("\u4e00" <= char <= "\u9fff" for char in token):
+        return token in text
+    return token.casefold() in text.casefold()
+
+
+def _entropy_violation(
+    relative_path: str,
+    token: str,
+    category: str,
+) -> dict[str, str]:
+    return {
+        "path": relative_path,
+        "token": token,
+        "category": category,
+        "message": (
+            "Browser Control progress and recovery must stay generic; "
+            f"remove {token!r} from {relative_path}."
+        ),
+    }
+
+
 # pylint: disable-next=too-many-return-statements
 def classify_verification_evidence(
     *,
@@ -341,157 +524,202 @@ def classify_verification_evidence(
     browser_tool_calls: int = 0,
     backend_route: str = "",
     artifact_paths: list[str] | None = None,
+    actual_metrics: dict[str, Any] | None = None,
 ) -> BrowserControlReport:
     """Classify synthetic verifier evidence into a scenario report."""
+    events = trace_events or []
     forbidden = list(forbidden_tools or [])
+    metrics = _v9_normalize_actual_metrics(
+        started=started,
+        browser_tool_calls=browser_tool_calls,
+        trace_events=events,
+        actual_metrics=actual_metrics,
+    )
+    budget = _v9_scenario_budget(scenario)
+    budget_failure = _v9_budget_failure(budget, metrics)
+
+    def scenario_report(
+        status: str,
+        **kwargs: Any,
+    ) -> BrowserControlReport:
+        kwargs.setdefault("scenario_budget", budget)
+        kwargs.setdefault("actual_metrics", metrics)
+        return _report(scenario, status, started, **kwargs)
+
     if forbidden:
-        return _report(
-            scenario,
+        return scenario_report(
             "failed",
-            started,
             browser_tool_calls=browser_tool_calls,
             backend_route=backend_route,
             forbidden_tools=forbidden,
-            trace_event_count=len(trace_events or []),
+            trace_event_count=len(events),
             error_code=BrowserErrorCode.CAPABILITY_MISSING.value,
             failure_reason="forbidden_tools",
             artifact_paths=artifact_paths,
             fresh_observe_ok=not _fresh_observe_failure_reason(
-                trace_events or [],
+                events,
             ),
             cleanup_ok=(
-                not _user_cleanup_failure_reason(trace_events or [])
-                if _has_user_backend_evidence(trace_events or [])
+                not _user_cleanup_failure_reason(events)
+                if _has_user_backend_evidence(events)
                 else True
             ),
         )
 
     if assertion_failure:
-        return _report(
-            scenario,
+        return scenario_report(
             "failed",
-            started,
             browser_tool_calls=browser_tool_calls,
             backend_route=backend_route,
-            trace_event_count=len(trace_events or []),
+            trace_event_count=len(events),
             error_code=BrowserErrorCode.UNKNOWN.value,
             failure_reason=assertion_failure,
             artifact_paths=artifact_paths,
             fresh_observe_ok=not _fresh_observe_failure_reason(
-                trace_events or [],
+                events,
             ),
             cleanup_ok=(
-                not _user_cleanup_failure_reason(trace_events or [])
-                if _has_user_backend_evidence(trace_events or [])
+                not _user_cleanup_failure_reason(events)
+                if _has_user_backend_evidence(events)
                 else True
             ),
         )
 
-    trace_validation = _trace_completeness_summary(trace_events or [])
+    trace_validation = _trace_completeness_summary(events)
     if trace_validation and not trace_validation.get("complete", True):
-        return _report(
-            scenario,
+        return scenario_report(
             "failed",
-            started,
             browser_tool_calls=browser_tool_calls,
             backend_route=backend_route,
-            trace_event_count=len(trace_events or []),
+            trace_event_count=len(events),
             error_code=BrowserErrorCode.UNKNOWN.value,
             failure_reason="trace_incomplete",
             artifact_paths=artifact_paths,
             fresh_observe_ok=not _fresh_observe_failure_reason(
-                trace_events or [],
+                events,
             ),
             cleanup_ok=(
-                not _user_cleanup_failure_reason(trace_events or [])
-                if _has_user_backend_evidence(trace_events or [])
+                not _user_cleanup_failure_reason(events)
+                if _has_user_backend_evidence(events)
                 else True
             ),
             trace_summary=trace_validation,
         )
 
-    no_progress = _no_progress_failure_reason(trace_events or [])
-    if no_progress:
-        return _report(
-            scenario,
-            "failed",
-            started,
+    trace_info = _trace_error_info(events)
+    if trace_info is not None and trace_info.outcome == BrowserOutcome.BLOCKED:
+        return scenario_report(
+            "blocked",
             browser_tool_calls=browser_tool_calls,
             backend_route=backend_route,
-            trace_event_count=len(trace_events or []),
+            trace_event_count=len(events),
+            error_code=trace_info.code.value,
+            blocked_reason=trace_info.blocked_reason,
+            artifact_paths=artifact_paths,
+            fresh_observe_ok=not _fresh_observe_failure_reason(events),
+            cleanup_ok=(
+                not _user_cleanup_failure_reason(events)
+                if _has_user_backend_evidence(events)
+                else True
+            ),
+            blocker_classification=_v9_report_blocker_classification(
+                status="blocked",
+                blocked_reason=trace_info.blocked_reason,
+            ),
+        )
+
+    transcript_info = _transcript_error_info(transcript)
+    if transcript_info is not None:
+        return scenario_report(
+            "blocked",
+            browser_tool_calls=browser_tool_calls,
+            backend_route=backend_route,
+            trace_event_count=len(events),
+            error_code=transcript_info.code.value,
+            blocked_reason=transcript_info.blocked_reason,
+            artifact_paths=artifact_paths,
+            fresh_observe_ok=not _fresh_observe_failure_reason(events),
+            cleanup_ok=(
+                not _user_cleanup_failure_reason(events)
+                if _has_user_backend_evidence(events)
+                else True
+            ),
+            blocker_classification=_v9_report_blocker_classification(
+                status="blocked",
+                blocked_reason=transcript_info.blocked_reason,
+            ),
+        )
+
+    if budget_failure:
+        return scenario_report(
+            "failed",
+            browser_tool_calls=browser_tool_calls,
+            backend_route=backend_route,
+            trace_event_count=len(events),
+            failure_reason="budget_exhausted",
+            artifact_paths=artifact_paths,
+            fresh_observe_ok=not _fresh_observe_failure_reason(events),
+            cleanup_ok=(
+                not _user_cleanup_failure_reason(events)
+                if _has_user_backend_evidence(events)
+                else True
+            ),
+            blocker_classification=budget_failure,
+        )
+
+    no_progress = _no_progress_failure_reason(events)
+    if no_progress:
+        return scenario_report(
+            "failed",
+            browser_tool_calls=browser_tool_calls,
+            backend_route=backend_route,
+            trace_event_count=len(events),
             error_code=BrowserErrorCode.OBSERVATION_STALE.value,
             failure_reason=no_progress,
             artifact_paths=artifact_paths,
             fresh_observe_ok=False,
             cleanup_ok=(
-                not _user_cleanup_failure_reason(trace_events or [])
-                if _has_user_backend_evidence(trace_events or [])
+                not _user_cleanup_failure_reason(events)
+                if _has_user_backend_evidence(events)
                 else True
             ),
         )
 
-    trace_info = _trace_error_info(trace_events or [])
     if trace_info is not None:
         status = (
             "blocked"
             if trace_info.outcome == BrowserOutcome.BLOCKED
             else "failed"
         )
-        return _report(
-            scenario,
+        return scenario_report(
             status,
-            started,
             browser_tool_calls=browser_tool_calls,
             backend_route=backend_route,
-            trace_event_count=len(trace_events or []),
+            trace_event_count=len(events),
             error_code=trace_info.code.value,
             blocked_reason=trace_info.blocked_reason,
             failure_reason=trace_info.failure_reason,
             artifact_paths=artifact_paths,
             fresh_observe_ok=not _fresh_observe_failure_reason(
-                trace_events or [],
+                events,
             ),
             cleanup_ok=(
-                not _user_cleanup_failure_reason(trace_events or [])
-                if _has_user_backend_evidence(trace_events or [])
+                not _user_cleanup_failure_reason(events)
+                if _has_user_backend_evidence(events)
                 else True
             ),
         )
 
-    transcript_info = _transcript_error_info(transcript)
-    if transcript_info is not None:
-        return _report(
-            scenario,
-            "blocked",
-            started,
-            browser_tool_calls=browser_tool_calls,
-            backend_route=backend_route,
-            trace_event_count=len(trace_events or []),
-            error_code=transcript_info.code.value,
-            blocked_reason=transcript_info.blocked_reason,
-            artifact_paths=artifact_paths,
-            fresh_observe_ok=not _fresh_observe_failure_reason(
-                trace_events or [],
-            ),
-            cleanup_ok=(
-                not _user_cleanup_failure_reason(trace_events or [])
-                if _has_user_backend_evidence(trace_events or [])
-                else True
-            ),
-        )
-
-    return _report(
-        scenario,
+    return scenario_report(
         "passed",
-        started,
         browser_tool_calls=browser_tool_calls,
         backend_route=backend_route,
-        trace_event_count=len(trace_events or []),
+        trace_event_count=len(events),
         artifact_paths=artifact_paths,
-        fresh_observe_ok=not _fresh_observe_failure_reason(trace_events or []),
+        fresh_observe_ok=not _fresh_observe_failure_reason(events),
         cleanup_ok=(
-            not _user_cleanup_failure_reason(trace_events or [])
-            if _has_user_backend_evidence(trace_events or [])
+            not _user_cleanup_failure_reason(events)
+            if _has_user_backend_evidence(events)
             else True
         ),
     )
@@ -2046,10 +2274,118 @@ def _aggregate_status(reports: list[BrowserControlReport]) -> str:
 def _v9_default_scenario_budget(count: int) -> dict[str, Any]:
     return {
         "scenario_count": count,
-        "iteration_limit": "scenario_defined",
-        "browser_call_limit": "scenario_defined",
+        "profiles": {
+            name: dict(profile) for name, profile in V9_BUDGET_PROFILES.items()
+        },
+        "iteration_limit": "profile_defined",
+        "browser_call_limit": "profile_defined",
+        "elapsed_ms_limit": "profile_defined",
+        "token_limit": "profile_defined",
         "timeout_ms": int(DEFAULT_TASK_TIMEOUT * 1000),
     }
+
+
+def _v9_scenario_budget(scenario: str) -> dict[str, Any]:
+    profile_name = _v9_scenario_budget_profile(scenario)
+    profile = V9_BUDGET_PROFILES[profile_name]
+    return dict(profile)
+
+
+def _v9_scenario_budget_profile(scenario: str) -> str:
+    key = scenario.strip().casefold().replace("_", "-")
+    if key in V9_SCENARIO_BUDGET_PROFILES:
+        return V9_SCENARIO_BUDGET_PROFILES[key]
+    if "complex" in key or "deterministic" in key:
+        return "deterministic_complex"
+    if "read-only" in key or "readonly" in key:
+        return "user_read_only"
+    if "commerce" in key or "mutation" in key:
+        return "commerce_live_mutation"
+    return "public_isolated"
+
+
+def _v9_normalize_actual_metrics(
+    *,
+    started: float,
+    browser_tool_calls: int,
+    trace_events: list[dict[str, Any]],
+    actual_metrics: dict[str, Any] | None,
+) -> dict[str, Any]:
+    metrics = dict(actual_metrics or {})
+    metrics.setdefault("browser_calls", int(browser_tool_calls))
+    metrics.setdefault("trace_events", len(trace_events))
+    metrics.setdefault(
+        "elapsed_ms",
+        round((time.perf_counter() - started) * 1000, 3),
+    )
+    metrics.setdefault("iterations", 0)
+    metrics.setdefault(
+        "token_count",
+        {"available": False, "reason": "not_reported"},
+    )
+    return metrics
+
+
+def _v9_budget_failure(
+    budget: dict[str, Any],
+    metrics: dict[str, Any],
+) -> dict[str, Any]:
+    exceeded: list[str] = []
+    if _metric_number(metrics, "iterations") > _budget_int(
+        budget,
+        "iteration_limit",
+    ):
+        exceeded.append("iterations")
+    if _metric_number(metrics, "browser_calls") > _budget_int(
+        budget,
+        "browser_call_limit",
+    ):
+        exceeded.append("browser_calls")
+    if _metric_number(metrics, "elapsed_ms") > _budget_int(
+        budget,
+        "elapsed_ms_limit",
+    ):
+        exceeded.append("elapsed_ms")
+    token_count = metrics.get("token_count")
+    if isinstance(token_count, dict) and token_count.get("available") is True:
+        if _token_count_number(token_count) > _budget_int(
+            budget,
+            "token_limit",
+        ):
+            exceeded.append("token_count")
+    if not exceeded:
+        return {}
+    return {
+        "status": "failed",
+        "category": "budget",
+        "reason": "budget_exhausted",
+        "terminal": True,
+        "exceeded": exceeded,
+    }
+
+
+def _metric_number(metrics: dict[str, Any], key: str) -> float:
+    try:
+        return float(metrics.get(key) or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _token_count_number(token_count: dict[str, Any]) -> float:
+    for key in ("count", "total", "total_tokens"):
+        if key in token_count:
+            try:
+                return float(token_count.get(key) or 0)
+            except (TypeError, ValueError):
+                return 0.0
+    return 0.0
+
+
+def _budget_int(budget: dict[str, Any], key: str) -> int:
+    try:
+        return int(budget.get(key) or 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 def _v9_actual_metrics(reports: list[BrowserControlReport]) -> dict[str, Any]:
@@ -2132,12 +2468,51 @@ def _summary_int(summary: dict[str, Any], key: str) -> int:
 def _v9_blocker_classification(
     status: str,
     reports: list[BrowserControlReport],
-) -> dict[str, str]:
+) -> dict[str, Any]:
     for report in reports:
+        if report.blocker_classification:
+            payload = dict(report.blocker_classification)
+            payload["status"] = status
+            return payload
         reason = report.blocked_reason or report.failure_reason
         if reason:
-            return {"status": status, "reason": reason}
-    return {"status": status, "reason": ""}
+            return _v9_report_blocker_classification(
+                status=status,
+                blocked_reason=report.blocked_reason,
+                failure_reason=report.failure_reason,
+            )
+    return _v9_report_blocker_classification(status=status)
+
+
+def _v9_report_blocker_classification(
+    *,
+    status: str,
+    blocked_reason: str = "",
+    failure_reason: str = "",
+) -> dict[str, Any]:
+    reason = blocked_reason or failure_reason
+    category = "none"
+    if status == "blocked":
+        category = "external_blocker"
+    elif failure_reason == "budget_exhausted":
+        category = "budget"
+    elif failure_reason in {"no_progress", "retry_budget_exhausted"}:
+        category = "model_loop"
+    elif failure_reason in {
+        "forbidden_tools",
+        "missing_browser_tool_call",
+        "backend_route_mismatch",
+        BrowserErrorCode.CAPABILITY_MISSING.value,
+    }:
+        category = "capability_gap"
+    elif status == "failed":
+        category = "verification_failure"
+    return {
+        "status": status,
+        "category": category,
+        "reason": reason,
+        "terminal": status not in {"passed", "running", "in_progress"},
+    }
 
 
 def _v9_runtime_outcome_classification(
@@ -2375,6 +2750,13 @@ def _report(
             runtime_evidence=runtime_payload,
         ),
     )
+    blocker_payload = dict(blocker_classification or {})
+    if not blocker_payload:
+        blocker_payload = _v9_report_blocker_classification(
+            status=status,
+            blocked_reason=blocked_reason,
+            failure_reason=failure_reason,
+        )
     return BrowserControlReport(
         scenario=scenario,
         status=status,
@@ -2400,7 +2782,7 @@ def _report(
         scenario_budget=dict(scenario_budget or {}),
         actual_metrics=dict(actual_metrics or {}),
         cleanup_summary=dict(cleanup_summary or {}),
-        blocker_classification=dict(blocker_classification or {}),
+        blocker_classification=blocker_payload,
         source_labels=dict(source_labels or {}),
     )
 
@@ -2530,6 +2912,18 @@ def _classify_chat_trace_result(
 ) -> BrowserControlReport:
     raw_evidence = json.dumps(task_status, ensure_ascii=False)
     report: BrowserControlReport | None = None
+    actual_metrics = _v9_normalize_actual_metrics(
+        started=started,
+        browser_tool_calls=browser_tool_calls,
+        trace_events=trace_events,
+        actual_metrics=(
+            summary.get("actual_metrics")
+            if isinstance(summary.get("actual_metrics"), dict)
+            else None
+        ),
+    )
+    budget = _v9_scenario_budget(scenario)
+    budget_failure = _v9_budget_failure(budget, actual_metrics)
     forbidden = _detect_forbidden_tool_usage(summary, trace_events)
     task_completed = (
         task_status.get("status") == "finished"
@@ -2571,6 +2965,7 @@ def _classify_chat_trace_result(
             browser_tool_calls=browser_tool_calls,
             backend_route=route,
             artifact_paths=artifact_paths,
+            actual_metrics=actual_metrics,
         )
     elif trace_info is not None and trace_info.code != BrowserErrorCode.NONE:
         report = classify_verification_evidence(
@@ -2581,6 +2976,7 @@ def _classify_chat_trace_result(
             browser_tool_calls=browser_tool_calls,
             backend_route=route,
             artifact_paths=artifact_paths,
+            actual_metrics=actual_metrics,
         )
     else:
         report = _classify_completed_chat_trace_result(
@@ -2596,7 +2992,27 @@ def _classify_chat_trace_result(
             required_backend_id=required_backend_id,
             artifact_paths=artifact_paths,
         )
-    return report
+    if report.status == "passed" and budget_failure:
+        return _report(
+            scenario,
+            "failed",
+            started,
+            browser_tool_calls=browser_tool_calls,
+            backend_route=route,
+            trace_event_count=len(trace_events),
+            failure_reason="budget_exhausted",
+            artifact_paths=artifact_paths,
+            fresh_observe_ok=report.fresh_observe_ok,
+            cleanup_ok=report.cleanup_ok,
+            scenario_budget=budget,
+            actual_metrics=actual_metrics,
+            blocker_classification=budget_failure,
+        )
+    return replace(
+        report,
+        scenario_budget=budget,
+        actual_metrics=actual_metrics,
+    )
 
 
 def _classify_completed_chat_trace_result(
@@ -2880,18 +3296,98 @@ def _summarize_task_status(status: dict[str, Any]) -> dict[str, Any]:
         for item in (_tool_call_from_message(message) for message in messages)
         if item is not None
     ]
+    browser_tool_calls = sum(
+        1 for call in tool_calls if call.get("name") == "browser"
+    )
     return {
         "session_id": str(result.get("session_id") or ""),
-        "browser_tool_calls": sum(
-            1 for call in tool_calls if call.get("name") == "browser"
-        ),
+        "browser_tool_calls": browser_tool_calls,
         "tool_calls": tool_calls,
+        "actual_metrics": _task_status_actual_metrics(
+            status,
+            result,
+            browser_tool_calls,
+        ),
         "final_text": "\n".join(
             text
             for text in (_message_text(message) for message in messages)
             if text
         ),
     }
+
+
+def _task_status_actual_metrics(
+    status: dict[str, Any],
+    result: dict[str, Any],
+    browser_tool_calls: int,
+) -> dict[str, Any]:
+    metrics = _dict_value(result.get("actual_metrics"))
+    runtime_metrics = _dict_value(result.get("metrics"))
+    root_metrics = _dict_value(status.get("metrics"))
+    for source in (runtime_metrics, root_metrics):
+        for key in ("iterations", "elapsed_ms", "token_count"):
+            if key in source and key not in metrics:
+                metrics[key] = source[key]
+
+    metrics.setdefault("browser_calls", browser_tool_calls)
+    iterations = _first_metric_int(
+        result,
+        runtime_metrics,
+        root_metrics,
+        keys=("iterations", "iteration_count", "turn_count"),
+    )
+    if iterations is not None:
+        metrics.setdefault("iterations", iterations)
+
+    elapsed_ms = _first_metric_int(
+        result,
+        runtime_metrics,
+        root_metrics,
+        keys=("elapsed_ms", "duration_ms"),
+    )
+    if elapsed_ms is not None:
+        metrics.setdefault("elapsed_ms", elapsed_ms)
+
+    if "token_count" not in metrics:
+        metrics["token_count"] = _token_count_metric(result, status)
+    return metrics
+
+
+def _dict_value(value: Any) -> dict[str, Any]:
+    return dict(value) if isinstance(value, dict) else {}
+
+
+def _first_metric_int(
+    *sources: dict[str, Any],
+    keys: tuple[str, ...],
+) -> int | None:
+    for source in sources:
+        for key in keys:
+            if key not in source:
+                continue
+            try:
+                return int(source.get(key) or 0)
+            except (TypeError, ValueError):
+                return None
+    return None
+
+
+def _token_count_metric(
+    result: dict[str, Any],
+    status: dict[str, Any],
+) -> dict[str, Any]:
+    for source in (
+        _dict_value(result.get("token_count")),
+        _dict_value(result.get("token_usage")),
+        _dict_value(status.get("token_count")),
+        _dict_value(status.get("token_usage")),
+    ):
+        if not source:
+            continue
+        count = _token_count_number(source)
+        if count > 0:
+            return {"available": True, "count": int(count)}
+    return {"available": False, "reason": "not_reported"}
 
 
 def _detect_forbidden_tool_usage(

@@ -71,6 +71,32 @@ export interface BrowserControlLifecycleSummary {
   protected_origin_status?: string;
 }
 
+export interface BrowserControlCurrentTab {
+  tab_id?: string;
+  url?: string;
+  domain?: string;
+  title?: string;
+  ownership?: string;
+}
+
+export interface BrowserControlProgressState {
+  status?: string;
+  action?: string;
+  reason?: string;
+  current_step?: string;
+  recovery_action?: string;
+  blocked_reason?: string;
+  approval_state?: string;
+}
+
+export interface BrowserControlCleanupResult {
+  cleanup_ok?: boolean;
+  cleanup_result?: string;
+  last_cleanup_reason?: string;
+  controlled_tab_count?: number;
+  residual_tab_count?: number;
+}
+
 export interface BrowserControlSelfTestCheck {
   name: string;
   passed: boolean;
@@ -115,6 +141,10 @@ export interface ExtensionStatus {
   residual_tab_count?: number;
   last_cleanup_reason?: string;
   protected_origin_status?: string;
+  current_tab?: BrowserControlCurrentTab | null;
+  connection_state?: string;
+  browser_progress?: BrowserControlProgressState | null;
+  cleanup_result?: BrowserControlCleanupResult | null;
   last_self_test?: BrowserControlSelfTestResult | null;
   sdk_diagnostics?: BrowserDiagnostics;
 }

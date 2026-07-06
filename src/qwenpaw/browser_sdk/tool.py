@@ -50,6 +50,18 @@ _ERROR_HINTS = {
         "Take a fresh browser observation before attempting another "
         "mutating action."
     ),
+    "observation_enrichment_denied": (
+        "Use an available visual observation source before attempting "
+        "another mutating action."
+    ),
+    "invalid_sdk_usage": (
+        "Retry with documented Browser SDK methods and arguments; do not "
+        "invent browser APIs."
+    ),
+    "click_without_navigation": (
+        "Observe the page after the click before deciding whether to retry, "
+        "wait, or choose a different strategy."
+    ),
     "capability_missing": (
         "Add or use a generic Browser SDK capability instead of a one-off "
         "workaround."

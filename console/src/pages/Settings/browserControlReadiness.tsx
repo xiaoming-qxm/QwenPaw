@@ -14,7 +14,10 @@ import type {
   BrowserControlBridgeLifecycle,
   BrowserControlBuildFreshness,
   BrowserControlBuildFingerprint,
+  BrowserControlCleanupResult,
+  BrowserControlCurrentTab,
   BrowserControlNativeHostStatus,
+  BrowserControlProgressState,
   BrowserControlRepairAction,
   BrowserControlSelfTestResult,
   BrowserControlTraceSummary,
@@ -46,6 +49,10 @@ export interface BrowserControlReadinessStatus {
   residual_tab_count?: number;
   last_cleanup_reason?: string;
   protected_origin_status?: string;
+  current_tab?: BrowserControlCurrentTab | null;
+  connection_state?: string;
+  browser_progress?: BrowserControlProgressState | null;
+  cleanup_result?: BrowserControlCleanupResult | null;
   last_self_test?: BrowserControlSelfTestResult | null;
   sdk_diagnostics?: BrowserDiagnostics;
 }
@@ -145,6 +152,13 @@ export function BrowserControlReadiness({
   const trace = status?.trace_summary;
   const lifecycleSummary = lifecycleTabSummary(status);
   const lifecycle = status?.bridge_lifecycle;
+  const currentTab = currentTabLabel(status?.current_tab, trace);
+  const connectionState = status?.connection_state || state;
+  const browserProgress = browserProgressLabel(status?.browser_progress);
+  const cleanupResult = cleanupResultLabel(
+    status?.cleanup_result,
+    lifecycleSummary,
+  );
   const selectedBackend =
     status?.selected_backend_id ||
     status?.sdk_diagnostics?.selected_backend_id ||
@@ -235,6 +249,18 @@ export function BrowserControlReadiness({
           value={selectedBackend}
         />
         <Metric
+          label={t("browserControl.readiness.currentTab", "Current tab")}
+          value={currentTab}
+        />
+        <Metric
+          label={t("browserControl.readiness.connection", "Connection")}
+          value={connectionState}
+        />
+        <Metric
+          label={t("browserControl.readiness.progress", "Progress")}
+          value={browserProgress}
+        />
+        <Metric
           label={t("browserControl.readiness.nativeHost", "Native host")}
           value={nativeHostStatus}
         />
@@ -261,18 +287,16 @@ export function BrowserControlReadiness({
           value={String(lifecycleSummary.controlled_tab_count ?? 0)}
         />
         <Metric
-          label={t(
-            "browserControl.readiness.residualTabs",
-            "Residual tabs",
-          )}
+          label={t("browserControl.readiness.residualTabs", "Residual tabs")}
           value={String(lifecycleSummary.residual_tab_count ?? 0)}
         />
         <Metric
-          label={t(
-            "browserControl.readiness.lastCleanup",
-            "Last cleanup",
-          )}
+          label={t("browserControl.readiness.lastCleanup", "Last cleanup")}
           value={lifecycleSummary.last_cleanup_reason || "-"}
+        />
+        <Metric
+          label={t("browserControl.readiness.cleanupResult", "Cleanup result")}
+          value={cleanupResult}
         />
         <Metric
           label={t(
@@ -471,14 +495,54 @@ function lifecycleTabSummary(
     residual_tab_count:
       status?.residual_tab_count ?? traceLifecycle.residual_tab_count ?? 0,
     last_cleanup_reason:
-      status?.last_cleanup_reason ||
-      traceLifecycle.last_cleanup_reason ||
-      "",
+      status?.last_cleanup_reason || traceLifecycle.last_cleanup_reason || "",
     protected_origin_status:
       status?.protected_origin_status ||
       traceLifecycle.protected_origin_status ||
       "clear",
   };
+}
+
+function currentTabLabel(
+  currentTab?: BrowserControlCurrentTab | null,
+  trace?: BrowserControlTraceSummary,
+): string {
+  const latest = trace?.latest_event;
+  const tabId = currentTab?.tab_id || "";
+  const domain = currentTab?.domain || latest?.domain || "";
+  const title = currentTab?.title || "";
+  const url = currentTab?.url || "";
+  const ownership = currentTab?.ownership || "";
+  const primary = domain || title || url || tabId;
+  if (!primary) return "-";
+  const suffix = [tabId, ownership].filter(Boolean).join(", ");
+  return suffix ? `${primary} (${suffix})` : primary;
+}
+
+function browserProgressLabel(
+  progress?: BrowserControlProgressState | null,
+): string {
+  if (!progress) return "-";
+  return (
+    progress.current_step ||
+    progress.recovery_action ||
+    progress.blocked_reason ||
+    progress.reason ||
+    progress.action ||
+    progress.status ||
+    "-"
+  );
+}
+
+function cleanupResultLabel(
+  cleanup?: BrowserControlCleanupResult | null,
+  lifecycle?: BrowserControlLifecycleSummary,
+): string {
+  if (cleanup?.cleanup_result) return cleanup.cleanup_result;
+  if (cleanup?.last_cleanup_reason) return cleanup.last_cleanup_reason;
+  if (cleanup?.cleanup_ok === true) return "ok";
+  if (cleanup?.cleanup_ok === false) return "failed";
+  return lifecycle?.last_cleanup_reason || "-";
 }
 
 function buildFreshnessLabel(

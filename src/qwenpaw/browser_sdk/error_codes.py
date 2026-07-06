@@ -37,6 +37,9 @@ class BrowserErrorCode(StrEnum):
     DOWNLOAD_TIMEOUT = "download_timeout"
     UPLOAD_TIMEOUT = "upload_timeout"
     OBSERVATION_STALE = "observation_stale"
+    OBSERVATION_ENRICHMENT_DENIED = "observation_enrichment_denied"
+    INVALID_SDK_USAGE = "invalid_sdk_usage"
+    CLICK_WITHOUT_NAVIGATION = "click_without_navigation"
     CAPABILITY_MISSING = "capability_missing"
 
 
@@ -194,6 +197,30 @@ _ERROR_INFO: dict[BrowserErrorCode, BrowserErrorInfo] = {
             "mutating action."
         ),
     ),
+    BrowserErrorCode.OBSERVATION_ENRICHMENT_DENIED: BrowserErrorInfo(
+        code=BrowserErrorCode.OBSERVATION_ENRICHMENT_DENIED,
+        outcome=BrowserOutcome.FAILED,
+        recovery_hint=(
+            "Use an available visual observation source before attempting "
+            "another mutating action."
+        ),
+    ),
+    BrowserErrorCode.INVALID_SDK_USAGE: BrowserErrorInfo(
+        code=BrowserErrorCode.INVALID_SDK_USAGE,
+        outcome=BrowserOutcome.FAILED,
+        recovery_hint=(
+            "Retry with documented Browser SDK methods and arguments; do "
+            "not invent browser APIs."
+        ),
+    ),
+    BrowserErrorCode.CLICK_WITHOUT_NAVIGATION: BrowserErrorInfo(
+        code=BrowserErrorCode.CLICK_WITHOUT_NAVIGATION,
+        outcome=BrowserOutcome.FAILED,
+        recovery_hint=(
+            "Observe the page after the click before deciding whether to "
+            "retry, wait, or choose a different strategy."
+        ),
+    ),
     BrowserErrorCode.CAPABILITY_MISSING: BrowserErrorInfo(
         code=BrowserErrorCode.CAPABILITY_MISSING,
         outcome=BrowserOutcome.FAILED,
@@ -242,6 +269,14 @@ def _coerce_error_string(value: str) -> BrowserErrorCode:
         "cancelled": BrowserErrorCode.CANCELLED,
         "browser_policy_denied": BrowserErrorCode.APPROVAL_DENIED,
         "browser_observation_required": BrowserErrorCode.OBSERVATION_STALE,
+        "browser_observation_enrichment_denied": (
+            BrowserErrorCode.OBSERVATION_ENRICHMENT_DENIED
+        ),
+        "browser_invalid_sdk_usage": BrowserErrorCode.INVALID_SDK_USAGE,
+        "invalid_browser_sdk_usage": BrowserErrorCode.INVALID_SDK_USAGE,
+        "browser_click_without_navigation": (
+            BrowserErrorCode.CLICK_WITHOUT_NAVIGATION
+        ),
         "browser_sdk_gap": BrowserErrorCode.CAPABILITY_MISSING,
         "browser_context_unavailable": BrowserErrorCode.CAPABILITY_MISSING,
         "browser_kernel_timeout": BrowserErrorCode.NETWORK_TIMEOUT,

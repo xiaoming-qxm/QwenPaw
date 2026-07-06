@@ -114,12 +114,32 @@ const BrowserEvidenceCard: React.FC<BrowserEvidenceCardProps> = ({
           value={evidence.backendId || "-"}
         />
         <EvidenceField
+          label={t("tool.browserEvidence.currentTab", "Current tab")}
+          value={evidence.currentTab || "-"}
+        />
+        <EvidenceField
+          label={t("tool.browserEvidence.connection", "Connection")}
+          value={evidence.connectionState || "-"}
+        />
+        <EvidenceField
+          label={t("tool.browserEvidence.progress", "Progress")}
+          value={evidence.progressLabel || "-"}
+        />
+        <EvidenceField
           label={t("tool.browserEvidence.approval", "Approval")}
           value={approvalLabel}
         />
         <EvidenceField
+          label={t("tool.browserEvidence.waitingApproval", "Waiting approval")}
+          value={evidence.waitingApproval ? evidence.approvalState : "-"}
+        />
+        <EvidenceField
           label={t("tool.browserEvidence.blocker", "Blocker")}
           value={blocker}
+        />
+        <EvidenceField
+          label={t("tool.browserEvidence.cleanupResult", "Cleanup result")}
+          value={evidence.cleanupResult || "-"}
         />
         <EvidenceField
           label={t("tool.browserEvidence.duration", "Duration")}
