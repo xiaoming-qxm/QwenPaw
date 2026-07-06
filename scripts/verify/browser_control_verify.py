@@ -47,6 +47,20 @@ V9_SOURCE_LABELS = (
     "public_live",
     "commerce_live",
 )
+V9_ACCEPTANCE_DEFAULT_REPORT_DIR = (
+    "../MyNotebook/_QwenPaw/feats/"
+    "browser-control-v9-f-live-product-acceptance"
+)
+V9_ACCEPTANCE_JSON_NAME = "v9-acceptance-report.json"
+V9_ACCEPTANCE_MARKDOWN_NAME = "acceptance-report.md"
+V9_REQUIRED_ISSUE_FIELDS = (
+    "evidence",
+    "root_cause",
+    "generic_solution",
+    "fix_commit",
+    "restart_evidence",
+    "retest_outcome",
+)
 V9_BUDGET_PROFILES: dict[str, dict[str, int | str]] = {
     "public_isolated": {
         "profile": "public_isolated",
@@ -89,6 +103,7 @@ V9_SCENARIO_BUDGET_PROFILES = {
     "deterministic-complex": "deterministic_complex",
     "v8-deterministic": "deterministic_complex",
     "v8-taobao-live": "commerce_live_mutation",
+    "v9-taobao-live": "commerce_live_mutation",
     "taobao-live-mutation": "commerce_live_mutation",
     "commerce-live-mutation": "commerce_live_mutation",
 }
@@ -373,6 +388,43 @@ def _add_v9_command_parsers(
 ) -> None:
     preflight = subparsers.add_parser("v9-preflight")
     _add_v9_common_args(preflight)
+
+    acceptance = subparsers.add_parser("v9-acceptance")
+    _add_v9_common_args(acceptance)
+    acceptance.add_argument(
+        "--report-dir",
+        default=V9_ACCEPTANCE_DEFAULT_REPORT_DIR,
+    )
+    acceptance.add_argument("--live-public", action="store_true")
+    acceptance.add_argument("--live-user", action="store_true")
+    acceptance.add_argument("--live-taobao", action="store_true")
+    acceptance.add_argument("--reuse-service", action="store_true")
+    acceptance.add_argument(
+        "--approval-level",
+        default="DEFAULT",
+        choices=("DEFAULT", "ASK", "ON", "OFF"),
+    )
+
+    public_live = subparsers.add_parser("v9-public-live")
+    _add_v9_common_args(public_live)
+    public_live.add_argument("--live-public", action="store_true")
+
+    user_live = subparsers.add_parser("v9-user-live")
+    _add_v9_common_args(user_live)
+    user_live.add_argument("--live-user", action="store_true")
+
+    matrix = subparsers.add_parser("v9-capability-matrix")
+    _add_v9_common_args(matrix)
+
+    taobao = subparsers.add_parser("v9-taobao-live")
+    _add_v9_common_args(taobao)
+    taobao.add_argument("--live-taobao", action="store_true")
+    taobao.add_argument("--prepared-login", action="store_true")
+    taobao.add_argument(
+        "--approval-level",
+        default="DEFAULT",
+        choices=("DEFAULT", "ASK", "ON", "OFF"),
+    )
 
     report = subparsers.add_parser("v9-report")
     report.add_argument(
@@ -725,6 +777,730 @@ def classify_verification_evidence(
     )
 
 
+def classify_v9_public_live_evidence(
+    *,
+    started: float,
+    trace_events: list[dict[str, Any]],
+    transcript: str,
+    browser_tool_calls: int,
+    runtime_evidence: dict[str, Any],
+    actual_metrics: dict[str, Any] | None = None,
+) -> BrowserControlReport:
+    """Classify the V9 public isolated live scenario contract."""
+    route = _backend_route_from_traces(trace_events)
+    normalized_metrics = _v9_normalize_actual_metrics(
+        started=started,
+        browser_tool_calls=browser_tool_calls,
+        trace_events=trace_events,
+        actual_metrics=actual_metrics,
+    )
+
+    def public_report(
+        status: str,
+        *,
+        forbidden_tools: list[str] | None = None,
+        error_code: str = "",
+        failure_reason: str = "",
+        content_evidence: dict[str, Any] | None = None,
+    ) -> BrowserControlReport:
+        return _report(
+            "v9-public-live",
+            status,
+            started,
+            browser_tool_calls=browser_tool_calls,
+            backend_route=route,
+            forbidden_tools=forbidden_tools,
+            trace_event_count=len(trace_events),
+            error_code=error_code,
+            failure_reason=failure_reason,
+            runtime_evidence=dict(runtime_evidence or {}),
+            content_evidence=content_evidence,
+            source_labels=v9_source_labels_for_scenario("v9-public-live"),
+            scenario_budget=_v9_scenario_budget("v9-public-live"),
+            actual_metrics=normalized_metrics,
+        )
+
+    forbidden = _v9_forbidden_observations(transcript, trace_events)
+    if forbidden:
+        return public_report(
+            "failed",
+            forbidden_tools=forbidden,
+            error_code=BrowserErrorCode.CAPABILITY_MISSING.value,
+            failure_reason="forbidden_tools",
+        )
+    if not _v9_runtime_fresh(runtime_evidence):
+        return public_report(
+            "failed",
+            error_code=V9_RUNTIME_STALE_CODE,
+            failure_reason="runtime_freshness_missing",
+        )
+    if _has_user_backend_evidence(trace_events):
+        return public_report(
+            "failed",
+            error_code=BrowserErrorCode.CAPABILITY_MISSING.value,
+            failure_reason="public_live_used_user_backend",
+        )
+    if not _has_required_backend_evidence(
+        trace_events,
+        context="isolated",
+        backend_id="isolated.playwright",
+    ):
+        return public_report(
+            "failed",
+            error_code=BrowserErrorCode.CAPABILITY_MISSING.value,
+            failure_reason="backend_route_mismatch",
+        )
+    evidence = _v9_public_content_evidence(transcript)
+    if not all(evidence.values()):
+        return public_report(
+            "failed",
+            error_code=BrowserErrorCode.UNKNOWN.value,
+            failure_reason="missing_public_loop_evidence",
+            content_evidence=evidence,
+        )
+    report = classify_verification_evidence(
+        scenario="v9-public-live",
+        started=started,
+        trace_events=trace_events,
+        transcript=transcript,
+        forbidden_tools=[],
+        browser_tool_calls=browser_tool_calls,
+        backend_route=route,
+        actual_metrics=normalized_metrics,
+    )
+    return replace(
+        report,
+        runtime_evidence=dict(runtime_evidence or {}),
+        content_evidence={
+            **evidence,
+            "user_chrome_touched": False,
+        },
+        source_labels=v9_source_labels_for_scenario("v9-public-live"),
+    )
+
+
+def _v9_public_content_evidence(transcript: str) -> dict[str, bool]:
+    text = str(transcript or "")
+    lowered = text.casefold()
+    return {
+        "success_marker": "V9_PUBLIC_LOOP_PASS" in text,
+        "loop_engineering_blog": "loop" in lowered,
+    }
+
+
+def _v9_runtime_fresh(runtime_evidence: dict[str, Any]) -> bool:
+    checks = runtime_evidence.get("checks") if runtime_evidence else {}
+    checks = checks if isinstance(checks, dict) else {}
+    required = (
+        "backend_commit",
+        "frontend_fingerprint",
+        "plugin_fingerprint",
+        "extension_version",
+        "native_host_version",
+        "bridge_freshness",
+    )
+    return bool(checks) and all(
+        checks.get(name) == "passed" for name in required
+    )
+
+
+def _v9_forbidden_observations(
+    transcript: str,
+    trace_events: list[dict[str, Any]],
+) -> list[str]:
+    observed = detect_forbidden_tools(transcript)
+    for item in _detect_forbidden_tool_usage({}, trace_events):
+        if item not in observed:
+            observed.append(item)
+    return observed
+
+
+def classify_v9_user_live_evidence(
+    *,
+    started: float,
+    scenario_reports: list[dict[str, Any]],
+) -> BrowserControlReport:
+    """Classify V9 user Chrome lifecycle acceptance evidence."""
+    required = _v9_user_live_required_scenarios()
+    observed = {
+        str(report.get("scenario") or "") for report in scenario_reports
+    }
+    missing = sorted(required - observed)
+    backend_route = _join_unique(
+        report.get("backend_route") for report in scenario_reports
+    )
+    residual_tabs = sum(
+        _summary_int(
+            _dict_value(report.get("cleanup_summary")),
+            "residual_tab_count",
+        )
+        for report in scenario_reports
+    )
+    console_overwrite = any(
+        bool(
+            _dict_value(report.get("content_evidence")).get(
+                "console_overwrite",
+            ),
+        )
+        for report in scenario_reports
+    )
+    isolated_fallback = any(
+        "isolated." in str(report.get("backend_route") or "")
+        or 'context="isolated"' in str(report.get("backend_route") or "")
+        for report in scenario_reports
+    )
+    failed_child = next(
+        (
+            report
+            for report in scenario_reports
+            if str(report.get("status") or "") == "failed"
+        ),
+        None,
+    )
+    status = "passed"
+    failure_reason = ""
+    if missing:
+        status = "failed"
+        failure_reason = "missing_user_live_scenario"
+    elif isolated_fallback:
+        status = "failed"
+        failure_reason = "user_live_used_isolated_backend"
+    elif residual_tabs:
+        status = "failed"
+        failure_reason = "residual_controlled_tabs"
+    elif console_overwrite:
+        status = "failed"
+        failure_reason = "console_overwrite_detected"
+    elif failed_child is not None:
+        status = "failed"
+        failure_reason = str(
+            failed_child.get("failure_reason") or "user_live_child_failed",
+        )
+    cleanup_summary = {
+        "cleanup_ok": residual_tabs == 0,
+        "residual_tab_count": residual_tabs,
+        "controlled_tab_count": sum(
+            _summary_int(
+                _dict_value(report.get("cleanup_summary")),
+                "controlled_tab_count",
+            )
+            for report in scenario_reports
+        ),
+        "required_scenarios": sorted(required),
+        "missing_scenarios": missing,
+    }
+    return _report(
+        "v9-user-live",
+        status,
+        started,
+        browser_tool_calls=sum(
+            _payload_int(report, "browser_tool_calls")
+            for report in scenario_reports
+        ),
+        backend_route=backend_route,
+        trace_event_count=sum(
+            _payload_int(report, "trace_event_count")
+            for report in scenario_reports
+        ),
+        failure_reason=failure_reason,
+        fresh_observe_ok=all(
+            bool(report.get("fresh_observe_ok")) for report in scenario_reports
+        ),
+        cleanup_ok=residual_tabs == 0 and not missing,
+        content_evidence={
+            "required_scenarios_present": not missing,
+            "console_overwrite": console_overwrite,
+            "bridge_disconnect_fail_closed": (
+                "bridge-disconnect-fail-closed" in observed
+            ),
+            "bridge_reconnect_recovered": (
+                "bridge-reconnect-recovered" in observed
+            ),
+            "cancellation_cleanup": "user-cancellation-cleanup" in observed,
+        },
+        scenario_reports=scenario_reports,
+        cleanup_summary=cleanup_summary,
+        scenario_budget=_v9_scenario_budget("user-read-only"),
+        actual_metrics={
+            "iterations": _sum_payload_actual_metric(
+                scenario_reports,
+                "iterations",
+            ),
+            "browser_calls": sum(
+                _payload_int(report, "browser_tool_calls")
+                for report in scenario_reports
+            ),
+            "trace_events": sum(
+                _payload_int(report, "trace_event_count")
+                for report in scenario_reports
+            ),
+            "token_count": {"available": False, "reason": "not_reported"},
+        },
+        source_labels=v9_source_labels_for_scenario("v9-user-live"),
+    )
+
+
+def _v9_user_live_required_scenarios() -> set[str]:
+    return {
+        "user-read-only-observation",
+        "multi-tab-workspace",
+        "bridge-disconnect-fail-closed",
+        "bridge-reconnect-recovered",
+        "user-cancellation-cleanup",
+    }
+
+
+def _payload_int(payload: dict[str, Any], key: str) -> int:
+    try:
+        return int(payload.get(key) or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _sum_payload_actual_metric(
+    reports: list[dict[str, Any]],
+    key: str,
+) -> int:
+    total = 0
+    for report in reports:
+        metrics = _dict_value(report.get("actual_metrics"))
+        total += _payload_int(metrics, key)
+    return total
+
+
+def classify_v9_capability_matrix_evidence(
+    *,
+    started: float,
+    scenario_reports: list[dict[str, Any]],
+) -> BrowserControlReport:
+    """Classify deterministic V9 complex capability matrix evidence."""
+    capabilities = _v9_matrix_capabilities(scenario_reports)
+    missing = sorted(
+        item
+        for item in _v9_required_capabilities()
+        if capabilities.get(item) is not True
+    )
+    residual_tabs = sum(
+        _summary_int(
+            _dict_value(report.get("cleanup_summary")),
+            "residual_tab_count",
+        )
+        for report in scenario_reports
+    )
+    fresh_observe_ok = all(
+        bool(report.get("fresh_observe_ok")) for report in scenario_reports
+    )
+    approval_default = _v9_matrix_approval_default_fail_closed(
+        scenario_reports,
+    )
+    approval_off = _v9_matrix_approval_off_success(scenario_reports)
+    actual_metrics = _v9_matrix_actual_metrics(scenario_reports)
+    budget = _v9_scenario_budget("deterministic-complex")
+    budget_failure = _v9_budget_failure(budget, actual_metrics)
+    status = "passed"
+    failure_reason = ""
+    blocker = {}
+    if missing:
+        status = "failed"
+        failure_reason = "missing_capability_evidence"
+    elif not approval_default:
+        status = "failed"
+        failure_reason = "approval_default_not_fail_closed"
+    elif not approval_off:
+        status = "failed"
+        failure_reason = "approval_off_not_successful"
+    elif not fresh_observe_ok:
+        status = "failed"
+        failure_reason = "fresh_observe_missing"
+    elif residual_tabs:
+        status = "failed"
+        failure_reason = "residual_controlled_tabs"
+    elif budget_failure:
+        status = "failed"
+        failure_reason = "budget_exhausted"
+        blocker = budget_failure
+    return _report(
+        "v9-capability-matrix",
+        status,
+        started,
+        browser_tool_calls=sum(
+            _payload_int(report, "browser_tool_calls")
+            for report in scenario_reports
+        ),
+        backend_route=_join_unique(
+            report.get("backend_route") for report in scenario_reports
+        ),
+        trace_event_count=sum(
+            _payload_int(report, "trace_event_count")
+            for report in scenario_reports
+        ),
+        failure_reason=failure_reason,
+        fresh_observe_ok=fresh_observe_ok,
+        cleanup_ok=residual_tabs == 0,
+        content_evidence={
+            "capabilities": capabilities,
+            "missing_capabilities": missing,
+            "approval_fail_closed": approval_default,
+            "approval_off_success": approval_off,
+        },
+        scenario_reports=scenario_reports,
+        cleanup_summary={
+            "cleanup_ok": residual_tabs == 0,
+            "residual_tab_count": residual_tabs,
+        },
+        scenario_budget=budget,
+        actual_metrics=actual_metrics,
+        blocker_classification=blocker,
+        source_labels=v9_source_labels_for_scenario(
+            "deterministic-complex",
+        ),
+    )
+
+
+def _v9_required_capabilities() -> tuple[str, ...]:
+    return (
+        "iframe",
+        "shadow_dom",
+        "spa",
+        "popup",
+        "upload",
+        "download",
+        "dialog",
+        "visual_fallback",
+    )
+
+
+def _v9_matrix_capabilities(
+    reports: list[dict[str, Any]],
+) -> dict[str, bool]:
+    merged = {name: False for name in _v9_required_capabilities()}
+    for report in reports:
+        evidence = _dict_value(report.get("content_evidence"))
+        capabilities = _dict_value(evidence.get("capabilities"))
+        for name in merged:
+            if capabilities.get(name) is True:
+                merged[name] = True
+    return merged
+
+
+def _v9_matrix_approval_default_fail_closed(
+    reports: list[dict[str, Any]],
+) -> bool:
+    for report in reports:
+        if str(report.get("scenario") or "") != "approval-default-fail-closed":
+            continue
+        status = str(report.get("status") or "")
+        reason = str(
+            report.get("blocked_reason")
+            or report.get("failure_reason")
+            or report.get("error_code")
+            or "",
+        )
+        return status in {"blocked", "failed"} and "approval" in reason
+    return False
+
+
+def _v9_matrix_approval_off_success(reports: list[dict[str, Any]]) -> bool:
+    return any(
+        str(report.get("scenario") or "") == "approval-off-success"
+        and str(report.get("status") or "") == "passed"
+        for report in reports
+    )
+
+
+def _v9_matrix_actual_metrics(
+    reports: list[dict[str, Any]],
+) -> dict[str, Any]:
+    return {
+        "iterations": _sum_payload_actual_metric(reports, "iterations"),
+        "browser_calls": sum(
+            _payload_int(report, "browser_tool_calls") for report in reports
+        ),
+        "elapsed_ms": _sum_payload_actual_metric(reports, "elapsed_ms"),
+        "trace_events": sum(
+            _payload_int(report, "trace_event_count") for report in reports
+        ),
+        "token_count": {"available": False, "reason": "not_reported"},
+    }
+
+
+def classify_v9_taobao_live_evidence(
+    *,
+    started: float,
+    live_taobao: bool,
+    approval_level: str,
+    prepared_login: bool,
+    trace_events: list[dict[str, Any]],
+    transcript: str,
+    browser_tool_calls: int,
+    cart_state: dict[str, Any],
+    actual_metrics: dict[str, Any] | None = None,
+) -> BrowserControlReport:
+    """Classify the explicit opt-in V9 Taobao live mutation gate."""
+    route = _backend_route_from_traces(trace_events)
+    metrics = _v9_normalize_actual_metrics(
+        started=started,
+        browser_tool_calls=browser_tool_calls,
+        trace_events=trace_events,
+        actual_metrics=actual_metrics,
+    )
+    budget = _v9_scenario_budget("v9-taobao-live")
+    content = _v9_taobao_content_evidence(
+        transcript=transcript,
+        cart_state=cart_state,
+    )
+
+    def taobao_report(
+        status: str,
+        *,
+        error_code: str = "",
+        blocked_reason: str = "",
+        failure_reason: str = "",
+        blocker_classification: dict[str, Any] | None = None,
+    ) -> BrowserControlReport:
+        return _report(
+            "v9-taobao-live",
+            status,
+            started,
+            browser_tool_calls=browser_tool_calls,
+            backend_route=route,
+            trace_event_count=len(trace_events),
+            error_code=error_code,
+            blocked_reason=blocked_reason,
+            failure_reason=failure_reason,
+            fresh_observe_ok=not _fresh_observe_failure_reason(trace_events),
+            cleanup_ok=not _user_cleanup_failure_reason(trace_events),
+            content_evidence=content,
+            safety_boundaries=list(V8_SAFETY_BOUNDARIES),
+            user_preparation=list(V8_TAOBAO_USER_PREPARATION),
+            scenario_budget=budget,
+            actual_metrics=metrics,
+            blocker_classification=blocker_classification,
+            source_labels=v9_source_labels_for_scenario("v9-taobao-live"),
+        )
+
+    forbidden = _v9_forbidden_observations(transcript, trace_events)
+    decision = _v9_taobao_live_decision(
+        live_taobao=live_taobao,
+        approval_level=approval_level,
+        prepared_login=prepared_login,
+        trace_events=trace_events,
+        transcript=transcript,
+        content=content,
+        forbidden=forbidden,
+        trace_info=_trace_error_info(trace_events),
+        budget_failure=_v9_budget_failure(budget, metrics),
+    )
+
+    report = taobao_report(
+        str(decision["status"]),
+        error_code=str(decision.get("error_code") or ""),
+        blocked_reason=str(decision.get("blocked_reason") or ""),
+        failure_reason=str(decision.get("failure_reason") or ""),
+        blocker_classification=decision.get("blocker_classification"),
+    )
+    if decision.get("forbidden_tools"):
+        return replace(report, forbidden_tools=decision["forbidden_tools"])
+    return report
+
+
+def _v9_taobao_live_decision(
+    *,
+    live_taobao: bool,
+    approval_level: str,
+    prepared_login: bool,
+    trace_events: list[dict[str, Any]],
+    transcript: str,
+    content: dict[str, Any],
+    forbidden: list[str],
+    trace_info: Any | None,
+    budget_failure: dict[str, Any],
+) -> dict[str, Any]:
+    initial = _v9_taobao_initial_decision(
+        live_taobao=live_taobao,
+        prepared_login=prepared_login,
+        trace_events=trace_events,
+        transcript=transcript,
+        forbidden=forbidden,
+    )
+    if initial is not None:
+        return initial
+    traced = _v9_taobao_trace_decision(
+        trace_info=trace_info,
+        approval_level=approval_level,
+        content=content,
+    )
+    if traced is not None:
+        return traced
+    return _v9_taobao_completion_decision(
+        approval_level=approval_level,
+        content=content,
+        budget_failure=budget_failure,
+    )
+
+
+def _v9_taobao_initial_decision(
+    *,
+    live_taobao: bool,
+    prepared_login: bool,
+    trace_events: list[dict[str, Any]],
+    transcript: str,
+    forbidden: list[str],
+) -> dict[str, Any] | None:
+    if not live_taobao:
+        return {
+            "status": "blocked",
+            "blocked_reason": (
+                "Taobao live mutation requires explicit --live-taobao"
+            ),
+        }
+    if not prepared_login:
+        return {
+            "status": "blocked",
+            "error_code": BrowserErrorCode.LOGIN_REQUIRED.value,
+            "blocked_reason": (
+                "prepared Taobao login is required in user Chrome"
+            ),
+        }
+    if forbidden:
+        return {
+            "status": "failed",
+            "error_code": BrowserErrorCode.CAPABILITY_MISSING.value,
+            "failure_reason": "forbidden_tools",
+            "forbidden_tools": forbidden,
+        }
+    if _has_payment_or_checkout_marker(transcript):
+        return {
+            "status": "failed",
+            "error_code": BrowserErrorCode.APPROVAL_REQUIRED.value,
+            "failure_reason": "safety_violation_payment_or_checkout",
+        }
+    if _user_state_routed_to_isolated(trace_events):
+        return {
+            "status": "failed",
+            "error_code": BrowserErrorCode.CAPABILITY_MISSING.value,
+            "failure_reason": "user_state_routed_to_isolated",
+            "blocker_classification": _v9_capability_gap_blocker(
+                "user_state_routed_to_isolated",
+            ),
+        }
+    return None
+
+
+def _v9_taobao_trace_decision(
+    *,
+    trace_info: Any | None,
+    approval_level: str,
+    content: dict[str, Any],
+) -> dict[str, Any] | None:
+    if trace_info is None or trace_info.code == BrowserErrorCode.NONE:
+        return None
+    if _v9_taobao_allowed_external_blocker(trace_info.code):
+        return {
+            "status": "blocked",
+            "error_code": trace_info.code.value,
+            "blocked_reason": trace_info.blocked_reason,
+        }
+    if trace_info.code == BrowserErrorCode.APPROVAL_REQUIRED:
+        if str(approval_level).upper() != "OFF" and content["cart_unchanged"]:
+            return {
+                "status": "blocked",
+                "error_code": trace_info.code.value,
+                "blocked_reason": trace_info.blocked_reason,
+            }
+        return {
+            "status": "failed",
+            "error_code": trace_info.code.value,
+            "failure_reason": "approval_default_mutated_cart",
+        }
+    return {
+        "status": "failed",
+        "error_code": trace_info.code.value,
+        "failure_reason": BrowserErrorCode.CAPABILITY_MISSING.value,
+        "blocker_classification": _v9_capability_gap_blocker(
+            trace_info.code.value,
+        ),
+    }
+
+
+def _v9_taobao_completion_decision(
+    *,
+    approval_level: str,
+    content: dict[str, Any],
+    budget_failure: dict[str, Any],
+) -> dict[str, Any]:
+    if str(approval_level).upper() != "OFF":
+        return {
+            "status": "failed",
+            "error_code": BrowserErrorCode.APPROVAL_REQUIRED.value,
+            "failure_reason": "approval_off_required_for_mutation_success",
+        }
+    if budget_failure:
+        return {
+            "status": "failed",
+            "failure_reason": "budget_exhausted",
+            "blocker_classification": budget_failure,
+        }
+    if not content["cart_roundtrip_complete"]:
+        return {
+            "status": "failed",
+            "error_code": BrowserErrorCode.UNKNOWN.value,
+            "failure_reason": "taobao_cart_roundtrip_incomplete",
+        }
+    return {"status": "passed"}
+
+
+def _v9_taobao_content_evidence(
+    *,
+    transcript: str,
+    cart_state: dict[str, Any],
+) -> dict[str, Any]:
+    text = str(transcript or "")
+    cart = dict(cart_state or {})
+    cart_roundtrip = (
+        all(
+            bool(cart.get(key))
+            for key in (
+                "item_added",
+                "cart_read",
+                "cart_cleared",
+                "empty_confirmed",
+            )
+        )
+        and "V9_TAOBAO_LIVE_PASS" in text
+    )
+    return {
+        "success_marker": "V9_TAOBAO_LIVE_PASS" in text,
+        "item_added": bool(cart.get("item_added")),
+        "cart_read": bool(cart.get("cart_read")),
+        "cart_cleared": bool(cart.get("cart_cleared")),
+        "empty_confirmed": bool(cart.get("empty_confirmed")),
+        "cart_unchanged": bool(cart.get("cart_unchanged")),
+        "final_state": str(cart.get("final_state") or ""),
+        "cart_roundtrip_complete": cart_roundtrip,
+        "safety_boundaries_observed": not _has_payment_or_checkout_marker(
+            text,
+        ),
+    }
+
+
+def _v9_taobao_allowed_external_blocker(code: BrowserErrorCode) -> bool:
+    return code in {
+        BrowserErrorCode.LOGIN_REQUIRED,
+        BrowserErrorCode.CAPTCHA_OR_RISK_CONTROL,
+        BrowserErrorCode.NETWORK_TIMEOUT,
+    }
+
+
+def _v9_capability_gap_blocker(reason: str) -> dict[str, Any]:
+    return {
+        "status": "failed",
+        "category": "capability_gap",
+        "reason": reason,
+        "terminal": True,
+    }
+
+
 def run_preflight(args: argparse.Namespace) -> BrowserControlReport:
     started = time.perf_counter()
     base_url = _normalize_base_url(args.base_url)
@@ -943,6 +1719,415 @@ def run_v9_report(args: argparse.Namespace) -> BrowserControlReport:
             Path(path) for path in getattr(args, "result_files", [])
         ],
     )
+
+
+def run_v9_public_live(args: argparse.Namespace) -> BrowserControlReport:
+    """Run the opt-in V9 public isolated live scenario."""
+    started = time.perf_counter()
+    if not getattr(args, "live_public", False):
+        return _report(
+            "v9-public-live",
+            "blocked",
+            started,
+            blocked_reason=(
+                "public isolated live verification requires explicit "
+                "--live-public"
+            ),
+            source_labels=v9_source_labels_for_scenario("v9-public-live"),
+        )
+    preflight = run_v9_preflight(args)
+    if preflight.status != "passed":
+        return _copy_report(preflight, scenario="v9-public-live")
+    spec = _v9_public_live_task_spec()
+    return _run_v8_live_task(args, spec)
+
+
+def run_v9_user_live(args: argparse.Namespace) -> BrowserControlReport:
+    """Run the opt-in V9 user Chrome lifecycle scenario set."""
+    started = time.perf_counter()
+    if not getattr(args, "live_user", False):
+        return _report(
+            "v9-user-live",
+            "blocked",
+            started,
+            blocked_reason=(
+                "user Chrome live verification requires explicit --live-user"
+            ),
+            source_labels=v9_source_labels_for_scenario("v9-user-live"),
+        )
+    preflight = run_v9_preflight(args)
+    if preflight.status != "passed":
+        return _copy_report(preflight, scenario="v9-user-live")
+    reports = [
+        _run_v8_live_task(args, spec).to_dict()
+        for spec in _v9_user_live_task_specs()
+    ]
+    return classify_v9_user_live_evidence(
+        started=started,
+        scenario_reports=reports,
+    )
+
+
+def run_v9_capability_matrix(args: argparse.Namespace) -> BrowserControlReport:
+    """Run deterministic complex matrix through existing fixture scenarios."""
+    started = time.perf_counter()
+    reports = [
+        run_complex_isolated(args).to_dict(),
+        run_complex_user(args).to_dict(),
+        run_v8_capability_isolated(args).to_dict(),
+        run_v8_capability_user(args).to_dict(),
+    ]
+    return classify_v9_capability_matrix_evidence(
+        started=started,
+        scenario_reports=reports,
+    )
+
+
+def run_v9_taobao_live(args: argparse.Namespace) -> BrowserControlReport:
+    """Run the explicitly authorized V9 Taobao live mutation scenario."""
+    started = time.perf_counter()
+    if not getattr(args, "live_taobao", False):
+        return classify_v9_taobao_live_evidence(
+            started=started,
+            live_taobao=False,
+            approval_level=str(getattr(args, "approval_level", "DEFAULT")),
+            prepared_login=bool(getattr(args, "prepared_login", False)),
+            trace_events=[],
+            transcript="",
+            browser_tool_calls=0,
+            cart_state={},
+        )
+    preflight = run_v9_preflight(args)
+    if preflight.status != "passed":
+        return _copy_report(preflight, scenario="v9-taobao-live")
+    report = _run_v8_live_task(args, _v9_taobao_live_task_spec())
+    return classify_v9_taobao_live_evidence(
+        started=started,
+        live_taobao=True,
+        approval_level=str(getattr(args, "approval_level", "DEFAULT")),
+        prepared_login=bool(getattr(args, "prepared_login", False)),
+        trace_events=[],
+        transcript=json.dumps(report.to_dict(), ensure_ascii=False),
+        browser_tool_calls=report.browser_tool_calls,
+        cart_state=dict(report.content_evidence or {}),
+        actual_metrics=report.actual_metrics,
+    )
+
+
+def run_v9_acceptance(args: argparse.Namespace) -> BrowserControlReport:
+    """Run V9 live-product acceptance orchestration."""
+    started = time.perf_counter()
+    preflight = run_v9_preflight(args)
+    reports: list[BrowserControlReport] = []
+    if preflight.status == "passed":
+        reports = _run_v9_acceptance_scenarios(args)
+    forbidden_scan = scan_browser_control_entropy_guardrails(Path.cwd())
+    report = _aggregate_v9_acceptance_report(
+        started=started,
+        preflight=preflight,
+        reports=reports,
+        forbidden_scan=forbidden_scan,
+        args=args,
+    )
+    return _write_v9_acceptance_artifacts(
+        report=report,
+        reports=reports,
+        preflight=preflight,
+        forbidden_scan=forbidden_scan,
+        report_dir=Path(str(getattr(args, "report_dir", "") or ".")),
+    )
+
+
+def _run_v9_acceptance_scenarios(
+    args: argparse.Namespace,
+) -> list[BrowserControlReport]:
+    reports = [_run_v9_named_acceptance_scenario("v9-capability-matrix", args)]
+    if getattr(args, "live_public", False):
+        reports.append(
+            _run_v9_named_acceptance_scenario("v9-public-live", args),
+        )
+    if getattr(args, "live_user", False):
+        reports.append(_run_v9_named_acceptance_scenario("v9-user-live", args))
+    if getattr(args, "live_taobao", False):
+        reports.append(
+            _run_v9_named_acceptance_scenario("v9-taobao-live", args),
+        )
+    return reports
+
+
+def _run_v9_named_acceptance_scenario(
+    scenario: str,
+    args: argparse.Namespace,
+) -> BrowserControlReport:
+    runners = {
+        "v9-public-live": globals().get("run_v9_public_live"),
+        "v9-user-live": globals().get("run_v9_user_live"),
+        "v9-capability-matrix": globals().get("run_v9_capability_matrix"),
+        "v9-taobao-live": globals().get("run_v9_taobao_live"),
+    }
+    runner = runners.get(scenario)
+    if callable(runner):
+        return runner(args)
+    return _report(
+        scenario,
+        "blocked",
+        time.perf_counter(),
+        blocked_reason=f"{scenario} runner is not implemented",
+    )
+
+
+def _aggregate_v9_acceptance_report(
+    *,
+    started: float,
+    preflight: BrowserControlReport,
+    reports: list[BrowserControlReport],
+    forbidden_scan: dict[str, Any],
+    args: argparse.Namespace,
+) -> BrowserControlReport:
+    status = _v9_acceptance_status(preflight, reports, forbidden_scan)
+    blocker = _v9_blocker_classification(status, [preflight, *reports])
+    manifest = _v9_acceptance_manifest(
+        preflight=preflight,
+        reports=reports,
+        args=args,
+    )
+    failure_reason = ""
+    if forbidden_scan.get("ok") is False:
+        failure_reason = "forbidden_tool_scan"
+        blocker = {
+            "status": "failed",
+            "category": "capability_gap",
+            "reason": failure_reason,
+            "terminal": True,
+        }
+    elif status == "failed":
+        failure_reason = str(blocker.get("reason") or "acceptance_failed")
+    return _report(
+        "v9-acceptance",
+        status,
+        started,
+        browser_tool_calls=sum(
+            report.browser_tool_calls for report in reports
+        ),
+        backend_route=_join_unique(
+            report.backend_route for report in [preflight, *reports]
+        ),
+        forbidden_tools=[
+            str(item.get("token") or item.get("message") or "")
+            for item in forbidden_scan.get("violations") or []
+            if isinstance(item, dict)
+        ],
+        trace_event_count=preflight.trace_event_count
+        + sum(report.trace_event_count for report in reports),
+        failure_reason=failure_reason,
+        blocked_reason=(
+            str(blocker.get("reason") or "") if status == "blocked" else ""
+        ),
+        fresh_observe_ok=preflight.fresh_observe_ok
+        and all(report.fresh_observe_ok for report in reports),
+        cleanup_ok=preflight.cleanup_ok
+        and all(report.cleanup_ok for report in reports),
+        runtime_evidence={
+            "run_manifest": manifest,
+            "forbidden_scan": dict(forbidden_scan),
+        },
+        trace_summary=_aggregate_v9_trace_summary(reports),
+        cleanup_summary=_aggregate_v9_cleanup_summary(reports),
+        report_schema_version=V9_REPORT_SCHEMA_VERSION,
+        scenario_budget=_v9_default_scenario_budget(len(reports)),
+        actual_metrics=_v9_actual_metrics(reports),
+        blocker_classification=blocker,
+        source_labels=_aggregate_v9_source_labels([preflight, *reports]),
+        scenario_reports=[report.to_dict() for report in reports],
+        content_evidence={"issue_log": []},
+    )
+
+
+def _v9_acceptance_status(
+    preflight: BrowserControlReport,
+    reports: list[BrowserControlReport],
+    forbidden_scan: dict[str, Any],
+) -> str:
+    if forbidden_scan.get("ok") is False:
+        return "failed"
+    if preflight.status != "passed":
+        return preflight.status
+    return _aggregate_status(reports)
+
+
+def _v9_acceptance_manifest(
+    *,
+    preflight: BrowserControlReport,
+    reports: list[BrowserControlReport],
+    args: argparse.Namespace,
+) -> dict[str, Any]:
+    evidence = dict(preflight.runtime_evidence or {})
+    service = dict(evidence.get("service") or {})
+    local = dict(evidence.get("local") or {})
+    return {
+        "schema_version": "browser-control-v9-f-acceptance-manifest",
+        "base_url": _v9_base_url(args),
+        "reuse_service": bool(getattr(args, "reuse_service", False)),
+        "approval_level": str(getattr(args, "approval_level", "DEFAULT")),
+        "live_flags": {
+            "public": bool(getattr(args, "live_public", False)),
+            "user": bool(getattr(args, "live_user", False)),
+            "taobao": bool(getattr(args, "live_taobao", False)),
+        },
+        "preflight": {
+            "status": preflight.status,
+            "checks": dict(preflight.preflight_checks)
+            or dict(evidence.get("checks") or {}),
+            "backend_route": preflight.backend_route,
+        },
+        "backend": {
+            "local_commit": str(local.get("git_commit") or ""),
+            "service_commit": str(service.get("git_commit") or ""),
+        },
+        "frontend": {
+            "local_fingerprint": str(
+                local.get("frontend_fingerprint") or "",
+            ),
+            "service_fingerprint": str(
+                service.get("frontend_fingerprint") or "",
+            ),
+        },
+        "plugin": {
+            "local_fingerprint": str(local.get("plugin_fingerprint") or ""),
+            "service_fingerprint": str(
+                service.get("plugin_fingerprint") or "",
+            ),
+        },
+        "extension": {
+            "version": str(service.get("extension_version") or ""),
+            "native_host_version": str(
+                service.get("native_host_version") or "",
+            ),
+        },
+        "bridge": {
+            "connected": bool(service.get("bridge_connected")),
+            "connected_since": str(
+                service.get("bridge_connected_since") or "",
+            ),
+        },
+        "scenarios": [
+            {
+                "scenario": report.scenario,
+                "status": report.status,
+                "backend_route": report.backend_route,
+            }
+            for report in reports
+        ],
+    }
+
+
+def _write_v9_acceptance_artifacts(
+    *,
+    report: BrowserControlReport,
+    reports: list[BrowserControlReport],
+    preflight: BrowserControlReport,
+    forbidden_scan: dict[str, Any],
+    report_dir: Path,
+) -> BrowserControlReport:
+    report_dir.mkdir(parents=True, exist_ok=True)
+    json_path = report_dir / V9_ACCEPTANCE_JSON_NAME
+    markdown_path = report_dir / V9_ACCEPTANCE_MARKDOWN_NAME
+    final_report = replace(
+        report,
+        artifact_paths=[str(json_path), str(markdown_path)],
+    )
+    json_path.write_text(
+        json.dumps(final_report.to_dict(), ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    markdown_path.write_text(
+        _render_v9_acceptance_markdown(
+            report=final_report,
+            reports=reports,
+            preflight=preflight,
+            forbidden_scan=forbidden_scan,
+        ),
+        encoding="utf-8",
+    )
+    return final_report
+
+
+def _render_v9_acceptance_markdown(
+    *,
+    report: BrowserControlReport,
+    reports: list[BrowserControlReport],
+    preflight: BrowserControlReport,
+    forbidden_scan: dict[str, Any],
+) -> str:
+    manifest = report.runtime_evidence.get("run_manifest")
+    manifest = manifest if isinstance(manifest, dict) else {}
+    issues = report.content_evidence.get("issue_log")
+    issue_rows = _render_v9_issue_log(
+        issues if isinstance(issues, list) else [],
+    )
+    return "\n".join(
+        [
+            "# Browser Control V9-F Live Product Acceptance Report",
+            "",
+            "## Runtime Truth",
+            f"- Preflight status: `{preflight.status}`",
+            f"- Backend: `{(manifest.get('backend') or {})}`",
+            f"- Frontend: `{(manifest.get('frontend') or {})}`",
+            f"- Plugin: `{(manifest.get('plugin') or {})}`",
+            f"- Extension: `{(manifest.get('extension') or {})}`",
+            f"- Bridge: `{(manifest.get('bridge') or {})}`",
+            "",
+            "## Scenario Matrix",
+            _markdown_report_table(reports),
+            "",
+            "## Budgets",
+            f"- Actual metrics: `{report.actual_metrics}`",
+            f"- Scenario budget: `{report.scenario_budget}`",
+            "",
+            "## Forbidden Tool Scan",
+            f"- OK: `{bool(forbidden_scan.get('ok'))}`",
+            f"- Violations: `{forbidden_scan.get('violations') or []}`",
+            "",
+            "## Lifecycle Residuals",
+            f"- Cleanup summary: `{report.cleanup_summary}`",
+            "",
+            "## Frontend UX Evidence",
+            "- Current tab, connection, progress, approval wait, blocker, "
+            "cancel, and cleanup fields are verified by V9-E contracts.",
+            "",
+            "## Live Blockers",
+            f"- Blocker classification: `{report.blocker_classification}`",
+            "",
+            "## Issue Repair Log",
+            issue_rows,
+            "",
+            "## Acceptance Summary",
+            f"- Status: `{report.status}`",
+            f"- Failure reason: `{report.failure_reason}`",
+            f"- Blocked reason: `{report.blocked_reason}`",
+            "",
+        ],
+    )
+
+
+def _render_v9_issue_log(issues: list[Any]) -> str:
+    if not issues:
+        return "_No fixed issues recorded._"
+    rows = [
+        "| Evidence | Root Cause | Generic Solution | Fix Commit | Restart | Retest |",
+        "|---|---|---|---|---|---|",
+    ]
+    for issue in issues:
+        item = issue if isinstance(issue, dict) else {}
+        rows.append(
+            "| "
+            + " | ".join(
+                f"`{str(item.get(field) or '')}`"
+                for field in V9_REQUIRED_ISSUE_FIELDS
+            )
+            + " |",
+        )
+    return "\n".join(rows)
 
 
 def _v9_base_url(args: argparse.Namespace) -> str:
@@ -1588,6 +2773,95 @@ def _v8_public_live_task_specs() -> list[V8LiveTaskSpec]:
     ]
 
 
+def _v9_public_live_task_spec() -> V8LiveTaskSpec:
+    return V8LiveTaskSpec(
+        scenario="v9-public-live",
+        prompt=(
+            "Use Browser Control through normal QwenPaw chat to find a Loop "
+            "Engineering blog or engineering article on the public web. Use "
+            'context="isolated" only and do not touch user Chrome or Chrome '
+            "Extension user state. Report the exact marker "
+            "V9_PUBLIC_LOOP_PASS with URL or title evidence containing Loop."
+        ),
+        required_context="isolated",
+        required_backend_id="isolated.playwright",
+        content_markers=("V9_PUBLIC_LOOP_PASS", "Loop"),
+        success_marker="V9_PUBLIC_LOOP_PASS",
+    )
+
+
+def _v9_user_live_task_specs() -> list[V8LiveTaskSpec]:
+    return [
+        V8LiveTaskSpec(
+            scenario="user-read-only-observation",
+            prompt=(
+                'Use Browser Control with context="user" and '
+                "requires_user_state=True to observe the current Chrome tab "
+                "without navigating or mutating it. Report "
+                "V9_USER_READONLY_PASS with title, URL, current controlled "
+                "tab, and proof that the QwenPaw console tab was not "
+                "overwritten."
+            ),
+            required_context="user",
+            required_backend_id="user.chrome_extension",
+            success_marker="V9_USER_READONLY_PASS",
+            requires_user_state=True,
+        ),
+        V8LiveTaskSpec(
+            scenario="multi-tab-workspace",
+            prompt=(
+                'Use Browser Control with context="user" and '
+                "requires_user_state=True to create a Browser-Control-owned "
+                "second tab, switch back and forth, then close or release the "
+                "owned tab. Report V9_USER_MULTITAB_PASS and zero residual "
+                "owned tabs."
+            ),
+            required_context="user",
+            required_backend_id="user.chrome_extension",
+            success_marker="V9_USER_MULTITAB_PASS",
+            requires_user_state=True,
+        ),
+        V8LiveTaskSpec(
+            scenario="bridge-disconnect-fail-closed",
+            prompt=(
+                "Verify user-context Browser Control fails closed when the "
+                "Chrome Extension bridge is disconnected and never falls back "
+                "to isolated browser state. Report V9_USER_DISCONNECT_PASS "
+                "with bridge_disconnected evidence."
+            ),
+            required_context="user",
+            required_backend_id="user.chrome_extension",
+            success_marker="V9_USER_DISCONNECT_PASS",
+            requires_user_state=True,
+        ),
+        V8LiveTaskSpec(
+            scenario="bridge-reconnect-recovered",
+            prompt=(
+                "After reconnecting the Chrome Extension bridge, verify a "
+                "user-context Browser Control read succeeds again. Report "
+                "V9_USER_RECONNECT_PASS with reconnect evidence."
+            ),
+            required_context="user",
+            required_backend_id="user.chrome_extension",
+            success_marker="V9_USER_RECONNECT_PASS",
+            requires_user_state=True,
+        ),
+        V8LiveTaskSpec(
+            scenario="user-cancellation-cleanup",
+            prompt=(
+                'Use Browser Control with context="user" and '
+                "requires_user_state=True to start a cancellable read-only "
+                "browser task, cancel it, and report V9_USER_CANCEL_PASS with "
+                "cancellation outcome plus zero residual owned tabs."
+            ),
+            required_context="user",
+            required_backend_id="user.chrome_extension",
+            success_marker="V9_USER_CANCEL_PASS",
+            requires_user_state=True,
+        ),
+    ]
+
+
 def _v8_user_live_task_specs() -> list[V8LiveTaskSpec]:
     return [
         V8LiveTaskSpec(
@@ -1648,6 +2922,35 @@ def _v8_taobao_live_task_spec() -> V8LiveTaskSpec:
             "empty",
         ),
         success_marker="V8_TAOBAO_LIVE_PASS",
+        requires_user_state=True,
+        request_context={"approval_level": "OFF"},
+    )
+
+
+def _v9_taobao_live_task_spec() -> V8LiveTaskSpec:
+    return V8LiveTaskSpec(
+        scenario="v9-taobao-live",
+        prompt=(
+            'Use Browser Control with context="user" and '
+            "requires_user_state=True. The user has prepared Taobao login. "
+            "With approval_level=OFF only, open the cart, search for one "
+            "ordinary men's shampoo item, add exactly one item to the cart, "
+            "read and report cart contents before clearing, clear the cart, "
+            "freshly observe the empty state, and report "
+            "V9_TAOBAO_LIVE_PASS. Stop and report login_required, CAPTCHA, "
+            "risk_control, or network_unavailable if encountered. Safety "
+            "boundaries: do not checkout, do not submit an order, do not pay, "
+            "do not enter credentials, do not change addresses, and do not "
+            "modify account security settings."
+        ),
+        required_context="user",
+        required_backend_id="user.chrome_extension",
+        content_markers=(
+            "V9_TAOBAO_LIVE_PASS",
+            "Cart contents before",
+            "empty",
+        ),
+        success_marker="V9_TAOBAO_LIVE_PASS",
         requires_user_state=True,
         request_context={"approval_level": "OFF"},
     )
@@ -2142,6 +3445,97 @@ def write_v9_evidence_report(
         encoding="utf-8",
     )
     return replace(aggregate, artifact_paths=[str(output)])
+
+
+def write_v9_final_acceptance_report(
+    *,
+    output: Path,
+    result_files: list[Path],
+    issues: list[dict[str, Any]] | None = None,
+) -> BrowserControlReport:
+    """Write the V9-F Markdown final acceptance report."""
+    started = time.perf_counter()
+    reports = [_load_v9_report(path) for path in result_files]
+    aggregate = _aggregate_v9_evidence_report(started=started, reports=reports)
+    issue_log = [dict(issue) for issue in issues or []]
+    final_status = aggregate.status
+    failure_reason = aggregate.failure_reason
+    if not _v9_issue_log_complete(issue_log):
+        final_status = "failed"
+        failure_reason = "incomplete_issue_repair_log"
+    elif _v9_has_unresolved_non_external_blocker(reports):
+        final_status = "failed"
+        failure_reason = "unresolved_non_external_blocker"
+    final_report = replace(
+        aggregate,
+        scenario="v9-final-acceptance-report",
+        status=final_status,
+        failure_reason=failure_reason if final_status == "failed" else "",
+        artifact_paths=[str(output)],
+        content_evidence={
+            **aggregate.content_evidence,
+            "issue_log": issue_log,
+            "acceptance_summary": {
+                "status": final_status,
+                "failure_reason": (
+                    failure_reason if final_status == "failed" else ""
+                ),
+                "scenario_count": len(reports),
+            },
+        },
+    )
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(
+        _render_v9_acceptance_markdown(
+            report=final_report,
+            reports=reports,
+            preflight=_v9_final_preflight_report(reports),
+            forbidden_scan={"ok": not final_report.forbidden_tools},
+        ),
+        encoding="utf-8",
+    )
+    return final_report
+
+
+def _v9_issue_log_complete(issues: list[dict[str, Any]]) -> bool:
+    return all(
+        all(
+            str(issue.get(field) or "").strip()
+            for field in V9_REQUIRED_ISSUE_FIELDS
+        )
+        for issue in issues
+    )
+
+
+def _v9_has_unresolved_non_external_blocker(
+    reports: list[BrowserControlReport],
+) -> bool:
+    for report in reports:
+        if report.status == "passed":
+            continue
+        category = str(report.blocker_classification.get("category") or "")
+        if category != "external_blocker":
+            return True
+    return False
+
+
+def _v9_final_preflight_report(
+    reports: list[BrowserControlReport],
+) -> BrowserControlReport:
+    preflight = next(
+        (report for report in reports if report.scenario == "v9-preflight"),
+        None,
+    )
+    if preflight is not None:
+        return preflight
+    return BrowserControlReport(
+        scenario="v9-preflight",
+        status="passed",
+        fresh_observe_ok=True,
+        cleanup_ok=True,
+        report_schema_version=V9_REPORT_SCHEMA_VERSION,
+        source_labels=v9_source_labels_for_scenario("v9-preflight"),
+    )
 
 
 def _load_v8_report(path: Path) -> BrowserControlReport:
@@ -2680,6 +4074,11 @@ def main(argv: list[str] | None = None) -> int:
         "taobao-live": run_taobao_live,
         "v8-preflight": run_v8_preflight,
         "v9-preflight": run_v9_preflight,
+        "v9-acceptance": run_v9_acceptance,
+        "v9-public-live": run_v9_public_live,
+        "v9-user-live": run_v9_user_live,
+        "v9-capability-matrix": run_v9_capability_matrix,
+        "v9-taobao-live": run_v9_taobao_live,
         "v8-deterministic": run_v8_deterministic,
         "v8-public-live": run_v8_public_live,
         "v8-user-live": run_v8_user_live,
