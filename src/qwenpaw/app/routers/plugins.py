@@ -37,37 +37,37 @@ def _list_plugins_from_disk() -> list[dict]:
     """
     from ...config.utils import get_plugins_dir
 
-    plugins_dir: Path = get_plugins_dir()
-    if not plugins_dir.exists():
-        return []
+    bundled_dir = Path(__file__).resolve().parents[4] / "plugins" / "bundle"
+    plugin_roots = [bundled_dir, get_plugins_dir()]
 
     from ...plugins.loader import _is_disabled_plugin_dir
 
-    result: list[dict] = []
-    for item in sorted(plugins_dir.iterdir()):
-        if not item.is_dir():
-            continue
-        if _is_disabled_plugin_dir(item):
-            continue
-        manifest_path = item / "plugin.json"
-        if not manifest_path.exists():
-            continue
-        try:
-            with open(manifest_path, encoding="utf-8") as f:
-                manifest = json.load(f)
-        except Exception as exc:
-            logger.warning("Failed to read %s: %s", manifest_path, exc)
-            continue
+    from ...plugins.architecture import PluginManifest
 
-        plugin_id = manifest.get("id", item.name)
-        frontend_entry = manifest.get("entry", {}).get("frontend")
+    result_by_id: dict[str, dict] = {}
+    for plugins_dir in plugin_roots:
+        if not plugins_dir.exists():
+            continue
+        for item in sorted(plugins_dir.iterdir()):
+            if not item.is_dir():
+                continue
+            if _is_disabled_plugin_dir(item):
+                continue
+            manifest_path = item / "plugin.json"
+            if not manifest_path.exists():
+                continue
+            try:
+                with open(manifest_path, encoding="utf-8") as f:
+                    manifest = json.load(f)
+            except Exception as exc:
+                logger.warning("Failed to read %s: %s", manifest_path, exc)
+                continue
 
-        from ...plugins.architecture import PluginManifest
+            plugin_id = manifest.get("id", item.name)
+            frontend_entry = manifest.get("entry", {}).get("frontend")
+            disk_manifest = PluginManifest.from_dict(manifest)
 
-        disk_manifest = PluginManifest.from_dict(manifest)
-
-        result.append(
-            {
+            result_by_id[plugin_id] = {
                 "id": plugin_id,
                 "name": manifest.get("name", plugin_id),
                 "version": manifest.get("version", "0.0.0"),
@@ -77,9 +77,8 @@ def _list_plugins_from_disk() -> list[dict]:
                 "loaded": False,
                 "plugin_type": disk_manifest.plugin_type,
                 "frontend_entry": frontend_entry,
-            },
-        )
-    return result
+            }
+    return [result_by_id[key] for key in sorted(result_by_id)]
 
 
 def _safe_extract_zip(

@@ -114,11 +114,6 @@ class BrowserControlPlugin:
             callback=self.startup,
             priority=110,
         )
-        api.register_skill_provider(
-            skills_dir=Path(__file__).parent / "skills",
-            enabled_by_default=True,
-            channels=["all"],
-        )
         logger.info("Browser Control plugin registered: %s", api.plugin_id)
 
     async def get_runtime_status(self) -> dict:

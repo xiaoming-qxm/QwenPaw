@@ -1,16 +1,16 @@
 ---
-name: browser-sdk
-description: "通过 browser(code=...) 使用统一 Browser SDK，处理网页检索、标签页操作和用户 Chrome 任务。"
+name: browser
+description: "通过 browser(code=...) 使用 Browser SDK，处理网页检索、标签页操作、用户 Chrome 任务和高级浏览器诊断。"
 metadata:
-  builtin_skill_version: "1.0"
+  builtin_skill_version: "10.0"
   qwenpaw:
-    emoji: "🌐"
+    emoji: ""
     requires: {}
 ---
 
-# Browser SDK
+# Browser
 
-正常浏览器自动化只使用 `browser(code=...)`。在代码里连接 SDK：
+正常浏览器自动化只使用 `browser(code=...)`。在代码里连接 Browser SDK：
 
 ```python
 browser = await Browser.connect(context="auto")
@@ -18,16 +18,19 @@ tab = await browser.tabs.open("https://example.com")
 snapshot = await tab.snapshot()
 ```
 
-Long-running browser 工作可以持续到真实终止状态。用户要求 cancel 或外层
-runtime 停止时，使用 task cancellation 结束它。`timeout_ms` 工具参数只是
-deprecated compatibility 输入，does not limit total Browser SDK execution；
-不要通过调大它来管理长任务。
+长时间浏览器任务可以持续到真实终止状态。用户要求取消或外层 runtime 停止时，
+使用 task cancellation 结束它。
 
-按浏览器状态选择 context，不按 API 层级选择：
+按浏览器状态选择 context：
 
 - `context="auto"`：默认。公开网页任务通常走 isolated backend。
-- `context="user"`：通过 Chrome Extension bridge 使用用户 Chrome 登录态。若 bridge 未连接，明确阻断并汇报。
+- `context="user"`：通过 Chrome Extension bridge 使用用户 Chrome 登录态。
+  如果 bridge 未连接，明确阻断并汇报。
 - `context="isolated"`：用于不需要用户登录态的公开网页任务。
+
+只有任务需要真实用户状态时才使用用户 Chrome：可见会话、登录态、购物车、
+账号页面或已有标签页。除非用户要求观看，不要前置、聚焦或激活用户的
+Chrome。
 
 primitive 操作和结构化 actions 是同级能力：
 
@@ -49,8 +52,8 @@ await tab.actions.dialog(accept=True)
 ```
 
 每次改变页面状态后，下一次 mutation 前必须重新调用 `tab.snapshot()` 或
-`tab.screenshot()`。`tab.evaluate(..., read_only=True)` 只是读取辅助，不算新的观察。
-`tab.page_info()` 只读取页面元信息，也不算新的观察。
+`tab.screenshot()`。`tab.evaluate(..., read_only=True)` 只是读取辅助，不算新的
+观察。`tab.page_info()` 只读取页面元信息，也不算新的观察。
 
 不打开浏览器时检查后端可用性：
 
@@ -65,4 +68,5 @@ result = await tab.extract("总结当前可见文章", format="text")
 data = await tab.extract("以 JSON 返回标题和价格", format="json")
 ```
 
-Raw CDP 只属于高级内部后端能力；普通浏览器任务不要把 raw CDP 作为主路径。
+Raw CDP 是高级后端细节。只有当用户明确提到调试端口、外部工具附着、或通过
+CDP 共享浏览器时才使用。普通浏览器任务走 Browser SDK。
