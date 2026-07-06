@@ -18,6 +18,7 @@ import type {
   BrowserControlRepairAction,
   BrowserControlSelfTestResult,
   BrowserControlTraceSummary,
+  BrowserControlLifecycleSummary,
   ExtensionInstallMode,
 } from "@/api/modules/extension";
 import {
@@ -41,6 +42,10 @@ export interface BrowserControlReadinessStatus {
   build_fingerprint?: BrowserControlBuildFingerprint;
   build_freshness?: BrowserControlBuildFreshness;
   trace_summary?: BrowserControlTraceSummary;
+  controlled_tab_count?: number;
+  residual_tab_count?: number;
+  last_cleanup_reason?: string;
+  protected_origin_status?: string;
   last_self_test?: BrowserControlSelfTestResult | null;
   sdk_diagnostics?: BrowserDiagnostics;
 }
@@ -138,6 +143,7 @@ export function BrowserControlReadiness({
   const extensionVersion = status?.extension_version || status?.version || "-";
   const build = status?.build_fingerprint;
   const trace = status?.trace_summary;
+  const lifecycleSummary = lifecycleTabSummary(status);
   const lifecycle = status?.bridge_lifecycle;
   const selectedBackend =
     status?.selected_backend_id ||
@@ -246,6 +252,34 @@ export function BrowserControlReadiness({
             "Build freshness",
           )}
           value={buildFreshnessLabel(t, status?.build_freshness, build)}
+        />
+        <Metric
+          label={t(
+            "browserControl.readiness.controlledTabs",
+            "Controlled tabs",
+          )}
+          value={String(lifecycleSummary.controlled_tab_count ?? 0)}
+        />
+        <Metric
+          label={t(
+            "browserControl.readiness.residualTabs",
+            "Residual tabs",
+          )}
+          value={String(lifecycleSummary.residual_tab_count ?? 0)}
+        />
+        <Metric
+          label={t(
+            "browserControl.readiness.lastCleanup",
+            "Last cleanup",
+          )}
+          value={lifecycleSummary.last_cleanup_reason || "-"}
+        />
+        <Metric
+          label={t(
+            "browserControl.readiness.protectedOrigin",
+            "Protected origin",
+          )}
+          value={lifecycleSummary.protected_origin_status || "clear"}
         />
       </div>
 
@@ -425,6 +459,26 @@ function traceSummary(trace?: BrowserControlTraceSummary): string {
   return `${events} across ${sessions} ${
     sessions === 1 ? "session" : "sessions"
   }`;
+}
+
+function lifecycleTabSummary(
+  status: BrowserControlReadinessStatus | null,
+): BrowserControlLifecycleSummary {
+  const traceLifecycle = status?.trace_summary?.lifecycle || {};
+  return {
+    controlled_tab_count:
+      status?.controlled_tab_count ?? traceLifecycle.controlled_tab_count ?? 0,
+    residual_tab_count:
+      status?.residual_tab_count ?? traceLifecycle.residual_tab_count ?? 0,
+    last_cleanup_reason:
+      status?.last_cleanup_reason ||
+      traceLifecycle.last_cleanup_reason ||
+      "",
+    protected_origin_status:
+      status?.protected_origin_status ||
+      traceLifecycle.protected_origin_status ||
+      "clear",
+  };
 }
 
 function buildFreshnessLabel(

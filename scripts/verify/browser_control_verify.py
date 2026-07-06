@@ -2091,13 +2091,37 @@ def _aggregate_v9_trace_summary(
 def _aggregate_v9_cleanup_summary(
     reports: list[BrowserControlReport],
 ) -> dict[str, Any]:
+    last_cleanup_reason = ""
+    protected_status = "clear"
+    controlled_tab_count = 0
+    residual_tab_count = 0
+    for report in reports:
+        summary = report.cleanup_summary
+        controlled_tab_count += _summary_int(summary, "controlled_tab_count")
+        residual_tab_count += _summary_int(summary, "residual_tab_count")
+        reason = str(summary.get("last_cleanup_reason") or "")
+        if reason:
+            last_cleanup_reason = reason
+        if str(summary.get("protected_origin_status") or "") == "skipped":
+            protected_status = "skipped"
     return {
         "cleanup_ok": all(report.cleanup_ok for report in reports),
         "scenario_count": len(reports),
         "failed_scenarios": [
             report.scenario for report in reports if not report.cleanup_ok
         ],
+        "controlled_tab_count": controlled_tab_count,
+        "residual_tab_count": residual_tab_count,
+        "last_cleanup_reason": last_cleanup_reason,
+        "protected_origin_status": protected_status,
     }
+
+
+def _summary_int(summary: dict[str, Any], key: str) -> int:
+    try:
+        return int(summary.get(key) or 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 def _v9_blocker_classification(

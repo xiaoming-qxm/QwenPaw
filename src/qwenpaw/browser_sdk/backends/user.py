@@ -43,7 +43,33 @@ from qwenpaw.browser_sdk.types import BrowserObservation, BrowserScreenshot
 
 BACKEND_ID = "user.chrome_extension"
 _BROWSER_SENTINEL_TAB_ID = "__browser__"
-_TabOwnership = Literal["owned", "borrowed"]
+_TabOwnership = Literal[
+    "owned",
+    "borrowed",
+    "protected",
+    "orphaned",
+    "released",
+]
+_TAB_OWNERSHIP_STATES = {
+    "owned",
+    "borrowed",
+    "protected",
+    "orphaned",
+    "released",
+}
+_PROTECTED_TAB_ERROR_CODE = "PROTECTED_TAB_REQUIRES_EXPLICIT_OVERRIDE"
+_BROWSER_INTERNAL_SCHEMES = {
+    "brave",
+    "chrome",
+    "chrome-extension",
+    "devtools",
+    "edge",
+    "moz-extension",
+    "opera",
+    "vivaldi",
+}
+_LOCAL_QWENPAW_HOSTS = {"127.0.0.1", "::1", "localhost"}
+_LOCAL_QWENPAW_PORTS = {8088}
 _ENGINE_ACTION_ALIASES = {
     "back": "navigate_back",
     "forward": "navigate_forward",
@@ -299,14 +325,19 @@ class ChromeExtensionBrowserSession:
     async def stop(self) -> None:
         await self._cleanup(cleanup_reason="browser_stop")
 
-    async def cleanup_for_request(self) -> dict[str, int]:
+    async def cleanup_for_request(self) -> dict[str, Any]:
         """Release all tabs held by this Browser SDK user session."""
         return await self._cleanup(cleanup_reason="finally")
 
-    async def _cleanup(self, *, cleanup_reason: str) -> dict[str, int]:
+    async def _cleanup(self, *, cleanup_reason: str) -> dict[str, Any]:
         closed_tabs = 0
         released_tabs = 0
+        skipped_protected_tabs = 0
         for tab_id, ownership in list(self._tab_ownership.items()):
+            if ownership == "protected":
+                skipped_protected_tabs += 1
+                self._tab_ownership.pop(str(tab_id), None)
+                continue
             await self._cleanup_tab(
                 tab_id,
                 ownership,
@@ -321,21 +352,39 @@ class ChromeExtensionBrowserSession:
         return {
             "closed_tabs": closed_tabs,
             "released_tabs": released_tabs,
+            "closed_owned_tabs": closed_tabs,
+            "released_borrowed_tabs": released_tabs,
+            "skipped_protected_tabs": skipped_protected_tabs,
+            "remaining_orphaned_tabs": self._remaining_orphaned_tabs(),
+            "cleanup_reason": cleanup_reason,
         }
 
     async def active_tab(self) -> dict[str, Any]:
+        started = perf_counter()
         tabs = await self.list_tabs()
-        selected = tabs[0] if tabs else {"id": "default"}
-        for tab in tabs:
-            if tab.get("active"):
-                selected = tab
-                break
-        tab_id = str(selected.get("id") or "")
-        if tab_id and tab_id != "default":
-            await self._claim(tab_id)
-            await self._attach(tab_id)
-            self._record_tab_ownership(tab_id, "borrowed")
-        return selected
+        selected = _default_workspace_tab(tabs)
+        if selected is None:
+            tab = await self._create_workspace_tab()
+            self._record_workspace_selection_trace(
+                tab,
+                duration_ms=_duration_ms(started),
+                selection_reason="created_controlled_workspace",
+                activation_reason="default_workspace_hidden",
+            )
+            return tab
+        await self._claim_existing_tab(selected)
+        tab = self._tab_metadata(
+            selected,
+            ownership="borrowed",
+            selection_reason="existing_controlled_workspace",
+        )
+        self._record_workspace_selection_trace(
+            tab,
+            duration_ms=_duration_ms(started),
+            selection_reason="existing_controlled_workspace",
+            activation_reason="existing_tab_not_activated",
+        )
+        return tab
 
     async def list_tabs(self) -> list[dict[str, Any]]:
         tabs = await self.bridge.discover_tabs()
@@ -345,29 +394,57 @@ class ChromeExtensionBrowserSession:
         target_url = url or "about:blank"
         payload = {"url": target_url, "active": True}
         response = await self.bridge.request("tab.create", payload)
-        tab = _tab_from_create_response(response, fallback_url=target_url)
+        tab = _tab_from_create_response(
+            response,
+            fallback_url=target_url,
+            fallback_active=True,
+            fallback_workspace="",
+        )
         await self._claim(tab["id"])
         await self._attach(tab["id"])
         self._record_tab_ownership(tab["id"], "owned")
         return tab
 
     async def select_tab(self, tab_id: str) -> dict[str, Any]:
+        tab = await self._find_listed_tab(tab_id)
+        if tab is not None and _is_protected_tab(tab):
+            self._record_ownership_trace(
+                tab_id=str(tab_id),
+                ownership_state_before="",
+                ownership_state_after="protected",
+                url=str(tab.get("url") or ""),
+                status="denied",
+                error_code=_PROTECTED_TAB_ERROR_CODE,
+            )
+            raise _protected_tab_denied(tab)
         await self._claim(tab_id)
         await self._attach(tab_id)
         self._record_tab_ownership(tab_id, "borrowed")
-        return {"id": str(tab_id)}
+        return self._tab_metadata(
+            tab or {"id": str(tab_id)},
+            ownership="borrowed",
+            selection_reason="explicit_tab_id",
+        )
 
     async def page_info(self, tab_id: str) -> BrowserPageInfo:
         page_id = str(tab_id)
         for tab in await self.list_tabs():
             if str(tab.get("id") or "") == page_id:
+                enriched = self._tab_metadata(
+                    tab,
+                    ownership=self._tab_ownership.get(page_id, "borrowed"),
+                )
                 return BrowserPageInfo(
                     tab_id=page_id,
-                    url=str(tab.get("url") or ""),
-                    title=str(tab.get("title") or ""),
-                    metadata={"active": bool(tab.get("active", False))},
+                    url=str(enriched.get("url") or ""),
+                    title=str(enriched.get("title") or ""),
+                    metadata=_page_info_metadata(enriched),
                 )
-        return BrowserPageInfo(tab_id=page_id)
+        ownership = self._tab_ownership.get(page_id, "borrowed")
+        return BrowserPageInfo(
+            tab_id=page_id,
+            metadata={"ownership": ownership},
+        )
 
     async def snapshot(self, tab_id: str) -> BrowserObservation:
         payload = await self._bridge_or_engine_action("snapshot", tab_id)
@@ -448,6 +525,100 @@ class ChromeExtensionBrowserSession:
         message = "Tab closed" if ownership == "owned" else "Tab released"
         return BrowserActionResult(ok=True, message=message)
 
+    async def _create_workspace_tab(self) -> dict[str, Any]:
+        target_url = "about:blank"
+        response = await self.bridge.request(
+            "tab.create",
+            {
+                "url": target_url,
+                "active": False,
+                "workspace": self._state["workspace_id"],
+            },
+        )
+        tab = _tab_from_create_response(
+            response,
+            fallback_url=target_url,
+            fallback_active=False,
+            fallback_workspace=self._state["workspace_id"],
+        )
+        await self._claim(tab["id"])
+        await self._attach(tab["id"])
+        self._record_tab_ownership(tab["id"], "owned")
+        return self._tab_metadata(
+            tab,
+            ownership="owned",
+            selection_reason="created_controlled_workspace",
+        )
+
+    async def _claim_existing_tab(self, tab: dict[str, Any]) -> None:
+        tab_id = str(tab.get("id") or "")
+        if not tab_id or tab_id == "default":
+            return
+        await self._claim(tab_id)
+        await self._attach(tab_id)
+        self._record_tab_ownership(tab_id, "borrowed")
+
+    async def _find_listed_tab(self, tab_id: str) -> dict[str, Any] | None:
+        normalized = str(tab_id)
+        for tab in await self.list_tabs():
+            if str(tab.get("id") or "") == normalized:
+                return tab
+        return None
+
+    def _tab_metadata(
+        self,
+        tab: dict[str, Any],
+        *,
+        ownership: _TabOwnership,
+        selection_reason: str = "",
+    ) -> dict[str, Any]:
+        enriched = dict(tab)
+        workspace_id = _workspace_id(enriched)
+        enriched.update(
+            {
+                "workspace_id": workspace_id,
+                "controlled_workspace": _is_controlled_workspace_tab(
+                    enriched,
+                ),
+                "protected_origin": _is_protected_tab(enriched),
+                "ownership": ownership,
+            },
+        )
+        if selection_reason:
+            enriched["selection_reason"] = selection_reason
+        return enriched
+
+    def _record_workspace_selection_trace(
+        self,
+        tab: dict[str, Any],
+        *,
+        duration_ms: float,
+        selection_reason: str,
+        activation_reason: str,
+    ) -> None:
+        record_browser_trace_event(
+            session_id=self.session_id,
+            phase="tab_lifecycle",
+            backend_id=self.backend_id,
+            requested_context=self.context.requested,
+            selected_context=self.context.selected,
+            action="workspace_tab_select",
+            tab_id=str(tab.get("id") or ""),
+            url=str(tab.get("url") or ""),
+            status="ok",
+            duration_ms=duration_ms,
+            metadata={
+                "workspace_id": str(tab.get("workspace_id") or ""),
+                "controlled_workspace": bool(
+                    tab.get("controlled_workspace"),
+                ),
+                "ownership": str(tab.get("ownership") or ""),
+                "selection_reason": selection_reason,
+                "activation_reason": activation_reason,
+                "protected_origin": bool(tab.get("protected_origin", False)),
+            },
+        )
+
     async def _claim(self, tab_id: str) -> None:
         claim_tab = getattr(self.bridge, "claim_tab", None)
         if not callable(claim_tab):
@@ -470,10 +641,47 @@ class ChromeExtensionBrowserSession:
         normalized = str(tab_id)
         if not normalized:
             return
+        ownership_state = _coerce_tab_ownership(ownership)
         current = self._tab_ownership.get(normalized)
-        if current == "owned" and ownership == "borrowed":
+        if current == "owned" and ownership_state == "borrowed":
             return
-        self._tab_ownership[normalized] = ownership
+        if ownership_state == "released":
+            self._tab_ownership.pop(normalized, None)
+        else:
+            self._tab_ownership[normalized] = ownership_state
+        self._record_ownership_trace(
+            tab_id=normalized,
+            ownership_state_before=current or "",
+            ownership_state_after=ownership_state,
+        )
+
+    def _record_ownership_trace(
+        self,
+        *,
+        tab_id: str,
+        ownership_state_before: str,
+        ownership_state_after: str,
+        url: str = "",
+        status: str = "ok",
+        error_code: str = "",
+    ) -> None:
+        record_browser_trace_event(
+            session_id=self.session_id,
+            phase="tab_lifecycle",
+            backend_id=self.backend_id,
+            requested_context=self.context.requested,
+            selected_context=self.context.selected,
+            action="tab_ownership_transition",
+            tab_id=str(tab_id),
+            url=url,
+            status=status,
+            error_code=error_code,
+            metadata={
+                "ownership_state": ownership_state_after,
+                "ownership_state_before": ownership_state_before,
+                "ownership_state_after": ownership_state_after,
+            },
+        )
 
     async def _cleanup_tab(
         self,
@@ -509,6 +717,11 @@ class ChromeExtensionBrowserSession:
             )
             raise
         self._tab_ownership.pop(str(tab_id), None)
+        self._record_ownership_trace(
+            tab_id=str(tab_id),
+            ownership_state_before=ownership,
+            ownership_state_after="released",
+        )
         self._record_cleanup_trace(
             tab_id=str(tab_id),
             status="ok",
@@ -517,6 +730,8 @@ class ChromeExtensionBrowserSession:
             closed_owned_tabs=1 if ownership == "owned" else 0,
             released_borrowed_tabs=1 if ownership == "borrowed" else 0,
             owned_tabs_remaining=self._owned_tabs_remaining(),
+            ownership_state_before=ownership,
+            ownership_state_after="released",
         )
 
     async def _hide_banner_best_effort(self, tab_id: int) -> None:
@@ -543,6 +758,8 @@ class ChromeExtensionBrowserSession:
         closed_owned_tabs: int,
         released_borrowed_tabs: int,
         owned_tabs_remaining: int,
+        ownership_state_before: str = "",
+        ownership_state_after: str = "",
         error_code: str = "",
     ) -> None:
         record_browser_trace_event(
@@ -561,6 +778,9 @@ class ChromeExtensionBrowserSession:
                 "released_borrowed_tabs": released_borrowed_tabs,
                 "owned_tabs_remaining": owned_tabs_remaining,
                 "cleanup_reason": cleanup_reason,
+                "ownership_state": ownership_state_after,
+                "ownership_state_before": ownership_state_before,
+                "ownership_state_after": ownership_state_after,
                 "error_code": error_code,
             },
         )
@@ -570,6 +790,13 @@ class ChromeExtensionBrowserSession:
             1
             for ownership in self._tab_ownership.values()
             if ownership == "owned"
+        )
+
+    def _remaining_orphaned_tabs(self) -> int:
+        return sum(
+            1
+            for ownership in self._tab_ownership.values()
+            if ownership == "orphaned"
         )
 
     async def _bridge_or_engine_action(
@@ -675,14 +902,32 @@ async def cleanup_user_browser_sessions_for_request(
 
     closed_tabs = 0
     released_tabs = 0
+    closed_owned_tabs = 0
+    released_borrowed_tabs = 0
+    skipped_protected_tabs = 0
+    remaining_orphaned_tabs = 0
     for session in sessions:
         result = await session.cleanup_for_request()
         closed_tabs += int(result.get("closed_tabs") or 0)
         released_tabs += int(result.get("released_tabs") or 0)
+        closed_owned_tabs += int(result.get("closed_owned_tabs") or 0)
+        released_borrowed_tabs += int(
+            result.get("released_borrowed_tabs") or 0,
+        )
+        skipped_protected_tabs += int(
+            result.get("skipped_protected_tabs") or 0,
+        )
+        remaining_orphaned_tabs += int(
+            result.get("remaining_orphaned_tabs") or 0,
+        )
     return {
         "matched_sessions": len(sessions),
         "closed_tabs": closed_tabs,
         "released_tabs": released_tabs,
+        "closed_owned_tabs": closed_owned_tabs,
+        "released_borrowed_tabs": released_borrowed_tabs,
+        "skipped_protected_tabs": skipped_protected_tabs,
+        "remaining_orphaned_tabs": remaining_orphaned_tabs,
     }
 
 
@@ -764,6 +1009,9 @@ def _normalize_tab(tab: dict[str, Any]) -> dict[str, Any]:
         "url": str(tab.get("url") or tab.get("pendingUrl") or ""),
         "title": str(tab.get("title") or ""),
         "active": bool(tab.get("active", False)),
+        "created_by_qwenpaw": bool(tab.get("createdByQwenPaw", False)),
+        "managed": bool(tab.get("managed", False)),
+        "workspace": str(tab.get("workspace") or ""),
     }
 
 
@@ -771,6 +1019,8 @@ def _tab_from_create_response(
     response: dict[str, Any],
     *,
     fallback_url: str,
+    fallback_active: bool,
+    fallback_workspace: str,
 ) -> dict[str, Any]:
     result = response.get("result") if isinstance(response, dict) else None
     if not isinstance(result, dict):
@@ -780,8 +1030,91 @@ def _tab_from_create_response(
         "id": str(tab_id or ""),
         "url": str(result.get("url") or fallback_url),
         "title": str(result.get("title") or ""),
-        "active": True,
+        "active": bool(result.get("active", fallback_active)),
+        "created_by_qwenpaw": bool(result.get("createdByQwenPaw", False)),
+        "managed": bool(result.get("managed", False)),
+        "workspace": str(result.get("workspace") or fallback_workspace),
     }
+
+
+def _default_workspace_tab(
+    tabs: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    safe_tabs = [tab for tab in tabs if not _is_protected_tab(tab)]
+    if not safe_tabs:
+        return None
+    for tab in safe_tabs:
+        if _is_controlled_workspace_tab(tab):
+            return tab
+    return None
+
+
+def _is_controlled_workspace_tab(tab: dict[str, Any]) -> bool:
+    return _workspace_id(tab) == "browser_sdk"
+
+
+def _workspace_id(tab: dict[str, Any]) -> str:
+    return str(
+        tab.get("workspace")
+        or tab.get("workspace_id")
+        or tab.get("workspaceId")
+        or "",
+    )
+
+
+def _page_info_metadata(tab: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "active": bool(tab.get("active", False)),
+        "workspace_id": str(tab.get("workspace_id") or ""),
+        "controlled_workspace": bool(tab.get("controlled_workspace", False)),
+        "ownership": str(tab.get("ownership") or ""),
+        "protected_origin": bool(tab.get("protected_origin", False)),
+    }
+
+
+def _coerce_tab_ownership(value: str) -> _TabOwnership:
+    normalized = str(value or "").strip().lower()
+    if normalized not in _TAB_OWNERSHIP_STATES:
+        raise ValueError(f"Unknown tab ownership state: {value}")
+    return normalized  # type: ignore[return-value]
+
+
+def _is_protected_tab(tab: dict[str, Any]) -> bool:
+    return _is_protected_origin(str(tab.get("url") or ""))
+
+
+def _is_protected_origin(url: str) -> bool:
+    value = str(url or "").strip()
+    if not value:
+        return False
+    try:
+        parsed = urlparse(value)
+    except ValueError:
+        return False
+    scheme = (parsed.scheme or "").lower()
+    if scheme in _BROWSER_INTERNAL_SCHEMES:
+        return True
+    if scheme == "about" and value.casefold() != "about:blank":
+        return True
+    host = (parsed.hostname or "").lower()
+    if host in _LOCAL_QWENPAW_HOSTS and parsed.port in _LOCAL_QWENPAW_PORTS:
+        return True
+    return False
+
+
+def _protected_tab_denied(tab: dict[str, Any]) -> BrowserPolicyDenied:
+    tab_id = str(tab.get("id") or "")
+    return BrowserPolicyDenied(
+        "Protected Browser Control tab requires an explicit override.",
+        code=_PROTECTED_TAB_ERROR_CODE,
+        backend_id=BACKEND_ID,
+        action="select_tab",
+        metadata={
+            "tab_id": tab_id,
+            "url": str(tab.get("url") or ""),
+            "protected_origin": True,
+        },
+    )
 
 
 def _action_result(payload: Any, name: str) -> BrowserActionResult:

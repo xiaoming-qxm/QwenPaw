@@ -26,6 +26,7 @@ from qwenpaw.browser_sdk.error_codes import BrowserErrorCode
 from qwenpaw.browser_sdk.trace import (
     BrowserTraceEvent,
     get_browser_trace_store,
+    summarize_browser_tab_ownership,
 )
 from qwenpaw.browser_sdk.types import (
     BrowserBackendDiagnostic,
@@ -421,9 +422,12 @@ def _trace_summary() -> dict[str, Any]:
         (event for event in reversed(events) if event.phase == "cleanup"),
         None,
     )
+    lifecycle = _lifecycle_tab_summary(events, latest_cleanup)
     return {
         "event_count": len(events),
         "session_count": len({event.session_id for event in events}),
+        "ownership_summary": summarize_browser_tab_ownership(events),
+        "lifecycle": lifecycle,
         "latest_event": (
             {
                 "event_id": latest.event_id,
@@ -438,6 +442,36 @@ def _trace_summary() -> dict[str, Any]:
             else None
         ),
         "latest_cleanup": _cleanup_trace_summary(latest_cleanup),
+    }
+
+
+def _lifecycle_tab_summary(
+    events: tuple[BrowserTraceEvent, ...],
+    latest_cleanup: BrowserTraceEvent | None,
+) -> dict[str, Any]:
+    ownership = summarize_browser_tab_ownership(events)
+    counts = ownership.get("counts") or {}
+    cleanup_metadata = (
+        latest_cleanup.to_dict().get("metadata", {})
+        if latest_cleanup is not None
+        else {}
+    )
+    if not isinstance(cleanup_metadata, dict):
+        cleanup_metadata = {}
+    controlled = int(counts.get("owned") or 0) + int(
+        counts.get("borrowed") or 0,
+    )
+    residual = int(cleanup_metadata.get("remaining_orphaned_tabs") or 0)
+    residual += int(cleanup_metadata.get("owned_tabs_remaining") or 0)
+    protected = int(cleanup_metadata.get("skipped_protected_tabs") or 0)
+    protected += int(counts.get("protected") or 0)
+    return {
+        "controlled_tab_count": controlled,
+        "residual_tab_count": residual,
+        "last_cleanup_reason": str(
+            cleanup_metadata.get("cleanup_reason") or "",
+        ),
+        "protected_origin_status": "skipped" if protected else "clear",
     }
 
 
@@ -457,6 +491,12 @@ def _cleanup_trace_summary(
             metadata.get("released_borrowed_tabs") or 0,
         ),
         "cleanup_reason": str(metadata.get("cleanup_reason") or ""),
+        "skipped_protected_tabs": int(
+            metadata.get("skipped_protected_tabs") or 0,
+        ),
+        "remaining_orphaned_tabs": int(
+            metadata.get("remaining_orphaned_tabs") or 0,
+        ),
         "error_code": str(
             metadata.get("error_code") or event.error_code or "",
         ),
@@ -767,6 +807,8 @@ async def get_extension_status() -> dict[str, Any]:
         diagnostics=diagnostics,
         build_freshness=freshness,
     )
+    trace_summary = _trace_summary()
+    lifecycle_summary = dict(trace_summary.get("lifecycle") or {})
 
     return {
         **install_status,
@@ -787,7 +829,19 @@ async def get_extension_status() -> dict[str, Any]:
         "build_fingerprint": build,
         "build_freshness": freshness,
         "last_self_test": _sanitize_json_value(_bridge_state.last_self_test),
-        "trace_summary": _trace_summary(),
+        "trace_summary": trace_summary,
+        "controlled_tab_count": int(
+            lifecycle_summary.get("controlled_tab_count") or 0,
+        ),
+        "residual_tab_count": int(
+            lifecycle_summary.get("residual_tab_count") or 0,
+        ),
+        "last_cleanup_reason": str(
+            lifecycle_summary.get("last_cleanup_reason") or "",
+        ),
+        "protected_origin_status": str(
+            lifecycle_summary.get("protected_origin_status") or "clear",
+        ),
         "sdk_diagnostics": _serialize_diagnostics(diagnostics),
     }
 

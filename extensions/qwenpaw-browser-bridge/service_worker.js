@@ -5,6 +5,23 @@ const PRODUCTION_INITIAL_RECONNECT_BACKOFF_SECONDS = 30;
 const PRODUCTION_MAX_RECONNECT_BACKOFF_SECONDS = 300;
 const CONTROL_TAB_GROUP_TITLE = "QwenPaw";
 const CONTROL_TAB_GROUP_COLOR = "blue";
+const PROTECTED_BROWSER_SCHEMES = new Set([
+  "brave:",
+  "chrome:",
+  "chrome-extension:",
+  "devtools:",
+  "edge:",
+  "moz-extension:",
+  "opera:",
+  "vivaldi:",
+]);
+const LOCAL_QWENPAW_HOSTS = new Set(["127.0.0.1", "::1", "localhost"]);
+const LOCAL_QWENPAW_PORTS = new Set(["8088"]);
+const TAB_OWNERSHIP_OWNED = "owned";
+const TAB_OWNERSHIP_BORROWED = "borrowed";
+const TAB_OWNERSHIP_PROTECTED = "protected";
+const TAB_OWNERSHIP_ORPHANED = "orphaned";
+const TAB_OWNERSHIP_RELEASED = "released";
 
 if (typeof importScripts === "function") {
   try {
@@ -104,6 +121,7 @@ function tabLifecycleEventParams(tab, extra) {
     params.tabId = tabId;
     params.managed = managedTabs.has(tabId);
     params.createdByQwenPaw = createdTabs.has(tabId);
+    params.ownershipState = tabOwnershipState(tabId, tab);
   }
 
   for (const key of [
@@ -322,9 +340,16 @@ async function installSilentNewContextGuard(tabId) {
 }
 
 async function attachDebugger(tabId) {
+  const tab = await chrome.tabs.get(tabId);
+  assertTabNotProtected(tab);
   if (managedTabs.has(tabId)) {
     await installSilentNewContextGuard(tabId);
-    return { tabId, attached: true, alreadyAttached: true };
+    return {
+      tabId,
+      attached: true,
+      alreadyAttached: true,
+      ownershipState: TAB_OWNERSHIP_BORROWED,
+    };
   }
 
   await new Promise((resolve, reject) => {
@@ -340,7 +365,7 @@ async function attachDebugger(tabId) {
   managedTabs.add(tabId);
   await persistManagedTabs();
   await installSilentNewContextGuard(tabId);
-  return { tabId, attached: true };
+  return { tabId, attached: true, ownershipState: TAB_OWNERSHIP_BORROWED };
 }
 
 async function detachDebugger(tabId) {
@@ -359,7 +384,7 @@ async function detachDebugger(tabId) {
   });
   managedTabs.delete(tabId);
   await persistManagedTabs();
-  return { tabId, detached: true };
+  return { tabId, detached: true, ownershipState: TAB_OWNERSHIP_RELEASED };
 }
 
 function sendCdp(tabId, method, params) {
@@ -382,7 +407,59 @@ function sendCdp(tabId, method, params) {
 
 function isAttachableTab(tab) {
   const url = (tab && tab.url) || "";
-  return url.startsWith("http://") || url.startsWith("https://");
+  return (
+    (url.startsWith("http://") || url.startsWith("https://")) &&
+    !isProtectedTabUrl(url)
+  );
+}
+
+function isProtectedTabUrl(url) {
+  const value = String(url || "").trim();
+  if (!value) {
+    return false;
+  }
+  let parsed = null;
+  try {
+    parsed = new URL(value);
+  } catch (_error) {
+    return false;
+  }
+  if (PROTECTED_BROWSER_SCHEMES.has(parsed.protocol)) {
+    return true;
+  }
+  if (parsed.protocol === "about:" && value.toLowerCase() !== "about:blank") {
+    return true;
+  }
+  return (
+    LOCAL_QWENPAW_HOSTS.has(parsed.hostname) &&
+    LOCAL_QWENPAW_PORTS.has(parsed.port)
+  );
+}
+
+function assertTabNotProtected(tab) {
+  if (isProtectedTabUrl(tab && tab.url)) {
+    const error = new Error("PROTECTED_TAB_REQUIRES_EXPLICIT_OVERRIDE");
+    error.code = "PROTECTED_TAB_REQUIRES_EXPLICIT_OVERRIDE";
+    error.tabId = tab && tab.id;
+    error.url = (tab && tab.url) || "";
+    throw error;
+  }
+}
+
+function tabOwnershipState(tabId, tab) {
+  if (createdTabs.has(tabId)) {
+    return TAB_OWNERSHIP_OWNED;
+  }
+  if (managedTabs.has(tabId)) {
+    return TAB_OWNERSHIP_BORROWED;
+  }
+  if (isProtectedTabUrl(tab && tab.url)) {
+    return TAB_OWNERSHIP_PROTECTED;
+  }
+  if (tab && tab.createdByQwenPaw) {
+    return TAB_OWNERSHIP_ORPHANED;
+  }
+  return "";
 }
 
 async function listTabs(queryInfo) {
@@ -440,6 +517,8 @@ async function listTabs(queryInfo) {
       managed: tab && tab.id !== undefined ? managedTabs.has(tab.id) : false,
       createdByQwenPaw:
         tab && tab.id !== undefined ? createdTabs.has(tab.id) : false,
+      ownershipState:
+        tab && tab.id !== undefined ? tabOwnershipState(tab.id, tab) : "",
     })),
   );
 }
@@ -476,7 +555,12 @@ async function createTab(params) {
     createdTabs.add(controlTab.id);
     await persistManagedTabs();
   }
-  return { ...controlTab, createdByQwenPaw: true };
+  return {
+    ...controlTab,
+    createdByQwenPaw: true,
+    workspace: (params && params.workspace) || "",
+    ownershipState: TAB_OWNERSHIP_OWNED,
+  };
 }
 
 async function ensureTabAvailable(params) {
@@ -488,7 +572,13 @@ async function ensureTabAvailable(params) {
   // regardless of tab visibility. Switching tabs disrupts the user's browsing.
   // Just verify the tab exists and return its current state.
   const tab = await chrome.tabs.get(tabId);
-  return { tabId, active: tab && tab.active, windowId: tab && tab.windowId };
+  assertTabNotProtected(tab);
+  return {
+    tabId,
+    active: tab && tab.active,
+    windowId: tab && tab.windowId,
+    ownershipState: tabOwnershipState(tabId, tab),
+  };
 }
 
 async function closeTab(params) {
@@ -521,7 +611,7 @@ async function closeTab(params) {
   managedTabs.delete(tabId);
   createdTabs.delete(tabId);
   await persistManagedTabs();
-  return { tabId, closed: true };
+  return { tabId, closed: true, ownershipState: TAB_OWNERSHIP_RELEASED };
 }
 
 async function ensureContentScript(tabId) {
@@ -539,7 +629,7 @@ function missingContentScriptReceiver(error) {
   );
 }
 
-async function sendBannerMessage(tabId, method, params) {
+async function sendContentMessage(tabId, method, params) {
   const message = {
     source: "qwenpaw-browser-bridge",
     method,
@@ -558,11 +648,16 @@ async function sendBannerMessage(tabId, method, params) {
   return chrome.tabs.sendMessage(tabId, message);
 }
 
-async function cleanupOrphans() {
-  const epoch = ++cleanupEpoch;
-  const tabIds = Array.from(managedTabs);
+async function sendBannerMessage(tabId, method, params) {
+  return sendContentMessage(tabId, method, params);
+}
 
-  for (const tabId of tabIds) {
+async function cleanupOrphans(reason) {
+  const epoch = ++cleanupEpoch;
+  const managedTabIds = Array.from(managedTabs);
+  const createdTabIds = Array.from(createdTabs);
+
+  for (const tabId of managedTabIds) {
     if (epoch !== cleanupEpoch) {
       break;
     }
@@ -579,6 +674,38 @@ async function cleanupOrphans() {
       await sendBannerMessage(tabId, "banner.hide", {});
     } catch (error) {
       console.debug("Failed to hide banner during cleanup", tabId, error);
+    }
+  }
+
+  for (const tabId of createdTabIds) {
+    if (epoch !== cleanupEpoch) {
+      break;
+    }
+
+    try {
+      await sendBannerMessage(tabId, "banner.hide", {});
+    } catch (error) {
+      console.debug(
+        "Failed to hide banner before orphan close",
+        tabId,
+        error,
+      );
+    }
+
+    try {
+      await chrome.tabs.remove(tabId);
+      sendEvent("tabs.reconciled", {
+        tabId,
+        ownershipState: TAB_OWNERSHIP_RELEASED,
+        reconciliationReason: reason || "startup",
+        closed: true,
+      });
+    } catch (error) {
+      console.warn("Failed to close owned orphan tab", tabId, error);
+    } finally {
+      createdTabs.delete(tabId);
+      managedTabs.delete(tabId);
+      await persistManagedTabs();
     }
   }
 }
@@ -648,6 +775,25 @@ async function handleMessage(message) {
           id,
           await sendBannerMessage(params.tabId, "banner.hide", params),
         );
+      case "file.upload":
+        return jsonRpcResult(
+          id,
+          await sendContentMessage(params.tabId, "file.upload", params),
+        );
+      case "download.read":
+        return jsonRpcResult(id, {
+          ok: false,
+          error_code: "capability_missing",
+          message:
+            "Download artifacts are collected through Browser Control CDP events.",
+        });
+      case "dialog.set":
+        return jsonRpcResult(id, {
+          ok: true,
+          tabId: params.tabId,
+          accept: params.accept !== false,
+          promptText: params.promptText || "",
+        });
       default:
         return jsonRpcError(id, -32601, "Method not found");
     }
@@ -659,6 +805,10 @@ async function handleMessage(message) {
 function connectNative() {
   if (nmPort) {
     return;
+  }
+
+  if (hasControlInterest() && lastDisconnectReason) {
+    void cleanupOrphans("bridge_reconnect");
   }
 
   let port = null;
@@ -793,6 +943,7 @@ chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {
     ...(removeInfo || {}),
     managed: wasManaged,
     createdByQwenPaw: wasCreated,
+    ownershipState: TAB_OWNERSHIP_RELEASED,
   });
   managedTabs.delete(tabId);
   createdTabs.delete(tabId);
@@ -872,8 +1023,8 @@ chrome.runtime.onStartup.addListener(() => {
 
 async function initialize() {
   await restoreManagedTabs();
-  if (managedTabs.size > 0 && !nmPort) {
-    await cleanupOrphans();
+  if (hasControlInterest() && !nmPort) {
+    await cleanupOrphans("startup");
   }
   connectNative();
 }

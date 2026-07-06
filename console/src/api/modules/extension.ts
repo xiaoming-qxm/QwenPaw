@@ -47,6 +47,12 @@ export interface BrowserControlNativeHostStatus {
 export interface BrowserControlTraceSummary {
   event_count: number;
   session_count: number;
+  lifecycle?: BrowserControlLifecycleSummary;
+  ownership_summary?: {
+    counts?: Record<string, number>;
+    transition_count?: number;
+    latest_by_tab?: Record<string, string>;
+  };
   latest_event?: {
     event_id?: string;
     session_id?: string;
@@ -56,6 +62,13 @@ export interface BrowserControlTraceSummary {
     backend_id?: string;
     domain?: string;
   } | null;
+}
+
+export interface BrowserControlLifecycleSummary {
+  controlled_tab_count?: number;
+  residual_tab_count?: number;
+  last_cleanup_reason?: string;
+  protected_origin_status?: string;
 }
 
 export interface BrowserControlSelfTestCheck {
@@ -98,6 +111,10 @@ export interface ExtensionStatus {
   build_fingerprint?: BrowserControlBuildFingerprint;
   build_freshness?: BrowserControlBuildFreshness;
   trace_summary?: BrowserControlTraceSummary;
+  controlled_tab_count?: number;
+  residual_tab_count?: number;
+  last_cleanup_reason?: string;
+  protected_origin_status?: string;
   last_self_test?: BrowserControlSelfTestResult | null;
   sdk_diagnostics?: BrowserDiagnostics;
 }

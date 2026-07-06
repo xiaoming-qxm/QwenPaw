@@ -40,6 +40,13 @@ V9_REQUIRED_TRACE_FIELDS = (
     "approval_state",
     "freshness_marker",
 )
+TAB_OWNERSHIP_STATES = (
+    "owned",
+    "borrowed",
+    "protected",
+    "orphaned",
+    "released",
+)
 
 
 @dataclass(frozen=True)
@@ -240,6 +247,49 @@ def validate_browser_trace_events(
     }
 
 
+def summarize_browser_tab_ownership(
+    events: list[dict[str, Any]] | tuple[BrowserTraceEvent, ...],
+) -> dict[str, Any]:
+    """Summarize tab ownership evidence carried by trace metadata."""
+    counts = {state: 0 for state in TAB_OWNERSHIP_STATES}
+    transition_count = 0
+    latest_by_tab: dict[str, str] = {}
+
+    for event in events:
+        payload = (
+            event.to_dict() if isinstance(event, BrowserTraceEvent) else event
+        )
+        metadata = payload.get("metadata") or {}
+        if not isinstance(metadata, dict):
+            continue
+        ownership_state = _trace_ownership_state(metadata)
+        if not ownership_state:
+            continue
+        counts[ownership_state] = counts.get(ownership_state, 0) + 1
+        tab_id = str(payload.get("tab_id") or "")
+        if tab_id:
+            latest_by_tab[tab_id] = ownership_state
+        if (
+            metadata.get("ownership_state_before") is not None
+            or metadata.get("ownership_state_after") is not None
+        ):
+            transition_count += 1
+
+    return {
+        "counts": counts,
+        "transition_count": transition_count,
+        "latest_by_tab": latest_by_tab,
+    }
+
+
+def _trace_ownership_state(metadata: dict[str, Any]) -> str:
+    for key in ("ownership_state_after", "ownership_state", "ownership"):
+        value = str(metadata.get(key) or "").strip().lower()
+        if value in TAB_OWNERSHIP_STATES:
+            return value
+    return ""
+
+
 def _current_tool_call_id() -> str:
     try:
         from qwenpaw.tool_calls import get_call_context
@@ -310,6 +360,7 @@ __all__ = [
     "get_browser_trace_store",
     "record_browser_trace_event",
     "reset_browser_trace_store_for_tests",
+    "summarize_browser_tab_ownership",
     "validate_browser_trace_event",
     "validate_browser_trace_events",
 ]

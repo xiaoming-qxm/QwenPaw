@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import logging
+import asyncio
 from time import perf_counter
 from typing import Any
 
@@ -12,6 +13,7 @@ from ..agents.tools.browser_control import cleanup_control_sessions_for_request
 from ..browser_sdk.backends.user import (
     cleanup_user_browser_sessions_for_request,
 )
+from ..browser_sdk.errors import BrowserPolicyDenied
 from ..browser_sdk.trace import record_browser_trace_event
 from ..runtime.hooks import HookContext, HookResult
 from ..runtime.phases import Phase
@@ -36,12 +38,13 @@ class BrowserControlLifecycleCleanupHook(LifecycleHook):
             return HookResult()
 
         started = perf_counter()
+        cleanup_reason = _cleanup_reason(ctx)
         try:
             result = await cleanup_browser_control_request_resources(
                 session_id=session_id,
                 root_session_id=root_session_id,
                 workspace_id=_workspace_id(ctx),
-                cleanup_reason="finally",
+                cleanup_reason=cleanup_reason,
             )
             ctx.extras[BROWSER_CONTROL_CLEANUP_EXTRA] = dict(result or {})
             cleanup_errors = int((result or {}).get("cleanup_errors", 0))
@@ -55,7 +58,7 @@ class BrowserControlLifecycleCleanupHook(LifecycleHook):
                 session_id=session_id or root_session_id,
                 status="error",
                 duration_ms=_duration_ms(started),
-                cleanup_reason="finally",
+                cleanup_reason=cleanup_reason,
                 closed_owned_tabs=0,
                 released_borrowed_tabs=0,
                 error_code="browser_cleanup_failed",
@@ -74,10 +77,24 @@ class BrowserControlLifecycleCleanupHook(LifecycleHook):
                 session_id=session_id or root_session_id,
                 status="error" if cleanup_errors else "ok",
                 duration_ms=_duration_ms(started),
-                cleanup_reason="finally",
-                closed_owned_tabs=int((result or {}).get("closed_tabs", 0)),
+                cleanup_reason=str(
+                    (result or {}).get("cleanup_reason") or cleanup_reason,
+                ),
+                closed_owned_tabs=int(
+                    (result or {}).get("closed_owned_tabs")
+                    or (result or {}).get("closed_tabs")
+                    or 0,
+                ),
                 released_borrowed_tabs=int(
-                    (result or {}).get("released_tabs", 0),
+                    (result or {}).get("released_borrowed_tabs")
+                    or (result or {}).get("released_tabs")
+                    or 0,
+                ),
+                skipped_protected_tabs=int(
+                    (result or {}).get("skipped_protected_tabs") or 0,
+                ),
+                remaining_orphaned_tabs=int(
+                    (result or {}).get("remaining_orphaned_tabs") or 0,
                 ),
                 error_code=(
                     "browser_cleanup_failed" if cleanup_errors else ""
@@ -94,10 +111,9 @@ async def cleanup_browser_control_request_resources(
     cleanup_reason: str,
 ) -> dict[str, Any]:
     """Release Browser SDK and Browser Control engine request resources."""
-    del cleanup_reason
     cleanup_errors = 0
-    user_result: dict[str, int] = {}
-    control_result: dict[str, int] = {}
+    user_result: dict[str, Any] = {}
+    control_result: dict[str, Any] = {}
     try:
         user_result = await cleanup_user_browser_sessions_for_request(
             session_id=session_id,
@@ -123,7 +139,14 @@ async def cleanup_browser_control_request_resources(
             exc_info=True,
         )
 
-    merged = _merge_cleanup_results(user_result, control_result)
+    merged = _merge_cleanup_results(
+        user_result,
+        control_result,
+        session_id=session_id,
+        root_session_id=root_session_id,
+        workspace_id=workspace_id,
+        cleanup_reason=cleanup_reason,
+    )
     merged["cleanup_errors"] = cleanup_errors
     return merged
 
@@ -138,9 +161,14 @@ def _workspace_id(ctx: HookContext) -> str:
 
 
 def _merge_cleanup_results(
-    user_result: dict[str, int] | None,
-    control_result: dict[str, int] | None,
-) -> dict[str, int]:
+    user_result: dict[str, Any] | None,
+    control_result: dict[str, Any] | None,
+    *,
+    session_id: str,
+    root_session_id: str,
+    workspace_id: str,
+    cleanup_reason: str,
+) -> dict[str, Any]:
     user_result = dict(user_result or {})
     control_result = dict(control_result or {})
     merged = dict(control_result)
@@ -152,7 +180,107 @@ def _merge_cleanup_results(
     merged["released_tabs"] = int(
         control_result.get("released_tabs") or 0,
     ) + int(user_result.get("released_tabs") or 0)
+    ownership_counts = _merge_ownership_counts(user_result, control_result)
+    closed_owned_tabs = _sum_cleanup_field(
+        user_result,
+        control_result,
+        primary="closed_owned_tabs",
+        fallback="closed_tabs",
+    )
+    released_borrowed_tabs = _sum_cleanup_field(
+        user_result,
+        control_result,
+        primary="released_borrowed_tabs",
+        fallback="released_tabs",
+    )
+    merged["request_key"] = _request_key(
+        session_id=session_id,
+        root_session_id=root_session_id,
+        workspace_id=workspace_id,
+    )
+    merged["cleanup_reason"] = cleanup_reason
+    merged["closed_owned_tabs"] = closed_owned_tabs
+    merged["released_borrowed_tabs"] = released_borrowed_tabs
+    merged["skipped_protected_tabs"] = (
+        int(
+            user_result.get("skipped_protected_tabs") or 0,
+        )
+        + int(control_result.get("skipped_protected_tabs") or 0)
+        + int(
+            ownership_counts.get("protected") or 0,
+        )
+    )
+    merged["remaining_orphaned_tabs"] = (
+        int(
+            user_result.get("remaining_orphaned_tabs") or 0,
+        )
+        + int(control_result.get("remaining_orphaned_tabs") or 0)
+        + int(
+            ownership_counts.get("orphaned") or 0,
+        )
+    )
+    if ownership_counts:
+        merged["ownership_counts"] = ownership_counts
     return merged
+
+
+def _cleanup_reason(ctx: HookContext) -> str:
+    extras = ctx.extras or {}
+    reason = "finally"
+    if extras.get("browser_control_shutdown"):
+        reason = "shutdown"
+    elif extras.get("browser_control_bridge_disconnected"):
+        reason = "bridge_disconnect"
+    elif extras.get("browser_control_blocked"):
+        reason = "blocked"
+    elif isinstance(ctx.error, asyncio.CancelledError):
+        reason = "cancelled"
+    elif isinstance(ctx.error, BrowserPolicyDenied):
+        error = ctx.error
+        approval_state = str(error.metadata.get("approval_state") or "")
+        if approval_state == "denied" or error.code == "browser_policy_denied":
+            reason = "approval_denied"
+    elif ctx.error is not None:
+        reason = "tool_error"
+    return reason
+
+
+def _sum_cleanup_field(
+    user_result: dict[str, Any],
+    control_result: dict[str, Any],
+    *,
+    primary: str,
+    fallback: str,
+) -> int:
+    return int(
+        user_result.get(primary) or user_result.get(fallback) or 0,
+    ) + int(
+        control_result.get(primary) or control_result.get(fallback) or 0,
+    )
+
+
+def _merge_ownership_counts(
+    user_result: dict[str, Any],
+    control_result: dict[str, Any],
+) -> dict[str, int]:
+    merged: dict[str, int] = {}
+    for source in (user_result, control_result):
+        counts = source.get("ownership_counts") or {}
+        if not isinstance(counts, dict):
+            continue
+        for key, value in counts.items():
+            merged[str(key)] = merged.get(str(key), 0) + int(value or 0)
+    return merged
+
+
+def _request_key(
+    *,
+    session_id: str,
+    root_session_id: str,
+    workspace_id: str,
+) -> str:
+    request_id = str(root_session_id or session_id or "default")
+    return f"{workspace_id or 'default'}:{request_id}"
 
 
 def _record_cleanup_trace(
@@ -163,6 +291,8 @@ def _record_cleanup_trace(
     cleanup_reason: str,
     closed_owned_tabs: int,
     released_borrowed_tabs: int,
+    skipped_protected_tabs: int = 0,
+    remaining_orphaned_tabs: int = 0,
     error_code: str = "",
 ) -> None:
     record_browser_trace_event(
@@ -178,6 +308,8 @@ def _record_cleanup_trace(
         metadata={
             "closed_owned_tabs": closed_owned_tabs,
             "released_borrowed_tabs": released_borrowed_tabs,
+            "skipped_protected_tabs": skipped_protected_tabs,
+            "remaining_orphaned_tabs": remaining_orphaned_tabs,
             "cleanup_reason": cleanup_reason,
             "error_code": error_code,
         },

@@ -32,6 +32,13 @@ _CONTROL_CLEANUP_EXCEPTIONS = RECOVERABLE_CONTROL_EXCEPTIONS + (
     OSError,
     RuntimeError,
 )
+_CONTROL_OWNERSHIP_STATES = {
+    "owned",
+    "borrowed",
+    "protected",
+    "orphaned",
+    "released",
+}
 
 
 def _control_tab_record(
@@ -324,8 +331,13 @@ async def _control_cleanup_matching_tabs(
     *,
     bridge: Any,
     predicate: Callable[[dict[str, Any]], bool],
-) -> dict[str, int]:
-    result = {"matched_tabs": 0, "closed_tabs": 0, "released_tabs": 0}
+) -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "matched_tabs": 0,
+        "closed_tabs": 0,
+        "released_tabs": 0,
+        "ownership_counts": {},
+    }
     control_tabs = state.get("control_tabs")
     if not isinstance(control_tabs, dict):
         return result
@@ -334,6 +346,7 @@ async def _control_cleanup_matching_tabs(
         if not isinstance(tab, dict) or not predicate(tab):
             continue
         result["matched_tabs"] += 1
+        _control_count_ownership(result, _control_tab_ownership_state(tab))
         cleanup_result = await _control_cleanup_tab_record(
             state,
             bridge=bridge,
@@ -341,6 +354,10 @@ async def _control_cleanup_matching_tabs(
         )
         result["closed_tabs"] += cleanup_result["closed_tabs"]
         result["released_tabs"] += cleanup_result["released_tabs"]
+        released = int(cleanup_result["closed_tabs"]) + int(
+            cleanup_result["released_tabs"],
+        )
+        _control_count_ownership(result, "released", released)
 
     if not state.get("control_tabs"):
         state.pop("control_tabs", None)
@@ -352,8 +369,13 @@ async def _control_release_matching_tabs(
     *,
     bridge: Any,
     predicate: Callable[[dict[str, Any]], bool],
-) -> dict[str, int]:
-    result = {"matched_tabs": 0, "closed_tabs": 0, "released_tabs": 0}
+) -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "matched_tabs": 0,
+        "closed_tabs": 0,
+        "released_tabs": 0,
+        "ownership_counts": {},
+    }
     control_tabs = state.get("control_tabs")
     if not isinstance(control_tabs, dict):
         return result
@@ -362,6 +384,7 @@ async def _control_release_matching_tabs(
         if not isinstance(tab, dict) or not predicate(tab):
             continue
         result["matched_tabs"] += 1
+        _control_count_ownership(result, _control_tab_ownership_state(tab))
         release_result = await _control_release_tab_record(
             state,
             bridge=bridge,
@@ -369,6 +392,10 @@ async def _control_release_matching_tabs(
         )
         result["closed_tabs"] += release_result["closed_tabs"]
         result["released_tabs"] += release_result["released_tabs"]
+        released = int(release_result["closed_tabs"]) + int(
+            release_result["released_tabs"],
+        )
+        _control_count_ownership(result, "released", released)
 
     if not state.get("control_tabs"):
         state.pop("control_tabs", None)
@@ -398,6 +425,30 @@ def _control_tab_created_by_extension(tab: dict[str, Any]) -> bool:
         or tab.get("created_by_qwenpaw")
         or tab.get("qwenpawCreated"),
     )
+
+
+def _control_tab_ownership_state(tab: dict[str, Any]) -> str:
+    raw_state = (
+        str(
+            tab.get("ownership_state") or tab.get("ownershipState") or "",
+        )
+        .strip()
+        .lower()
+    )
+    if raw_state in _CONTROL_OWNERSHIP_STATES:
+        return raw_state
+    return "owned" if bool(tab.get("created_by_control")) else "borrowed"
+
+
+def _control_count_ownership(
+    result: dict[str, Any],
+    state: str,
+    increment: int = 1,
+) -> None:
+    if state not in _CONTROL_OWNERSHIP_STATES:
+        return
+    counts = result.setdefault("ownership_counts", {})
+    counts[state] = int(counts.get(state) or 0) + int(increment)
 
 
 async def _control_cleanup_extension_created_tabs(
