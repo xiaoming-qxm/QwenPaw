@@ -57,7 +57,7 @@ class PluginApi:
         self,
         plugin_id: str,
         config: Dict[str, Any],
-        manifest: Dict[str, Any] = None,
+        manifest: Optional[Dict[str, Any]] = None,
     ):
         """Initialize plugin API.
 

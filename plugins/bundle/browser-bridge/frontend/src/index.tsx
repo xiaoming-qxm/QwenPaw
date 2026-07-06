@@ -1530,6 +1530,10 @@ function BrowserBridgeSetupPage() {
         return firstProbe;
       }
 
+      if (nextStatus.connected) {
+        return firstProbe;
+      }
+
       if (
         nextStatus.setup_phase === "stale_build" ||
         nextStatus.build_freshness?.status === "stale"
@@ -1788,8 +1792,7 @@ function BrowserBridgeSetupPage() {
       status={status}
     />
   );
-  const isAcceptanceAvailable =
-    lifecycleState === "connected" && status?.connected === true;
+  const isAcceptanceAvailable = status?.connected === true;
 
   return (
     <div style={styles.page}>

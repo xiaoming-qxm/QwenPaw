@@ -169,7 +169,13 @@
             required
             type="email"
           />
-          <p class="error" data-testid="form-error" id="form-error"></p>
+          <p
+            aria-live="polite"
+            class="error"
+            data-testid="form-error"
+            id="form-error"
+            role="alert"
+          ></p>
           <button data-testid="save-details" type="submit">Save details</button>
         </form>
         <p data-testid="form-status" id="form-status">Form not saved.</p>

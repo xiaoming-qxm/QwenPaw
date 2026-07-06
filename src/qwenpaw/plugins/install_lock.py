@@ -42,12 +42,15 @@ def _acquire_os_lock(fd: int) -> bool:
     if os.name == "nt":
         import msvcrt
 
+        locking = getattr(msvcrt, "locking")
+        lock_nonblocking = getattr(msvcrt, "LK_NBLCK")
+        deadlock_errno = getattr(errno, "EDEADLOCK", errno.EACCES)
         try:
-            msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+            locking(fd, lock_nonblocking, 1)
             return True
         except OSError as exc:
             # EACCES/EDEADLOCK == already locked by someone else.
-            if exc.errno in (errno.EACCES, errno.EDEADLOCK):
+            if exc.errno in (errno.EACCES, deadlock_errno):
                 return False
             raise
     else:
@@ -68,9 +71,11 @@ def _release_os_lock(fd: int) -> None:
         if os.name == "nt":
             import msvcrt
 
+            locking = getattr(msvcrt, "locking")
+            lock_unlock = getattr(msvcrt, "LK_UNLCK")
             # The file offset must match the one used when locking.
             os.lseek(fd, 0, os.SEEK_SET)
-            msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+            locking(fd, lock_unlock, 1)
         else:
             import fcntl
 

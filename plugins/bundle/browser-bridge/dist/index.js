@@ -230,11 +230,11 @@ function G(e = ae()) {
   return String(e || "").trim().split("-")[0].toLowerCase() === "zh" ? "zh" : "en";
 }
 function i(e, r, t) {
-  let a = V[e][r] ?? V.en[r];
+  let o = V[e][r] ?? V.en[r];
   if (t)
-    for (const [l, s] of Object.entries(t))
-      a = a.split(`{${l}}`).join(String(s));
-  return a;
+    for (const [l, d] of Object.entries(t))
+      o = o.split(`{${l}}`).join(String(d));
+  return o;
 }
 const I = window.QwenPaw.host, n = I.React, oe = I.antd, ce = I.getApiUrl, U = I.getApiToken, {
   Alert: j,
@@ -475,7 +475,7 @@ async function T(e, r) {
       ...(r == null ? void 0 : r.headers) || {},
       ...ge()
     }
-  }), a = await t.text(), l = a ? JSON.parse(a) : null;
+  }), o = await t.text(), l = o ? JSON.parse(o) : null;
   if (!t.ok)
     throw new Error(
       typeof (l == null ? void 0 : l.detail) == "string" ? l.detail : t.statusText
@@ -553,19 +553,19 @@ function _e(e) {
   var r;
   return e ? e.setup_phase === "native_host_repair_required" || ((r = e.native_host_status) == null ? void 0 : r.status) === "repair_required" : !1;
 }
-function Ee(e, r, t, a) {
+function Ee(e, r, t, o) {
   return e != null && e.connected ? "connected" : r != null && r.ok ? "extension_loaded_bridge_disconnected" : e != null && e.installed ? "needs_load_unpacked" : t ? "preparing" : "failed_actionable";
 }
 function A(e, r) {
   return !e || typeof chrome > "u" || !chrome.runtime || !chrome.runtime.sendMessage ? Promise.resolve(null) : new Promise((t) => {
-    chrome.runtime.sendMessage(e, { method: r }, (a) => {
-      var s, b;
-      const l = (b = (s = chrome.runtime) == null ? void 0 : s.lastError) == null ? void 0 : b.message;
+    chrome.runtime.sendMessage(e, { method: r }, (o) => {
+      var d, b;
+      const l = (b = (d = chrome.runtime) == null ? void 0 : d.lastError) == null ? void 0 : b.message;
       if (l) {
         t({ ok: !1, error: l });
         return;
       }
-      t(a || null);
+      t(o || null);
     });
   });
 }
@@ -633,14 +633,14 @@ function Pe({
   status: r
 }) {
   const t = ke(r);
-  return t.length ? /* @__PURE__ */ n.createElement(z, { style: p.diagnosticsPanel }, /* @__PURE__ */ n.createElement(O, { direction: "vertical", size: 12, style: { width: "100%" } }, /* @__PURE__ */ n.createElement(u, { strong: !0 }, i(e, "diagnosticsTitle")), /* @__PURE__ */ n.createElement("div", { style: p.diagnosticsList }, t.map((a) => /* @__PURE__ */ n.createElement(
+  return t.length ? /* @__PURE__ */ n.createElement(z, { style: p.diagnosticsPanel }, /* @__PURE__ */ n.createElement(O, { direction: "vertical", size: 12, style: { width: "100%" } }, /* @__PURE__ */ n.createElement(u, { strong: !0 }, i(e, "diagnosticsTitle")), /* @__PURE__ */ n.createElement("div", { style: p.diagnosticsList }, t.map((o) => /* @__PURE__ */ n.createElement(
     "div",
     {
-      key: `${a.backend_id}:${a.code || a.status}`,
+      key: `${o.backend_id}:${o.code || o.status}`,
       style: p.diagnosticRow
     },
-    /* @__PURE__ */ n.createElement("div", null, /* @__PURE__ */ n.createElement(u, { strong: !0 }, a.backend_id), /* @__PURE__ */ n.createElement("br", null), /* @__PURE__ */ n.createElement(u, { type: "secondary" }, Re(a.status, e))),
-    /* @__PURE__ */ n.createElement("div", { style: p.diagnosticMessage }, a.code ? /* @__PURE__ */ n.createElement("code", { style: p.diagnosticCode }, a.code) : null, /* @__PURE__ */ n.createElement(u, null, Se(a, e)))
+    /* @__PURE__ */ n.createElement("div", null, /* @__PURE__ */ n.createElement(u, { strong: !0 }, o.backend_id), /* @__PURE__ */ n.createElement("br", null), /* @__PURE__ */ n.createElement(u, { type: "secondary" }, Re(o.status, e))),
+    /* @__PURE__ */ n.createElement("div", { style: p.diagnosticMessage }, o.code ? /* @__PURE__ */ n.createElement("code", { style: p.diagnosticCode }, o.code) : null, /* @__PURE__ */ n.createElement(u, null, Se(o, e)))
   ))))) : null;
 }
 function Le() {
@@ -663,14 +663,14 @@ function De(e, r) {
   const t = new Date(e).getTime();
   if (Number.isNaN(t))
     return i(r, "justNow");
-  const a = Math.max(0, Math.floor((Date.now() - t) / 1e3));
-  if (a < 60)
+  const o = Math.max(0, Math.floor((Date.now() - t) / 1e3));
+  if (o < 60)
     return i(r, "justNow");
-  const l = Math.floor(a / 60);
+  const l = Math.floor(o / 60);
   if (l < 60)
     return i(r, "minutesAgo", { count: l });
-  const s = Math.floor(l / 60);
-  return s < 24 ? i(r, "hoursAgo", { count: s }) : i(r, "daysAgo", { count: Math.floor(s / 24) });
+  const d = Math.floor(l / 60);
+  return d < 24 ? i(r, "hoursAgo", { count: d }) : i(r, "daysAgo", { count: Math.floor(d / 24) });
 }
 function Ae(e) {
   return e === "preparing" ? "lifecyclePreparingTitle" : e === "repairing" ? "lifecycleRepairingTitle" : e === "needs_load_unpacked" ? "lifecycleLoadUnpackedTitle" : e === "extension_loaded_bridge_disconnected" ? "lifecycleConnectTitle" : e === "connected" ? "readyTitle" : "lifecycleFailedTitle";
@@ -685,31 +685,31 @@ function Me({
   error: e,
   locale: r,
   primaryAction: t,
-  state: a,
+  state: o,
   status: l
 }) {
-  const s = (l == null ? void 0 : l.version) || i(r, "versionUnknown"), b = De(l == null ? void 0 : l.connected_since, r);
+  const d = (l == null ? void 0 : l.version) || i(r, "versionUnknown"), b = De(l == null ? void 0 : l.connected_since, r);
   return /* @__PURE__ */ n.createElement(z, { style: p.centeredCard }, /* @__PURE__ */ n.createElement(
     de,
     {
       size: "small",
-      current: Fe(a),
+      current: Fe(o),
       items: [
         {
           title: i(r, "lifecycleStepPrepare"),
-          status: a === "failed_actionable" ? "error" : "finish"
+          status: o === "failed_actionable" ? "error" : "finish"
         },
         {
           title: i(r, "lifecycleStepLoad"),
-          status: a === "needs_load_unpacked" || a === "extension_loaded_bridge_disconnected" ? "process" : a === "connected" ? "finish" : "wait"
+          status: o === "needs_load_unpacked" || o === "extension_loaded_bridge_disconnected" ? "process" : o === "connected" ? "finish" : "wait"
         },
         {
           title: i(r, "ready"),
-          status: a === "connected" ? "finish" : "wait"
+          status: o === "connected" ? "finish" : "wait"
         }
       ]
     }
-  ), /* @__PURE__ */ n.createElement("div", { style: p.progressBody }, a === "connected" ? /* @__PURE__ */ n.createElement("div", { style: p.successCircle }, "✓") : /* @__PURE__ */ n.createElement("div", { style: p.iconCircle }, /* @__PURE__ */ n.createElement(ee, null)), /* @__PURE__ */ n.createElement(X, { level: 3 }, i(r, Ae(a))), /* @__PURE__ */ n.createElement(ue, { type: "secondary" }, i(r, Be(a))), e ? /* @__PURE__ */ n.createElement(u, { type: "danger" }, e) : null, a === "connected" ? /* @__PURE__ */ n.createElement("div", { style: p.readyMeta }, /* @__PURE__ */ n.createElement(u, null, i(r, "version"), ": ", s), /* @__PURE__ */ n.createElement(u, null, i(r, "connected"), ": ", b)) : null, /* @__PURE__ */ n.createElement(
+  ), /* @__PURE__ */ n.createElement("div", { style: p.progressBody }, o === "connected" ? /* @__PURE__ */ n.createElement("div", { style: p.successCircle }, "✓") : /* @__PURE__ */ n.createElement("div", { style: p.iconCircle }, /* @__PURE__ */ n.createElement(ee, null)), /* @__PURE__ */ n.createElement(X, { level: 3 }, i(r, Ae(o))), /* @__PURE__ */ n.createElement(ue, { type: "secondary" }, i(r, Be(o))), e ? /* @__PURE__ */ n.createElement(u, { type: "danger" }, e) : null, o === "connected" ? /* @__PURE__ */ n.createElement("div", { style: p.readyMeta }, /* @__PURE__ */ n.createElement(u, null, i(r, "version"), ": ", d), /* @__PURE__ */ n.createElement(u, null, i(r, "connected"), ": ", b)) : null, /* @__PURE__ */ n.createElement(
     y,
     {
       type: "primary",
@@ -719,11 +719,11 @@ function Me({
       onClick: t.onClick
     },
     i(r, t.label)
-  )), l != null && l.recovery_copy && a !== "connected" ? /* @__PURE__ */ n.createElement(
+  )), l != null && l.recovery_copy && o !== "connected" ? /* @__PURE__ */ n.createElement(
     j,
     {
       showIcon: !0,
-      type: a === "failed_actionable" ? "error" : "info",
+      type: o === "failed_actionable" ? "error" : "info",
       message: l.recovery_copy
     }
   ) : null);
@@ -732,9 +732,9 @@ function Oe({
   locale: e,
   activeKey: r,
   loading: t,
-  pathRows: a,
+  pathRows: o,
   setupLoading: l,
-  status: s,
+  status: d,
   onChange: b,
   onCopy: v,
   onOpenChromeExtensions: w,
@@ -743,7 +743,7 @@ function Oe({
   onReloadExtension: _,
   onReset: E
 }) {
-  const R = (s == null ? void 0 : s.ws_url) || W();
+  const R = (d == null ? void 0 : d.ws_url) || W();
   return /* @__PURE__ */ n.createElement(
     le,
     {
@@ -754,12 +754,12 @@ function Oe({
         {
           key: "developer",
           label: /* @__PURE__ */ n.createElement(O, { size: 8 }, i(e, "advancedDiagnosticsTitle")),
-          children: /* @__PURE__ */ n.createElement(se, { spinning: t && !s }, /* @__PURE__ */ n.createElement("div", { style: p.developerContent }, /* @__PURE__ */ n.createElement("div", { style: p.modeRow }, /* @__PURE__ */ n.createElement(u, { type: "secondary" }, i(e, "installMode")), /* @__PURE__ */ n.createElement(u, null, (s == null ? void 0 : s.install_mode) || "-")), /* @__PURE__ */ n.createElement("div", { style: p.pathList }, a.map(({ key: g, label: C }) => {
-            const P = (s == null ? void 0 : s[g]) || "-";
+          children: /* @__PURE__ */ n.createElement(se, { spinning: t && !d }, /* @__PURE__ */ n.createElement("div", { style: p.developerContent }, /* @__PURE__ */ n.createElement("div", { style: p.modeRow }, /* @__PURE__ */ n.createElement(u, { type: "secondary" }, i(e, "installMode")), /* @__PURE__ */ n.createElement(u, null, (d == null ? void 0 : d.install_mode) || "-")), /* @__PURE__ */ n.createElement("div", { style: p.pathList }, o.map(({ key: g, label: C }) => {
+            const P = (d == null ? void 0 : d[g]) || "-";
             return /* @__PURE__ */ n.createElement("div", { style: p.pathRow, key: g }, /* @__PURE__ */ n.createElement(u, { type: "secondary" }, C), /* @__PURE__ */ n.createElement("code", { style: p.pathValue }, P), /* @__PURE__ */ n.createElement(
               y,
               {
-                disabled: !(s != null && s[g]),
+                disabled: !(d != null && d[g]),
                 onClick: () => v(P),
                 "aria-label": i(e, "copyPathFallback")
               },
@@ -795,22 +795,22 @@ function Qe({
   onRepairAction: r
 }) {
   var B;
-  const [t, a] = n.useState(null), [l, s] = n.useState(null), [b, v] = n.useState(!1), [w, S] = n.useState(!1), [x, _] = n.useState(!1), E = n.useCallback(async (c) => {
+  const [t, o] = n.useState(null), [l, d] = n.useState(null), [b, v] = n.useState(!1), [w, S] = n.useState(!1), [x, _] = n.useState(!1), E = n.useCallback(async (c) => {
     const m = await we(c);
-    s(m);
+    d(m);
   }, []), R = n.useCallback(
     async (c) => {
       const m = await he(c);
-      return a(m), M(m.status) && await E(c), m;
+      return o(m), M(m.status) && await E(c), m;
     },
     [E]
   ), g = n.useCallback(async () => {
-    v(!0), s(null);
+    v(!0), d(null);
     try {
       const m = await be(
         w && x ? { live_taobao: !0 } : { live_taobao: !1 }
       );
-      a(m), M(m.status) && await E(m.run_id), h.success(i(e, "acceptanceStarted"));
+      o(m), M(m.status) && await E(m.run_id), h.success(i(e, "acceptanceStarted"));
     } catch (c) {
       h.error(c instanceof Error ? c.message : String(c));
     } finally {
@@ -821,7 +821,7 @@ function Qe({
       v(!0);
       try {
         const c = await ye(t.run_id);
-        a(c), h.success(i(e, "acceptanceCancelled"));
+        o(c), h.success(i(e, "acceptanceCancelled"));
       } catch (c) {
         h.error(c instanceof Error ? c.message : String(c));
       } finally {
@@ -919,7 +919,7 @@ function Qe({
   ))) : null, l != null && l.markdown ? /* @__PURE__ */ n.createElement("pre", { style: p.acceptanceReportPreview }, l.markdown) : null));
 }
 function He() {
-  const e = G(), r = n.useRef(null), [t, a] = n.useState(null), [l, s] = n.useState(null), [b, v] = n.useState(!0), [w, S] = n.useState(!1), [x, _] = n.useState(null), [E, R] = n.useState(
+  const e = G(), r = n.useRef(null), [t, o] = n.useState(null), [l, d] = n.useState(null), [b, v] = n.useState(!0), [w, S] = n.useState(!1), [x, _] = n.useState(null), [E, R] = n.useState(
     []
   ), [g, C] = n.useState("preparing"), P = n.useMemo(
     () => [
@@ -942,47 +942,47 @@ function He() {
     ],
     [e]
   ), L = n.useCallback(
-    async (o) => {
+    async (a) => {
       var D;
-      const d = await A(
-        o.extension_id,
+      const s = await A(
+        a.extension_id,
         "status.get"
       );
-      if (s(d), !(d != null && d.ok))
-        return d;
-      if (o.setup_phase === "stale_build" || ((D = o.build_freshness) == null ? void 0 : D.status) === "stale") {
+      if (d(s), !(s != null && s.ok) || a.connected)
+        return s;
+      if (a.setup_phase === "stale_build" || ((D = a.build_freshness) == null ? void 0 : D.status) === "stale") {
         const k = await A(
-          o.extension_id,
+          a.extension_id,
           "extension.reload"
         );
-        return s(k || d), k || d;
+        return d(k || s), k || s;
       }
-      if (!o.connected) {
+      if (!a.connected) {
         const k = await A(
-          o.extension_id,
+          a.extension_id,
           "bridge.connect"
         );
-        return s(k || d), k || d;
+        return d(k || s), k || s;
       }
-      return d;
+      return s;
     },
     []
   ), f = n.useCallback(
-    async (o = {}) => {
+    async (a = {}) => {
       v(!0), _(null), C(
-        (d) => d === "connected" ? d : "preparing"
+        (s) => s === "connected" ? s : "preparing"
       );
       try {
-        let d = await K();
-        a(d), o.autoPrepare && xe(d) && (C("repairing"), S(!0), d = await J({
+        let s = await K();
+        o(s), a.autoPrepare && xe(s) && (C("repairing"), S(!0), s = await J({
           install_mode: "unpacked",
-          reset: _e(d),
+          reset: _e(s),
           ws_url: W()
-        }), a(d), h.success(i(e, "installSuccess")));
-        const D = await L(d), k = await K();
-        return a(k), C(Ee(k, D, !1, null)), k;
-      } catch (d) {
-        const D = d instanceof Error ? d.message : String(d);
+        }), o(s), h.success(i(e, "installSuccess")));
+        const D = await L(s), k = await K();
+        return o(k), C(Ee(k, D, !1, null)), k;
+      } catch (s) {
+        const D = s instanceof Error ? s.message : String(s);
         return _(D), C("failed_actionable"), h.error(i(e, "installFailed")), null;
       } finally {
         S(!1), v(!1);
@@ -995,81 +995,81 @@ function He() {
   }, [f]), n.useEffect(() => {
     if (g !== "needs_load_unpacked" && g !== "extension_loaded_bridge_disconnected")
       return;
-    const o = window.setInterval(() => {
+    const a = window.setInterval(() => {
       f();
     }, 3e3);
     return () => {
-      window.clearInterval(o);
+      window.clearInterval(a);
     };
   }, [g, f]);
-  const N = async (o) => {
-    var d;
-    await ((d = navigator.clipboard) == null ? void 0 : d.writeText(o)), h.success(i(e, "copied"));
+  const N = async (a) => {
+    var s;
+    await ((s = navigator.clipboard) == null ? void 0 : s.writeText(a)), h.success(i(e, "copied"));
   }, B = () => {
     R(["developer"]), window.setTimeout(() => {
-      var o;
-      (o = r.current) == null || o.scrollIntoView({
+      var a;
+      (a = r.current) == null || a.scrollIntoView({
         behavior: "smooth",
         block: "start"
       });
     }, 0);
-  }, c = (o) => {
-    R(Te(o));
+  }, c = (a) => {
+    R(Te(a));
   }, m = n.useCallback(async () => {
-    const o = await fe();
-    !o.opened && o.error && h.warning(o.error);
+    const a = await fe();
+    !a.opened && a.error && h.warning(a.error);
   }, []), Q = n.useCallback(async () => {
-    const o = await me();
-    !o.opened && o.error && h.warning(o.error);
+    const a = await me();
+    !a.opened && a.error && h.warning(a.error);
   }, []), F = n.useCallback(async () => {
-    const o = await A(t == null ? void 0 : t.extension_id, "bridge.connect");
-    s(o), await f();
+    const a = await A(t == null ? void 0 : t.extension_id, "bridge.connect");
+    d(a), await f();
   }, [f, t == null ? void 0 : t.extension_id]), H = n.useCallback(async () => {
-    const o = await A(
+    const a = await A(
       t == null ? void 0 : t.extension_id,
       "extension.reload"
     );
-    s(o), await f();
+    d(a), await f();
   }, [f, t == null ? void 0 : t.extension_id]), $ = n.useCallback(
-    async (o) => {
+    async (a) => {
       S(!0), _(null);
       try {
-        const d = await J({
+        const s = await J({
           install_mode: "unpacked",
-          reset: o,
+          reset: a,
           ws_url: W()
         });
-        a(d), h.success(i(e, "installSuccess")), await f();
-      } catch (d) {
-        _(d instanceof Error ? d.message : String(d)), C("failed_actionable"), h.error(i(e, "installFailed"));
+        o(s), h.success(i(e, "installSuccess")), await f();
+      } catch (s) {
+        _(s instanceof Error ? s.message : String(s)), C("failed_actionable"), h.error(i(e, "installFailed"));
       } finally {
         S(!1);
       }
     },
     [e, f]
   ), ne = n.useCallback(
-    (o) => {
-      if (o === "open_setup_page" || o === "setup_extension" || o === "run_setup") {
+    (a) => {
+      if (a === "open_setup_page" || a === "setup_extension" || a === "run_setup") {
         B(), f({ autoPrepare: !0 });
         return;
       }
-      if (o === "open_chrome_extensions") {
+      if (a === "open_chrome_extensions") {
         m();
         return;
       }
-      if (o === "open_extension_folder") {
+      if (a === "open_extension_folder") {
         Q();
         return;
       }
-      if (o === "connect_extension") {
+      if (a === "connect_extension") {
         F();
         return;
       }
-      if (o === "reload_extension") {
+      if (a === "reload_extension") {
         H();
         return;
       }
-      h.info(o);
+      h.info(a);
     },
     [
       F,
@@ -1079,14 +1079,14 @@ function He() {
       f
     ]
   ), te = n.useMemo(() => {
-    const o = b || w;
+    const a = b || w;
     return g === "needs_load_unpacked" ? {
       label: "openChromeExtensions",
       loading: !1,
       onClick: () => void m()
     } : g === "extension_loaded_bridge_disconnected" ? {
       label: "connectExtension",
-      loading: o,
+      loading: a,
       onClick: () => void F()
     } : g === "connected" ? {
       label: "refreshStatus",
@@ -1094,7 +1094,7 @@ function He() {
       onClick: () => void f()
     } : g === "failed_actionable" ? {
       label: "retrySetup",
-      loading: o,
+      loading: a,
       onClick: () => void f({ autoPrepare: !0 })
     } : {
       disabled: !0,
@@ -1119,7 +1119,7 @@ function He() {
       state: g,
       status: t
     }
-  ), ie = g === "connected" && (t == null ? void 0 : t.connected) === !0;
+  ), ie = (t == null ? void 0 : t.connected) === !0;
   return /* @__PURE__ */ n.createElement("div", { style: p.page }, /* @__PURE__ */ n.createElement("div", { style: p.header }, /* @__PURE__ */ n.createElement("div", { style: p.headerTitleRow }, /* @__PURE__ */ n.createElement("div", { style: p.headerIcon }, /* @__PURE__ */ n.createElement(ee, null)), /* @__PURE__ */ n.createElement("div", { style: p.headerText }, /* @__PURE__ */ n.createElement(X, { level: 3, style: { margin: 0 } }, i(e, "pageTitle")), /* @__PURE__ */ n.createElement(u, { type: "secondary" }, i(e, "pageSubtitle"))))), /* @__PURE__ */ n.createElement("div", { style: p.content }, x ? /* @__PURE__ */ n.createElement(j, { type: "error", showIcon: !0, message: x }) : null, re, ie ? /* @__PURE__ */ n.createElement(
     Qe,
     {
@@ -1133,7 +1133,7 @@ function He() {
       loading: b,
       locale: e,
       onChange: c,
-      onCopy: (o) => void N(o),
+      onCopy: (a) => void N(a),
       onOpenChromeExtensions: () => void m(),
       onOpenExtensionFolder: () => void Q(),
       onRegenerate: () => void $(!1),

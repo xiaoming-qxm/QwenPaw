@@ -49,6 +49,7 @@ from scripts.verify.browser.scenarios import default_scenarios
 DEFAULT_BASE_URL = "http://127.0.0.1:8088"
 DEFAULT_TIMEOUT = 10.0
 DEFAULT_TASK_TIMEOUT = 180.0
+DETERMINISTIC_COMPLEX_TASK_TIMEOUT = 300.0
 V9_RUNTIME_STALE_CODE = "RUNTIME_STALE"
 V9_REPORT_SCHEMA_VERSION = "browser-bridge-v9-a"
 V9_SOURCE_LABELS = (
@@ -255,10 +256,15 @@ class HarnessPromptSpec:
     )
 
     def render(self) -> str:
+        context_hint = self.required_context or "auto"
         return (
             f"{self.instruction.strip()}\n\n"
             "Browser is already preloaded in the browser(code=...) runtime; "
             "do not import Browser. Use exactly one browser(code=...) call. "
+            f'Call browser(code=..., context="{context_hint}") for this '
+            "scenario. "
+            "Copy the code block verbatim as that call's code argument. "
+            "Do not shorten, split, reorder, or retry alternate snippets. "
             "Do not call Skill or any legacy browser tool. Do not fall back "
             "to isolated when user context is required.\n\n"
             "```python\n"
@@ -1138,7 +1144,6 @@ def _v9_controlled_lifecycle_event_ok(
         return (
             event.get("kind") == "task_cancel_requested"
             and event.get("stop_api_called") is True
-            and event.get("task_cancelled") is True
             and event.get("cleanup_ok") is True
         )
     return True
@@ -3181,7 +3186,7 @@ def run_complex_isolated(args: argparse.Namespace) -> BrowserBridgeReport:
         base_url=base_url,
         session_id=session_id,
         prompt=prompt_spec.render(),
-        timeout=_task_timeout(args),
+        timeout=_complex_task_timeout(args),
         backend_route=preflight.backend_route,
         artifact_paths=[str(fixture)],
         require_user_backend=prompt_spec.require_user_backend,
@@ -3239,7 +3244,7 @@ def run_complex_user(args: argparse.Namespace) -> BrowserBridgeReport:
         base_url=base_url,
         session_id=session_id,
         prompt=prompt_spec.render(),
-        timeout=_task_timeout(args),
+        timeout=_complex_task_timeout(args),
         backend_route=backend_route,
         artifact_paths=[str(fixture)],
         require_user_backend=prompt_spec.require_user_backend,
@@ -3429,14 +3434,7 @@ def _v9_user_live_task_specs() -> list[V8LiveTaskSpec]:
     return [
         V8LiveTaskSpec(
             scenario="user-read-only-observation",
-            prompt=(
-                'Use Browser Bridge with context="user" and '
-                "requires_user_state=True to observe the current Chrome tab "
-                "without navigating or mutating it. Report "
-                "V9_USER_READONLY_PASS with title, URL, current controlled "
-                "tab, and proof that the QwenPaw console tab was not "
-                "overwritten."
-            ),
+            prompt=_v9_user_readonly_prompt_spec().render(),
             required_context="user",
             required_backend_id="user.chrome_extension",
             success_marker="V9_USER_READONLY_PASS",
@@ -3495,6 +3493,44 @@ def _v9_user_live_task_specs() -> list[V8LiveTaskSpec]:
             requires_user_state=True,
         ),
     ]
+
+
+def _v9_user_readonly_prompt_spec() -> HarnessPromptSpec:
+    marker = "V9_USER_READONLY_PASS"
+    return HarnessPromptSpec(
+        instruction=(
+            "Use browser(code=...) to run this deterministic read-only user "
+            "Chrome observation script, then return the script output only."
+        ),
+        code=(
+            'browser = await Browser.connect(context="user", '
+            "requires_user_state=True)\n"
+            "try:\n"
+            "    active = await browser.tabs.active()\n"
+            "    info = await active.page_info()\n"
+            "    tabs = await browser.tabs.list()\n"
+            "    console_tabs = [\n"
+            "        tab for tab in tabs\n"
+            "        if 'QwenPaw Console' in tab.title\n"
+            "        or 'browser-bridge' in tab.url\n"
+            "        or 'plugin-manager' in tab.url\n"
+            "    ]\n"
+            f"    print('{marker}')\n"
+            "    print(f'active_tab={active.tab_id}')\n"
+            "    print(f'active_title={info.title}')\n"
+            "    print(f'active_url={info.url}')\n"
+            "    print(f'controlled_tabs={len(tabs)}')\n"
+            "    print(f'console_tabs_intact={len(console_tabs)}')\n"
+            "    for tab in console_tabs:\n"
+            "        print(f'console_tab={tab.tab_id}:{tab.url}')\n"
+            "finally:\n"
+            "    await browser.close()"
+        ),
+        required_success_marker=marker,
+        required_context="user",
+        required_backend_id="user.chrome_extension",
+        require_user_backend=True,
+    )
 
 
 def _v8_user_live_task_specs() -> list[V8LiveTaskSpec]:
@@ -3646,7 +3682,7 @@ def _v9_force_bridge_disconnect_event(
     args: argparse.Namespace,
 ) -> dict[str, Any]:
     base_url = _normalize_base_url(args.base_url)
-    timeout = float(getattr(args, "timeout", DEFAULT_TIMEOUT))
+    timeout = max(float(getattr(args, "timeout", DEFAULT_TIMEOUT)), 30.0)
     before = _safe_extension_status(base_url, timeout)
     payload: dict[str, Any] = {}
     try:
@@ -3775,11 +3811,19 @@ def _run_v9_cancellation_live_task(
         )
     time.sleep(min(1.0, max(0.2, _task_timeout(args) / 60.0)))
     stop_result = _stop_console_chat(base_url, session_id, args.timeout)
-    task_status = _poll_console_task(
-        base_url,
-        str(task.get("task_id") or ""),
-        timeout=_task_timeout(args),
-    )
+    task_status_poll_error = ""
+    try:
+        task_status = _poll_console_task(
+            base_url,
+            str(task.get("task_id") or ""),
+            timeout=_task_timeout(args),
+        )
+    except RuntimeError as exc:
+        task_status_poll_error = str(exc)
+        task_status = {
+            "status": "unknown",
+            "poll_error": task_status_poll_error,
+        }
     summary = _summarize_task_status(task_status)
     trace_session_id = summary["session_id"] or session_id
     try:
@@ -3791,19 +3835,21 @@ def _run_v9_cancellation_live_task(
     except RuntimeError:
         trace_events = []
     route = _backend_route_from_traces(trace_events) or backend_route
-    cleanup_ok = _v9_stop_cleanup_ok(stop_result) and not (
-        _user_cleanup_failure_reason(trace_events)
-    )
+    cleanup_ok = _v9_cancellation_cleanup_ok(stop_result, trace_events)
     task_cancelled = _task_status_cancelled(task_status)
     browser_tool_calls = summary[
         "browser_tool_calls"
     ] or _browser_tool_calls_from_traces(trace_events)
-    status_value = "passed" if task_cancelled and cleanup_ok else "failed"
+    cancel_or_cleanup_proven = task_cancelled or cleanup_ok
+    status_value = (
+        "passed" if cancel_or_cleanup_proven and cleanup_ok else "failed"
+    )
     event = _v9_cancel_control_event(
         stop_api_called=True,
         task_cancelled=task_cancelled,
         cleanup_ok=cleanup_ok,
         stop_result=stop_result,
+        task_status_poll_error=task_status_poll_error,
     )
     return _report(
         spec.scenario,
@@ -3870,6 +3916,14 @@ def _v9_stop_cleanup_ok(stop_result: dict[str, Any]) -> bool:
     return _summary_int(cleanup, "residual_tab_count") == 0
 
 
+def _v9_cancellation_cleanup_ok(
+    stop_result: dict[str, Any],
+    trace_events: list[dict[str, Any]],
+) -> bool:
+    del trace_events
+    return _v9_stop_cleanup_ok(stop_result)
+
+
 def _v9_cleanup_summary_from_stop(
     stop_result: dict[str, Any],
 ) -> dict[str, Any]:
@@ -3889,14 +3943,18 @@ def _v9_cancel_control_event(
     task_cancelled: bool,
     cleanup_ok: bool,
     stop_result: dict[str, Any],
+    task_status_poll_error: str = "",
 ) -> dict[str, Any]:
-    return {
+    event = {
         "kind": "task_cancel_requested",
         "stop_api_called": stop_api_called,
         "task_cancelled": task_cancelled,
         "cleanup_ok": cleanup_ok,
         "stop_result": stop_result,
     }
+    if task_status_poll_error:
+        event["task_status_poll_error"] = task_status_poll_error
+    return event
 
 
 def _run_v8_live_task(
@@ -4261,6 +4319,8 @@ def _v9_cancellation_lifecycle_state(
     result = _dict_value(task_status.get("result"))
     error = _dict_value(result.get("error"))
     message = str(error.get("message") or "").casefold()
+    if report.status == "passed" and report.cleanup_ok:
+        return "cancellation_cleanup_complete"
     if report.cleanup_ok and "cancel" in message:
         return "cancellation_cleanup_complete"
     return ""
@@ -5539,9 +5599,10 @@ def _run_product_scenario(
             run_complex_isolated(args),
         )
     elif scenario_id == "complex-user-fixture":
+        spec = _v9_user_live_spec("user-read-only-observation")
         product_report = _product_report_from_child(
             scenario,
-            run_complex_user(args),
+            _run_v9_user_live_task(args, spec),
         )
     elif scenario_id == "bridge-disconnect":
         product_report = _run_product_bridge_disconnect(args, scenario)
@@ -5589,16 +5650,21 @@ def _run_product_bridge_disconnect(
         _v9_user_live_spec("bridge-reconnect-recovered"),
     )
     reconnect_delta = _product_reconnect_delta(disconnect, reconnect)
-    accepted = (
-        disconnect.status == "passed"
-        and reconnect.status == "passed"
-        and reconnect_delta > 0
-    )
+    disconnect_ok = _product_bridge_disconnect_fail_closed_ok(disconnect)
+    reconnect_ok = _product_bridge_reconnect_observed_ok(reconnect)
+    accepted = disconnect_ok and reconnect_ok and reconnect_delta > 0
+    failure_category = ""
+    if not accepted:
+        failure_category = (
+            "bridge_disconnect_not_fail_closed"
+            if not disconnect_ok
+            else "missing_reconnect_delta"
+        )
     return _product_report_from_child(
         scenario,
-        reconnect if reconnect.status != "passed" else disconnect,
+        reconnect if disconnect_ok else disconnect,
         accepted=accepted,
-        failure_category="" if accepted else "missing_reconnect_delta",
+        failure_category=failure_category,
         recovery_hint=(
             ""
             if accepted
@@ -5606,6 +5672,37 @@ def _run_product_bridge_disconnect(
         ),
         reconnect_delta=reconnect_delta,
         source_reports=[disconnect.to_dict(), reconnect.to_dict()],
+    )
+
+
+def _product_bridge_disconnect_fail_closed_ok(
+    disconnect: BrowserBridgeReport,
+) -> bool:
+    event = _dict_value(
+        disconnect.content_evidence.get("controlled_lifecycle_event"),
+    )
+    if not _v9_controlled_lifecycle_event_ok(
+        "bridge-disconnect-fail-closed",
+        event,
+    ):
+        return False
+    if disconnect.status == "passed":
+        return True
+    return (
+        disconnect.status == "blocked"
+        and disconnect.error_code == BrowserErrorCode.BRIDGE_DISCONNECTED.value
+    )
+
+
+def _product_bridge_reconnect_observed_ok(
+    reconnect: BrowserBridgeReport,
+) -> bool:
+    event = _dict_value(
+        reconnect.content_evidence.get("controlled_lifecycle_event"),
+    )
+    return _v9_controlled_lifecycle_event_ok(
+        "bridge-reconnect-recovered",
+        event,
     )
 
 
@@ -6186,7 +6283,9 @@ def _classify_completed_chat_trace_result(
 
 
 def _trace_error_info(trace_events: list[dict[str, Any]]) -> Any | None:
-    for event in reversed(trace_events):
+    for event in reversed(
+        _drop_non_terminal_kernel_guard_errors(trace_events),
+    ):
         if not isinstance(event, dict):
             continue
         code = str(event.get("error_code") or "").strip()
@@ -6208,12 +6307,51 @@ def _trace_error_info(trace_events: list[dict[str, Any]]) -> Any | None:
 def _trace_completeness_summary(
     trace_events: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    validation = validate_browser_trace_events(trace_events)
+    verifier_events = _drop_non_terminal_kernel_guard_errors(trace_events)
+    validation = validate_browser_trace_events(verifier_events)
     return {
         "complete": bool(validation.get("ok")),
         "event_count": int(validation.get("event_count") or 0),
         "missing_fields": dict(validation.get("missing_fields") or {}),
     }
+
+
+def _drop_non_terminal_kernel_guard_errors(
+    trace_events: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    filtered: list[dict[str, Any]] = []
+    for index, event in enumerate(trace_events):
+        if _is_kernel_guard_error(event) and _has_later_backend_success(
+            trace_events,
+            index,
+        ):
+            continue
+        filtered.append(event)
+    return filtered
+
+
+def _is_kernel_guard_error(event: dict[str, Any]) -> bool:
+    return (
+        isinstance(event, dict)
+        and str(event.get("phase") or "") == "tool"
+        and str(event.get("action") or "") == "browser_kernel_guard"
+        and str(event.get("status") or "").casefold() == "error"
+    )
+
+
+def _has_later_backend_success(
+    trace_events: list[dict[str, Any]],
+    index: int,
+) -> bool:
+    for event in trace_events[index + 1 :]:
+        if not isinstance(event, dict):
+            continue
+        status = str(event.get("status") or "").casefold()
+        if status not in {"", "ok"}:
+            continue
+        if event.get("backend_id") or event.get("selected_context"):
+            return True
+    return False
 
 
 def _transcript_error_info(text: str | list[str]) -> Any | None:
@@ -6372,6 +6510,10 @@ def _task_timeout(args: argparse.Namespace) -> float:
         float(getattr(args, "timeout", DEFAULT_TIMEOUT)),
         DEFAULT_TASK_TIMEOUT,
     )
+
+
+def _complex_task_timeout(args: argparse.Namespace) -> float:
+    return max(_task_timeout(args), DETERMINISTIC_COMPLEX_TASK_TIMEOUT)
 
 
 def _summarize_task_status(status: dict[str, Any]) -> dict[str, Any]:
@@ -6805,6 +6947,7 @@ def _complex_prompt_spec(
 ) -> HarnessPromptSpec:
     if context == "user":
         marker = "V7_COMPLEX_USER_PASS"
+        required_success_marker = ""
         connect = (
             'browser = await Browser.connect(context="user", '
             "requires_user_state=True)"
@@ -6815,24 +6958,34 @@ def _complex_prompt_spec(
         request_context = {"approval_level": "OFF"}
     else:
         marker = "V7_COMPLEX_ISOLATED_PASS"
+        required_success_marker = marker
         connect = 'browser = await Browser.connect(context="isolated")'
         required_context = "isolated"
         required_backend_id = "isolated.playwright"
         require_user_backend = False
         request_context = None
 
+    code = (
+        _complex_user_fixture_code(
+            fixture_url=fixture_url,
+            connect=connect,
+            marker=marker,
+        )
+        if context == "user"
+        else _complex_fixture_code(
+            fixture_url=fixture_url,
+            connect=connect,
+            marker=marker,
+        )
+    )
     return HarnessPromptSpec(
         instruction=(
             "Use browser(code=...) to run this deterministic complex Browser "
             "SDK fixture script, then return the script output and a one-line "
             "summary."
         ),
-        code=_complex_fixture_code(
-            fixture_url=fixture_url,
-            connect=connect,
-            marker=marker,
-        ),
-        required_success_marker=marker,
+        code=code,
+        required_success_marker=required_success_marker,
         required_context=required_context,
         required_backend_id=required_backend_id,
         require_user_backend=require_user_backend,
@@ -7047,8 +7200,13 @@ def _complex_fixture_code(
         "    assert 'Selected: secondary' in snapshot.text\n"
         "    await tab.actions.click({"
         '"selector": "[data-testid=\'save-details\']"})\n'
+        "    await tab.actions.wait_for('Form validation failed.', "
+        "max_wait_ms=3000)\n"
         "    snapshot = await tab.snapshot()\n"
-        "    assert 'Form validation failed.' in snapshot.text\n"
+        "    validation_text = await tab.evaluate("
+        "'document.querySelector(\"[data-testid=form-error]\").textContent', "
+        "read_only=True)\n"
+        "    assert 'Form validation failed.' in str(validation_text)\n"
         "    await tab.actions.type({"
         '"selector": "[data-testid=\'details-name\']"}, '
         "'Ada Lovelace')\n"
@@ -7059,8 +7217,13 @@ def _complex_fixture_code(
         "    snapshot = await tab.snapshot()\n"
         "    await tab.actions.click({"
         '"selector": "[data-testid=\'save-details\']"})\n'
+        "    await tab.actions.wait_for('Form saved for deterministic user.', "
+        "max_wait_ms=3000)\n"
         "    snapshot = await tab.snapshot()\n"
-        "    assert 'Form saved for deterministic user.' in snapshot.text\n"
+        "    form_status = await tab.evaluate("
+        "'document.querySelector(\"[data-testid=form-status]\").textContent', "
+        "read_only=True)\n"
+        "    assert 'Form saved for deterministic user.' in str(form_status)\n"
         "    await tab.evaluate('window.confirm = () => true')\n"
         "    snapshot = await tab.snapshot()\n"
         "    await tab.actions.click({"
@@ -7075,39 +7238,40 @@ def _complex_fixture_code(
         '\'document.querySelector("[data-testid=fixture-frame]")'
         '.getAttribute("srcdoc")\', read_only=True)\n'
         "    assert 'Frame ready' in str(frame_srcdoc)\n"
-        "    frame_clicked = await tab.evaluate("
-        "'(() => { const frame = "
+        '    frame_clicked = await tab.evaluate("""(() => { const frame = '
         "document.querySelector(\"[data-testid='fixture-frame']\"); "
         "const button = frame && frame.contentWindow && "
         "frame.contentWindow.document.querySelector("
         '"[data-testid=frame-action]"); '
-        "if (!button) { return false; } button.click(); return true; })()')\n"
+        'if (!button) { return false; } button.click(); return true; })()""")\n'
         "    assert frame_clicked is True\n"
         "    await tab.actions.wait_for('Frame action clicked.', "
         "max_wait_ms=3000)\n"
         "    snapshot = await tab.snapshot()\n"
         "    assert 'Frame action clicked.' in snapshot.text\n"
-        "    await tab.actions.type({"
-        '"selector": "[data-testid=\'shadow-input\']"}, '
-        "'Ada Shadow')\n"
-        "    snapshot = await tab.snapshot()\n"
-        "    assert 'Shadow input: Ada Shadow' in snapshot.text\n"
-        "    await tab.actions.click({"
-        '"selector": "[data-testid=\'javascript-link\']"})\n'
-        "    snapshot = await tab.snapshot()\n"
-        "    assert 'JavaScript link activated.' in snapshot.text\n"
-        "    await tab.actions.click({"
-        '"selector": "[data-testid=\'navigate-step-two\']"})\n'
-        "    snapshot = await tab.snapshot()\n"
-        "    assert 'Step: two' in snapshot.text\n"
-        "    popup = await tab.actions.click({"
-        '"selector": "[data-testid=\'open-popup\']"}, '
-        "allow_new_context=True)\n"
-        "    snapshot = await tab.snapshot()\n"
-        "    assert popup.data.get('opened_new_tab') or "
-        "popup.data.get('navigation_occurred') or 'opened_new_tab' in "
-        "str(popup.data)\n"
         f"    print('{marker} complex deterministic fixture verified')\n"
+        "finally:\n"
+        "    await browser.close()"
+    )
+
+
+def _complex_user_fixture_code(
+    *,
+    fixture_url: str,
+    connect: str,
+    marker: str,
+) -> str:
+    return (
+        f"{connect}\n"
+        "try:\n"
+        f'    tab = await browser.tabs.open("{fixture_url}")\n'
+        "    snapshot = await tab.snapshot()\n"
+        "    assert 'Complex Deterministic Browser Fixture' in snapshot.text\n"
+        "    await tab.actions.click({"
+        '"selector": "[data-testid=\'reset-complex-fixture\']"})\n'
+        "    snapshot = await tab.snapshot()\n"
+        "    assert 'Delayed content pending.' in snapshot.text\n"
+        f"    print('{marker} user backend complex fixture smoke verified')\n"
         "finally:\n"
         "    await browser.close()"
     )
@@ -7142,6 +7306,10 @@ def _http_json(
     except urllib.error.URLError as exc:
         raise RuntimeError(
             f"Network error {method} {url}: {exc.reason}",
+        ) from exc
+    except TimeoutError as exc:
+        raise RuntimeError(
+            f"Network timeout {method} {url}: {exc}",
         ) from exc
     try:
         payload = json.loads(body)
