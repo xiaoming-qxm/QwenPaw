@@ -1,6 +1,6 @@
 # Browser V10 Product Readiness Report
 
-- Status: `passed`
+- Status: `blocked`
 - Scenario count: `8`
 - Backend route: `browser(code=...) -> context="auto" -> unavailable`
 
@@ -11,7 +11,7 @@
 | `truth_gates` | `passed` |
 | `risk_gates` | `passed` |
 | `service_preflight` | `passed` |
-| `scenario_matrix` | `passed` |
+| `scenario_matrix` | `blocked` |
 | `lifecycle_gates` | `passed` |
 
 ## Scenarios
@@ -19,13 +19,13 @@
 | Scenario | Status | Context | Backend |
 |---|---|---|---|
 | `public-search-isolated` | `passed` | `isolated` | `isolated.playwright` |
-| `user-observation` | `passed` | `user` | `user.chrome_extension` |
-| `local-cart-approval` | `passed` | `isolated` | `isolated.playwright` |
-| `local-cart-auto` | `passed` | `isolated` | `isolated.playwright` |
-| `complex-isolated-fixture` | `passed` | `isolated` | `isolated.playwright` |
-| `complex-user-fixture` | `passed` | `user` | `user.chrome_extension` |
-| `bridge-disconnect` | `passed` | `user` | `user.chrome_extension` |
-| `cleanup-cancel` | `passed` | `user` | `user.chrome_extension` |
+| `user-observation` | `blocked` | `user` | `user.chrome_extension` |
+| `local-cart-approval` | `blocked` | `isolated` | `isolated.playwright` |
+| `local-cart-auto` | `blocked` | `isolated` | `isolated.playwright` |
+| `complex-isolated-fixture` | `failed` | `isolated` | `isolated.playwright` |
+| `complex-user-fixture` | `blocked` | `user` | `user.chrome_extension` |
+| `bridge-disconnect` | `blocked` | `user` | `user.chrome_extension` |
+| `cleanup-cancel` | `blocked` | `user` | `user.chrome_extension` |
 
 ## Cleanup
 

@@ -64,6 +64,7 @@ _LEGACY_BROWSER_SKILL_NAMES = (
     "browser-sdk",
     "browser_visible",
     "browser_cdp",
+    "browser-control",
 )
 
 

@@ -54,9 +54,10 @@ def _scenario_expectations(
     }
 
 
-def default_scenarios(*, include_live_taobao: bool = False) -> list[
-    BrowserProductScenario
-]:
+def default_scenarios(
+    *,
+    include_live_taobao: bool = False,
+) -> list[BrowserProductScenario]:
     """Return the default-safe Browser product scenario matrix."""
     scenarios = [
         BrowserProductScenario(
@@ -190,7 +191,10 @@ def evaluate_lifecycle_gate(
         [_residual_tabs(event) for event in cleanup_events] or [0],
     )
     kernel_idle_count = max(
-        [_metadata_int(event, "kernel_idle_count") for event in kernel_sweep_events]
+        [
+            _metadata_int(event, "kernel_idle_count")
+            for event in kernel_sweep_events
+        ]
         or [0],
     )
     failure_category = ""
@@ -293,7 +297,10 @@ def _has_cleanup_reason(
     for event in events:
         if status and str(event.get("status") or "") != status:
             continue
-        if str(event.get("metadata", {}).get("cleanup_reason") or "") == reason:
+        if (
+            str(event.get("metadata", {}).get("cleanup_reason") or "")
+            == reason
+        ):
             return True
     return False
 

@@ -53,9 +53,11 @@ ws_router = APIRouter(tags=["browser-bridge"])
 api_router = APIRouter(tags=["browser-bridge"])
 router = api_router
 
+PLUGIN_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = PLUGIN_ROOT.parents[2]
 DEFAULT_CONFIG_PATH = Path.home() / ".qwenpaw" / "nm-bridge.json"
 EXTENSION_MANIFEST_PATH = (
-    Path(__file__).parent
+    PLUGIN_ROOT
     / "assets"
     / "extensions"
     / "qwenpaw-browser-bridge"
@@ -550,7 +552,11 @@ def _build_freshness(build: dict[str, Any]) -> dict[str, Any]:
             "message": "Frontend or backend build has local changes.",
             "repair_action": "rebuild_frontend",
         }
-    if not build.get("git_commit") or not build.get("frontend_fingerprint"):
+    if (
+        not build.get("git_commit")
+        or not build.get("frontend_fingerprint")
+        or not build.get("plugin_fingerprint")
+    ):
         return {
             "status": "unknown",
             "message": "Build freshness could not be determined.",
@@ -592,7 +598,7 @@ def _git_output(*args: str) -> str:
     try:
         result = subprocess.run(
             ("git", *args),
-            cwd=Path(__file__).resolve().parents[3],
+            cwd=REPO_ROOT,
             check=False,
             capture_output=True,
             text=True,
@@ -606,7 +612,7 @@ def _git_output(*args: str) -> str:
 
 
 def _frontend_fingerprint() -> str:
-    static_dir = Path(__file__).resolve().parents[3] / "console" / "dist"
+    static_dir = REPO_ROOT / "console" / "dist"
     index_path = static_dir / "index.html"
     assets_dir = static_dir / "assets"
     if assets_dir.is_dir():
@@ -624,12 +630,11 @@ def _frontend_fingerprint() -> str:
 
 
 def _plugin_fingerprint() -> str:
-    plugin_root = Path(__file__).resolve().parent
     return _hash_existing_files(
         [
-            plugin_root / "plugin.json",
+            PLUGIN_ROOT / "plugin.json",
             EXTENSION_MANIFEST_PATH,
-            plugin_root / "api" / "routes.py",
+            PLUGIN_ROOT / "api" / "routes.py",
         ],
     )
 

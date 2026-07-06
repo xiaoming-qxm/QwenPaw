@@ -110,10 +110,7 @@ def _token_present(line: str, token: str) -> bool:
             + re.escape(_token("browser", "_use"))
             + r"(?![A-Za-z0-9_])"
         )
-        return (
-            re.search(pattern, line)
-            is not None
-        )
+        return re.search(pattern, line) is not None
     return token in line
 
 
@@ -204,7 +201,9 @@ def _default_scan_paths(root: Path) -> list[Path]:
         if path.is_file():
             paths.append(path)
         elif path.is_dir():
-            paths.extend(item for item in sorted(path.rglob("*")) if item.is_file())
+            paths.extend(
+                item for item in sorted(path.rglob("*")) if item.is_file()
+            )
     return paths
 
 
@@ -219,7 +218,9 @@ def _should_skip(relative_path: str) -> bool:
     parts = relative_path.split("/")
     if "__pycache__" in parts:
         return True
-    return relative_path.endswith(DEFAULT_SKIP_SUFFIXES) or relative_path.startswith(
+    return relative_path.endswith(
+        DEFAULT_SKIP_SUFFIXES,
+    ) or relative_path.startswith(
         DEFAULT_SKIP_PREFIXES,
     )
 

@@ -549,10 +549,7 @@ def _legacy_entropy_token_present(text: str, token: str) -> bool:
             + re.escape(_join_removed_tool_token("browser", "_use"))
             + r"(?![A-Z0-9_])"
         )
-        return (
-            re.search(pattern, text, re.I)
-            is not None
-        )
+        return re.search(pattern, text, re.I) is not None
     return _entropy_token_present(text, token)
 
 
@@ -3758,9 +3755,7 @@ def _run_v9_cancellation_live_task(
             _v9_cancel_control_event(False, False, False, {}),
         )
 
-    session_id = (
-        f"browser-bridge-v9-{spec.scenario}-{int(time.time() * 1000)}"
-    )
+    session_id = f"browser-bridge-v9-{spec.scenario}-{int(time.time() * 1000)}"
     try:
         task = _submit_console_task(
             base_url,
@@ -3946,9 +3941,7 @@ def _run_v8_live_task(
             early_report,
         )
 
-    session_id = (
-        f"browser-bridge-v8-{spec.scenario}-{int(time.time() * 1000)}"
-    )
+    session_id = f"browser-bridge-v8-{spec.scenario}-{int(time.time() * 1000)}"
     try:
         task = _submit_console_task(
             base_url,
@@ -5275,16 +5268,8 @@ def run_product_verifier(args: argparse.Namespace) -> BrowserBridgeReport:
     scenarios = default_scenarios(
         include_live_taobao=bool(getattr(args, "live_taobao", False)),
     )
-    service_ready = preflight["status"] == "passed"
     scenario_reports = [
-        _product_scenario_summary(
-            scenario_id=scenario.scenario_id,
-            service_ready=service_ready,
-            context=scenario.context,
-            backend=scenario.required_backend,
-            live_opt_in=scenario.live_opt_in,
-        )
-        for scenario in scenarios
+        _run_product_scenario(args, scenario) for scenario in scenarios
     ]
     gate_statuses = {
         "truth_gates": str(truth["status"]),
@@ -5295,20 +5280,13 @@ def run_product_verifier(args: argparse.Namespace) -> BrowserBridgeReport:
             if all(item["status"] == "passed" for item in scenario_reports)
             else "blocked"
         ),
-        "lifecycle_gates": (
-            "passed"
-            if _dict_value(preflight.get("cleanup_summary")).get(
-                "residual_tab_count",
-                0,
-            )
-            == 0
-            else "failed"
+        "lifecycle_gates": _product_lifecycle_gate_status(
+            _dict_value(preflight.get("cleanup_summary")),
+            scenario_reports,
         ),
     }
     failed_or_blocked = [
-        name
-        for name, status in gate_statuses.items()
-        if status != "passed"
+        name for name, status in gate_statuses.items() if status != "passed"
     ]
     status = "passed" if not failed_or_blocked else "blocked"
     truth_violations = truth.get("violations")
@@ -5319,9 +5297,12 @@ def run_product_verifier(args: argparse.Namespace) -> BrowserBridgeReport:
         started,
         backend_route=str(preflight.get("backend_route") or ""),
         trace_event_count=int(preflight.get("trace_event_count") or 0),
-        blocked_reason=", ".join(failed_or_blocked) if failed_or_blocked else "",
+        blocked_reason=", ".join(failed_or_blocked)
+        if failed_or_blocked
+        else "",
         content_evidence={
             "gate_statuses": gate_statuses,
+            "preflight_checks": dict(preflight.get("preflight_checks") or {}),
             "truth_gate_violation_count": (
                 len(truth_violations)
                 if isinstance(truth_violations, list)
@@ -5363,10 +5344,50 @@ def _product_service_preflight(args: argparse.Namespace) -> dict[str, Any]:
             "trace_event_count": 0,
             "cleanup_summary": {},
             "runtime_evidence": {"error": str(exc), **evidence},
+            "preflight_checks": {
+                "browser_bridge_status_route": "blocked",
+            },
         }
-    local_commit = _local_git_commit()[:8]
-    service_commit = str(version.get("git_commit") or "")
-    commit_ok = not local_commit or service_commit.startswith(local_commit)
+    build = _dict_value(status.get("build_fingerprint"))
+    local = {
+        "git_commit": _local_git_commit(),
+        "frontend_fingerprint": _local_frontend_fingerprint(),
+        "plugin_fingerprint": _local_plugin_fingerprint(),
+    }
+    service = {
+        "git_commit": str(
+            build.get("git_commit") or version.get("git_commit") or "",
+        ),
+        "frontend_fingerprint": str(
+            build.get("frontend_fingerprint")
+            or version.get("frontend_fingerprint")
+            or "",
+        ),
+        "plugin_fingerprint": str(build.get("plugin_fingerprint") or ""),
+        "extension_version": str(status.get("extension_version") or ""),
+        "native_host_version": str(status.get("native_host_version") or ""),
+    }
+    preflight_checks = {
+        "browser_bridge_status_route": "passed",
+        "backend_commit": _product_check_match(
+            local["git_commit"],
+            service["git_commit"],
+        ),
+        "frontend_fingerprint": _product_check_match(
+            local["frontend_fingerprint"],
+            service["frontend_fingerprint"],
+        ),
+        "plugin_fingerprint": _product_check_match(
+            local["plugin_fingerprint"],
+            service["plugin_fingerprint"],
+        ),
+        "extension_version": (
+            "passed" if service["extension_version"] else "failed"
+        ),
+        "native_host_version": (
+            "passed" if service["native_host_version"] else "failed"
+        ),
+    }
     trace_summary = _dict_value(status.get("trace_summary"))
     lifecycle = _dict_value(trace_summary.get("lifecycle"))
     cleanup_summary = {
@@ -5375,51 +5396,249 @@ def _product_service_preflight(args: argparse.Namespace) -> dict[str, Any]:
         "kernel_idle_count": 0,
         "bridge_connected": bool(status.get("connected")),
     }
+    service_ok = all(value == "passed" for value in preflight_checks.values())
     return {
-        "status": "passed" if commit_ok else "failed",
+        "status": "passed" if service_ok else "failed",
         "backend_route": _backend_route(status),
         "trace_event_count": int(trace_summary.get("event_count") or 0),
         "cleanup_summary": cleanup_summary,
+        "preflight_checks": preflight_checks,
         "runtime_evidence": {
             **evidence,
-            "local_commit": local_commit,
-            "service_commit": service_commit,
-            "commit_ok": commit_ok,
+            "local": local,
+            "service": service,
+            "checks": preflight_checks,
             "browser_bridge_status_route": "available",
             "bridge_connected": bool(status.get("connected")),
         },
     }
 
 
-def _product_scenario_summary(
-    *,
-    scenario_id: str,
-    service_ready: bool,
-    context: str,
-    backend: str,
-    live_opt_in: bool,
+def _product_check_match(local_value: Any, service_value: Any) -> str:
+    local_text = str(local_value or "").strip()
+    service_text = str(service_value or "").strip()
+    if not local_text or not service_text:
+        return "failed"
+    return (
+        "passed"
+        if local_text == service_text
+        or service_text.startswith(local_text)
+        or local_text.startswith(service_text)
+        else "failed"
+    )
+
+
+def _product_lifecycle_gate_status(
+    preflight_cleanup: dict[str, Any],
+    scenario_reports: list[dict[str, Any]],
+) -> str:
+    cleanup_results = [
+        preflight_cleanup,
+        *[
+            _dict_value(report.get("cleanup_result"))
+            for report in scenario_reports
+        ],
+    ]
+    for cleanup in cleanup_results:
+        if int(cleanup.get("residual_tab_count") or 0) != 0:
+            return "failed"
+        if int(cleanup.get("kernel_idle_count") or 0) != 0:
+            return "failed"
+    return "passed"
+
+
+def _run_product_scenario(
+    args: argparse.Namespace,
+    scenario: Any,
 ) -> dict[str, Any]:
-    status = "passed" if service_ready and not live_opt_in else "blocked"
-    if live_opt_in:
-        status = "blocked"
+    scenario_id = str(scenario.scenario_id)
+    if scenario_id == "public-search-isolated":
+        product_report = _product_report_from_child(
+            scenario,
+            run_public_search(args),
+        )
+    elif scenario_id == "user-observation":
+        spec = _v9_user_live_spec("user-read-only-observation")
+        product_report = _product_report_from_child(
+            scenario,
+            _run_v9_user_live_task(args, spec),
+        )
+    elif scenario_id == "local-cart-approval":
+        child = _run_v9_approval_probe(args, "DEFAULT")
+        fail_closed = _v9_matrix_approval_default_fail_closed(
+            [child.to_dict()],
+        )
+        product_report = _product_report_from_child(
+            scenario,
+            child,
+            accepted=fail_closed,
+            failure_category=(
+                "" if fail_closed else "approval_default_not_fail_closed"
+            ),
+            recovery_hint=(
+                ""
+                if fail_closed
+                else "verify DEFAULT approval fails closed before mutation"
+            ),
+        )
+    elif scenario_id == "local-cart-auto":
+        child = _run_v9_approval_probe(args, "OFF")
+        off_success = _v9_matrix_approval_off_success([child.to_dict()])
+        product_report = _product_report_from_child(
+            scenario,
+            child,
+            accepted=off_success,
+            failure_category="" if off_success else "approval_off_not_success",
+            recovery_hint=(
+                ""
+                if off_success
+                else "verify approval_level=OFF executes the fixture mutation"
+            ),
+        )
+    elif scenario_id == "complex-isolated-fixture":
+        product_report = _product_report_from_child(
+            scenario,
+            run_complex_isolated(args),
+        )
+    elif scenario_id == "complex-user-fixture":
+        product_report = _product_report_from_child(
+            scenario,
+            run_complex_user(args),
+        )
+    elif scenario_id == "bridge-disconnect":
+        product_report = _run_product_bridge_disconnect(args, scenario)
+    elif scenario_id == "cleanup-cancel":
+        spec = _v9_user_live_spec("user-cancellation-cleanup")
+        product_report = _product_report_from_child(
+            scenario,
+            _run_v9_user_live_task(args, spec),
+        )
+    elif scenario_id == "live-taobao-opt-in":
+        product_report = _product_report_from_child(
+            scenario,
+            run_v9_taobao_live(args),
+        )
+    else:
+        product_report = _product_report_from_child(
+            scenario,
+            _report(
+                scenario_id,
+                "failed",
+                time.perf_counter(),
+                failure_reason="unknown_product_scenario",
+            ),
+        )
+    return product_report
+
+
+def _v9_user_live_spec(scenario: str) -> V8LiveTaskSpec:
+    for spec in _v9_user_live_task_specs():
+        if spec.scenario == scenario:
+            return spec
+    raise KeyError(f"Unknown V9 user live scenario: {scenario}")
+
+
+def _run_product_bridge_disconnect(
+    args: argparse.Namespace,
+    scenario: Any,
+) -> dict[str, Any]:
+    disconnect = _run_v9_user_live_task(
+        args,
+        _v9_user_live_spec("bridge-disconnect-fail-closed"),
+    )
+    reconnect = _run_v9_user_live_task(
+        args,
+        _v9_user_live_spec("bridge-reconnect-recovered"),
+    )
+    reconnect_delta = _product_reconnect_delta(disconnect, reconnect)
+    accepted = (
+        disconnect.status == "passed"
+        and reconnect.status == "passed"
+        and reconnect_delta > 0
+    )
+    return _product_report_from_child(
+        scenario,
+        reconnect if reconnect.status != "passed" else disconnect,
+        accepted=accepted,
+        failure_category="" if accepted else "missing_reconnect_delta",
+        recovery_hint=(
+            ""
+            if accepted
+            else "inject bridge disconnect and observe reconnect event delta"
+        ),
+        reconnect_delta=reconnect_delta,
+        source_reports=[disconnect.to_dict(), reconnect.to_dict()],
+    )
+
+
+def _product_reconnect_delta(
+    disconnect: BrowserBridgeReport,
+    reconnect: BrowserBridgeReport,
+) -> int:
+    for report in (reconnect, disconnect):
+        event = _dict_value(
+            report.content_evidence.get("controlled_lifecycle_event"),
+        )
+        lifecycle = _dict_value(event.get("bridge_lifecycle"))
+        try:
+            reconnect_count = int(lifecycle.get("reconnect_count") or 0)
+        except (TypeError, ValueError):
+            reconnect_count = 0
+        if reconnect_count > 0:
+            return reconnect_count
+        if event.get("reconnect_count_increased") is True:
+            return 1
+    return 0
+
+
+def _product_report_from_child(
+    scenario: Any,
+    child: BrowserBridgeReport,
+    *,
+    accepted: bool | None = None,
+    failure_category: str = "",
+    recovery_hint: str = "",
+    reconnect_delta: int = 0,
+    source_reports: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    scenario_id = str(scenario.scenario_id)
+    child_passed = child.status == "passed"
+    passed = child_passed if accepted is None else bool(accepted)
+    status = "passed" if passed else child.status
+    if status == "passed":
+        failure_category = ""
+        recovery_hint = ""
+    else:
+        failure_category = (
+            failure_category
+            or child.failure_reason
+            or child.blocked_reason
+            or child.error_code
+            or "scenario_not_passed"
+        )
+        recovery_hint = recovery_hint or _product_recovery_hint(status)
+    cleanup_result = dict(child.cleanup_summary or {})
+    cleanup_result.setdefault("residual_tab_count", 0)
+    cleanup_result.setdefault("kernel_idle_count", 0)
     return {
         "scenario": scenario_id,
         "status": status,
-        "context": context,
-        "required_backend": backend,
-        "live_opt_in": live_opt_in,
-        "failure_category": "" if status == "passed" else "service_not_ready",
-        "recovery_hint": (
-            ""
-            if status == "passed"
-            else "start the latest QwenPaw service and reconnect Browser Bridge"
-        ),
-        "cleanup_result": {
-            "residual_tab_count": 0,
-            "kernel_idle_count": 0,
-        },
-        "reconnect_delta": 0,
+        "context": str(scenario.context),
+        "required_backend": str(scenario.required_backend),
+        "live_opt_in": bool(scenario.live_opt_in),
+        "failure_category": failure_category,
+        "recovery_hint": recovery_hint,
+        "cleanup_result": cleanup_result,
+        "reconnect_delta": reconnect_delta,
+        "source_report": child.to_dict(),
+        "source_reports": source_reports or [child.to_dict()],
     }
+
+
+def _product_recovery_hint(status: str) -> str:
+    if status == "blocked":
+        return "start latest QwenPaw service and reconnect Browser Bridge"
+    return "inspect Browser SDK trace, cleanup, and scenario evidence"
 
 
 def _render_product_readiness_markdown(
@@ -5476,9 +5695,7 @@ def run_truth_gates_report() -> BrowserBridgeReport:
         status,
         started,
         failure_reason=(
-            "forbidden_browser_residue"
-            if status == "failed"
-            else ""
+            "forbidden_browser_residue" if status == "failed" else ""
         ),
         content_evidence={"truth_gates": result},
     )
