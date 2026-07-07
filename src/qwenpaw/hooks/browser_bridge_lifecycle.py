@@ -40,6 +40,10 @@ class BrowserBridgeLifecycleCleanupHook(LifecycleHook):
 
         started = perf_counter()
         cleanup_reason = _cleanup_reason(ctx)
+        preserve_owned_tabs = _preserve_owned_tabs(
+            ctx,
+            cleanup_reason=cleanup_reason,
+        )
         request_scope_key = _request_scope_key(ctx)
         _record_cleanup_start_trace(
             session_id=session_id or root_session_id,
@@ -49,6 +53,7 @@ class BrowserBridgeLifecycleCleanupHook(LifecycleHook):
                 "root_session_id": root_session_id,
                 "request_scope_key": request_scope_key,
                 "workspace_id": _workspace_id(ctx),
+                "preserve_owned_tabs": preserve_owned_tabs,
             },
         )
         try:
@@ -58,6 +63,7 @@ class BrowserBridgeLifecycleCleanupHook(LifecycleHook):
                 request_scope_key=request_scope_key,
                 workspace_id=_workspace_id(ctx),
                 cleanup_reason=cleanup_reason,
+                preserve_owned_tabs=preserve_owned_tabs,
             )
             ctx.extras[BROWSER_BRIDGE_CLEANUP_EXTRA] = dict(result or {})
             cleanup_errors = int((result or {}).get("cleanup_errors", 0))
@@ -94,14 +100,18 @@ class BrowserBridgeLifecycleCleanupHook(LifecycleHook):
                     (result or {}).get("cleanup_reason") or cleanup_reason,
                 ),
                 closed_owned_tabs=int(
-                    (result or {}).get("closed_owned_tabs")
-                    or (result or {}).get("closed_tabs")
-                    or 0,
+                    _cleanup_result_counter(
+                        result or {},
+                        primary="closed_owned_tabs",
+                        fallback="closed_tabs",
+                    ),
                 ),
                 released_borrowed_tabs=int(
-                    (result or {}).get("released_borrowed_tabs")
-                    or (result or {}).get("released_tabs")
-                    or 0,
+                    _cleanup_result_counter(
+                        result or {},
+                        primary="released_borrowed_tabs",
+                        fallback="released_tabs",
+                    ),
                 ),
                 preserved_owned_tabs=int(
                     (result or {}).get("preserved_owned_tabs") or 0,
@@ -136,6 +146,7 @@ async def cleanup_browser_bridge_request_resources(
     request_scope_key: str = "",
     workspace_id: str,
     cleanup_reason: str,
+    preserve_owned_tabs: bool = False,
 ) -> dict[str, Any]:
     """Release Browser SDK backend request resources."""
     return await cleanup_browser_backend_request_resources(
@@ -144,6 +155,7 @@ async def cleanup_browser_bridge_request_resources(
         request_scope_key=request_scope_key,
         workspace_id=workspace_id,
         cleanup_reason=cleanup_reason,
+        preserve_owned_tabs=preserve_owned_tabs,
     )
 
 
@@ -256,6 +268,8 @@ def _cleanup_reason(ctx: HookContext) -> str:
         reason = "bridge_disconnect"
     elif extras.get("browser_bridge_blocked"):
         reason = "blocked"
+    elif _handoff_required(ctx):
+        reason = "handoff_required"
     elif isinstance(ctx.error, asyncio.CancelledError):
         reason = "cancelled"
     elif isinstance(ctx.error, BrowserPolicyDenied):
@@ -268,6 +282,49 @@ def _cleanup_reason(ctx: HookContext) -> str:
     return reason
 
 
+def _preserve_owned_tabs(ctx: HookContext, *, cleanup_reason: str) -> bool:
+    return cleanup_reason == "handoff_required" or (
+        _handoff_required(ctx)
+        and cleanup_reason not in {"shutdown", "bridge_disconnect"}
+    )
+
+
+def _handoff_required(ctx: HookContext) -> bool:
+    return any(
+        str(value or "").strip().lower() == "handoff_required"
+        for value in _error_marker_values(getattr(ctx, "error", None))
+    )
+
+
+def _error_marker_values(error: Any) -> list[Any]:
+    values: list[Any] = []
+    if error is None:
+        return values
+
+    for attr in ("browser_error_code", "error_code", "code"):
+        values.append(getattr(error, attr, ""))
+
+    if isinstance(error, dict):
+        _append_error_mapping_values(values, error)
+
+    metadata = getattr(error, "metadata", None)
+    if isinstance(metadata, dict):
+        _append_error_mapping_values(values, metadata)
+    return values
+
+
+def _append_error_mapping_values(
+    values: list[Any],
+    payload: dict[Any, Any],
+) -> None:
+    for key in ("browser_error_code", "error_code", "code"):
+        values.append(payload.get(key))
+    nested = payload.get("error")
+    if isinstance(nested, dict):
+        for key in ("browser_error_code", "error_code", "code"):
+            values.append(nested.get(key))
+
+
 def _sum_cleanup_field(
     user_result: dict[str, Any],
     control_result: dict[str, Any],
@@ -275,11 +332,26 @@ def _sum_cleanup_field(
     primary: str,
     fallback: str,
 ) -> int:
-    return int(
-        user_result.get(primary) or user_result.get(fallback) or 0,
-    ) + int(
-        control_result.get(primary) or control_result.get(fallback) or 0,
+    return _cleanup_result_counter(
+        user_result,
+        primary=primary,
+        fallback=fallback,
+    ) + _cleanup_result_counter(
+        control_result,
+        primary=primary,
+        fallback=fallback,
     )
+
+
+def _cleanup_result_counter(
+    result: dict[str, Any],
+    *,
+    primary: str,
+    fallback: str,
+) -> int:
+    if primary in result and result.get(primary) is not None:
+        return int(result.get(primary) or 0)
+    return int(result.get(fallback) or 0)
 
 
 def _merge_ownership_counts(

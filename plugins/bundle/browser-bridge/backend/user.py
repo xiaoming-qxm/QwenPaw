@@ -421,21 +421,38 @@ class ChromeExtensionBrowserSession:
         self,
         *,
         cleanup_reason: str = "finally",
+        preserve_owned_tabs: bool = False,
     ) -> dict[str, Any]:
         """Release all tabs held by this Browser SDK user session."""
-        return await self._cleanup(cleanup_reason=cleanup_reason)
+        return await self._cleanup(
+            cleanup_reason=cleanup_reason,
+            preserve_owned_tabs=preserve_owned_tabs,
+        )
 
-    async def _cleanup(self, *, cleanup_reason: str) -> dict[str, Any]:
+    async def _cleanup(
+        self,
+        *,
+        cleanup_reason: str,
+        preserve_owned_tabs: bool = False,
+    ) -> dict[str, Any]:
         closed_tabs = 0
         released_tabs = 0
+        released_borrowed_tabs = 0
         preserved_owned_tabs = 0
         skipped_protected_tabs = 0
+        should_preserve_owned_tabs = (
+            preserve_owned_tabs
+            or cleanup_reason == "handoff_required"
+            or self.retention != "clean"
+        )
         for tab_id, ownership in list(self._tab_ownership.items()):
             if ownership == "protected":
                 skipped_protected_tabs += 1
                 self._tab_ownership.pop(str(tab_id), None)
                 continue
-            close_owned = ownership == "owned" and self.retention == "clean"
+            close_owned = (
+                ownership == "owned" and not should_preserve_owned_tabs
+            )
             await self._cleanup_tab(
                 tab_id,
                 ownership,
@@ -449,17 +466,19 @@ class ChromeExtensionBrowserSession:
                 released_tabs += 1
             else:
                 released_tabs += 1
+                released_borrowed_tabs += 1
         if not self._tab_ownership:
             _unregister_user_browser_session(self)
         return {
             "closed_tabs": closed_tabs,
             "released_tabs": released_tabs,
             "closed_owned_tabs": closed_tabs,
-            "released_borrowed_tabs": released_tabs,
+            "released_borrowed_tabs": released_borrowed_tabs,
             "preserved_owned_tabs": preserved_owned_tabs,
             "skipped_protected_tabs": skipped_protected_tabs,
             "remaining_orphaned_tabs": self._remaining_orphaned_tabs(),
             "cleanup_reason": cleanup_reason,
+            "preserve_owned_tabs": should_preserve_owned_tabs,
             "retention": self.retention,
             "request_scope_key": self.request_scope_key,
         }
@@ -1028,7 +1047,12 @@ async def _cleanup_action_runtime_for_request(
     cleanup = getattr(control_engine, "cleanup_for_request", None)
     if not callable(cleanup):
         return {}
-    result = cleanup(**kwargs)
+    result = cleanup(
+        session_id=str(kwargs.get("session_id") or ""),
+        root_session_id=str(kwargs.get("root_session_id") or ""),
+        workspace_id=str(kwargs.get("workspace_id") or ""),
+        cleanup_reason=str(kwargs.get("cleanup_reason") or ""),
+    )
     if hasattr(result, "__await__"):
         result = await result
     return dict(result or {}) if isinstance(result, dict) else {}
@@ -1073,6 +1097,7 @@ async def cleanup_user_browser_sessions_for_request(
     holder_id: str = "",
     request_scope_key: str = "",
     cleanup_reason: str = "finally",
+    preserve_owned_tabs: bool = False,
     **_: Any,
 ) -> dict[str, Any]:
     """Release Browser SDK user sessions for the current request."""
@@ -1104,6 +1129,7 @@ async def cleanup_user_browser_sessions_for_request(
     for session in sessions:
         result = await session.cleanup_for_request(
             cleanup_reason=cleanup_reason,
+            preserve_owned_tabs=preserve_owned_tabs,
         )
         closed_tabs += int(result.get("closed_tabs") or 0)
         released_tabs += int(result.get("released_tabs") or 0)
@@ -1128,6 +1154,7 @@ async def cleanup_user_browser_sessions_for_request(
         "skipped_protected_tabs": skipped_protected_tabs,
         "remaining_orphaned_tabs": remaining_orphaned_tabs,
         "cleanup_reason": cleanup_reason,
+        "preserve_owned_tabs": preserve_owned_tabs,
     }
 
 
