@@ -478,7 +478,46 @@ class AgentBuilder:
         )
         if isinstance(_payload_ctx, dict):
             rc.update(_payload_ctx)
+        rc.setdefault(
+            "browser_request_scope_key",
+            AgentBuilder._browser_request_scope_key(ctx, rc),
+        )
         return rc
+
+    @staticmethod
+    def _browser_request_scope_key(
+        ctx: Any,
+        request_context: dict[str, Any],
+    ) -> str:
+        root = (
+            str(request_context.get("root_session_id") or "")
+            or str(request_context.get("session_id") or "")
+            or "default"
+        )
+        request = getattr(ctx, "request", None)
+        request_id = AgentBuilder._request_identity(request)
+        return f"{root}:{request_id}"
+
+    @staticmethod
+    def _request_identity(request: Any | None) -> str:
+        if request is None:
+            return "request:default"
+        for attr in ("request_id", "id", "message_id", "event_id"):
+            value = getattr(request, attr, "")
+            if value:
+                return f"request:{value}"
+        metadata = getattr(request, "metadata", None)
+        if isinstance(metadata, dict):
+            for key in (
+                "request_id",
+                "message_id",
+                "event_id",
+                "turn_id",
+            ):
+                value = metadata.get(key)
+                if value:
+                    return f"request:{value}"
+        return f"request:{id(request)}"
 
     @staticmethod
     def _apply_request_coding_project(

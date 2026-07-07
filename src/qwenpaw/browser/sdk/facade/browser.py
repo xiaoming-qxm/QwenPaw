@@ -171,6 +171,15 @@ class Browser:
             )
             or "default"
         )
+        request_scope_key = (
+            str(
+                execution_context.request_scope_key
+                if execution_context is not None
+                else "",
+            )
+            or effective_session_id
+        )
+        effective_retention = _normalize_retention(retention)
 
         started = perf_counter()
         try:
@@ -188,7 +197,13 @@ class Browser:
                     f"{resolved.backend_id}",
                     backend_id=resolved.backend_id,
                 )
-            session = await backend.connect(effective_session_id, resolved)
+            session = await _connect_backend(
+                backend,
+                effective_session_id,
+                resolved,
+                request_scope_key=request_scope_key,
+                retention=effective_retention,
+            )
         except Exception as exc:
             record_browser_trace_event(
                 session_id=effective_session_id,
@@ -205,13 +220,17 @@ class Browser:
             session=session,
             context=resolved,
             session_id=effective_session_id,
-            retention=_normalize_retention(retention),
+            retention=effective_retention,
         )
         browser._trace(
             phase="connect",
             status="ok",
             duration_ms=_duration_ms(started),
-            metadata=_route_metadata(resolved),
+            metadata={
+                **_route_metadata(resolved),
+                "request_scope_key": request_scope_key,
+                "retention": effective_retention,
+            },
         )
         return browser
 
@@ -352,6 +371,36 @@ def _effective_context(
     return context
 
 
+async def _connect_backend(
+    backend: Any,
+    session_id: str,
+    context: ResolvedBrowserContext,
+    *,
+    request_scope_key: str,
+    retention: BrowserRetention,
+) -> Any:
+    connect = getattr(backend, "connect")
+    kwargs: dict[str, Any] = {}
+    try:
+        signature = inspect.signature(connect)
+    except (TypeError, ValueError):
+        signature = None
+    if signature is not None:
+        parameters = signature.parameters
+        accepts_kwargs = any(
+            parameter.kind == inspect.Parameter.VAR_KEYWORD
+            for parameter in parameters.values()
+        )
+        if accepts_kwargs or "request_scope_key" in parameters:
+            kwargs["request_scope_key"] = request_scope_key
+        if accepts_kwargs or "retention" in parameters:
+            kwargs["retention"] = retention
+    result = connect(session_id, context, **kwargs)
+    if inspect.isawaitable(result):
+        return await result
+    return result
+
+
 def _route_metadata(context: ResolvedBrowserContext) -> dict[str, Any]:
     return {
         "reason": context.reason,
@@ -376,7 +425,9 @@ def _normalize_retention(retention: str) -> BrowserRetention:
     value = str(retention or "clean").strip().lower()
     if value in {"clean", "debug", "handoff"}:
         return value  # type: ignore[return-value]
-    raise ValueError("Browser retention must be one of: clean, debug.")
+    raise ValueError(
+        "Browser retention must be one of: clean, debug, handoff.",
+    )
 
 
 def _duration_ms(started: float) -> float:

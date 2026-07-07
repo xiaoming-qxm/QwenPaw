@@ -157,6 +157,7 @@ def _merge_cleanup_counters(
         "released_tabs",
         "closed_owned_tabs",
         "released_borrowed_tabs",
+        "preserved_owned_tabs",
         "skipped_protected_tabs",
         "remaining_orphaned_tabs",
         "cleanup_errors",

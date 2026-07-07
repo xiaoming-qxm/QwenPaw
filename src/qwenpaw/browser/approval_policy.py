@@ -23,13 +23,20 @@ from qwenpaw.security.tool_guard.execution_level import ToolExecutionLevel
 
 _DEFAULT_CACHE_TTL_SECONDS = 120.0
 _REDACTED = "[REDACTED]"
-_REDACT_KEYS = {
+_REDACT_KEY_TOKENS = {
     "credential",
     "otp",
     "password",
     "secret",
     "token",
     "value",
+}
+_REDACT_EXACT_KEYS = {
+    "file_path",
+    "file_paths",
+    "files",
+    "prompt_text",
+    "text",
 }
 
 
@@ -990,7 +997,7 @@ def _redact(value: Any) -> Any:
         redacted: dict[str, Any] = {}
         for key, item in value.items():
             key_text = str(key)
-            if any(token in key_text.casefold() for token in _REDACT_KEYS):
+            if _redact_key(key_text):
                 redacted[key_text] = _REDACTED
             else:
                 redacted[key_text] = _redact(item)
@@ -1000,6 +1007,13 @@ def _redact(value: Any) -> Any:
     if isinstance(value, tuple):
         return tuple(_redact(item) for item in value)
     return value
+
+
+def _redact_key(key: str) -> bool:
+    lowered = key.strip().casefold()
+    if lowered in _REDACT_EXACT_KEYS:
+        return True
+    return any(token in lowered for token in _REDACT_KEY_TOKENS)
 
 
 __all__ = [

@@ -17,6 +17,13 @@ const SENSITIVE_PARAM_KEYS = [
   "secret",
   "token",
 ];
+const SENSITIVE_EXACT_PARAM_KEYS = [
+  "file_path",
+  "file_paths",
+  "files",
+  "prompt_text",
+  "text",
+];
 
 export interface ApprovalCardProps {
   requestId: string;
@@ -702,6 +709,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isSensitiveParamKey(key: string): boolean {
   const lowered = key.toLowerCase();
+  if (SENSITIVE_EXACT_PARAM_KEYS.includes(lowered)) {
+    return true;
+  }
   return SENSITIVE_PARAM_KEYS.some((token) => lowered.includes(token));
 }
 

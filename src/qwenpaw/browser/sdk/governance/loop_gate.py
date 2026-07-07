@@ -130,7 +130,14 @@ def _retry_budget(
         return 1
     if decision.reason == "fresh_observation_required":
         return 2
-    if decision.reason in {"no_progress", "network_timeout"}:
+    if decision.reason in {
+        "click_without_navigation",
+        "invalid_sdk_usage",
+        "low_information_observation",
+        "network_timeout",
+        "no_progress",
+        "observation_enrichment_denied",
+    }:
         return product_policy.strategy_shift_budget
     return 0
 

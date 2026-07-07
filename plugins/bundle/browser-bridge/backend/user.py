@@ -38,6 +38,7 @@ from qwenpaw.browser.sdk.primitives.types import (
     BrowserDiagnosticCheck,
     BrowserDiagnosticStatus,
     BrowserPageInfo,
+    BrowserRetention,
     ResolvedBrowserContext,
 )
 from qwenpaw.browser.sdk.primitives.types import (
@@ -253,6 +254,9 @@ class ChromeExtensionBrowserBackend:
         self,
         session_id: str,
         context: ResolvedBrowserContext,
+        *,
+        request_scope_key: str = "",
+        retention: BrowserRetention = "clean",
     ) -> "ChromeExtensionBrowserSession":
         if not self.is_available():
             raise BrowserContextUnavailable(
@@ -285,6 +289,8 @@ class ChromeExtensionBrowserBackend:
         session = ChromeExtensionBrowserSession(
             bridge=bridge,
             session_id=session_id,
+            request_scope_key=request_scope_key,
+            retention=retention,
             context=context,
             policy=self._policy,
             control_engine=self._engine(),
@@ -369,6 +375,8 @@ class ChromeExtensionBrowserSession:
         *,
         bridge: Any,
         session_id: str,
+        request_scope_key: str = "",
+        retention: BrowserRetention = "clean",
         context: ResolvedBrowserContext,
         policy: BrowserPolicy,
         control_engine: Any | None = None,
@@ -376,13 +384,17 @@ class ChromeExtensionBrowserSession:
     ) -> None:
         self.bridge = bridge
         self.session_id = session_id
+        self.request_scope_key = _normalize_session_id(
+            request_scope_key or session_id,
+        )
+        self.retention = _normalize_retention(retention)
         self.context = context
-        self.holder_id = _browser_sdk_holder_id(session_id)
+        self.holder_id = _browser_sdk_holder_id(self.request_scope_key)
         self._policy = policy
         self._control_engine = control_engine
         self._trace_recorder = trace_recorder or record_browser_trace_event
         self._state: dict[str, Any] = {
-            "workspace_id": _browser_workspace_id(session_id),
+            "workspace_id": _browser_workspace_id(self.request_scope_key),
         }
         self._tab_ownership: dict[str, _TabOwnership] = {}
         self._registry_keys: set[str] = set()
@@ -416,19 +428,25 @@ class ChromeExtensionBrowserSession:
     async def _cleanup(self, *, cleanup_reason: str) -> dict[str, Any]:
         closed_tabs = 0
         released_tabs = 0
+        preserved_owned_tabs = 0
         skipped_protected_tabs = 0
         for tab_id, ownership in list(self._tab_ownership.items()):
             if ownership == "protected":
                 skipped_protected_tabs += 1
                 self._tab_ownership.pop(str(tab_id), None)
                 continue
+            close_owned = ownership == "owned" and self.retention == "clean"
             await self._cleanup_tab(
                 tab_id,
                 ownership,
                 cleanup_reason=cleanup_reason,
+                close_owned=close_owned,
             )
-            if ownership == "owned":
+            if ownership == "owned" and close_owned:
                 closed_tabs += 1
+            elif ownership == "owned":
+                preserved_owned_tabs += 1
+                released_tabs += 1
             else:
                 released_tabs += 1
         if not self._tab_ownership:
@@ -438,9 +456,12 @@ class ChromeExtensionBrowserSession:
             "released_tabs": released_tabs,
             "closed_owned_tabs": closed_tabs,
             "released_borrowed_tabs": released_tabs,
+            "preserved_owned_tabs": preserved_owned_tabs,
             "skipped_protected_tabs": skipped_protected_tabs,
             "remaining_orphaned_tabs": self._remaining_orphaned_tabs(),
             "cleanup_reason": cleanup_reason,
+            "retention": self.retention,
+            "request_scope_key": self.request_scope_key,
         }
 
     async def active_tab(self) -> dict[str, Any]:
@@ -630,6 +651,7 @@ class ChromeExtensionBrowserSession:
             normalized,
             ownership,
             cleanup_reason="tab_close",
+            close_owned=True,
         )
         message = "Tab closed" if ownership == "owned" else "Tab released"
         return BrowserActionResult(ok=True, message=message)
@@ -799,6 +821,7 @@ class ChromeExtensionBrowserSession:
         ownership: _TabOwnership,
         *,
         cleanup_reason: str,
+        close_owned: bool,
     ) -> None:
         started = perf_counter()
         tab_id_int = int(tab_id)
@@ -808,7 +831,7 @@ class ChromeExtensionBrowserSession:
                 "tab.detach",
                 {"tabId": tab_id_int, "holderId": self.holder_id},
             )
-            if ownership == "owned":
+            if ownership == "owned" and close_owned:
                 await self.bridge.request(
                     "tab.close",
                     {"tabId": tab_id_int, "holderId": self.holder_id},
@@ -837,7 +860,7 @@ class ChromeExtensionBrowserSession:
             status="ok",
             duration_ms=_duration_ms(started),
             cleanup_reason=cleanup_reason,
-            closed_owned_tabs=1 if ownership == "owned" else 0,
+            closed_owned_tabs=1 if ownership == "owned" and close_owned else 0,
             released_borrowed_tabs=1 if ownership == "borrowed" else 0,
             owned_tabs_remaining=self._owned_tabs_remaining(),
             ownership_state_before=ownership,
@@ -1028,6 +1051,7 @@ def _merge_cleanup_results(
         "released_tabs",
         "closed_owned_tabs",
         "released_borrowed_tabs",
+        "preserved_owned_tabs",
         "skipped_protected_tabs",
         "remaining_orphaned_tabs",
     ):
@@ -1047,15 +1071,17 @@ async def cleanup_user_browser_sessions_for_request(
     session_id: str = "",
     root_session_id: str = "",
     holder_id: str = "",
+    request_scope_key: str = "",
     cleanup_reason: str = "finally",
     **_: Any,
 ) -> dict[str, Any]:
     """Release Browser SDK user sessions for the current request."""
-    session_ids = {
-        _normalize_session_id(raw_session_id)
-        for raw_session_id in (session_id, root_session_id, holder_id)
-        if str(raw_session_id or "").strip()
-    }
+    session_ids = _cleanup_registry_keys(
+        session_id=session_id,
+        root_session_id=root_session_id,
+        holder_id=holder_id,
+        request_scope_key=request_scope_key,
+    )
     sessions: list[ChromeExtensionBrowserSession] = []
     seen: set[int] = set()
     for key in session_ids:
@@ -1072,6 +1098,7 @@ async def cleanup_user_browser_sessions_for_request(
     released_tabs = 0
     closed_owned_tabs = 0
     released_borrowed_tabs = 0
+    preserved_owned_tabs = 0
     skipped_protected_tabs = 0
     remaining_orphaned_tabs = 0
     for session in sessions:
@@ -1084,6 +1111,7 @@ async def cleanup_user_browser_sessions_for_request(
         released_borrowed_tabs += int(
             result.get("released_borrowed_tabs") or 0,
         )
+        preserved_owned_tabs += int(result.get("preserved_owned_tabs") or 0)
         skipped_protected_tabs += int(
             result.get("skipped_protected_tabs") or 0,
         )
@@ -1096,9 +1124,26 @@ async def cleanup_user_browser_sessions_for_request(
         "released_tabs": released_tabs,
         "closed_owned_tabs": closed_owned_tabs,
         "released_borrowed_tabs": released_borrowed_tabs,
+        "preserved_owned_tabs": preserved_owned_tabs,
         "skipped_protected_tabs": skipped_protected_tabs,
         "remaining_orphaned_tabs": remaining_orphaned_tabs,
         "cleanup_reason": cleanup_reason,
+    }
+
+
+def _cleanup_registry_keys(
+    *,
+    session_id: str,
+    root_session_id: str,
+    holder_id: str,
+    request_scope_key: str,
+) -> set[str]:
+    if str(request_scope_key or "").strip():
+        return {_normalize_session_id(request_scope_key)}
+    return {
+        _normalize_session_id(raw_session_id)
+        for raw_session_id in (session_id, root_session_id, holder_id)
+        if str(raw_session_id or "").strip()
     }
 
 
@@ -1131,35 +1176,9 @@ def _unregister_user_browser_session(
 def _session_registry_keys(
     session: ChromeExtensionBrowserSession,
 ) -> set[str]:
-    raw_ids: list[Any] = [session.session_id, session.holder_id]
-    try:
-        from qwenpaw.tool_calls import get_call_context
-
-        context = get_call_context()
-    except (ImportError, RuntimeError):
-        context = None
-    if context is not None:
-        raw_ids.extend(
-            [
-                getattr(context, "session_id", ""),
-                getattr(context, "root_session_id", ""),
-            ],
-        )
-    try:
-        from qwenpaw.app.agent_context import (
-            get_current_root_session_id,
-            get_current_session_id,
-        )
-
-        raw_ids.extend(
-            [
-                get_current_session_id(),
-                get_current_root_session_id(),
-            ],
-        )
-    except (ImportError, RuntimeError):
-        pass
-
+    raw_ids: list[Any] = [session.request_scope_key, session.holder_id]
+    if session.request_scope_key == _normalize_session_id(session.session_id):
+        raw_ids.append(session.session_id)
     keys = {
         _normalize_session_id(raw_id)
         for raw_id in raw_ids
@@ -1172,6 +1191,13 @@ def _session_registry_keys(
 
 def _normalize_session_id(session_id: str) -> str:
     return str(session_id or "default").strip() or "default"
+
+
+def _normalize_retention(retention: str) -> BrowserRetention:
+    value = str(retention or "clean").strip().casefold()
+    if value in {"clean", "debug", "handoff"}:
+        return value  # type: ignore[return-value]
+    return "clean"
 
 
 def _normalize_tab(tab: dict[str, Any]) -> dict[str, Any]:

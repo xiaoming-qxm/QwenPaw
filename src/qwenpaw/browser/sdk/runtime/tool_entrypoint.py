@@ -100,12 +100,14 @@ async def browser(
 ) -> ToolChunk:
     """Execute Browser SDK Python code in a session-scoped kernel."""
     session_id = _current_session_id()
+    request_scope_key = _current_request_scope_key(session_id)
     trace_store = get_browser_trace_store()
     trace_start_index = len(trace_store.list(session_id))
     result = await get_default_kernel_manager().execute(
         session_id=session_id,
         code=code,
         context=context,  # type: ignore[arg-type]
+        request_scope_key=request_scope_key,
     )
     ok = result.error is None
     trace_events = trace_store.list(session_id)[trace_start_index:]
@@ -129,6 +131,7 @@ async def browser(
         ok=ok,
         session_id=session_id,
         context=context,
+        request_scope_key=request_scope_key,
         browser_trace=[event.to_dict() for event in trace_events],
         progress_decision=progress_decision,
     )
@@ -169,18 +172,36 @@ def _current_session_id() -> str:
         return "default"
 
 
+def _current_request_scope_key(session_id: str) -> str:
+    try:
+        from qwenpaw.tool_calls import get_call_context
+
+        call_context = get_call_context()
+    except Exception:  # pragma: no cover - defensive runtime fallback
+        call_context = None
+    request_context = getattr(call_context, "request_context", {}) or {}
+    if isinstance(request_context, dict):
+        for key in ("browser_request_scope_key", "request_scope_key"):
+            value = str(request_context.get(key) or "").strip()
+            if value:
+                return value
+    return f"{session_id}:tool"
+
+
 def _metadata(
     result: BrowserKernelResult,
     *,
     ok: bool,
     session_id: str,
     context: str,
+    request_scope_key: str,
     browser_trace: list[dict[str, Any]],
     progress_decision: BrowserProgressDecision,
 ) -> dict[str, Any]:
     metadata: dict[str, Any] = {
         "ok": ok,
         "session_id": session_id,
+        "request_scope_key": request_scope_key,
         "context": context,
         "output": result.output,
         "return_value": result.return_value,

@@ -26,6 +26,7 @@ class BrowserExecutionContext:
     context: BrowserContext
     requires_user_state: bool | None = None
     browser_intent: BrowserIntent | None = None
+    request_scope_key: str = ""
 
 
 @dataclass(frozen=True)
@@ -106,6 +107,7 @@ class BrowserKernelRuntime:
         context: BrowserContext,
         requires_user_state: bool | None = None,
         browser_intent: BrowserIntent | None = None,
+        request_scope_key: str = "",
     ) -> BrowserKernelResult:
         """Execute code in a session-scoped browser kernel."""
         execution_context = BrowserExecutionContext(
@@ -113,6 +115,7 @@ class BrowserKernelRuntime:
             context=context,
             requires_user_state=requires_user_state,
             browser_intent=browser_intent,
+            request_scope_key=request_scope_key,
         )
         stdout_capture = io.StringIO()
         token = set_current_execution_context(execution_context)
@@ -207,6 +210,7 @@ class BrowserKernel:
             context=execution_context.context,
             requires_user_state=execution_context.requires_user_state,
             browser_intent=execution_context.browser_intent,
+            request_scope_key=execution_context.request_scope_key,
         )
 
 

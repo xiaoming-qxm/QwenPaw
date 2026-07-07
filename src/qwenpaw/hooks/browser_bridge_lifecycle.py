@@ -40,12 +40,14 @@ class BrowserBridgeLifecycleCleanupHook(LifecycleHook):
 
         started = perf_counter()
         cleanup_reason = _cleanup_reason(ctx)
+        request_scope_key = _request_scope_key(ctx)
         _record_cleanup_start_trace(
             session_id=session_id or root_session_id,
             cleanup_reason=cleanup_reason,
             request_scope={
                 "session_id": session_id,
                 "root_session_id": root_session_id,
+                "request_scope_key": request_scope_key,
                 "workspace_id": _workspace_id(ctx),
             },
         )
@@ -53,6 +55,7 @@ class BrowserBridgeLifecycleCleanupHook(LifecycleHook):
             result = await cleanup_browser_bridge_request_resources(
                 session_id=session_id,
                 root_session_id=root_session_id,
+                request_scope_key=request_scope_key,
                 workspace_id=_workspace_id(ctx),
                 cleanup_reason=cleanup_reason,
             )
@@ -100,6 +103,9 @@ class BrowserBridgeLifecycleCleanupHook(LifecycleHook):
                     or (result or {}).get("released_tabs")
                     or 0,
                 ),
+                preserved_owned_tabs=int(
+                    (result or {}).get("preserved_owned_tabs") or 0,
+                ),
                 skipped_protected_tabs=int(
                     (result or {}).get("skipped_protected_tabs") or 0,
                 ),
@@ -127,6 +133,7 @@ async def cleanup_browser_bridge_request_resources(
     *,
     session_id: str,
     root_session_id: str,
+    request_scope_key: str = "",
     workspace_id: str,
     cleanup_reason: str,
 ) -> dict[str, Any]:
@@ -134,6 +141,7 @@ async def cleanup_browser_bridge_request_resources(
     return await cleanup_browser_backend_request_resources(
         session_id=session_id,
         root_session_id=root_session_id,
+        request_scope_key=request_scope_key,
         workspace_id=workspace_id,
         cleanup_reason=cleanup_reason,
     )
@@ -146,6 +154,30 @@ def _workspace_id(ctx: HookContext) -> str:
         if value:
             return str(value)
     return str(ctx.agent_id or "default")
+
+
+def _request_scope_key(ctx: HookContext) -> str:
+    request = ctx.request
+    root = str(ctx.root_session_id or ctx.session_id or "default")
+    request_context = (
+        getattr(request, "request_context", None) if request is not None else None
+    )
+    if isinstance(request_context, dict):
+        for key in ("browser_request_scope_key", "request_scope_key"):
+            value = str(request_context.get(key) or "").strip()
+            if value:
+                return value
+    metadata = getattr(request, "metadata", None)
+    if isinstance(metadata, dict):
+        for key in ("request_id", "message_id", "event_id", "turn_id"):
+            metadata_value = metadata.get(key)
+            if metadata_value:
+                return f"{root}:request:{metadata_value}"
+    for attr in ("request_id", "id", "message_id", "event_id"):
+        value = getattr(request, attr, "") if request is not None else ""
+        if value:
+            return f"{root}:request:{value}"
+    return f"{root}:request:{id(request)}"
 
 
 def _merge_cleanup_results(
@@ -189,6 +221,9 @@ def _merge_cleanup_results(
     merged["cleanup_reason"] = cleanup_reason
     merged["closed_owned_tabs"] = closed_owned_tabs
     merged["released_borrowed_tabs"] = released_borrowed_tabs
+    merged["preserved_owned_tabs"] = int(
+        user_result.get("preserved_owned_tabs") or 0,
+    ) + int(control_result.get("preserved_owned_tabs") or 0)
     merged["skipped_protected_tabs"] = (
         int(
             user_result.get("skipped_protected_tabs") or 0,
@@ -279,6 +314,7 @@ def _record_cleanup_trace(
     cleanup_reason: str,
     closed_owned_tabs: int,
     released_borrowed_tabs: int,
+    preserved_owned_tabs: int = 0,
     skipped_protected_tabs: int = 0,
     remaining_orphaned_tabs: int = 0,
     owned_tabs_remaining: int = 0,
@@ -297,6 +333,7 @@ def _record_cleanup_trace(
         metadata={
             "closed_owned_tabs": closed_owned_tabs,
             "released_borrowed_tabs": released_borrowed_tabs,
+            "preserved_owned_tabs": preserved_owned_tabs,
             "skipped_protected_tabs": skipped_protected_tabs,
             "remaining_orphaned_tabs": remaining_orphaned_tabs,
             "owned_tabs_remaining": owned_tabs_remaining,

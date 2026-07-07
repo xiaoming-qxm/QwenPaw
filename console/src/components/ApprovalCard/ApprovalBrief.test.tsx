@@ -20,6 +20,9 @@ function approvalProps(
       evidence: {
         button: "Place order",
         authorization: "Bearer secret-token",
+        text: "plain-password",
+        prompt_text: "plain-prompt",
+        file_path: "/Users/example/private/report.pdf",
         nested: {
           cookie: "session-cookie",
           label: "Cart total",
@@ -64,5 +67,10 @@ describe("ApprovalBrief", () => {
     expect(screen.getAllByText("[REDACTED]").length).toBeGreaterThanOrEqual(2);
     expect(screen.queryByText("secret-token")).not.toBeInTheDocument();
     expect(screen.queryByText("session-cookie")).not.toBeInTheDocument();
+    expect(screen.queryByText("plain-password")).not.toBeInTheDocument();
+    expect(screen.queryByText("plain-prompt")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("/Users/example/private/report.pdf"),
+    ).not.toBeInTheDocument();
   });
 });
