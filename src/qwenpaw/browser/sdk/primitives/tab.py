@@ -19,6 +19,7 @@ from .extract import extract_from_tab
 from .observation import coerce_observation, coerce_screenshot
 from .trace_metadata import with_boundary_decision
 from .trace_metadata import with_exception_metadata
+from .trace_metadata import with_route_metadata
 from .types import (
     BrowserActionResult,
     BrowserArtifact,
@@ -299,7 +300,7 @@ class Tab:
             status=status,
             duration_ms=duration_ms,
             error_code=error_code,
-            metadata=metadata,
+            metadata=with_route_metadata(metadata, self.context),
         )
 
     def _ensure_can_mutate(self, action_name: str) -> None:

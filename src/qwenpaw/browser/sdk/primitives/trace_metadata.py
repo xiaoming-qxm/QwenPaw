@@ -7,6 +7,26 @@ from collections.abc import Mapping
 from typing import Any
 
 from .types import BrowserActionResult
+from .types import ResolvedBrowserContext
+
+
+def with_route_metadata(
+    metadata: dict[str, Any] | None,
+    context: ResolvedBrowserContext,
+) -> dict[str, Any]:
+    """Attach resolved Browser route metadata to a trace metadata payload."""
+    trace_metadata = dict(metadata or {})
+    route_metadata = {
+        "browser_intent": context.browser_intent,
+        "preferred_backend_id": context.preferred_backend_id,
+        "selected_backend_degraded": context.selected_backend_degraded,
+        "fallback_allowed": context.fallback_allowed,
+        "fallback_reason": context.fallback_reason,
+        "auto_route_policy": context.auto_route_policy,
+    }
+    for key, value in route_metadata.items():
+        trace_metadata.setdefault(key, value)
+    return trace_metadata
 
 
 def coerce_action_result(value: Any) -> BrowserActionResult:
@@ -58,4 +78,5 @@ __all__ = [
     "coerce_action_result",
     "with_boundary_decision",
     "with_exception_metadata",
+    "with_route_metadata",
 ]

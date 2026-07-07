@@ -10,10 +10,18 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote_plus
+from urllib.parse import urlparse
 
 from ..actions.tab_actions import BrowserActionResult
 from ..backends.registry import get_default_backend_registry
 from ..governance.error_codes import BrowserErrorCode, classify_browser_error
+from ..governance.boundary import (
+    action_result_with_boundary_decision,
+    evaluate_browser_boundary,
+    policy_metadata_kwargs,
+    raise_if_boundary_denied,
+)
+from ..governance.policy import BrowserPolicy, DefaultBrowserPolicy
 from ..primitives.observation import coerce_observation, coerce_screenshot
 from ..primitives.types import (
     BrowserBackendCapabilities,
@@ -49,8 +57,14 @@ class IsolatedBrowserBackend:
     def __init__(
         self,
         manager: "IsolatedPlaywrightRuntimeManager | None" = None,
+        policy: BrowserPolicy | None = None,
     ) -> None:
         self._manager = manager or get_isolated_runtime_manager()
+        self._policy = policy
+
+    def set_policy(self, policy: BrowserPolicy) -> None:
+        """Replace the action policy used by future isolated sessions."""
+        self._policy = policy
 
     def capabilities(self) -> BrowserBackendCapabilities:
         return BrowserBackendCapabilities(
@@ -143,6 +157,7 @@ class IsolatedBrowserBackend:
             runtime=runtime,
             session_id=session_id,
             context=context,
+            policy=self._policy,
         )
 
     async def shutdown(self) -> None:
@@ -162,11 +177,13 @@ class IsolatedBrowserSession:
         runtime: Any,
         session_id: str,
         context: ResolvedBrowserContext,
+        policy: BrowserPolicy | None = None,
     ) -> None:
         self._manager = manager
         self.runtime = runtime
         self.session_id = session_id
         self.context = context
+        self._policy = policy or _default_policy_for_context(context)
 
     async def close(self) -> None:
         close = getattr(self.runtime, "close", None)
@@ -234,6 +251,29 @@ class IsolatedBrowserSession:
         *,
         read_only: bool = False,
     ) -> Any:
+        metadata = await self._action_metadata(
+            tab_id,
+            {
+                "script": script,
+                "code": script,
+                "read_only": read_only,
+            },
+        )
+        evaluation = await evaluate_browser_boundary(
+            policy=self._policy,
+            session_id=self.session_id,
+            context=self.context,
+            action="evaluate",
+            metadata=metadata,
+        )
+        raise_if_boundary_denied(
+            evaluation,
+            action="evaluate",
+            tab_id=tab_id,
+            action_metadata=metadata,
+            context=self.context,
+            backend_id=self.backend_id,
+        )
         return await self.runtime.evaluate(
             tab_id,
             script,
@@ -246,9 +286,34 @@ class IsolatedBrowserSession:
         name: str,
         **kwargs: Any,
     ) -> BrowserActionResult:
+        metadata = await self._action_metadata(
+            tab_id,
+            policy_metadata_kwargs(name, kwargs),
+        )
+        evaluation = await evaluate_browser_boundary(
+            policy=self._policy,
+            session_id=self.session_id,
+            context=self.context,
+            action=name,
+            metadata=metadata,
+        )
+        raise_if_boundary_denied(
+            evaluation,
+            action=name,
+            tab_id=tab_id,
+            action_metadata=metadata,
+            context=self.context,
+            backend_id=self.backend_id,
+        )
         if tab_id == _BROWSER_SENTINEL_TAB_ID:
-            return await self.runtime.browser_action(name, **kwargs)
-        return await self.runtime.action(tab_id, name, **kwargs)
+            payload = await self.runtime.browser_action(name, **kwargs)
+        else:
+            payload = await self.runtime.action(tab_id, name, **kwargs)
+        return action_result_with_boundary_decision(
+            payload,
+            name,
+            boundary_decision=evaluation.boundary_decision,
+        )
 
     async def close_tab(self, tab_id: str) -> BrowserActionResult:
         return await self.runtime.close_tab(tab_id)
@@ -263,6 +328,33 @@ class IsolatedBrowserSession:
         del instruction, format
         observation = await self.snapshot(tab_id)
         return observation.text
+
+    async def _action_metadata(
+        self,
+        tab_id: str,
+        kwargs: dict[str, Any],
+    ) -> dict[str, Any]:
+        metadata = dict(kwargs)
+        if tab_id == _BROWSER_SENTINEL_TAB_ID:
+            return metadata
+
+        metadata["tab_id"] = str(tab_id)
+        try:
+            page = await self.page_info(tab_id)
+        except (AttributeError, RuntimeError, TypeError, ValueError):
+            return metadata
+
+        if page.url and not metadata.get("url"):
+            metadata["url"] = page.url
+        if page.title and not metadata.get("title"):
+            metadata["title"] = page.title
+
+        url = str(metadata.get("url") or "")
+        if url and not metadata.get("domain"):
+            domain = _domain_from_url(url)
+            if domain:
+                metadata["domain"] = domain
+        return metadata
 
 
 class IsolatedPlaywrightRuntimeManager:
@@ -850,16 +942,42 @@ def get_isolated_runtime_manager() -> IsolatedPlaywrightRuntimeManager:
 
 def register_isolated_backend_once(
     manager: IsolatedPlaywrightRuntimeManager | None = None,
+    policy: BrowserPolicy | None = None,
 ) -> IsolatedBrowserBackend:
     """Register the isolated Playwright backend if absent."""
     registry = get_default_backend_registry()
     existing = registry.get(BACKEND_ID)
     if isinstance(existing, IsolatedBrowserBackend):
+        if policy is not None:
+            existing.set_policy(policy)
         return existing
-    backend = IsolatedBrowserBackend(manager=manager)
+    backend = IsolatedBrowserBackend(manager=manager, policy=policy)
     if existing is None:
         registry.register(backend)
     return backend
+
+
+def _default_policy_for_context(
+    context: ResolvedBrowserContext,
+) -> BrowserPolicy:
+    if _is_degraded_isolated_context(context):
+        from qwenpaw.browser.approval_policy import (
+            QwenPawBrowserApprovalPolicy,
+        )
+
+        return QwenPawBrowserApprovalPolicy()
+    return DefaultBrowserPolicy()
+
+
+def _is_degraded_isolated_context(context: ResolvedBrowserContext) -> bool:
+    return (
+        context.requested == "auto"
+        and context.selected == "isolated"
+        and (
+            context.selected_backend_degraded
+            or context.fallback_reason == "user_browser_unavailable"
+        )
+    )
 
 
 async def _safe_title(page: Any) -> str:
@@ -922,6 +1040,13 @@ def _search_url(query: str, engine: str) -> str:
     if engine in {"duckduckgo", "ddg"}:
         return f"https://duckduckgo.com/?q={encoded}"
     return f"https://www.google.com/search?q={encoded}"
+
+
+def _domain_from_url(url: str) -> str:
+    try:
+        return (urlparse(url).hostname or "").lower()
+    except ValueError:
+        return ""
 
 
 def _diagnostic_observed_at() -> str:

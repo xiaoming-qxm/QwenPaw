@@ -19,6 +19,7 @@ from ..primitives.tabs import BrowserTabs
 from ..primitives.trace_metadata import coerce_action_result
 from ..primitives.trace_metadata import with_boundary_decision
 from ..primitives.trace_metadata import with_exception_metadata
+from ..primitives.trace_metadata import with_route_metadata
 from ..primitives.types import BrowserActionResult
 from ..primitives.types import (
     BrowserBackendDiagnostic,
@@ -274,7 +275,7 @@ class Browser:
             duration_ms=duration_ms,
             error_code=error_code,
             approval_state=approval_state,
-            metadata=metadata,
+            metadata=with_route_metadata(metadata, self.context),
         )
 
 
