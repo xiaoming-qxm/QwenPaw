@@ -29,6 +29,7 @@ from qwenpaw.schemas import (
 )
 from ...utils.logging import LOG_FILE_PATH
 from ..agent_context import get_agent_for_request
+from ..approvals.display import approval_brief_payload
 from ..approvals.display import approval_display_fields
 from ..chats.title_generator import generate_and_update_title
 from ..utils import check_upload_size
@@ -465,6 +466,7 @@ async def get_push_messages(
             "severity": p.severity,
             "findings_count": p.findings_count,
             "findings_summary": p.result_summary,
+            "approval_brief": approval_brief_payload(p),
             "tool_params": p.extra.get("tool_call", {}).get("input", {}),
             "source_type": p.extra.get("source_type", "tool_guard"),
             "driver": p.extra.get("driver"),

@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any
 
 from ...constant import TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS
 from ...security.tool_guard.approval import ApprovalDecision, ApprovalScope
+from .display import approval_brief_notice, approval_brief_to_payload
 from .models import ApprovalRequestSummary
 
 if TYPE_CHECKING:
@@ -204,11 +205,14 @@ class ApprovalService:
         """Create a pending approval from a generic summary."""
         request_id = str(uuid.uuid4())
         loop = asyncio.get_running_loop()
+        brief_payload = approval_brief_to_payload(summary.approval_brief)
         merged_extra = {
             "source_type": summary.source_type,
             **summary.payload,
             **dict(extra or {}),
         }
+        if brief_payload is not None:
+            merged_extra["approval_brief"] = brief_payload
         pending = PendingApproval(
             request_id=request_id,
             session_id=session_id,
@@ -239,6 +243,15 @@ class ApprovalService:
             session_id[:8],
             root_session_id[:8],
         )
+
+        if channel == "console" and brief_payload is not None:
+            from ..console_push_store import append as push_store_append
+
+            await push_store_append(
+                session_id,
+                approval_brief_notice(brief_payload),
+                sticky=True,
+            )
 
         if (
             channel

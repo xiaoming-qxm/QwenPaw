@@ -9,6 +9,7 @@ from typing import Any, Literal
 BrowserContext = Literal["auto", "user", "isolated"]
 ConcreteBrowserContext = Literal["user", "isolated"]
 BrowserIntent = Literal["ambiguous", "public", "user_state"]
+BrowserRetention = Literal["clean", "debug", "handoff"]
 BrowserCapabilityClass = Literal[
     "observation",
     "navigation",
@@ -57,6 +58,7 @@ BrowserRiskKind = Literal[
     "unknown_sensitive",
     "unknown_write",
 ]
+_OBSERVATION_TEXT_LIMIT = 1200
 
 
 @dataclass(frozen=True)
@@ -206,6 +208,19 @@ class BrowserObservation:
     degraded: bool = False
     metadata: dict[str, Any] = field(default_factory=dict)
 
+    def __str__(self) -> str:
+        parts: list[str] = []
+        if self.title:
+            parts.append(f"Title: {self.title}")
+        if self.url:
+            parts.append(f"URL: {self.url}")
+        text = self.text
+        if len(text) > _OBSERVATION_TEXT_LIMIT:
+            text = text[:_OBSERVATION_TEXT_LIMIT].rstrip() + "..."
+        if text:
+            parts.append(text)
+        return "\n".join(parts)
+
 
 @dataclass(frozen=True)
 class BrowserScreenshot:
@@ -279,6 +294,7 @@ __all__ = [
     "BrowserDiagnostics",
     "BrowserEvidenceSource",
     "BrowserIntent",
+    "BrowserRetention",
     "BrowserExtractionResult",
     "BrowserObservation",
     "BrowserPageInfo",

@@ -69,6 +69,7 @@ from .primitives.types import (
     ResolvedBrowserContext,
 )
 from .recovery import (
+    BrowserProductPolicy,
     BrowserRecoveryAction,
     BrowserRecoveryDecision,
     BrowserRecoveryPolicy,
@@ -125,6 +126,7 @@ __all__ = [
     "BrowserPolicyDecision",
     "BrowserPolicyDenied",
     "BrowserProgressDecision",
+    "BrowserProductPolicy",
     "BrowserRecoveryAction",
     "BrowserRecoveryDecision",
     "BrowserRecoveryPolicy",

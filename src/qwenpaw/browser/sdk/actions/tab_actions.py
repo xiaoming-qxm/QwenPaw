@@ -69,6 +69,10 @@ class TabActions:
         _ensure_target("type", kwargs)
         return await self._mutate("type", **kwargs, text=text)
 
+    async def fill(self, target: Any, text: str) -> BrowserActionResult:
+        """Stable alias for typing text into an editable target."""
+        return await self.type(target, text)
+
     async def press(self, key: str) -> BrowserActionResult:
         return await self._mutate("press", key=key)
 

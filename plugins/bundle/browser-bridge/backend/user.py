@@ -381,7 +381,9 @@ class ChromeExtensionBrowserSession:
         self._policy = policy
         self._control_engine = control_engine
         self._trace_recorder = trace_recorder or record_browser_trace_event
-        self._state: dict[str, Any] = {"workspace_id": "browser_sdk"}
+        self._state: dict[str, Any] = {
+            "workspace_id": _browser_workspace_id(session_id),
+        }
         self._tab_ownership: dict[str, _TabOwnership] = {}
         self._registry_keys: set[str] = set()
 
@@ -444,7 +446,10 @@ class ChromeExtensionBrowserSession:
     async def active_tab(self) -> dict[str, Any]:
         started = perf_counter()
         tabs = await self.list_tabs()
-        selected = _default_workspace_tab(tabs)
+        selected = _default_workspace_tab(
+            tabs,
+            workspace_id=self._state["workspace_id"],
+        )
         if selected is None:
             tab = await self._create_workspace_tab()
             self._record_workspace_selection_trace(
@@ -683,6 +688,7 @@ class ChromeExtensionBrowserSession:
                 "workspace_id": workspace_id,
                 "controlled_workspace": _is_controlled_workspace_tab(
                     enriched,
+                    workspace_id=self._state["workspace_id"],
                 ),
                 "protected_origin": _is_protected_tab(enriched),
                 "ownership": ownership,
@@ -1204,18 +1210,33 @@ def _tab_from_create_response(
 
 def _default_workspace_tab(
     tabs: list[dict[str, Any]],
+    *,
+    workspace_id: str = "browser_sdk",
 ) -> dict[str, Any] | None:
     safe_tabs = [tab for tab in tabs if not _is_protected_tab(tab)]
     if not safe_tabs:
         return None
     for tab in safe_tabs:
-        if _is_controlled_workspace_tab(tab):
+        if _is_controlled_workspace_tab(tab, workspace_id=workspace_id):
             return tab
     return None
 
 
-def _is_controlled_workspace_tab(tab: dict[str, Any]) -> bool:
-    return _workspace_id(tab) == "browser_sdk"
+def _is_controlled_workspace_tab(
+    tab: dict[str, Any],
+    *,
+    workspace_id: str = "",
+) -> bool:
+    actual_workspace_id = _workspace_id(tab)
+    if workspace_id:
+        return actual_workspace_id == workspace_id
+    return actual_workspace_id == "browser_sdk" or actual_workspace_id.startswith(
+        "browser_sdk:",
+    )
+
+
+def _browser_workspace_id(session_id: str) -> str:
+    return f"browser_sdk:{_normalize_session_id(session_id)}"
 
 
 def _workspace_id(tab: dict[str, Any]) -> str:

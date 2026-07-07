@@ -39,7 +39,39 @@ class BrowserTabs:
         )
 
     async def open(self, url: str | None = None) -> Tab:
-        """Open a tab and mark it as needing observation before mutation."""
+        """Reuse the request workspace tab and navigate it to *url*."""
+        started = perf_counter()
+        try:
+            tab = await self.active()
+            if url:
+                await tab.actions.open(url)
+                tab.url = str(url)
+        except Exception as exc:
+            self._trace(
+                action="open",
+                status="error",
+                duration_ms=_duration_ms(started),
+                url=str(url or ""),
+                error_code=_error_code(exc),
+                metadata={"error_type": type(exc).__name__},
+            )
+            raise
+        self._trace(
+            action="open",
+            status="ok",
+            duration_ms=_duration_ms(started),
+            tab_id=tab.id,
+            url=tab.url or str(url or ""),
+            metadata={"workspace_reuse": True},
+        )
+        return self._remember(tab)
+
+    async def new(self, url: str | None = None) -> Tab:
+        """Explicitly create a new browser tab for the request workspace."""
+        return await self._open_new_tab(url)
+
+    async def _open_new_tab(self, url: str | None = None) -> Tab:
+        """Open a new tab and mark it as needing observation before mutation."""
         started = perf_counter()
         try:
             raw = await self._session.open_tab(url)
@@ -61,11 +93,12 @@ class BrowserTabs:
             )
             raise
         self._trace(
-            action="open",
+            action="new",
             status="ok",
             duration_ms=_duration_ms(started),
             tab_id=tab.id,
             url=tab.url or str(url or ""),
+            metadata={"workspace_reuse": False},
         )
         return self._remember(tab)
 

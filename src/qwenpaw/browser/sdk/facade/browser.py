@@ -27,6 +27,7 @@ from ..primitives.types import (
     BrowserDiagnosticCheck,
     BrowserDiagnosticStatus,
     BrowserDiagnostics,
+    BrowserRetention,
     ResolvedBrowserContext,
 )
 from ..runtime.kernel import get_current_execution_context
@@ -44,6 +45,7 @@ class Browser:
     session: Any
     context: ResolvedBrowserContext
     session_id: str = ""
+    retention: BrowserRetention = "clean"
     tabs: BrowserTabs = field(init=False)
     actions: BrowserActions = field(init=False)
 
@@ -59,25 +61,69 @@ class Browser:
     async def close(self) -> None:
         """Release browser session resources through the selected backend."""
         started = perf_counter()
-        close = getattr(self.session, "close", None)
+        if self.retention != "clean":
+            self._trace(
+                phase="close",
+                status="ok",
+                duration_ms=_duration_ms(started),
+                metadata={
+                    "retention": self.retention,
+                    "cleanup_result": "preserved",
+                },
+            )
+            return
+        close_metadata: dict[str, Any] = {"retention": self.retention}
         try:
-            if callable(close):
-                result = close()
-                if hasattr(result, "__await__"):
+            cleanup = getattr(self.session, "cleanup_for_request", None)
+            if callable(cleanup):
+                result = cleanup(cleanup_reason="browser_close")
+                if inspect.isawaitable(result):
+                    result = await result
+                if isinstance(result, dict):
+                    close_metadata["cleanup_summary"] = dict(result)
+            else:
+                close = getattr(self.session, "close", None)
+                if not callable(close):
+                    result = None
+                else:
+                    result = close()
+                if inspect.isawaitable(result):
                     await result
+                close_metadata["cleanup_result"] = "closed"
         except Exception as exc:
             self._trace(
                 phase="close",
                 status="error",
                 duration_ms=_duration_ms(started),
                 error_code=_error_code(exc),
-                metadata={"error_type": type(exc).__name__},
+                metadata={
+                    **close_metadata,
+                    "error_type": type(exc).__name__,
+                },
             )
             raise
         self._trace(
             phase="close",
             status="ok",
             duration_ms=_duration_ms(started),
+            metadata=close_metadata,
+        )
+
+    async def release(self) -> None:
+        """Alias for close() that reads naturally for request cleanup."""
+        await self.close()
+
+    async def preserve(self) -> None:
+        """Mark the browser session as intentionally retained."""
+        started = perf_counter()
+        self._trace(
+            phase="close",
+            status="ok",
+            duration_ms=_duration_ms(started),
+            metadata={
+                "retention": self.retention,
+                "cleanup_result": "preserved",
+            },
         )
 
     async def stop(self) -> None:
@@ -97,6 +143,7 @@ class Browser:
         *,
         requires_user_state: bool | None = None,
         session_id: str | None = None,
+        retention: BrowserRetention = "clean",
     ) -> "Browser":
         """Connect to a browser backend using runtime context arbitration."""
         execution_context = get_current_execution_context()
@@ -158,6 +205,7 @@ class Browser:
             session=session,
             context=resolved,
             session_id=effective_session_id,
+            retention=_normalize_retention(retention),
         )
         browser._trace(
             phase="connect",
@@ -284,12 +332,14 @@ async def connect_browser(
     *,
     requires_user_state: bool | None = None,
     session_id: str | None = None,
+    retention: BrowserRetention = "clean",
 ) -> Browser:
     """Alias for Browser.connect()."""
     return await Browser.connect(
         context=context,
         requires_user_state=requires_user_state,
         session_id=session_id,
+        retention=retention,
     )
 
 
@@ -320,6 +370,13 @@ def _normalize_context(context: str) -> BrowserContext:
     if value in {"auto", "user", "isolated"}:
         return value  # type: ignore[return-value]
     return "auto"
+
+
+def _normalize_retention(retention: str) -> BrowserRetention:
+    value = str(retention or "clean").strip().lower()
+    if value in {"clean", "debug", "handoff"}:
+        return value  # type: ignore[return-value]
+    raise ValueError("Browser retention must be one of: clean, debug.")
 
 
 def _duration_ms(started: float) -> float:

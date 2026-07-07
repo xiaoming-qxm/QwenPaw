@@ -107,46 +107,13 @@ async def _control_request_domain_approval(
     if not session_id:
         return False
 
-    from qwenpaw.app.approvals import get_approval_service
-    from qwenpaw.app.approvals.models import ApprovalRequestSummary
-    from qwenpaw.constant import TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS
-    from qwenpaw.security.tool_guard.approval import ApprovalDecision
+    from qwenpaw.browser.approval_policy import resolve_cdp_browser_approval
 
-    svc = get_approval_service()
-    pending = await svc.create_pending_summary(
-        session_id=session_id,
-        root_session_id=str(
-            request_context.get("root_session_id") or session_id,
-        ),
-        owner_agent_id=str(request_context.get("root_agent_id") or ""),
-        user_id=str(request_context.get("user_id") or ""),
-        channel=str(request_context.get("channel") or ""),
-        agent_id=str(request_context.get("agent_id") or "unknown"),
-        summary=ApprovalRequestSummary(
-            source_type="browser_sdk_cdp",
-            name="browser",
-            severity="medium",
-            findings_count=1,
-            result_summary=(
-                "Chrome browser control wants to open a new tab on domain "
-                f"{request['domain']}."
-            ),
-            payload=request,
-        ),
-        timeout_seconds=TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS,
-        extra={
-            "tool_call": {
-                "id": str(request_context.get("tool_call_id") or ""),
-                "name": "browser",
-                "input": request,
-            },
-        },
+    decision = await resolve_cdp_browser_approval(
+        request_context=request_context,
+        request=request,
     )
-    decision = await svc.wait_for_approval(
-        pending.request_id,
-        TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS,
-    )
-    return decision == ApprovalDecision.APPROVED
+    return decision.allowed
 
 
 def _control_approval_level(request_context: dict[str, Any]) -> str:

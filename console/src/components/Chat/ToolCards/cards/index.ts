@@ -27,7 +27,7 @@ export {
   default as BrowserUseCard,
   BROWSER_TOOL_NAMES,
 } from "./BrowserUseCard";
-export { default as BrowserEvidenceCard } from "./BrowserEvidenceCard";
+export { default as BrowserCompactCard } from "./BrowserCompactCard";
 export { default as GetCurrentTimeCard } from "./GetCurrentTimeCard";
 export { default as SetTimezoneCard } from "./SetTimezoneCard";
 export { default as TokenUsageCard } from "./TokenUsageCard";
@@ -53,7 +53,7 @@ import ViewVideoCard from "./ViewVideoCard";
 import DesktopScreenshotCard from "./DesktopScreenshotCard";
 import SendFileCard from "./SendFileCard";
 import BrowserUseCard from "./BrowserUseCard";
-import BrowserEvidenceCard from "./BrowserEvidenceCard";
+import BrowserCompactCard from "./BrowserCompactCard";
 import GetCurrentTimeCard from "./GetCurrentTimeCard";
 import SetTimezoneCard from "./SetTimezoneCard";
 import TokenUsageCard from "./TokenUsageCard";
@@ -95,7 +95,7 @@ export const BUILTIN_CARD_REGISTRY: Record<string, BuiltinCardComponent> = {
   send_file_to_user: SendFileCard,
 
   // Browser
-  browser: BrowserEvidenceCard,
+  browser: BrowserCompactCard,
   browser_navigate: BrowserUseCard,
   navigate: BrowserUseCard,
   browser_click: BrowserUseCard,

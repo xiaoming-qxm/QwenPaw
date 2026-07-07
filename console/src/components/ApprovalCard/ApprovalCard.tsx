@@ -26,6 +26,7 @@ export interface ApprovalCardProps {
   findingsCount: number;
   findingsSummary: string;
   toolParams: Record<string, unknown>;
+  approvalBrief?: ApprovalBrief;
   createdAt: number;
   timeoutSeconds: number;
   agentId: string;
@@ -44,6 +45,19 @@ export interface ApprovalCardProps {
   onAcknowledge?: (requestId: string) => Promise<void>;
 }
 
+export interface ApprovalBrief {
+  subject?: string;
+  target?: string;
+  evidence?: Record<string, unknown>;
+  uncertainties?: string[];
+  possible_consequences?: string[];
+  risk_kind?: string;
+  risk_level?: string;
+  confidence?: number;
+  why_approval_required?: string;
+  safe_alternative?: string;
+}
+
 export function ApprovalCard({
   requestId,
   toolName,
@@ -52,6 +66,7 @@ export function ApprovalCard({
   findingsCount,
   findingsSummary,
   toolParams,
+  approvalBrief,
   createdAt,
   timeoutSeconds,
   agentId,
@@ -85,6 +100,10 @@ export function ApprovalCard({
   const browserApproval = useMemo(
     () => browserApprovalSummary(toolParams),
     [toolParams],
+  );
+  const redactedApprovalBrief = useMemo(
+    () => approvalBriefSummary(approvalBrief),
+    [approvalBrief],
   );
 
   const handleCopy = useCallback(async (text: string, field: string) => {
@@ -304,6 +323,73 @@ export function ApprovalCard({
           </div>
         )}
 
+        {redactedApprovalBrief ? (
+          <div className={styles.approvalBrief}>
+            <div className={styles.approvalBriefTitle}>
+              {t("approval.decisionBrief", "Decision brief")}
+            </div>
+            <div className={styles.browserApprovalGrid}>
+              <BrowserField
+                label={t("approval.briefSubject", "Subject")}
+                value={redactedApprovalBrief.subject}
+              />
+              <BrowserField
+                label={t("approval.briefTarget", "Target")}
+                value={redactedApprovalBrief.target}
+              />
+              <BrowserField
+                label={t("approval.briefRisk", "Risk")}
+                value={redactedApprovalBrief.risk}
+              />
+              <BrowserField
+                label={t("approval.briefConfidence", "Confidence")}
+                value={redactedApprovalBrief.confidence}
+              />
+            </div>
+            {redactedApprovalBrief.whyApprovalRequired ? (
+              <BrowserField
+                label={t(
+                  "approval.whyApprovalRequired",
+                  "Why approval is required",
+                )}
+                value={redactedApprovalBrief.whyApprovalRequired}
+              />
+            ) : null}
+            {redactedApprovalBrief.evidenceRows.length ? (
+              <div className={styles.browserKwargs}>
+                <div className={styles.browserKwargsTitle}>
+                  {t("approval.briefEvidence", "Evidence")}
+                </div>
+                {redactedApprovalBrief.evidenceRows.map((row) => (
+                  <BrowserField
+                    key={row.path}
+                    label={row.path}
+                    value={row.value}
+                  />
+                ))}
+              </div>
+            ) : null}
+            {redactedApprovalBrief.consequences.length ? (
+              <BriefList
+                title={t("approval.possibleConsequences", "Consequences")}
+                items={redactedApprovalBrief.consequences}
+              />
+            ) : null}
+            {redactedApprovalBrief.uncertainties.length ? (
+              <BriefList
+                title={t("approval.uncertainties", "Uncertainties")}
+                items={redactedApprovalBrief.uncertainties}
+              />
+            ) : null}
+            {redactedApprovalBrief.safeAlternative ? (
+              <BrowserField
+                label={t("approval.safeAlternative", "Safe alternative")}
+                value={redactedApprovalBrief.safeAlternative}
+              />
+            ) : null}
+          </div>
+        ) : null}
+
         {browserApproval ? (
           <div className={styles.browserApproval}>
             <div className={styles.browserApprovalTitle}>
@@ -476,6 +562,19 @@ function BrowserField({ label, value }: { label: string; value: string }) {
   );
 }
 
+function BriefList({ title, items }: { title: string; items: string[] }) {
+  return (
+    <div className={styles.briefList}>
+      <div className={styles.briefListTitle}>{title}</div>
+      <ul>
+        {items.map((item) => (
+          <li key={item}>{item}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 interface BrowserApprovalSummary {
   domain: string;
   url: string;
@@ -485,6 +584,50 @@ interface BrowserApprovalSummary {
   riskLevel: string;
   expectedStateChange: string;
   kwargsRows: { path: string; value: string }[];
+}
+
+interface ApprovalBriefSummary {
+  subject: string;
+  target: string;
+  risk: string;
+  confidence: string;
+  whyApprovalRequired: string;
+  safeAlternative: string;
+  consequences: string[];
+  uncertainties: string[];
+  evidenceRows: { path: string; value: string }[];
+}
+
+function approvalBriefSummary(
+  brief: ApprovalBrief | undefined,
+): ApprovalBriefSummary | null {
+  if (!brief || !isRecord(brief)) {
+    return null;
+  }
+  const evidence = isRecord(brief.evidence)
+    ? redactSensitiveParams(brief.evidence)
+    : {};
+  return {
+    subject: asString(brief.subject),
+    target: asString(brief.target),
+    risk: `${asString(brief.risk_kind) || "unknown"} / ${
+      asString(brief.risk_level) || "unknown"
+    }`,
+    confidence:
+      typeof brief.confidence === "number"
+        ? `${Math.round(brief.confidence * 100)}%`
+        : "",
+    whyApprovalRequired: asString(brief.why_approval_required),
+    safeAlternative: asString(brief.safe_alternative),
+    consequences: stringList(brief.possible_consequences),
+    uncertainties: stringList(brief.uncertainties),
+    evidenceRows: flattenPreviewRows(evidence),
+  };
+}
+
+function stringList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.map(asString).filter(Boolean);
 }
 
 function browserApprovalSummary(

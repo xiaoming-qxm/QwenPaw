@@ -4,12 +4,12 @@
 from __future__ import annotations
 
 import time
-from collections.abc import Callable, Hashable
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlparse
 
-from qwenpaw.app.approvals.models import ApprovalRequestSummary
+from qwenpaw.app.approvals.models import ApprovalBrief, ApprovalRequestSummary
 from qwenpaw.browser.sdk.governance.error_codes import BrowserErrorCode
 from qwenpaw.browser.sdk.telemetry.trace import record_browser_trace_event
 from qwenpaw.browser.sdk.primitives.types import (
@@ -33,6 +33,85 @@ _REDACT_KEYS = {
 }
 
 
+@dataclass(frozen=True)
+class BrowserApprovalCacheKey:
+    """Risk-domain key shared by Browser SDK and internal CDP relay."""
+
+    root_session_id: str
+    approval_level: str
+    domain: str
+    action_family: str
+    risk_kind: str
+
+
+@dataclass(frozen=True)
+class BrowserApprovalCacheEntry:
+    """Cached Browser approval outcome."""
+
+    state: str
+    expires_at: float
+    metadata: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class BrowserApprovalResolution:
+    """Approval decision returned by the shared Browser resolver."""
+
+    allowed: bool
+    reason: str
+    metadata: dict[str, Any]
+
+
+class BrowserApprovalCache:
+    """TTL cache for Browser approval outcomes."""
+
+    def __init__(
+        self,
+        *,
+        now: Callable[[], float] | None = None,
+        ttl_seconds: float = _DEFAULT_CACHE_TTL_SECONDS,
+    ) -> None:
+        self._now = now or time.time
+        self._ttl_seconds = float(ttl_seconds)
+        self._items: dict[BrowserApprovalCacheKey, BrowserApprovalCacheEntry] = {}
+
+    def get(
+        self,
+        key: BrowserApprovalCacheKey,
+    ) -> BrowserApprovalCacheEntry | None:
+        entry = self._items.get(key)
+        if entry is None:
+            return None
+        if entry.expires_at <= self._now():
+            self._items.pop(key, None)
+            return None
+        return entry
+
+    def put(
+        self,
+        key: BrowserApprovalCacheKey,
+        *,
+        state: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        self._items[key] = BrowserApprovalCacheEntry(
+            state=_approval_state_name(state),
+            expires_at=self._now() + self._ttl_seconds,
+            metadata=dict(metadata or {}),
+        )
+
+    def clear(self) -> None:
+        self._items.clear()
+
+
+_DEFAULT_BROWSER_APPROVAL_CACHE = BrowserApprovalCache()
+
+
+def get_default_browser_approval_cache() -> BrowserApprovalCache:
+    """Return the process-local Browser approval cache."""
+    return _DEFAULT_BROWSER_APPROVAL_CACHE
+
+
 class QwenPawBrowserApprovalPolicy:
     """Route sensitive Browser SDK actions through QwenPaw approvals."""
 
@@ -40,13 +119,16 @@ class QwenPawBrowserApprovalPolicy:
         self,
         *,
         approval_service: Any | None = None,
+        approval_cache: BrowserApprovalCache | None = None,
         now: Callable[[], float] | None = None,
         cache_ttl_seconds: float = _DEFAULT_CACHE_TTL_SECONDS,
     ) -> None:
         self._approval_service = approval_service
         self._now = now or time.time
-        self._cache_ttl_seconds = float(cache_ttl_seconds)
-        self._approved_cache: dict[tuple[Hashable, ...], float] = {}
+        self._approval_cache = approval_cache or BrowserApprovalCache(
+            now=self._now,
+            ttl_seconds=cache_ttl_seconds,
+        )
 
     def allow_context_acquisition(
         self,
@@ -68,17 +150,20 @@ class QwenPawBrowserApprovalPolicy:
             return matrix_decision
 
         context = _approval_context(request)
-        cache_key = _approval_cache_key(request, context["root_session_id"])
-        if self._cache_hit(cache_key):
+        cache_key = _approval_cache_key(
+            request,
+            root_session_id=context["root_session_id"],
+            approval_level=approval_level.level.name,
+        )
+        cache_entry = self._approval_cache.get(cache_key)
+        if cache_entry is not None:
+            resolution = _resolution_from_cache(cache_entry)
             return BrowserPolicyDecision(
-                allowed=True,
-                reason="browser_action_approval_cache",
+                allowed=resolution.allowed,
+                reason=resolution.reason,
                 metadata={
-                    **_boundary_decision_metadata(
-                        request,
-                        approval_level,
-                    ),
-                    "approval_cache": "hit",
+                    **_boundary_decision_metadata(request, approval_level),
+                    **resolution.metadata,
                 },
             )
 
@@ -89,6 +174,7 @@ class QwenPawBrowserApprovalPolicy:
             findings_count=1,
             result_summary=_approval_summary(request),
             payload=_approval_payload(request),
+            approval_brief=_approval_brief(request),
         )
         request_id = ""
         timeout_seconds = _approval_timeout_seconds()
@@ -128,7 +214,7 @@ class QwenPawBrowserApprovalPolicy:
                 approval_state="error",
                 approval_request_id=request_id,
                 status="error",
-                error_code=BrowserErrorCode.APPROVAL_DENIED.value,
+                error_code=BrowserErrorCode.APPROVAL_ERROR.value,
                 metadata={"error": str(exc)},
             )
             return BrowserPolicyDecision(
@@ -144,8 +230,16 @@ class QwenPawBrowserApprovalPolicy:
             )
 
         if decision == ApprovalDecision.APPROVED:
-            self._approved_cache[cache_key] = (
-                self._now() + self._cache_ttl_seconds
+            approved_metadata = _approval_decision_metadata(
+                "approved",
+                request_id,
+                request,
+                approval_level,
+            )
+            self._approval_cache.put(
+                cache_key,
+                state="approved",
+                metadata=approved_metadata,
             )
             _record_approval_trace(
                 request,
@@ -156,31 +250,43 @@ class QwenPawBrowserApprovalPolicy:
             return BrowserPolicyDecision(
                 allowed=True,
                 reason="browser_action_approved",
-                metadata=_approval_decision_metadata(
-                    "approved",
-                    request_id,
-                    request,
-                    approval_level,
-                ),
+                metadata=approved_metadata,
             )
         if decision == ApprovalDecision.TIMEOUT:
+            timeout_metadata = _approval_decision_metadata(
+                "timeout",
+                request_id,
+                request,
+                approval_level,
+            )
+            self._approval_cache.put(
+                cache_key,
+                state="timeout",
+                metadata=timeout_metadata,
+            )
             _record_approval_trace(
                 request,
                 approval_state="timeout",
                 approval_request_id=request_id,
                 status="blocked",
-                error_code=BrowserErrorCode.APPROVAL_DENIED.value,
+                error_code=BrowserErrorCode.APPROVAL_TIMEOUT.value,
             )
             return BrowserPolicyDecision(
                 allowed=False,
                 reason="browser_action_approval_timeout",
-                metadata=_approval_decision_metadata(
-                    "timeout",
-                    request_id,
-                    request,
-                    approval_level,
-                ),
+                metadata=timeout_metadata,
             )
+        denied_metadata = _approval_decision_metadata(
+            "denied",
+            request_id,
+            request,
+            approval_level,
+        )
+        self._approval_cache.put(
+            cache_key,
+            state="denied",
+            metadata=denied_metadata,
+        )
         _record_approval_trace(
             request,
             approval_state="denied",
@@ -191,12 +297,7 @@ class QwenPawBrowserApprovalPolicy:
         return BrowserPolicyDecision(
             allowed=False,
             reason="browser_action_denied",
-            metadata=_approval_decision_metadata(
-                "denied",
-                request_id,
-                request,
-                approval_level,
-            ),
+            metadata=denied_metadata,
         )
 
     def _service(self) -> Any:
@@ -205,15 +306,6 @@ class QwenPawBrowserApprovalPolicy:
         from qwenpaw.app.approvals import get_approval_service
 
         return get_approval_service()
-
-    def _cache_hit(self, key: tuple[Hashable, ...]) -> bool:
-        expires_at = self._approved_cache.get(key)
-        if expires_at is None:
-            return False
-        if expires_at <= self._now():
-            self._approved_cache.pop(key, None)
-            return False
-        return True
 
 
 def _approval_context(request: BrowserActionRequest) -> dict[str, str]:
@@ -315,14 +407,23 @@ def _browser_boundary_matrix_decision(
     severity = _boundary_severity(request)
     metadata = _boundary_decision_metadata(request, approval_level)
     if severity == "critical_unknown":
+        if not request.metadata.get("observation_attempted"):
+            return BrowserPolicyDecision(
+                allowed=False,
+                reason="browser_boundary_observation_required",
+                metadata={
+                    **metadata,
+                    "error_code": BrowserErrorCode.OBSERVATION_STALE.value,
+                    "required_next_step": "tab.snapshot()",
+                },
+            )
         return BrowserPolicyDecision(
             allowed=False,
             reason="boundary_user_intervention_required",
             metadata={
                 **metadata,
-                "error_code": (
-                    BrowserErrorCode.BOUNDARY_USER_INTERVENTION_REQUIRED.value
-                ),
+                "error_code": BrowserErrorCode.HANDOFF_REQUIRED.value,
+                "required_next_step": "ask_user_to_take_over",
             },
         )
     if severity == "operational":
@@ -335,6 +436,12 @@ def _browser_boundary_matrix_decision(
         return None
 
     level = approval_level.level
+    if _is_reversible_low_risk(request) and level != ToolExecutionLevel.STRICT:
+        return BrowserPolicyDecision(
+            allowed=True,
+            reason="browser_boundary_allowed",
+            metadata=metadata,
+        )
     if level == ToolExecutionLevel.OFF:
         return BrowserPolicyDecision(
             allowed=True,
@@ -460,6 +567,50 @@ def _approval_payload(request: BrowserActionRequest) -> dict[str, Any]:
     }
 
 
+def _approval_brief(request: BrowserActionRequest) -> ApprovalBrief | None:
+    risk = request.risk
+    if risk is None or not risk.sensitive:
+        return None
+    payload = _approval_payload(request)
+    evidence = {
+        "action": request.action,
+        "domain": payload["domain"],
+        "url": payload["url"],
+        "title": payload["title"],
+        "risk": payload["risk"],
+    }
+    if payload["kwargs"]:
+        evidence["kwargs"] = payload["kwargs"]
+    return ApprovalBrief(
+        subject="Browser action approval",
+        target=str(payload["url"] or payload["domain"] or request.action),
+        evidence=evidence,
+        uncertainties=(
+            "Browser state may change after the action runs.",
+        ),
+        possible_consequences=(
+            risk.consequence_summary
+            or "This Browser action may change page or account state.",
+        ),
+        risk_kind=str(risk.kind),
+        risk_level=str(risk.level),
+        confidence=float(risk.confidence),
+        why_approval_required=(
+            risk.decision_reason or "Browser action crosses a risk boundary."
+        ),
+        safe_alternative="Review or complete the action manually.",
+    )
+
+
+def _is_reversible_low_risk(request: BrowserActionRequest) -> bool:
+    risk = request.risk
+    if risk is None:
+        return False
+    if str(risk.level) != "low":
+        return False
+    return any(match == "account_state_reversible" for match in risk.matched)
+
+
 def _approval_summary(request: BrowserActionRequest) -> str:
     payload = _approval_payload(request)
     risk = payload["risk"]
@@ -470,17 +621,268 @@ def _approval_summary(request: BrowserActionRequest) -> str:
     )
 
 
+def browser_approval_cache_key(
+    request: BrowserActionRequest,
+    *,
+    root_session_id: str,
+    approval_level: str,
+) -> BrowserApprovalCacheKey:
+    """Return the shared approval cache key for a Browser action."""
+    return _approval_cache_key(
+        request,
+        root_session_id=root_session_id,
+        approval_level=approval_level,
+    )
+
+
 def _approval_cache_key(
     request: BrowserActionRequest,
+    *,
     root_session_id: str,
-) -> tuple[Hashable, ...]:
+    approval_level: str,
+) -> BrowserApprovalCacheKey:
     risk_kind = str(request.risk.kind) if request.risk else "unknown_sensitive"
-    return (
-        root_session_id,
-        _approval_domain_scope(request.metadata),
-        risk_kind,
-        str(request.action or "").strip().casefold(),
+    return BrowserApprovalCacheKey(
+        root_session_id=str(root_session_id or "default"),
+        approval_level=str(approval_level or "auto").strip().casefold(),
+        domain=_approval_domain_scope(request.metadata),
+        action_family=_browser_action_family(request.action),
+        risk_kind=risk_kind,
     )
+
+
+def _resolution_from_cache(
+    entry: BrowserApprovalCacheEntry,
+) -> BrowserApprovalResolution:
+    state = _approval_state_name(entry.state)
+    allowed = state == "approved"
+    reason = (
+        "browser_action_approval_cache"
+        if allowed
+        else f"browser_action_approval_cached_{state}"
+    )
+    return BrowserApprovalResolution(
+        allowed=allowed,
+        reason=reason,
+        metadata={
+            **entry.metadata,
+            "approval_cache": "hit",
+            "approval_state": state,
+        },
+    )
+
+
+def _approval_state_name(state: str) -> str:
+    normalized = str(state or "").strip().casefold()
+    if normalized in {"approved", "denied", "timeout", "error"}:
+        return normalized
+    return "error"
+
+
+def _browser_action_family(action: str) -> str:
+    value = str(action or "").strip().casefold()
+    if value in {"open", "navigate", "page.navigate", "new"}:
+        return "navigation"
+    if value in {"click", "type", "fill", "press", "press_key"}:
+        return "input"
+    if value in {"evaluate", "runtime.evaluate"}:
+        return "script"
+    if value.startswith("page."):
+        return "navigation"
+    return value or "unknown"
+
+
+async def resolve_cdp_browser_approval(
+    *,
+    request_context: dict[str, Any],
+    request: dict[str, Any],
+    approval_service: Any | None = None,
+    approval_cache: BrowserApprovalCache | None = None,
+    now: Callable[[], float] | None = None,
+) -> BrowserApprovalResolution:
+    """Resolve internal CDP approval through the shared Browser cache."""
+    del now
+    approval_level = resolve_browser_approval_level(
+        request_context=request_context,
+    )
+    if approval_level.level == ToolExecutionLevel.OFF:
+        return BrowserApprovalResolution(
+            allowed=True,
+            reason="browser_approval_level_off",
+            metadata={
+                "approval_level": approval_level.level.name,
+                "approval_level_source": approval_level.source,
+                "approval_state": "not_required",
+            },
+        )
+
+    session_id = str(request_context.get("session_id") or "")
+    root_session_id = str(
+        request_context.get("root_session_id") or session_id or "default",
+    )
+    cache = approval_cache or get_default_browser_approval_cache()
+    cache_key = _cdp_approval_cache_key(
+        request,
+        root_session_id=root_session_id,
+        approval_level=approval_level.level.name,
+    )
+    cache_entry = cache.get(cache_key)
+    if cache_entry is not None:
+        return _resolution_from_cache(cache_entry)
+    if not session_id:
+        return BrowserApprovalResolution(
+            allowed=False,
+            reason="browser_action_approval_error",
+            metadata={
+                "approval_state": "error",
+                "error": "CDP approval requires request_context.session_id",
+            },
+        )
+
+    service = approval_service
+    if service is None:
+        from qwenpaw.app.approvals import get_approval_service
+
+        service = get_approval_service()
+
+    request_id = ""
+    timeout_seconds = _approval_timeout_seconds_from_context(request_context)
+    try:
+        pending = await service.create_pending_summary(
+            session_id=session_id,
+            root_session_id=root_session_id,
+            owner_agent_id=str(request_context.get("root_agent_id") or ""),
+            user_id=str(request_context.get("user_id") or ""),
+            channel=str(request_context.get("channel") or ""),
+            agent_id=str(request_context.get("agent_id") or "unknown"),
+            summary=ApprovalRequestSummary(
+                source_type="browser_sdk_cdp",
+                name="browser",
+                severity="medium",
+                findings_count=1,
+                result_summary=_cdp_approval_summary(request),
+                payload=request,
+            ),
+            timeout_seconds=timeout_seconds,
+            extra={
+                "tool_call": {
+                    "id": str(request_context.get("tool_call_id") or ""),
+                    "name": "browser",
+                    "input": request,
+                },
+            },
+        )
+        request_id = str(pending.request_id)
+        decision = await service.wait_for_approval(
+            pending.request_id,
+            timeout_seconds,
+        )
+    except Exception as exc:  # noqa: BLE001
+        metadata = {
+            "approval_state": "error",
+            "approval_request_id": request_id,
+            "error": str(exc),
+        }
+        cache.put(cache_key, state="error", metadata=metadata)
+        return BrowserApprovalResolution(
+            allowed=False,
+            reason="browser_action_approval_error",
+            metadata=metadata,
+        )
+
+    state = _decision_state(decision)
+    metadata = {
+        "approval_state": state,
+        "approval_request_id": request_id,
+        "approval_level": approval_level.level.name,
+        "approval_level_source": approval_level.source,
+    }
+    cache.put(cache_key, state=state, metadata=metadata)
+    return BrowserApprovalResolution(
+        allowed=state == "approved",
+        reason=(
+            "browser_action_approved"
+            if state == "approved"
+            else f"browser_action_approval_{state}"
+        ),
+        metadata=metadata,
+    )
+
+
+def _cdp_approval_cache_key(
+    request: dict[str, Any],
+    *,
+    root_session_id: str,
+    approval_level: str,
+) -> BrowserApprovalCacheKey:
+    return BrowserApprovalCacheKey(
+        root_session_id=str(root_session_id or "default"),
+        approval_level=str(approval_level or "auto").strip().casefold(),
+        domain=_cdp_domain_scope(request),
+        action_family=_browser_action_family(str(request.get("method") or "")),
+        risk_kind=_cdp_risk_kind(request),
+    )
+
+
+def _cdp_domain_scope(request: dict[str, Any]) -> str:
+    domain = str(request.get("domain") or "").strip().lower()
+    if domain:
+        return domain
+    url = str(request.get("url") or "")
+    if url:
+        try:
+            domain = (urlparse(url).hostname or "").lower()
+        except ValueError:
+            return f"url:{url}"
+        if domain:
+            return domain
+    tab_id = str(request.get("tab_id") or "").strip()
+    return f"tab:{tab_id}" if tab_id else "unknown"
+
+
+def _cdp_risk_kind(request: dict[str, Any]) -> str:
+    method = str(request.get("method") or "").casefold()
+    if method == "page.navigate":
+        return "navigation"
+    return "unknown_sensitive"
+
+
+def _cdp_approval_summary(request: dict[str, Any]) -> str:
+    method = str(request.get("method") or "unknown")
+    domain = str(request.get("domain") or "").strip()
+    url = str(request.get("url") or "").strip()
+    if method == "Page.navigate":
+        target = domain or url or "unknown domain"
+        return (
+            "Chrome browser control wants to navigate to new domain "
+            f"{target}."
+        )
+    if domain:
+        return (
+            "Chrome browser control wants to run CDP command "
+            f"{method} for domain {domain}."
+        )
+    return f"Chrome browser control wants to run CDP command {method}."
+
+
+def _approval_timeout_seconds_from_context(
+    request_context: dict[str, Any],
+) -> float:
+    try:
+        value = float(request_context.get("approval_timeout_seconds") or 0)
+    except (TypeError, ValueError):
+        value = 0
+    if value > 0:
+        return min(value, float(TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS))
+    return float(TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS)
+
+
+def _decision_state(decision: ApprovalDecision) -> str:
+    if decision == ApprovalDecision.APPROVED:
+        return "approved"
+    if decision == ApprovalDecision.TIMEOUT:
+        return "timeout"
+    return "denied"
 
 
 def _record_approval_trace(
@@ -531,8 +933,21 @@ def _approval_decision_metadata(
         "approval_state": approval_state,
         "approval_request_id": approval_request_id,
     }
+    error_code = _approval_error_code(approval_state)
+    if error_code:
+        metadata["error_code"] = error_code
     metadata.update(dict(extra or {}))
     return metadata
+
+
+def _approval_error_code(approval_state: str) -> str:
+    if approval_state == "denied":
+        return BrowserErrorCode.APPROVAL_DENIED.value
+    if approval_state == "timeout":
+        return BrowserErrorCode.APPROVAL_TIMEOUT.value
+    if approval_state == "error":
+        return BrowserErrorCode.APPROVAL_ERROR.value
+    return ""
 
 
 def _severity(request: BrowserActionRequest) -> str:
@@ -588,7 +1003,14 @@ def _redact(value: Any) -> Any:
 
 
 __all__ = [
+    "BrowserApprovalCache",
+    "BrowserApprovalCacheEntry",
+    "BrowserApprovalCacheKey",
     "BrowserApprovalLevelResolution",
+    "BrowserApprovalResolution",
     "QwenPawBrowserApprovalPolicy",
+    "browser_approval_cache_key",
+    "get_default_browser_approval_cache",
     "resolve_browser_approval_level",
+    "resolve_cdp_browser_approval",
 ]

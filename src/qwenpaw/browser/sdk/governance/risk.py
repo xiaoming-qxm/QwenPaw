@@ -204,6 +204,66 @@ def classify_browser_action(
         )
 
     if normalized in _NAVIGATION_ACTIONS:
+        if normalized in {"click", "navigate", "open"} and _is_link_navigation(
+            kwargs,
+        ):
+            return _risk(
+                sensitive=False,
+                level="low",
+                kind="navigation",
+                capability_class="navigation",
+                boundary_severity="operational",
+                confidence=_best_confidence(evidence, 0.9),
+                evidence=evidence,
+                decision_reason="target evidence identifies ordinary navigation",
+                consequence_summary=_consequence_summary(
+                    "navigate",
+                    evidence,
+                ),
+            )
+        if _is_reversible_account_state(kwargs):
+            return _risk(
+                sensitive=True,
+                level="low",
+                kind="submission",
+                capability_class="input",
+                boundary_severity="sensitive",
+                confidence=_best_confidence(evidence, 0.9),
+                evidence=evidence,
+                decision_reason=(
+                    "task-scoped reversible account state change"
+                ),
+                consequence_summary=_consequence_summary(
+                    "change reversible account state",
+                    evidence,
+                ),
+                matched=("account_state_reversible",),
+            )
+        sensitive_matches = _matches(_SENSITIVE_KEYWORDS, action, kwargs)
+        if sensitive_matches:
+            keyword_evidence = evidence or tuple(
+                BrowserBoundaryEvidence(
+                    source="kwargs",
+                    label=match,
+                    confidence=0.5,
+                )
+                for match in sensitive_matches
+            )
+            return _risk(
+                sensitive=True,
+                level="high",
+                kind="unknown_sensitive",
+                capability_class="input",
+                boundary_severity="sensitive",
+                confidence=0.5,
+                evidence=keyword_evidence,
+                decision_reason="sensitive keyword fallback",
+                consequence_summary=_consequence_summary(
+                    "perform sensitive action",
+                    keyword_evidence,
+                ),
+                matched=sensitive_matches,
+            )
         if _can_write(kwargs):
             if evidence:
                 return _risk(
@@ -385,11 +445,13 @@ def _target_evidence(
         if not label and source == "visual" and raw_target.get("bbox"):
             label = "visual target"
         if label or source != "unknown":
+            metadata = _target_metadata(raw_target)
             return (
                 BrowserBoundaryEvidence(
                     source=source,
                     label=label,
                     confidence=_source_confidence(source),
+                    metadata=metadata,
                 ),
             )
     if isinstance(raw_target, str) and raw_target.strip():
@@ -412,9 +474,55 @@ def _target_evidence(
                 source=source,
                 label=label,
                 confidence=_source_confidence(source),
+                metadata=_target_metadata(raw_evidence),
             ),
         )
     return ()
+
+
+def _target_metadata(target: Mapping[str, Any]) -> dict[str, Any]:
+    metadata: dict[str, Any] = {}
+    for key in (
+        "role",
+        "href",
+        "url",
+        "button_type",
+        "form_type",
+        "accessible_name",
+        "name",
+        "consequence",
+    ):
+        value = target.get(key)
+        if value:
+            metadata[key] = str(value)
+    return metadata
+
+
+def _is_link_navigation(kwargs: Mapping[str, Any]) -> bool:
+    target = kwargs.get("target")
+    if isinstance(target, Mapping):
+        role = _normalize(target.get("role"))
+        if role == "link":
+            return True
+        if str(target.get("href") or target.get("url") or "").strip():
+            return True
+    href = str(kwargs.get("href") or kwargs.get("url") or "").strip()
+    return bool(href and not _is_reversible_account_state(kwargs))
+
+
+def _is_reversible_account_state(kwargs: Mapping[str, Any]) -> bool:
+    target = kwargs.get("target")
+    values = [kwargs.get("consequence")]
+    if isinstance(target, Mapping):
+        values.append(target.get("consequence"))
+    return any(_normalize(value) == "account_state_reversible" for value in values)
+
+
+def _best_confidence(
+    evidence: tuple[BrowserBoundaryEvidence, ...],
+    fallback: float,
+) -> float:
+    return evidence[0].confidence if evidence else fallback
 
 
 def _evidence_source(value: Any) -> BrowserEvidenceSource:

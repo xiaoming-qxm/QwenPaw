@@ -4,6 +4,7 @@
 from .policy import (
     BrowserRecoveryAction,
     BrowserRecoveryDecision,
+    BrowserProductPolicy,
     BrowserRecoveryPolicy,
     BrowserRequestEvidence,
     classify_browser_runtime_outcome,
@@ -13,6 +14,7 @@ from .policy import (
 __all__ = [
     "BrowserRecoveryAction",
     "BrowserRecoveryDecision",
+    "BrowserProductPolicy",
     "BrowserRecoveryPolicy",
     "BrowserRequestEvidence",
     "classify_browser_runtime_outcome",

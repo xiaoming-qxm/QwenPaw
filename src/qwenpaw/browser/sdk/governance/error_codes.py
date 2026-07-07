@@ -26,6 +26,10 @@ class BrowserErrorCode(StrEnum):
     BRIDGE_DISCONNECTED = "bridge_disconnected"
     APPROVAL_REQUIRED = "approval_required"
     APPROVAL_DENIED = "approval_denied"
+    APPROVAL_TIMEOUT = "approval_timeout"
+    APPROVAL_ERROR = "approval_error"
+    POLICY_BLOCKED = "policy_blocked"
+    HANDOFF_REQUIRED = "handoff_required"
     LOGIN_REQUIRED = "login_required"
     USER_BROWSER_UNAVAILABLE = "user_browser_unavailable"
     BOUNDARY_USER_INTERVENTION_REQUIRED = "boundary_user_intervention_required"
@@ -41,6 +45,7 @@ class BrowserErrorCode(StrEnum):
     OBSERVATION_STALE = "observation_stale"
     OBSERVATION_ENRICHMENT_DENIED = "observation_enrichment_denied"
     INVALID_SDK_USAGE = "invalid_sdk_usage"
+    SDK_USAGE_ERROR = "sdk_usage_error"
     CLICK_WITHOUT_NAVIGATION = "click_without_navigation"
     CAPABILITY_MISSING = "capability_missing"
 
@@ -110,6 +115,26 @@ _ERROR_INFO: dict[BrowserErrorCode, BrowserErrorInfo] = {
         recovery_hint=(
             "Stop this browser action because the user denied approval."
         ),
+    ),
+    BrowserErrorCode.APPROVAL_TIMEOUT: BrowserErrorInfo(
+        code=BrowserErrorCode.APPROVAL_TIMEOUT,
+        outcome=BrowserOutcome.BLOCKED,
+        recovery_hint="Approval timed out without a user decision.",
+    ),
+    BrowserErrorCode.APPROVAL_ERROR: BrowserErrorInfo(
+        code=BrowserErrorCode.APPROVAL_ERROR,
+        outcome=BrowserOutcome.FAILED,
+        recovery_hint="Approval flow failed before a user decision.",
+    ),
+    BrowserErrorCode.POLICY_BLOCKED: BrowserErrorInfo(
+        code=BrowserErrorCode.POLICY_BLOCKED,
+        outcome=BrowserOutcome.BLOCKED,
+        recovery_hint="Browser policy blocked this action.",
+    ),
+    BrowserErrorCode.HANDOFF_REQUIRED: BrowserErrorInfo(
+        code=BrowserErrorCode.HANDOFF_REQUIRED,
+        outcome=BrowserOutcome.BLOCKED,
+        recovery_hint="Hand off to the user before continuing.",
     ),
     BrowserErrorCode.LOGIN_REQUIRED: BrowserErrorInfo(
         code=BrowserErrorCode.LOGIN_REQUIRED,
@@ -231,6 +256,11 @@ _ERROR_INFO: dict[BrowserErrorCode, BrowserErrorInfo] = {
             "not invent browser APIs."
         ),
     ),
+    BrowserErrorCode.SDK_USAGE_ERROR: BrowserErrorInfo(
+        code=BrowserErrorCode.SDK_USAGE_ERROR,
+        outcome=BrowserOutcome.FAILED,
+        recovery_hint="Retry with documented Browser SDK methods.",
+    ),
     BrowserErrorCode.CLICK_WITHOUT_NAVIGATION: BrowserErrorInfo(
         code=BrowserErrorCode.CLICK_WITHOUT_NAVIGATION,
         outcome=BrowserOutcome.FAILED,
@@ -281,11 +311,11 @@ def _coerce_error_string(value: str) -> BrowserErrorCode:
             return code
     legacy_map = {
         "browser_bridge_disconnected": BrowserErrorCode.BRIDGE_DISCONNECTED,
-        "browser_action_approval_timeout": BrowserErrorCode.APPROVAL_REQUIRED,
+        "browser_action_approval_timeout": BrowserErrorCode.APPROVAL_TIMEOUT,
         "browser_action_denied": BrowserErrorCode.APPROVAL_DENIED,
         "canceled": BrowserErrorCode.CANCELLED,
         "cancelled": BrowserErrorCode.CANCELLED,
-        "browser_policy_denied": BrowserErrorCode.APPROVAL_DENIED,
+        "browser_policy_denied": BrowserErrorCode.POLICY_BLOCKED,
         "browser_observation_required": BrowserErrorCode.OBSERVATION_STALE,
         "browser_observation_enrichment_denied": (
             BrowserErrorCode.OBSERVATION_ENRICHMENT_DENIED

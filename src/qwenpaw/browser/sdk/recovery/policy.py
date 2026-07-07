@@ -20,6 +20,7 @@ from ..telemetry.trace import (
     BrowserTraceStore,
     get_browser_trace_store,
 )
+from ..telemetry.progress import detect_no_progress
 
 
 class BrowserRecoveryAction(StrEnum):
@@ -60,6 +61,19 @@ class BrowserRecoveryDecision:
     final_message: str = ""
     continuation_message: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class BrowserProductPolicy:
+    """Internal Browser product-health thresholds."""
+
+    strategy_shift_budget: int = 1
+    no_progress_threshold: int = 3
+    max_new_tabs_per_request: int = 3
+    repeated_approval_domain_threshold: int = 3
+    stale_observation_threshold: int = 3
+    low_information_threshold: int = 2
+    invalid_sdk_usage_threshold: int = 2
 
 
 @dataclass(frozen=True)
@@ -407,6 +421,13 @@ def collect_browser_request_evidence(
 class BrowserRecoveryPolicy:
     """Convert Browser evidence into structured recovery decisions."""
 
+    def __init__(
+        self,
+        *,
+        product_policy: BrowserProductPolicy | None = None,
+    ) -> None:
+        self.product_policy = product_policy or BrowserProductPolicy()
+
     # The policy is a priority-ordered decision table; early returns keep the
     # safety branches explicit and easy to audit.
     # pylint: disable=too-many-return-statements
@@ -424,6 +445,18 @@ class BrowserRecoveryPolicy:
 
         event = _latest_event(evidence.trace_events)
         approval = _approval_state(evidence)
+        approval_loop = _repeated_approval_domain(
+            evidence,
+            threshold=self.product_policy.repeated_approval_domain_threshold,
+        )
+        if approval_loop is not None:
+            return self._decision(
+                BrowserRecoveryAction.BLOCKED,
+                reason="repeated_approval_domain",
+                event=event,
+                required_next_step="stop_reprompting_same_domain",
+                metadata=approval_loop,
+            )
         if approval == "pending":
             return self._decision(
                 BrowserRecoveryAction.WAIT_FOR_APPROVAL,
@@ -442,6 +475,32 @@ class BrowserRecoveryPolicy:
             )
 
         error_code = _latest_error_code(evidence)
+        stale_loop = _repeated_stale_observation(
+            evidence,
+            threshold=self.product_policy.stale_observation_threshold,
+        )
+        if stale_loop is not None:
+            return self._decision(
+                BrowserRecoveryAction.BLOCKED,
+                reason="repeated_stale_observation",
+                event=event,
+                required_next_step="ask_user_to_take_over",
+                forbidden=("repeat_mutation_without_observation",),
+                metadata=stale_loop,
+            )
+        invalid_loop = _repeated_invalid_sdk_usage(
+            evidence,
+            threshold=self.product_policy.invalid_sdk_usage_threshold,
+        )
+        if invalid_loop is not None:
+            return self._decision(
+                BrowserRecoveryAction.BLOCKED,
+                reason="invalid_sdk_usage",
+                event=event,
+                required_next_step="use_supported_browser_sdk_api",
+                forbidden=("invent_browser_sdk_methods",),
+                metadata=invalid_loop,
+            )
         if _degraded_timeout_loop(evidence, error_code):
             return self._decision(
                 BrowserRecoveryAction.BLOCKED,
@@ -474,6 +533,71 @@ class BrowserRecoveryPolicy:
                     if template.reason == "approval_pending"
                     else None
                 ),
+            )
+        tab_churn = _tab_churn(
+            evidence,
+            max_new_tabs=self.product_policy.max_new_tabs_per_request,
+        )
+        if tab_churn is not None:
+            return self._decision(
+                BrowserRecoveryAction.BLOCKED,
+                reason="tab_churn",
+                event=event,
+                required_next_step="reuse_existing_workspace_tab",
+                forbidden=("open_more_tabs",),
+                metadata=tab_churn,
+            )
+        low_information = _low_information_observation(
+            evidence,
+            threshold=self.product_policy.low_information_threshold,
+        )
+        if low_information is not None:
+            action = (
+                BrowserRecoveryAction.BLOCKED
+                if low_information["count"] >= self.product_policy.low_information_threshold
+                else BrowserRecoveryAction.CONTINUE
+            )
+            return self._decision(
+                action,
+                reason="low_information_observation",
+                event=event,
+                required_next_step=(
+                    "ask_user_to_take_over"
+                    if action == BrowserRecoveryAction.BLOCKED
+                    else "tab.screenshot()"
+                ),
+                forbidden=("repeat_low_information_observation",),
+                metadata=low_information,
+            )
+        progress_decision = detect_no_progress(
+            evidence.trace_events,
+            threshold=self.product_policy.no_progress_threshold,
+        )
+        if progress_decision.blocked:
+            if _degraded_fallback(evidence):
+                return self._decision(
+                    BrowserRecoveryAction.BLOCKED,
+                    reason="degraded_isolated_no_progress",
+                    event=event,
+                    required_next_step=(
+                        "install_or_reconnect_chrome_extension"
+                    ),
+                    forbidden=(
+                        "isolated_fallback",
+                        "repeat_identical_action",
+                    ),
+                    metadata={
+                        **_degraded_fallback_metadata(event),
+                        "progress_decision": progress_decision.to_dict(),
+                    },
+                )
+            return self._decision(
+                BrowserRecoveryAction.CONTINUE,
+                reason="no_progress",
+                event=event,
+                required_next_step="change_strategy_or_observe",
+                forbidden=("repeat_identical_action",),
+                metadata={"progress_decision": progress_decision.to_dict()},
             )
         if _no_progress(evidence):
             if _degraded_fallback(evidence):
@@ -735,6 +859,38 @@ def _approval_metadata(evidence: BrowserRequestEvidence) -> dict[str, Any]:
     return {}
 
 
+def _repeated_approval_domain(
+    evidence: BrowserRequestEvidence,
+    *,
+    threshold: int,
+) -> dict[str, Any] | None:
+    threshold = max(2, int(threshold))
+    pending_events = [
+        event
+        for event in evidence.trace_events
+        if str(event.approval_state or "").lower() == "pending"
+    ]
+    if len(pending_events) < threshold:
+        return None
+    latest = pending_events[-1]
+    domain = str(latest.domain or "")
+    if not domain:
+        return None
+    count = 0
+    for event in reversed(pending_events):
+        if str(event.domain or "") != domain:
+            break
+        count += 1
+    if count < threshold:
+        return None
+    return {
+        "domain": domain,
+        "count": count,
+        "threshold": threshold,
+        "approval_state": "pending",
+    }
+
+
 def _latest_error_code(evidence: BrowserRequestEvidence) -> str:
     for event in reversed(evidence.trace_events):
         if event.error_code:
@@ -748,6 +904,124 @@ def _latest_error_code(evidence: BrowserRequestEvidence) -> str:
         if value:
             return classify_browser_error(str(value)).code.value
     return ""
+
+
+def _repeated_stale_observation(
+    evidence: BrowserRequestEvidence,
+    *,
+    threshold: int,
+) -> dict[str, Any] | None:
+    threshold = max(2, int(threshold))
+    count = 0
+    for event in reversed(evidence.trace_events):
+        error_code = classify_browser_error(event.error_code).code.value
+        if error_code != BrowserErrorCode.OBSERVATION_STALE.value:
+            break
+        count += 1
+    if count < threshold:
+        return None
+    return {
+        "count": count,
+        "threshold": threshold,
+        "error_code": BrowserErrorCode.OBSERVATION_STALE.value,
+    }
+
+
+def _repeated_invalid_sdk_usage(
+    evidence: BrowserRequestEvidence,
+    *,
+    threshold: int,
+) -> dict[str, Any] | None:
+    threshold = max(2, int(threshold))
+    count = 0
+    for event in reversed(evidence.trace_events):
+        if not (
+            _metadata_value(
+                event.metadata,
+                "browser_error_code",
+                BrowserErrorCode.INVALID_SDK_USAGE.value,
+            )
+            or _metadata_value(
+                event.metadata,
+                "error_code",
+                BrowserErrorCode.INVALID_SDK_USAGE.value,
+            )
+            or _metadata_value(
+                event.metadata,
+                "error_type",
+                "attributeerror",
+                "nameerror",
+                "typeerror",
+            )
+        ):
+            break
+        count += 1
+    if count < threshold:
+        return None
+    return {
+        "count": count,
+        "threshold": threshold,
+        "error_code": BrowserErrorCode.INVALID_SDK_USAGE.value,
+    }
+
+
+def _tab_churn(
+    evidence: BrowserRequestEvidence,
+    *,
+    max_new_tabs: int,
+) -> dict[str, Any] | None:
+    max_new_tabs = max(1, int(max_new_tabs))
+    new_tab_events = [
+        event
+        for event in evidence.trace_events
+        if event.action in {"new", "open_tab"}
+        or (
+            event.action == "open"
+            and event.metadata.get("workspace_reuse") is False
+        )
+    ]
+    tab_ids = {
+        str(event.tab_id or "")
+        for event in new_tab_events
+        if str(event.tab_id or "")
+    }
+    count = len(tab_ids) or len(new_tab_events)
+    if count <= max_new_tabs:
+        return None
+    return {
+        "new_tab_count": count,
+        "max_new_tabs_per_request": max_new_tabs,
+    }
+
+
+def _low_information_observation(
+    evidence: BrowserRequestEvidence,
+    *,
+    threshold: int,
+) -> dict[str, Any] | None:
+    threshold = max(1, int(threshold))
+    count = 0
+    for event in reversed(evidence.trace_events):
+        if not (
+            _metadata_flag(event.metadata, "low_information_observation")
+            or _metadata_value(event.metadata, "observation_quality", "low")
+        ):
+            break
+        count += 1
+    for metadata in reversed(evidence.tool_metadata):
+        if not (
+            _metadata_flag(metadata, "low_information_observation")
+            or _metadata_value(metadata, "observation_quality", "low")
+        ):
+            continue
+        count += 1
+    if count <= 0:
+        return None
+    return {
+        "count": count,
+        "threshold": threshold,
+        "observation_quality": "low",
+    }
 
 
 def _is_auto_isolated(event: BrowserTraceEvent | None) -> bool:
@@ -936,6 +1210,7 @@ def _metadata_value(
 
 
 __all__ = [
+    "BrowserProductPolicy",
     "BrowserRecoveryAction",
     "BrowserRecoveryDecision",
     "BrowserRecoveryPolicy",

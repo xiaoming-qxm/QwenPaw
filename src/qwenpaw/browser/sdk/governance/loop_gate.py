@@ -12,6 +12,7 @@ from qwenpaw.loop.gates.base import StopAction, StopGate, StopHandlerResult
 from ..recovery import (
     BrowserRecoveryAction,
     BrowserRecoveryDecision,
+    BrowserProductPolicy,
     BrowserRecoveryPolicy,
     BrowserRequestEvidence,
     collect_browser_request_evidence,
@@ -26,9 +27,12 @@ class BrowserGate(StopGate):
         self,
         *,
         policy: BrowserRecoveryPolicy | None = None,
+        product_policy: BrowserProductPolicy | None = None,
         trace_store: BrowserTraceStore | None = None,
     ) -> None:
-        self._policy = policy or BrowserRecoveryPolicy()
+        self._policy = policy or BrowserRecoveryPolicy(
+            product_policy=product_policy,
+        )
         self._trace_store = trace_store
 
     @property
@@ -62,7 +66,7 @@ class BrowserGate(StopGate):
                 reason=decision.reason,
                 final_message=_final_message(decision),
             )
-        budget = _retry_budget(decision)
+        budget = _retry_budget(decision, self._policy.product_policy)
         if not _consume_budget(
             agent,
             _retry_budget_key(evidence, decision),
@@ -116,7 +120,10 @@ def _consume_budget(agent: Any, key: str, budget: int) -> bool:
     return True
 
 
-def _retry_budget(decision: BrowserRecoveryDecision) -> int:
+def _retry_budget(
+    decision: BrowserRecoveryDecision,
+    product_policy: BrowserProductPolicy,
+) -> int:
     if decision.action == BrowserRecoveryAction.RETRY_WITH_CONTEXT:
         return 1
     if decision.action == BrowserRecoveryAction.WAIT_FOR_APPROVAL:
@@ -124,7 +131,7 @@ def _retry_budget(decision: BrowserRecoveryDecision) -> int:
     if decision.reason == "fresh_observation_required":
         return 2
     if decision.reason in {"no_progress", "network_timeout"}:
-        return 1
+        return product_policy.strategy_shift_budget
     return 0
 
 

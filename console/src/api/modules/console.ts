@@ -46,6 +46,7 @@ export interface PendingApproval {
   findings_count: number;
   findings_summary: string;
   tool_params: Record<string, unknown>;
+  approval_brief?: ApprovalBrief;
   created_at: number;
   timeout_seconds: number;
   // Approval-scope display fields (governance path). When is_generalized
@@ -53,6 +54,19 @@ export interface PendingApproval {
   is_generalized?: boolean;
   exact_target?: string;
   similar_target?: string;
+}
+
+export interface ApprovalBrief {
+  subject?: string;
+  target?: string;
+  evidence?: Record<string, unknown>;
+  uncertainties?: string[];
+  possible_consequences?: string[];
+  risk_kind?: string;
+  risk_level?: string;
+  confidence?: number;
+  why_approval_required?: string;
+  safe_alternative?: string;
 }
 
 export const consoleApi = {

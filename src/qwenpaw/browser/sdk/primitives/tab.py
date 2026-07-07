@@ -146,7 +146,7 @@ class Tab:
         self,
         script: str,
         *,
-        read_only: bool = False,
+        read_only: bool = True,
     ) -> Any:
         """Evaluate JavaScript in the tab.
 
@@ -192,6 +192,17 @@ class Tab:
             },
         )
         return result
+
+    async def wait_for(
+        self,
+        instruction: str,
+        max_wait_ms: int = 10000,
+    ) -> BrowserActionResult:
+        """Wait until the page matches a natural-language condition."""
+        return await self.actions.wait_for(
+            instruction,
+            max_wait_ms=max_wait_ms,
+        )
 
     async def close(self) -> BrowserActionResult:
         """Close or release the tab through the backend."""
