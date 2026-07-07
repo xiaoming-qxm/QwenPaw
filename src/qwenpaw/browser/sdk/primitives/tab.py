@@ -17,6 +17,8 @@ from ..runtime.kernel import record_browser_artifact
 from ..telemetry.trace import record_browser_trace_event
 from .extract import extract_from_tab
 from .observation import coerce_observation, coerce_screenshot
+from .trace_metadata import with_boundary_decision
+from .trace_metadata import with_exception_metadata
 from .types import (
     BrowserActionResult,
     BrowserArtifact,
@@ -167,10 +169,13 @@ class Tab:
                 status="error",
                 duration_ms=_duration_ms(started),
                 error_code=_error_code(exc),
-                metadata={
-                    "read_only": read_only,
-                    "error_type": type(exc).__name__,
-                },
+                metadata=with_exception_metadata(
+                    {
+                        "read_only": read_only,
+                        "error_type": type(exc).__name__,
+                    },
+                    exc,
+                ),
             )
             raise
         if not read_only:
@@ -239,10 +244,13 @@ class Tab:
                 status="error",
                 duration_ms=_duration_ms(started),
                 error_code=_error_code(exc),
-                metadata={
-                    "kwargs": kwargs,
-                    "error_type": type(exc).__name__,
-                },
+                metadata=with_exception_metadata(
+                    {
+                        "kwargs": kwargs,
+                        "error_type": type(exc).__name__,
+                    },
+                    exc,
+                ),
             )
             raise
         action_result = _coerce_action_result(result)
@@ -253,10 +261,10 @@ class Tab:
                 action_result.needs_observation
             ),
         }
-        boundary_decision = action_result.data.get("boundary_decision")
-        if isinstance(boundary_decision, dict):
-            trace_metadata["boundary_decision"] = dict(boundary_decision)
-            trace_metadata.update(boundary_decision)
+        trace_metadata = with_boundary_decision(
+            trace_metadata,
+            action_result.data.get("boundary_decision"),
+        )
         self._trace(
             phase="action",
             action=name,

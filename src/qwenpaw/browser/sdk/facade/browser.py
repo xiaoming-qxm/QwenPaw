@@ -16,6 +16,9 @@ from ..governance.error_codes import classify_browser_error
 from ..governance.errors import BrowserContextUnavailable
 from ..governance.resolver import BrowserContextResolver
 from ..primitives.tabs import BrowserTabs
+from ..primitives.trace_metadata import coerce_action_result
+from ..primitives.trace_metadata import with_boundary_decision
+from ..primitives.trace_metadata import with_exception_metadata
 from ..primitives.types import BrowserActionResult
 from ..primitives.types import (
     BrowserBackendDiagnostic,
@@ -223,15 +226,25 @@ class Browser:
                 status="error",
                 duration_ms=_duration_ms(started),
                 error_code=_error_code(exc),
-                metadata={"kwargs": kwargs, "error_type": type(exc).__name__},
+                metadata=with_exception_metadata(
+                    {
+                        "kwargs": kwargs,
+                        "error_type": type(exc).__name__,
+                    },
+                    exc,
+                ),
             )
             raise
+        action_result = coerce_action_result(result)
         self._trace(
             phase="action",
             action=name,
             status=_result_status(result),
             duration_ms=_duration_ms(started),
-            metadata={"kwargs": kwargs},
+            metadata=with_boundary_decision(
+                {"kwargs": kwargs},
+                action_result.data.get("boundary_decision"),
+            ),
         )
         return result
 
