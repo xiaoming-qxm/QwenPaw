@@ -23,18 +23,27 @@ Long-running browser work may continue until it reaches a real terminal
 outcome. Stop it with task cancellation when the user asks to cancel or when
 the outer runtime is stopped.
 
-Choose context by browser state:
+V12 routing contract:
 
-- `context="auto"`: default. Public web work usually uses the isolated
-  backend.
-- `context="user"`: use the user's Chrome profile through the Chrome
-  Extension bridge. If the bridge is disconnected, stop and report the block.
-- `context="isolated"`: use the isolated backend for public web tasks that do
-  not need user login state.
+In short: auto prefers user Chrome.
 
-Use the user's Chrome profile only when the task needs real user state:
-visible session, login state, cart, account page, or existing tabs. Do not
-foreground, focus, or activate the user's Chrome unless the user asks to watch.
+- `context="auto"`: default. `auto` prefers user Chrome through
+  `user.chrome_extension` when the Chrome Extension is available. Public or
+  ambiguous work may use a degraded isolated fallback only when user Chrome is
+  unavailable; traces and diagnostics mark `selected_backend_degraded` and
+  `fallback_reason`.
+- `context="user"`: explicitly use the user's Chrome profile through the
+  Chrome Extension bridge. If the bridge is disconnected, stop and report the
+  block.
+- `context="isolated"`: explicitly use the isolated backend for deterministic
+  tests or tasks that must not touch user Chrome. It never routes to user
+  Chrome.
+
+When the task needs visible session state, login state, a cart, an account
+page, or existing tabs, pass `requires_user_state=True`. User-state requests
+fail closed with `user_browser_unavailable` if user Chrome is unavailable;
+they do not fall back to isolated. Do not foreground, focus, or activate the
+user's Chrome unless the user asks to watch.
 
 Primitive operations and structured actions are peer capabilities:
 
@@ -61,6 +70,12 @@ read_only=True)` is a read helper and does not satisfy that observation
 requirement. `tab.page_info()` is metadata only; it does not satisfy the
 observation requirement either.
 
+Browser approval modes use QwenPaw's shared vocabulary:
+`OFF, AUTO, SMART, STRICT`. Read-only observation stays operational.
+Sensitive boundaries follow the active mode and evidence confidence. Critical
+known boundaries require approval in every mode. Critical unknown boundaries
+block and require user intervention.
+
 Check backend availability without opening a browser:
 
 ```python
@@ -74,6 +89,6 @@ result = await tab.extract("Summarize the visible article", format="text")
 data = await tab.extract("Return title and price as JSON", format="json")
 ```
 
-Raw CDP is an advanced backend concern. Use it only when the user explicitly
-asks about debug ports, attaching external tooling, or sharing a browser
-through CDP. Normal browser work goes through the Browser SDK.
+Raw CDP and remote browser attachment are blocked coming-soon capabilities
+with no public callable entrypoint. Normal browser work goes through the
+Browser SDK.

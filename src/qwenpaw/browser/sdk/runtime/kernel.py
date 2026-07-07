@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from time import monotonic
 from typing import Any, Callable
 
-from ..primitives.types import BrowserArtifact, BrowserContext
+from ..primitives.types import BrowserArtifact, BrowserContext, BrowserIntent
 from .executor import BrowserCodeExecutor, InProcessBrowserCodeExecutor
 
 _DEFAULT_IDLE_TTL_SECONDS = 300.0
@@ -25,6 +25,7 @@ class BrowserExecutionContext:
     session_id: str
     context: BrowserContext
     requires_user_state: bool | None = None
+    browser_intent: BrowserIntent | None = None
 
 
 @dataclass(frozen=True)
@@ -104,12 +105,14 @@ class BrowserKernelRuntime:
         code: str,
         context: BrowserContext,
         requires_user_state: bool | None = None,
+        browser_intent: BrowserIntent | None = None,
     ) -> BrowserKernelResult:
         """Execute code in a session-scoped browser kernel."""
         execution_context = BrowserExecutionContext(
             session_id=session_id,
             context=context,
             requires_user_state=requires_user_state,
+            browser_intent=browser_intent,
         )
         stdout_capture = io.StringIO()
         token = set_current_execution_context(execution_context)
@@ -203,6 +206,7 @@ class BrowserKernel:
             code=code,
             context=execution_context.context,
             requires_user_state=execution_context.requires_user_state,
+            browser_intent=execution_context.browser_intent,
         )
 
 

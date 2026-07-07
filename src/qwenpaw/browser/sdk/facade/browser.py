@@ -106,6 +106,11 @@ class Browser:
                 else None
             )
         )
+        effective_browser_intent = (
+            execution_context.browser_intent
+            if execution_context is not None
+            else None
+        )
         effective_session_id = (
             session_id
             or (
@@ -122,6 +127,7 @@ class Browser:
                 session_id=effective_session_id,
                 context=effective_context,
                 requires_user_state=effective_requires_user_state,
+                browser_intent=effective_browser_intent,
             )
             registry = get_default_backend_registry()
             backend = registry.get(resolved.backend_id)
@@ -153,7 +159,7 @@ class Browser:
             phase="connect",
             status="ok",
             duration_ms=_duration_ms(started),
-            metadata={"reason": resolved.reason},
+            metadata=_route_metadata(resolved),
         )
         return browser
 
@@ -170,13 +176,16 @@ class Browser:
         for backend in registry.all():
             diagnostic_items.append(await _backend_diagnostic(backend))
         diagnostics = tuple(diagnostic_items)
+        route = _diagnostic_route_metadata(requested, diagnostics)
         return BrowserDiagnostics(
             requested_context=requested,
-            selected_backend_id=_selected_diagnostic_backend_id(
-                requested,
-                diagnostics,
-            ),
+            selected_backend_id=route["selected_backend_id"],
             backends=diagnostics,
+            preferred_backend_id=route["preferred_backend_id"],
+            selected_backend_degraded=route["selected_backend_degraded"],
+            fallback_allowed=route["fallback_allowed"],
+            fallback_reason=route["fallback_reason"],
+            auto_route_policy=route["auto_route_policy"],
         )
 
     @classmethod
@@ -277,6 +286,19 @@ def _effective_context(
     if context == "auto" and execution_context is not None:
         return execution_context.context
     return context
+
+
+def _route_metadata(context: ResolvedBrowserContext) -> dict[str, Any]:
+    return {
+        "reason": context.reason,
+        "route_reason": context.reason,
+        "browser_intent": context.browser_intent,
+        "preferred_backend_id": context.preferred_backend_id,
+        "selected_backend_degraded": context.selected_backend_degraded,
+        "fallback_allowed": context.fallback_allowed,
+        "fallback_reason": context.fallback_reason,
+        "auto_route_policy": context.auto_route_policy,
+    }
 
 
 def _normalize_context(context: str) -> BrowserContext:
@@ -412,18 +434,67 @@ def _observed_at() -> str:
     return datetime.now(UTC).isoformat()
 
 
-def _selected_diagnostic_backend_id(
+def _diagnostic_route_metadata(
     context: BrowserContext,
     diagnostics: tuple[BrowserBackendDiagnostic, ...],
-) -> str:
+) -> dict[str, Any]:
     if context == "isolated":
-        return _first_available_backend_id(diagnostics, "isolated")
+        selected = _first_available_backend_id(diagnostics, "isolated")
+        return _explicit_diagnostic_route(selected)
     if context == "user":
-        return _first_available_backend_id(diagnostics, "user")
-    return _first_available_backend_id(
-        diagnostics,
-        "isolated",
-    ) or _first_available_backend_id(diagnostics, "user")
+        selected = _first_available_backend_id(diagnostics, "user")
+        return _explicit_diagnostic_route(selected)
+
+    preferred = _first_backend_id(diagnostics, "user")
+    available_user = _first_available_backend_id(diagnostics, "user")
+    if available_user:
+        return {
+            "selected_backend_id": available_user,
+            "preferred_backend_id": available_user,
+            "selected_backend_degraded": False,
+            "fallback_allowed": False,
+            "fallback_reason": "",
+            "auto_route_policy": "auto_user_chrome_first",
+        }
+    available_isolated = _first_available_backend_id(diagnostics, "isolated")
+    if available_isolated:
+        return {
+            "selected_backend_id": available_isolated,
+            "preferred_backend_id": preferred,
+            "selected_backend_degraded": True,
+            "fallback_allowed": True,
+            "fallback_reason": "user_browser_unavailable",
+            "auto_route_policy": "auto_user_chrome_first",
+        }
+    return {
+        "selected_backend_id": "",
+        "preferred_backend_id": preferred,
+        "selected_backend_degraded": False,
+        "fallback_allowed": True,
+        "fallback_reason": "user_browser_unavailable",
+        "auto_route_policy": "auto_user_chrome_first",
+    }
+
+
+def _explicit_diagnostic_route(selected: str) -> dict[str, Any]:
+    return {
+        "selected_backend_id": selected,
+        "preferred_backend_id": selected,
+        "selected_backend_degraded": False,
+        "fallback_allowed": False,
+        "fallback_reason": "",
+        "auto_route_policy": "explicit_context",
+    }
+
+
+def _first_backend_id(
+    diagnostics: tuple[BrowserBackendDiagnostic, ...],
+    browser_context: str,
+) -> str:
+    for diagnostic in diagnostics:
+        if diagnostic.browser_context == browser_context:
+            return diagnostic.backend_id
+    return ""
 
 
 def _first_available_backend_id(

@@ -6,7 +6,9 @@ from __future__ import annotations
 from collections.abc import Collection, Mapping
 from typing import Any
 
-from ..primitives.types import BrowserActionRisk, BrowserRiskKind
+from ..primitives.types import BrowserActionRisk, BrowserBoundaryEvidence
+from ..primitives.types import BrowserEvidenceSource
+from ..primitives.types import BrowserRiskKind
 
 _READ_ACTIONS = {
     "active_tab",
@@ -19,6 +21,7 @@ _READ_ACTIONS = {
 }
 _NAVIGATION_ACTIONS = {
     "back",
+    "click",
     "forward",
     "hover",
     "navigate",
@@ -74,74 +77,212 @@ def classify_browser_action(
 ) -> BrowserActionRisk:
     """Classify browser action risk using action structure first."""
     normalized = _normalize(action)
+    evidence = _target_evidence(kwargs)
+
+    if normalized == "evaluate" and not _bool_arg(
+        kwargs.get("read_only", True),
+    ):
+        if evidence:
+            return _risk(
+                sensitive=True,
+                level="high",
+                kind="unknown_sensitive",
+                capability_class="script",
+                boundary_severity="sensitive",
+                confidence=evidence[0].confidence,
+                evidence=evidence,
+                decision_reason="script write has effect evidence",
+                consequence_summary=_consequence_summary(
+                    "execute script",
+                    evidence,
+                ),
+            )
+        return _unknown_write(
+            capability_class="script",
+            decision_reason="script write without effect evidence",
+        )
+
     if normalized in _READ_ACTIONS:
-        return BrowserActionRisk(
+        return _risk(
             sensitive=False,
             level="none",
             kind="read",
-            reason="read-only browser action",
+            capability_class="observation",
+            boundary_severity="operational",
+            confidence=1.0,
+            evidence=evidence,
+            decision_reason="read-only browser action",
         )
 
     if normalized == "dialog":
         if _bool_arg(kwargs.get("accept", True)):
-            return BrowserActionRisk(
+            dialog_evidence = evidence or (
+                BrowserBoundaryEvidence(
+                    source="kwargs",
+                    label="dialog.accept=True",
+                    confidence=1.0,
+                ),
+            )
+            return _risk(
                 sensitive=True,
                 level="high",
                 kind="submission",
-                reason="accepting a browser dialog may submit state",
+                capability_class="dialog",
+                boundary_severity="critical_known",
+                confidence=1.0,
+                evidence=dialog_evidence,
+                decision_reason="accepting a browser dialog may submit state",
+                consequence_summary=_consequence_summary(
+                    "accept browser dialog",
+                    dialog_evidence,
+                ),
                 matched=("dialog.accept",),
             )
-        return BrowserActionRisk(
+        return _risk(
             sensitive=False,
             level="low",
             kind="navigation",
-            reason="dismissing a browser dialog is non-sensitive",
+            capability_class="dialog",
+            boundary_severity="operational",
+            confidence=1.0,
+            evidence=evidence,
+            decision_reason="dismissing a browser dialog is non-sensitive",
             matched=("dialog.dismiss",),
         )
 
     if normalized in _STRUCTURED_SENSITIVE_ACTIONS:
         kind = _STRUCTURED_SENSITIVE_ACTIONS[normalized]
-        return BrowserActionRisk(
+        structured_evidence = evidence or (
+            BrowserBoundaryEvidence(
+                source="kwargs",
+                label=normalized,
+                confidence=1.0,
+            ),
+        )
+        return _risk(
             sensitive=True,
             level="high",
             kind=kind,
-            reason=f"structured sensitive browser action: {normalized}",
+            capability_class=_capability_for_kind(kind),
+            boundary_severity="critical_known",
+            confidence=1.0,
+            evidence=structured_evidence,
+            decision_reason=(
+                f"structured sensitive browser action: {normalized}"
+            ),
+            consequence_summary=_consequence_summary(
+                normalized,
+                structured_evidence,
+            ),
             matched=(normalized,),
         )
 
     credential_matches = _matches(_CREDENTIAL_KEYWORDS, action, kwargs)
     if credential_matches:
-        return BrowserActionRisk(
+        credential_evidence = evidence or tuple(
+            BrowserBoundaryEvidence(
+                source="kwargs",
+                label=match,
+                confidence=0.8,
+            )
+            for match in credential_matches
+        )
+        return _risk(
             sensitive=True,
             level="high",
             kind="credential",
-            reason="credential-like browser action arguments",
+            capability_class="credential",
+            boundary_severity="critical_known",
+            confidence=0.9,
+            evidence=credential_evidence,
+            decision_reason="credential-like browser action arguments",
+            consequence_summary=_consequence_summary(
+                "enter or expose credentials",
+                credential_evidence,
+            ),
             matched=credential_matches,
         )
 
     if normalized in _NAVIGATION_ACTIONS:
-        return BrowserActionRisk(
+        if _can_write(kwargs):
+            if evidence:
+                return _risk(
+                    sensitive=True,
+                    level="medium",
+                    kind="navigation",
+                    capability_class="input",
+                    boundary_severity="sensitive",
+                    confidence=evidence[0].confidence,
+                    evidence=evidence,
+                    decision_reason=(
+                        f"{evidence[0].source} target evidence supports "
+                        "state-changing input"
+                    ),
+                    consequence_summary=_consequence_summary(
+                        f"{normalized} target",
+                        evidence,
+                    ),
+                )
+            return _unknown_write(
+                capability_class="unknown_write",
+                decision_reason="state-changing browser action lacks target "
+                "or effect evidence",
+            )
+        return _risk(
             sensitive=False,
             level="low",
             kind="navigation",
-            reason="non-sensitive browser interaction",
+            capability_class="navigation",
+            boundary_severity="operational",
+            confidence=0.8,
+            evidence=evidence,
+            decision_reason="non-sensitive browser interaction",
         )
 
     sensitive_matches = _matches(_SENSITIVE_KEYWORDS, action, kwargs)
     if sensitive_matches:
-        return BrowserActionRisk(
+        keyword_evidence = evidence or tuple(
+            BrowserBoundaryEvidence(
+                source="kwargs",
+                label=match,
+                confidence=0.5,
+            )
+            for match in sensitive_matches
+        )
+        return _risk(
             sensitive=True,
             level="high",
             kind="unknown_sensitive",
-            reason="sensitive keyword fallback",
+            capability_class="input",
+            boundary_severity="sensitive",
+            confidence=0.5,
+            evidence=keyword_evidence,
+            decision_reason="sensitive keyword fallback",
+            consequence_summary=_consequence_summary(
+                "perform sensitive action",
+                keyword_evidence,
+            ),
             matched=sensitive_matches,
         )
 
-    return BrowserActionRisk(
+    if _can_write(kwargs):
+        return _unknown_write(
+            capability_class="unknown_write",
+            decision_reason=(
+                "unknown state-changing browser action lacks target or "
+                "effect evidence"
+            ),
+        )
+
+    return _risk(
         sensitive=False,
         level="low",
         kind="navigation",
-        reason="no sensitive browser risk matched",
+        capability_class="navigation",
+        boundary_severity="operational",
+        confidence=0.5,
+        evidence=evidence,
+        decision_reason="no sensitive browser risk matched",
     )
 
 
@@ -179,6 +320,159 @@ def _bool_arg(value: Any) -> bool:
     if isinstance(value, str):
         return value.strip().casefold() not in {"", "0", "false", "no", "off"}
     return bool(value)
+
+
+def _risk(
+    *,
+    sensitive: bool,
+    level: str,
+    kind: BrowserRiskKind,
+    capability_class: str,
+    boundary_severity: str,
+    confidence: float,
+    evidence: tuple[BrowserBoundaryEvidence, ...] = (),
+    decision_reason: str,
+    consequence_summary: str = "",
+    matched: tuple[str, ...] = (),
+    error_code: str = "",
+) -> BrowserActionRisk:
+    return BrowserActionRisk(
+        sensitive=sensitive,
+        level=level,  # type: ignore[arg-type]
+        kind=kind,
+        reason=decision_reason,
+        matched=matched,
+        capability_class=capability_class,  # type: ignore[arg-type]
+        boundary_severity=boundary_severity,  # type: ignore[arg-type]
+        confidence=confidence,
+        evidence=evidence,
+        decision_reason=decision_reason,
+        consequence_summary=consequence_summary,
+        error_code=error_code,
+    )
+
+
+def _unknown_write(
+    *,
+    capability_class: str,
+    decision_reason: str,
+) -> BrowserActionRisk:
+    return _risk(
+        sensitive=True,
+        level="high",
+        kind="unknown_write",
+        capability_class=capability_class,
+        boundary_severity="critical_unknown",
+        confidence=0.0,
+        decision_reason=decision_reason,
+        matched=("unknown_write",),
+        error_code="boundary_user_intervention_required",
+    )
+
+
+def _target_evidence(
+    kwargs: Mapping[str, Any],
+) -> tuple[BrowserBoundaryEvidence, ...]:
+    raw_target = kwargs.get("target")
+    if isinstance(raw_target, Mapping):
+        source = _evidence_source(raw_target.get("source"))
+        label = _first_text(
+            raw_target.get("label"),
+            raw_target.get("text"),
+            raw_target.get("aria"),
+            raw_target.get("name"),
+        )
+        if not label and source == "visual" and raw_target.get("bbox"):
+            label = "visual target"
+        if label or source != "unknown":
+            return (
+                BrowserBoundaryEvidence(
+                    source=source,
+                    label=label,
+                    confidence=_source_confidence(source),
+                ),
+            )
+    if isinstance(raw_target, str) and raw_target.strip():
+        return (
+            BrowserBoundaryEvidence(
+                source="kwargs",
+                label=raw_target.strip(),
+                confidence=0.5,
+            ),
+        )
+    raw_evidence = kwargs.get("evidence")
+    if isinstance(raw_evidence, Mapping):
+        source = _evidence_source(raw_evidence.get("source"))
+        label = _first_text(
+            raw_evidence.get("label"),
+            raw_evidence.get("text"),
+        )
+        return (
+            BrowserBoundaryEvidence(
+                source=source,
+                label=label,
+                confidence=_source_confidence(source),
+            ),
+        )
+    return ()
+
+
+def _evidence_source(value: Any) -> BrowserEvidenceSource:
+    normalized = _normalize(value)
+    if normalized in {
+        "dom",
+        "aria",
+        "snapshot",
+        "screenshot",
+        "visual",
+        "kwargs",
+        "backend",
+    }:
+        return normalized  # type: ignore[return-value]
+    return "unknown"
+
+
+def _source_confidence(source: BrowserEvidenceSource) -> float:
+    if source == "visual":
+        return 0.8
+    if source in {"dom", "aria", "snapshot", "screenshot", "backend"}:
+        return 0.9
+    if source == "kwargs":
+        return 0.5
+    return 0.0
+
+
+def _first_text(*values: Any) -> str:
+    for value in values:
+        text = str(value or "").strip()
+        if text:
+            return text
+    return ""
+
+
+def _can_write(kwargs: Mapping[str, Any]) -> bool:
+    for key in ("can_write", "writes_state", "mutates", "state_change"):
+        if key in kwargs:
+            return _bool_arg(kwargs.get(key))
+    return False
+
+
+def _capability_for_kind(kind: BrowserRiskKind) -> str:
+    if kind in {"purchase", "payment"}:
+        return "commerce"
+    if kind in {"upload", "download"}:
+        return "file_transfer"
+    return "input"
+
+
+def _consequence_summary(
+    action: str,
+    evidence: tuple[BrowserBoundaryEvidence, ...],
+) -> str:
+    label = evidence[0].label if evidence else ""
+    if label:
+        return f"May {action} on {label}."
+    return f"May {action}."
 
 
 __all__ = [

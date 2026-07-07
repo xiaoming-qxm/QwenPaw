@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable, Hashable
+from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlparse
 
@@ -18,6 +19,7 @@ from qwenpaw.browser.sdk.primitives.types import (
 )
 from qwenpaw.constant import TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS
 from qwenpaw.security.tool_guard.approval import ApprovalDecision
+from qwenpaw.security.tool_guard.execution_level import ToolExecutionLevel
 
 _DEFAULT_CACHE_TTL_SECONDS = 120.0
 _REDACTED = "[REDACTED]"
@@ -57,9 +59,13 @@ class QwenPawBrowserApprovalPolicy:
         self,
         request: BrowserActionRequest,
     ) -> BrowserPolicyDecision:
-        preapproved = _preapproved_decision(request)
-        if preapproved is not None:
-            return preapproved
+        approval_level = _current_approval_level_resolution()
+        matrix_decision = _browser_boundary_matrix_decision(
+            request,
+            approval_level,
+        )
+        if matrix_decision is not None:
+            return matrix_decision
 
         context = _approval_context(request)
         cache_key = _approval_cache_key(request, context["root_session_id"])
@@ -67,7 +73,13 @@ class QwenPawBrowserApprovalPolicy:
             return BrowserPolicyDecision(
                 allowed=True,
                 reason="browser_action_approval_cache",
-                metadata={"approval_cache": "hit"},
+                metadata={
+                    **_boundary_decision_metadata(
+                        request,
+                        approval_level,
+                    ),
+                    "approval_cache": "hit",
+                },
             )
 
         summary = ApprovalRequestSummary(
@@ -125,6 +137,8 @@ class QwenPawBrowserApprovalPolicy:
                 metadata=_approval_decision_metadata(
                     "error",
                     request_id,
+                    request,
+                    approval_level,
                     {"error": str(exc)},
                 ),
             )
@@ -145,6 +159,8 @@ class QwenPawBrowserApprovalPolicy:
                 metadata=_approval_decision_metadata(
                     "approved",
                     request_id,
+                    request,
+                    approval_level,
                 ),
             )
         if decision == ApprovalDecision.TIMEOUT:
@@ -161,6 +177,8 @@ class QwenPawBrowserApprovalPolicy:
                 metadata=_approval_decision_metadata(
                     "timeout",
                     request_id,
+                    request,
+                    approval_level,
                 ),
             )
         _record_approval_trace(
@@ -173,7 +191,12 @@ class QwenPawBrowserApprovalPolicy:
         return BrowserPolicyDecision(
             allowed=False,
             reason="browser_action_denied",
-            metadata=_approval_decision_metadata("denied", request_id),
+            metadata=_approval_decision_metadata(
+                "denied",
+                request_id,
+                request,
+                approval_level,
+            ),
         )
 
     def _service(self) -> Any:
@@ -230,26 +253,104 @@ def _call_context() -> Any | None:
         return None
 
 
-def _preapproved_decision(
-    request: BrowserActionRequest,
-) -> BrowserPolicyDecision | None:
-    if not request.sensitive:
-        return BrowserPolicyDecision(allowed=True, reason="allowed")
-    if _request_approval_level() == "off":
-        return BrowserPolicyDecision(
-            allowed=True,
-            reason="browser_action_approval_level_off",
-            metadata={"approval_level": "OFF"},
+@dataclass(frozen=True)
+class BrowserApprovalLevelResolution:
+    """Resolved Browser approval level and source."""
+
+    level: ToolExecutionLevel
+    source: str
+
+
+def resolve_browser_approval_level(
+    *,
+    request_context: dict[str, Any] | None = None,
+    agent_profile: Any | None = None,
+    agent_id: str = "",
+) -> BrowserApprovalLevelResolution:
+    """Resolve Browser approval level from session, profile, then AUTO."""
+    request_ctx = request_context if isinstance(request_context, dict) else {}
+    session_raw = request_ctx.get("approval_level") if request_ctx else None
+    if session_raw:
+        return BrowserApprovalLevelResolution(
+            level=ToolExecutionLevel.from_config(str(session_raw)),
+            source="session",
         )
-    return None
+
+    profile = agent_profile
+    if profile is None and agent_id:
+        try:
+            from qwenpaw.config.config import load_agent_config
+
+            profile = load_agent_config(agent_id)
+        except Exception:
+            profile = None
+    profile_raw = getattr(profile, "approval_level", None)
+    if profile_raw:
+        return BrowserApprovalLevelResolution(
+            level=ToolExecutionLevel.from_config(str(profile_raw)),
+            source="agent_profile",
+        )
+
+    return BrowserApprovalLevelResolution(
+        level=ToolExecutionLevel.AUTO,
+        source="default",
+    )
 
 
-def _request_approval_level() -> str:
+def _current_approval_level_resolution() -> BrowserApprovalLevelResolution:
     call_context = _call_context()
     request_context = getattr(call_context, "request_context", {}) or {}
     if not isinstance(request_context, dict):
-        return ""
-    return str(request_context.get("approval_level") or "").strip().casefold()
+        request_context = {}
+    return resolve_browser_approval_level(
+        request_context=request_context,
+        agent_id=str(getattr(call_context, "agent_id", "") or ""),
+    )
+
+
+def _browser_boundary_matrix_decision(
+    request: BrowserActionRequest,
+    approval_level: BrowserApprovalLevelResolution,
+) -> BrowserPolicyDecision | None:
+    severity = _boundary_severity(request)
+    metadata = _boundary_decision_metadata(request, approval_level)
+    if severity == "critical_unknown":
+        return BrowserPolicyDecision(
+            allowed=False,
+            reason="boundary_user_intervention_required",
+            metadata={
+                **metadata,
+                "error_code": (
+                    BrowserErrorCode.BOUNDARY_USER_INTERVENTION_REQUIRED.value
+                ),
+            },
+        )
+    if severity == "operational":
+        return BrowserPolicyDecision(
+            allowed=True,
+            reason="browser_boundary_allowed",
+            metadata=metadata,
+        )
+    if severity == "critical_known":
+        return None
+
+    level = approval_level.level
+    if level == ToolExecutionLevel.OFF:
+        return BrowserPolicyDecision(
+            allowed=True,
+            reason="browser_boundary_allowed",
+            metadata=metadata,
+        )
+    if (
+        level == ToolExecutionLevel.SMART
+        and _boundary_confidence(request) >= 0.8
+    ):
+        return BrowserPolicyDecision(
+            allowed=True,
+            reason="browser_boundary_allowed",
+            metadata=metadata,
+        )
+    return None
 
 
 def _approval_timeout_seconds() -> float:
@@ -263,6 +364,58 @@ def _approval_timeout_seconds() -> float:
         if value > 0:
             return min(value, float(TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS))
     return float(TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS)
+
+
+def _boundary_decision_metadata(
+    request: BrowserActionRequest,
+    approval_level: BrowserApprovalLevelResolution,
+) -> dict[str, Any]:
+    risk = request.risk
+    return {
+        "approval_level": approval_level.level.name,
+        "approval_level_source": approval_level.source,
+        "capability_class": (
+            str(risk.capability_class) if risk else "unknown"
+        ),
+        "boundary_severity": _boundary_severity(request),
+        "risk_kind": str(risk.kind) if risk else "unknown_sensitive",
+        "decision_reason": str(
+            risk.decision_reason if risk else "missing risk metadata",
+        ),
+        "evidence": _evidence_payload(request),
+        "consequence_summary": str(
+            risk.consequence_summary if risk else "",
+        ),
+    }
+
+
+def _boundary_severity(request: BrowserActionRequest) -> str:
+    risk = request.risk
+    if risk is None:
+        return "sensitive" if request.sensitive else "operational"
+    return str(risk.boundary_severity or "operational")
+
+
+def _boundary_confidence(request: BrowserActionRequest) -> float:
+    risk = request.risk
+    if risk is None:
+        return 0.0
+    return float(risk.confidence)
+
+
+def _evidence_payload(request: BrowserActionRequest) -> list[dict[str, Any]]:
+    risk = request.risk
+    if risk is None:
+        return []
+    return [
+        {
+            "source": evidence.source,
+            "label": evidence.label,
+            "confidence": evidence.confidence,
+            "metadata": dict(evidence.metadata),
+        }
+        for evidence in risk.evidence
+    ]
 
 
 def _agent_context_value(function_name: str) -> str:
@@ -290,6 +443,18 @@ def _approval_payload(request: BrowserActionRequest) -> dict[str, Any]:
             "kind": str(risk.kind) if risk else "unknown_sensitive",
             "reason": str(risk.reason) if risk else "",
             "matched": list(risk.matched) if risk else [],
+            "capability_class": (
+                str(risk.capability_class) if risk else "unknown"
+            ),
+            "boundary_severity": _boundary_severity(request),
+            "confidence": _boundary_confidence(request),
+            "decision_reason": str(
+                risk.decision_reason if risk else "",
+            ),
+            "consequence_summary": str(
+                risk.consequence_summary if risk else "",
+            ),
+            "evidence": _evidence_payload(request),
         },
         "kwargs": _redact(metadata),
     }
@@ -328,7 +493,9 @@ def _record_approval_trace(
     metadata: dict[str, Any] | None = None,
 ) -> None:
     payload = _approval_payload(request)
+    approval_level = _current_approval_level_resolution()
     trace_metadata = {
+        **_boundary_decision_metadata(request, approval_level),
         "approval_request_id": approval_request_id,
         "approval_state": approval_state,
         "risk_kind": payload["risk"]["kind"],
@@ -355,9 +522,12 @@ def _record_approval_trace(
 def _approval_decision_metadata(
     approval_state: str,
     approval_request_id: str,
+    request: BrowserActionRequest,
+    approval_level: BrowserApprovalLevelResolution,
     extra: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     metadata = {
+        **_boundary_decision_metadata(request, approval_level),
         "approval_state": approval_state,
         "approval_request_id": approval_request_id,
     }
@@ -417,4 +587,8 @@ def _redact(value: Any) -> Any:
     return value
 
 
-__all__ = ["QwenPawBrowserApprovalPolicy"]
+__all__ = [
+    "BrowserApprovalLevelResolution",
+    "QwenPawBrowserApprovalPolicy",
+    "resolve_browser_approval_level",
+]

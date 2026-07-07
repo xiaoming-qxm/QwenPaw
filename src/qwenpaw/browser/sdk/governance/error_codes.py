@@ -27,6 +27,8 @@ class BrowserErrorCode(StrEnum):
     APPROVAL_REQUIRED = "approval_required"
     APPROVAL_DENIED = "approval_denied"
     LOGIN_REQUIRED = "login_required"
+    USER_BROWSER_UNAVAILABLE = "user_browser_unavailable"
+    BOUNDARY_USER_INTERVENTION_REQUIRED = "boundary_user_intervention_required"
     CAPTCHA_OR_RISK_CONTROL = "captcha_or_risk_control"
     CANCELLED = "cancelled"
     NETWORK_TIMEOUT = "network_timeout"
@@ -115,6 +117,22 @@ _ERROR_INFO: dict[BrowserErrorCode, BrowserErrorInfo] = {
         recovery_hint=(
             "Ask the user to sign in or provide an already authenticated "
             "browser context."
+        ),
+    ),
+    BrowserErrorCode.USER_BROWSER_UNAVAILABLE: BrowserErrorInfo(
+        code=BrowserErrorCode.USER_BROWSER_UNAVAILABLE,
+        outcome=BrowserOutcome.BLOCKED,
+        recovery_hint=(
+            "Install, reload, or reconnect the Chrome Extension so Browser "
+            "can use the user's Chrome state."
+        ),
+    ),
+    BrowserErrorCode.BOUNDARY_USER_INTERVENTION_REQUIRED: BrowserErrorInfo(
+        code=BrowserErrorCode.BOUNDARY_USER_INTERVENTION_REQUIRED,
+        outcome=BrowserOutcome.BLOCKED,
+        recovery_hint=(
+            "Ask the user to complete or approve this Browser boundary "
+            "manually; automation cannot infer the consequence safely."
         ),
     ),
     BrowserErrorCode.CAPTCHA_OR_RISK_CONTROL: BrowserErrorInfo(

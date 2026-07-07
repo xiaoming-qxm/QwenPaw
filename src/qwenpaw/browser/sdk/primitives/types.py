@@ -8,6 +8,34 @@ from typing import Any, Literal
 
 BrowserContext = Literal["auto", "user", "isolated"]
 ConcreteBrowserContext = Literal["user", "isolated"]
+BrowserIntent = Literal["ambiguous", "public", "user_state"]
+BrowserCapabilityClass = Literal[
+    "observation",
+    "navigation",
+    "input",
+    "commerce",
+    "credential",
+    "file_transfer",
+    "dialog",
+    "script",
+    "unknown_write",
+]
+BrowserEvidenceSource = Literal[
+    "dom",
+    "aria",
+    "snapshot",
+    "screenshot",
+    "visual",
+    "kwargs",
+    "backend",
+    "unknown",
+]
+BrowserBoundarySeverity = Literal[
+    "operational",
+    "sensitive",
+    "critical_known",
+    "critical_unknown",
+]
 ExtractionFormat = Literal["text", "json"]
 BrowserDiagnosticStatus = Literal[
     "available",
@@ -27,6 +55,7 @@ BrowserRiskKind = Literal[
     "download",
     "credential",
     "unknown_sensitive",
+    "unknown_write",
 ]
 
 
@@ -39,6 +68,12 @@ class ResolvedBrowserContext:
     reason: str
     requires_user_state: bool
     backend_id: str
+    browser_intent: BrowserIntent = "ambiguous"
+    preferred_backend_id: str = ""
+    selected_backend_degraded: bool = False
+    fallback_allowed: bool = False
+    fallback_reason: str = ""
+    auto_route_policy: str = ""
 
 
 @dataclass(frozen=True)
@@ -91,6 +126,21 @@ class BrowserDiagnostics:
     requested_context: BrowserContext
     selected_backend_id: str = ""
     backends: tuple[BrowserBackendDiagnostic, ...] = ()
+    preferred_backend_id: str = ""
+    selected_backend_degraded: bool = False
+    fallback_allowed: bool = False
+    fallback_reason: str = ""
+    auto_route_policy: str = ""
+
+
+@dataclass(frozen=True)
+class BrowserBoundaryEvidence:
+    """Evidence used to classify a Browser boundary decision."""
+
+    source: BrowserEvidenceSource
+    label: str = ""
+    confidence: float = 0.0
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -102,6 +152,13 @@ class BrowserActionRisk:
     kind: BrowserRiskKind
     reason: str = ""
     matched: tuple[str, ...] = ()
+    capability_class: BrowserCapabilityClass = "navigation"
+    boundary_severity: BrowserBoundarySeverity = "operational"
+    confidence: float = 0.0
+    evidence: tuple[BrowserBoundaryEvidence, ...] = ()
+    decision_reason: str = ""
+    consequence_summary: str = ""
+    error_code: str = ""
 
 
 @dataclass(frozen=True)
@@ -212,11 +269,16 @@ __all__ = [
     "BrowserArtifact",
     "BrowserBackendCapabilities",
     "BrowserBackendDiagnostic",
+    "BrowserBoundaryEvidence",
+    "BrowserBoundarySeverity",
+    "BrowserCapabilityClass",
     "BrowserContext",
     "BrowserContextRequest",
     "BrowserDiagnosticCheck",
     "BrowserDiagnosticStatus",
     "BrowserDiagnostics",
+    "BrowserEvidenceSource",
+    "BrowserIntent",
     "BrowserExtractionResult",
     "BrowserObservation",
     "BrowserPageInfo",

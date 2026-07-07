@@ -108,6 +108,14 @@ _CONTEXT_SWITCH_ERROR_CODES = frozenset(
         BrowserErrorCode.CAPTCHA_OR_RISK_CONTROL.value,
     },
 )
+_DEGRADED_FALLBACK_STOP_CODES = frozenset(
+    {
+        BrowserErrorCode.LOGIN_REQUIRED.value,
+        BrowserErrorCode.CAPTCHA_OR_RISK_CONTROL.value,
+        BrowserErrorCode.USER_BROWSER_UNAVAILABLE.value,
+        BrowserErrorCode.BOUNDARY_USER_INTERVENTION_REQUIRED.value,
+    },
+)
 _ERROR_CODE_RECOVERY_TEMPLATES = {
     BrowserErrorCode.APPROVAL_DENIED.value: _RecoveryTemplate(
         BrowserRecoveryAction.BLOCKED,
@@ -124,6 +132,20 @@ _ERROR_CODE_RECOVERY_TEMPLATES = {
         "bridge_disconnected",
         "reconnect_browser_bridge",
         ("isolated_fallback",),
+    ),
+    BrowserErrorCode.USER_BROWSER_UNAVAILABLE.value: _RecoveryTemplate(
+        BrowserRecoveryAction.BLOCKED,
+        BrowserErrorCode.USER_BROWSER_UNAVAILABLE.value,
+        "install_or_reconnect_chrome_extension",
+        ("isolated_fallback",),
+    ),
+    BrowserErrorCode.BOUNDARY_USER_INTERVENTION_REQUIRED.value: (
+        _RecoveryTemplate(
+            BrowserRecoveryAction.BLOCKED,
+            BrowserErrorCode.BOUNDARY_USER_INTERVENTION_REQUIRED.value,
+            "ask_user_to_complete_boundary",
+            ("automate_critical_unknown_boundary",),
+        )
     ),
     BrowserErrorCode.OBSERVATION_STALE.value: _RecoveryTemplate(
         BrowserRecoveryAction.CONTINUE,
@@ -420,6 +442,24 @@ class BrowserRecoveryPolicy:
             )
 
         error_code = _latest_error_code(evidence)
+        if _degraded_timeout_loop(evidence, error_code):
+            return self._decision(
+                BrowserRecoveryAction.BLOCKED,
+                reason="degraded_isolated_timeout_loop",
+                event=event,
+                required_next_step="install_or_reconnect_chrome_extension",
+                forbidden=("isolated_fallback", "retry_with_user_context"),
+                metadata=_degraded_fallback_metadata(event),
+            )
+        if _degraded_fallback_stop_required(error_code, event):
+            return self._decision(
+                BrowserRecoveryAction.BLOCKED,
+                reason=error_code,
+                event=event,
+                required_next_step="install_or_reconnect_chrome_extension",
+                forbidden=("isolated_fallback", "retry_with_user_context"),
+                metadata=_degraded_fallback_metadata(event),
+            )
         template = _error_code_recovery_template(error_code, event)
         if template is not None:
             return self._decision(
@@ -436,6 +476,20 @@ class BrowserRecoveryPolicy:
                 ),
             )
         if _no_progress(evidence):
+            if _degraded_fallback(evidence):
+                return self._decision(
+                    BrowserRecoveryAction.BLOCKED,
+                    reason="degraded_isolated_no_progress",
+                    event=event,
+                    required_next_step=(
+                        "install_or_reconnect_chrome_extension"
+                    ),
+                    forbidden=(
+                        "isolated_fallback",
+                        "repeat_identical_action",
+                    ),
+                    metadata=_degraded_fallback_metadata(event),
+                )
             return self._decision(
                 BrowserRecoveryAction.CONTINUE,
                 reason="no_progress",
@@ -489,11 +543,15 @@ class BrowserRecoveryPolicy:
         requested = event.requested_context if event is not None else ""
         selected = event.selected_context if event is not None else ""
         backend = event.backend_id if event is not None else ""
+        merged_metadata = dict(metadata or {})
+        if backend:
+            merged_metadata.setdefault("backend_id", backend)
         final_message = ""
         if action in {
             BrowserRecoveryAction.BLOCKED,
             BrowserRecoveryAction.FAILED,
         }:
+            recovery_hint = str(merged_metadata.get("recovery_hint") or "")
             final_message = (
                 "Browser task blocked:\n"
                 f"reason: {reason}\n"
@@ -502,6 +560,8 @@ class BrowserRecoveryPolicy:
                 f"required_user_action: {required_next_step or 'none'}\n"
                 f"status: {action.value}"
             )
+            if recovery_hint:
+                final_message = f"{final_message}\nhint: {recovery_hint}"
         continuation = ""
         if action in {
             BrowserRecoveryAction.CONTINUE,
@@ -518,9 +578,6 @@ class BrowserRecoveryPolicy:
                 f"required_next_step: {required_next_step}\n"
                 f"forbidden: {', '.join(forbidden)}"
             )
-        merged_metadata = dict(metadata or {})
-        if backend:
-            merged_metadata.setdefault("backend_id", backend)
         return BrowserRecoveryDecision(
             action=action,
             reason=reason,
@@ -700,6 +757,77 @@ def _is_auto_isolated(event: BrowserTraceEvent | None) -> bool:
         event.requested_context == "auto"
         and event.selected_context == "isolated"
     )
+
+
+def _degraded_fallback_stop_required(
+    error_code: str,
+    event: BrowserTraceEvent | None,
+) -> bool:
+    return (
+        error_code in _DEGRADED_FALLBACK_STOP_CODES
+        and _is_degraded_isolated_event(event)
+    )
+
+
+def _degraded_timeout_loop(
+    evidence: BrowserRequestEvidence,
+    error_code: str,
+) -> bool:
+    if error_code not in PROTOCOL_TIMEOUT_CODES:
+        return False
+    timeout_events = [
+        event
+        for event in evidence.trace_events
+        if _is_degraded_isolated_event(event)
+        and classify_browser_error(event.error_code).code.value
+        in PROTOCOL_TIMEOUT_CODES
+    ]
+    return len(timeout_events) >= 2
+
+
+def _degraded_fallback(evidence: BrowserRequestEvidence) -> bool:
+    return any(
+        _is_degraded_isolated_event(event) for event in evidence.trace_events
+    ) or any(
+        bool(metadata.get("selected_backend_degraded"))
+        or str(metadata.get("fallback_reason") or "")
+        == "user_browser_unavailable"
+        for metadata in evidence.tool_metadata
+    )
+
+
+def _is_degraded_isolated_event(event: BrowserTraceEvent | None) -> bool:
+    if event is None:
+        return False
+    if not (
+        event.requested_context == "auto"
+        and event.selected_context == "isolated"
+    ):
+        return False
+    return (
+        event.metadata.get("selected_backend_degraded") is True
+        or str(event.metadata.get("fallback_reason") or "")
+        == "user_browser_unavailable"
+        or _is_auto_isolated(event)
+    )
+
+
+def _degraded_fallback_metadata(
+    event: BrowserTraceEvent | None,
+) -> dict[str, Any]:
+    metadata = dict(event.metadata if event is not None else {})
+    metadata.setdefault("selected_backend_degraded", True)
+    metadata.setdefault("fallback_reason", "user_browser_unavailable")
+    metadata.setdefault(
+        "recommended_action",
+        "install_or_reconnect_chrome_extension",
+    )
+    metadata.setdefault(
+        "recovery_hint",
+        "Install or reconnect the Chrome Extension before retrying Browser "
+        "auto routing.",
+    )
+    return metadata
 
 
 def _no_progress(evidence: BrowserRequestEvidence) -> bool:

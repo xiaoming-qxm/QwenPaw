@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 from ..backends.registry import (
@@ -13,6 +14,7 @@ from ..backends.protocols import BrowserBackend
 from ..primitives.types import (
     BrowserContext,
     BrowserContextRequest,
+    BrowserIntent,
     ConcreteBrowserContext,
     ResolvedBrowserContext,
 )
@@ -42,87 +44,141 @@ class BrowserContextResolver:
         session_id: str,
         context: BrowserContext = "auto",
         requires_user_state: bool | None = None,
+        browser_intent: BrowserIntent | str | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> ResolvedBrowserContext:
         """Resolve a Browser SDK context request."""
         requested = _normalize_context(context)
         needs_user_state = bool(requires_user_state)
+        intent = _normalize_browser_intent(
+            browser_intent
+            if browser_intent is not None
+            else (metadata or {}).get("browser_intent"),
+            requires_user_state=needs_user_state,
+        )
         self._reject_conflicts(requested, needs_user_state)
 
-        selected, reason, backend = self._select_backend(
+        route = self._select_backend(
             requested,
             needs_user_state,
+            intent,
         )
-        self._ensure_available(backend)
+        self._ensure_available(route.backend)
 
         request = BrowserContextRequest(
             session_id=session_id,
             requested_context=requested,
-            selected_context=selected,
+            selected_context=route.selected,
             requires_user_state=needs_user_state,
-            backend_id=backend.backend_id,
-            metadata=dict(metadata or {}),
+            backend_id=route.backend.backend_id,
+            metadata={
+                **dict(metadata or {}),
+                **route.metadata,
+            },
         )
         decision = self._policy.allow_context_acquisition(request)
         if not decision.allowed:
             raise BrowserPolicyDenied(
                 decision.reason or "Browser context acquisition denied",
-                backend_id=backend.backend_id,
+                backend_id=route.backend.backend_id,
                 metadata=decision.metadata,
             )
 
         return ResolvedBrowserContext(
             requested=requested,
-            selected=selected,
-            reason=reason,
+            selected=route.selected,
+            reason=route.reason,
             requires_user_state=needs_user_state,
-            backend_id=backend.backend_id,
+            backend_id=route.backend.backend_id,
+            browser_intent=intent,
+            preferred_backend_id=route.preferred_backend_id,
+            selected_backend_degraded=route.selected_backend_degraded,
+            fallback_allowed=route.fallback_allowed,
+            fallback_reason=route.fallback_reason,
+            auto_route_policy=route.auto_route_policy,
         )
 
     def _select_backend(
         self,
         requested: BrowserContext,
         requires_user_state: bool,
-    ) -> tuple[ConcreteBrowserContext, str, BrowserBackend]:
+        browser_intent: BrowserIntent,
+    ) -> "_RouteSelection":
         if requested == "user":
-            return (
-                "user",
-                "explicit_user",
-                self._require_backend("user"),
+            backend = self._require_backend("user")
+            return _RouteSelection(
+                selected="user",
+                reason="explicit_user",
+                backend=backend,
+                preferred_backend_id=backend.backend_id,
+                auto_route_policy="explicit_context",
             )
         if requested == "isolated":
-            return (
-                "isolated",
-                "explicit_isolated",
-                self._require_backend("isolated"),
-            )
-        if requires_user_state:
-            return (
-                "user",
-                "requires_user_state",
-                self._require_backend("user"),
+            backend = self._require_backend("isolated")
+            return _RouteSelection(
+                selected="isolated",
+                reason="explicit_isolated",
+                backend=backend,
+                preferred_backend_id=backend.backend_id,
+                auto_route_policy="explicit_context",
             )
 
-        isolated = self._registry.first_for_context(
-            "isolated",
-            only_available=True,
-        )
-        if isolated is not None:
-            return ("isolated", "public_web_isolated_available", isolated)
+        user = self._registry.first_for_context("user")
+        if user is not None and user.is_available():
+            return _RouteSelection(
+                selected="user",
+                reason=(
+                    "requires_user_state"
+                    if requires_user_state
+                    else "auto_user_chrome_available"
+                ),
+                backend=user,
+                preferred_backend_id=user.backend_id,
+                auto_route_policy="auto_user_chrome_first",
+            )
 
-        user = self._registry.first_for_context("user", only_available=True)
-        if user is not None:
-            return ("user", "isolated_unavailable_user_available", user)
+        if requires_user_state or browser_intent == "user_state":
+            raise _user_browser_unavailable_error(user)
 
+        isolated = self._registry.first_for_context("isolated")
+        if isolated is not None and isolated.is_available():
+            return _RouteSelection(
+                selected="isolated",
+                reason="user_chrome_unavailable_degraded_isolated",
+                backend=isolated,
+                preferred_backend_id=(
+                    user.backend_id if user is not None else ""
+                ),
+                selected_backend_degraded=True,
+                fallback_allowed=True,
+                fallback_reason="user_browser_unavailable",
+                auto_route_policy="auto_user_chrome_first",
+            )
+
+        fallback = isolated or user
+        if fallback is not None:
+            caps = fallback.capabilities()
+            return _RouteSelection(
+                selected=caps.browser_context,
+                reason="no_available_auto_backend",
+                backend=fallback,
+                preferred_backend_id=(
+                    user.backend_id if user is not None else ""
+                ),
+                fallback_allowed=True,
+                fallback_reason="user_browser_unavailable",
+                auto_route_policy="auto_user_chrome_first",
+            )
         fallback = self._registry.first_for_context(
             "isolated",
         ) or self._registry.first_for_context("user")
         if fallback is not None:
             caps = fallback.capabilities()
-            return (
-                caps.browser_context,
-                "no_available_auto_backend",
-                fallback,
+            return _RouteSelection(
+                selected=caps.browser_context,
+                reason="no_available_auto_backend",
+                backend=fallback,
+                auto_route_policy="auto_user_chrome_first",
             )
         raise BrowserContextUnavailable(
             'No browser backend is registered for context="auto"',
@@ -178,6 +234,60 @@ def _normalize_context(context: str) -> BrowserContext:
     raise BrowserContextConflict(
         "Browser context must be one of: auto, user, isolated.",
     )
+
+
+def _normalize_browser_intent(
+    value: object,
+    *,
+    requires_user_state: bool,
+) -> BrowserIntent:
+    if requires_user_state:
+        return "user_state"
+    normalized = str(value or "ambiguous").strip().lower().replace("-", "_")
+    if normalized in {"public", "public_web"}:
+        return "public"
+    if normalized in {"user_state", "requires_user_state", "authenticated"}:
+        return "user_state"
+    return "ambiguous"
+
+
+def _user_browser_unavailable_error(
+    backend: BrowserBackend | None,
+) -> BrowserContextUnavailable:
+    backend_id = backend.backend_id if backend is not None else ""
+    return BrowserContextUnavailable(
+        "User Chrome is unavailable for a browser request that requires user "
+        "state.",
+        code="user_browser_unavailable",
+        backend_id=backend_id,
+        metadata={
+            "hint": "Install, reload, or reconnect the Chrome Extension.",
+            "recommended_action": "reconnect_chrome_extension",
+        },
+    )
+
+
+@dataclass(frozen=True)
+class _RouteSelection:
+    selected: ConcreteBrowserContext
+    reason: str
+    backend: BrowserBackend
+    preferred_backend_id: str = ""
+    selected_backend_degraded: bool = False
+    fallback_allowed: bool = False
+    fallback_reason: str = ""
+    auto_route_policy: str = ""
+
+    @property
+    def metadata(self) -> dict[str, Any]:
+        return {
+            "route_reason": self.reason,
+            "preferred_backend_id": self.preferred_backend_id,
+            "selected_backend_degraded": self.selected_backend_degraded,
+            "fallback_allowed": self.fallback_allowed,
+            "fallback_reason": self.fallback_reason,
+            "auto_route_policy": self.auto_route_policy,
+        }
 
 
 __all__ = ["BrowserContextResolver"]

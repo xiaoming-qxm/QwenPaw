@@ -246,18 +246,23 @@ class Tab:
             )
             raise
         action_result = _coerce_action_result(result)
+        trace_metadata = {
+            "kwargs": kwargs,
+            "needs_observation": action_result.needs_observation,
+            "post_mutation_observation_required": (
+                action_result.needs_observation
+            ),
+        }
+        boundary_decision = action_result.data.get("boundary_decision")
+        if isinstance(boundary_decision, dict):
+            trace_metadata["boundary_decision"] = dict(boundary_decision)
+            trace_metadata.update(boundary_decision)
         self._trace(
             phase="action",
             action=name,
             status=_result_status(result),
             duration_ms=_duration_ms(started),
-            metadata={
-                "kwargs": kwargs,
-                "needs_observation": action_result.needs_observation,
-                "post_mutation_observation_required": (
-                    action_result.needs_observation
-                ),
-            },
+            metadata=trace_metadata,
         )
         return result
 

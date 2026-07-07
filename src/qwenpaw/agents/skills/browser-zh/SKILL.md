@@ -21,16 +21,21 @@ snapshot = await tab.snapshot()
 长时间浏览器任务可以持续到真实终止状态。用户要求取消或外层 runtime 停止时，
 使用 task cancellation 结束它。
 
-按浏览器状态选择 context：
+V12 路由合同：
 
-- `context="auto"`：默认。公开网页任务通常走 isolated backend。
-- `context="user"`：通过 Chrome Extension bridge 使用用户 Chrome 登录态。
-  如果 bridge 未连接，明确阻断并汇报。
-- `context="isolated"`：用于不需要用户登录态的公开网页任务。
+- `context="auto"`：默认。auto 优先使用用户 Chrome，也就是
+  `user.chrome_extension`。只有当用户 Chrome 不可用且任务是公开或含糊
+  场景时，才允许降级 isolated fallback；trace 和 diagnostics 会记录
+  `selected_backend_degraded` 与 `fallback_reason`。
+- `context="user"`：显式通过 Chrome Extension bridge 使用用户 Chrome
+  登录态。如果 bridge 未连接，明确阻断并汇报。
+- `context="isolated"`：显式使用 isolated backend，适合确定性测试或必须
+  不触碰用户 Chrome 的任务。它不会路由到用户 Chrome。
 
-只有任务需要真实用户状态时才使用用户 Chrome：可见会话、登录态、购物车、
-账号页面或已有标签页。除非用户要求观看，不要前置、聚焦或激活用户的
-Chrome。
+任务需要可见会话、登录态、购物车、账号页面或已有标签页时，传入
+`requires_user_state=True`。这类用户状态请求在用户 Chrome 不可用时以
+`user_browser_unavailable` fail closed，不会回退到 isolated。除非用户要求
+观看，不要前置、聚焦或激活用户的 Chrome。
 
 primitive 操作和结构化 actions 是同级能力：
 
@@ -55,6 +60,11 @@ await tab.actions.dialog(accept=True)
 `tab.screenshot()`。`tab.evaluate(..., read_only=True)` 只是读取辅助，不算新的
 观察。`tab.page_info()` 只读取页面元信息，也不算新的观察。
 
+Browser approval modes 使用 QwenPaw 统一词汇：
+OFF、AUTO、SMART、STRICT。只读观察属于 operational。sensitive boundary
+按当前模式和证据置信度处理。critical known boundary 在所有模式都需要审批。
+critical unknown boundary 直接阻断并要求用户介入。
+
 不打开浏览器时检查后端可用性：
 
 ```python
@@ -68,5 +78,5 @@ result = await tab.extract("总结当前可见文章", format="text")
 data = await tab.extract("以 JSON 返回标题和价格", format="json")
 ```
 
-Raw CDP 是高级后端细节。只有当用户明确提到调试端口、外部工具附着、或通过
-CDP 共享浏览器时才使用。普通浏览器任务走 Browser SDK。
+Raw CDP 和远程浏览器附着是 blocked coming-soon 能力，没有公开 callable
+entrypoint。普通浏览器任务走 Browser SDK。

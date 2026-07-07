@@ -29,6 +29,7 @@ from qwenpaw.browser.sdk.telemetry.trace import record_browser_trace_event
 from qwenpaw.browser.sdk.primitives.types import (
     BrowserActionRequest,
     BrowserActionResult,
+    BrowserActionRisk,
     BrowserBackendCapabilities,
     BrowserBackendDiagnostic,
     BrowserContextRequest,
@@ -545,6 +546,41 @@ class ChromeExtensionBrowserSession:
         *,
         read_only: bool = False,
     ) -> Any:
+        metadata = await self._action_metadata(
+            tab_id,
+            {
+                "script": script,
+                "code": script,
+                "read_only": read_only,
+            },
+        )
+        risk = classify_browser_action("evaluate", metadata)
+        decision = await maybe_await_policy_decision(
+            self._policy.allow_action(
+                BrowserActionRequest(
+                    session_id=self.session_id,
+                    action="evaluate",
+                    context=self.context,
+                    sensitive=risk.sensitive,
+                    risk=risk,
+                    metadata=metadata,
+                ),
+            ),
+        )
+        if not decision.allowed:
+            raise BrowserPolicyDenied(
+                decision.reason or "Browser action denied by policy",
+                action="evaluate",
+                backend_id=self.backend_id,
+                metadata=_policy_denial_metadata(
+                    decision=decision,
+                    action="evaluate",
+                    tab_id=tab_id,
+                    action_metadata=metadata,
+                    context=self.context,
+                    backend_id=self.backend_id,
+                ),
+            )
         return await self._bridge_or_engine_action(
             "evaluate",
             tab_id,
@@ -559,7 +595,10 @@ class ChromeExtensionBrowserSession:
         name: str,
         **kwargs: Any,
     ) -> BrowserActionResult:
-        metadata = await self._action_metadata(tab_id, kwargs)
+        metadata = await self._action_metadata(
+            tab_id,
+            _policy_metadata_kwargs(name, kwargs),
+        )
         risk = classify_browser_action(name, metadata)
         decision = await maybe_await_policy_decision(
             self._policy.allow_action(
@@ -596,7 +635,11 @@ class ChromeExtensionBrowserSession:
                 tab_id,
                 **kwargs,
             )
-        return _action_result(payload, name)
+        return _action_result(
+            payload,
+            name,
+            boundary_decision=_boundary_decision_metadata(decision, risk),
+        )
 
     async def close_tab(self, tab_id: str) -> BrowserActionResult:
         normalized = str(tab_id)
@@ -1262,17 +1305,99 @@ def _protected_tab_denied(tab: dict[str, Any]) -> BrowserPolicyDenied:
     )
 
 
-def _action_result(payload: Any, name: str) -> BrowserActionResult:
+def _action_result(
+    payload: Any,
+    name: str,
+    *,
+    boundary_decision: dict[str, Any] | None = None,
+) -> BrowserActionResult:
     if isinstance(payload, BrowserActionResult):
+        if boundary_decision:
+            data = {
+                **dict(payload.data),
+                "boundary_decision": dict(boundary_decision),
+            }
+            return BrowserActionResult(
+                ok=payload.ok,
+                message=payload.message,
+                needs_observation=payload.needs_observation,
+                data=data,
+            )
         return payload
     if isinstance(payload, dict):
+        data = dict(payload.get("data") or {})
+        if boundary_decision:
+            data["boundary_decision"] = dict(boundary_decision)
         return BrowserActionResult(
             ok=bool(payload.get("ok", True)),
             message=str(payload.get("message") or name),
             needs_observation=bool(payload.get("needs_observation", True)),
-            data=dict(payload.get("data") or {}),
+            data=data,
         )
-    return BrowserActionResult(ok=True, message=str(payload or name))
+    data = (
+        {"boundary_decision": dict(boundary_decision)}
+        if boundary_decision
+        else {}
+    )
+    return BrowserActionResult(
+        ok=True,
+        message=str(payload or name),
+        data=data,
+    )
+
+
+def _policy_metadata_kwargs(
+    name: str,
+    kwargs: dict[str, Any],
+) -> dict[str, Any]:
+    metadata = dict(kwargs)
+    if _state_changing_action(name, metadata):
+        metadata.setdefault("can_write", True)
+    return metadata
+
+
+def _state_changing_action(name: str, kwargs: dict[str, Any]) -> bool:
+    normalized = str(name or "").strip().casefold().replace("-", "_")
+    if normalized == "dialog":
+        return _bool_arg(kwargs.get("accept", True))
+    return normalized in {
+        "click",
+        "type",
+        "select",
+        "upload",
+    }
+
+
+def _bool_arg(value: Any) -> bool:
+    if isinstance(value, str):
+        return value.strip().casefold() not in {"", "0", "false", "no", "off"}
+    return bool(value)
+
+
+def _boundary_decision_metadata(
+    decision: BrowserPolicyDecision,
+    risk: BrowserActionRisk,
+) -> dict[str, Any]:
+    metadata = dict(decision.metadata)
+    metadata.setdefault("capability_class", risk.capability_class)
+    metadata.setdefault("boundary_severity", risk.boundary_severity)
+    metadata.setdefault("risk_kind", risk.kind)
+    metadata.setdefault("decision_reason", risk.decision_reason)
+    metadata.setdefault("consequence_summary", risk.consequence_summary)
+    metadata.setdefault("evidence", _risk_evidence(risk))
+    return metadata
+
+
+def _risk_evidence(risk: BrowserActionRisk) -> list[dict[str, Any]]:
+    return [
+        {
+            "source": evidence.source,
+            "label": evidence.label,
+            "confidence": evidence.confidence,
+            "metadata": dict(evidence.metadata),
+        }
+        for evidence in risk.evidence
+    ]
 
 
 def _domain_from_url(url: str) -> str:

@@ -63,6 +63,15 @@ def browser_capabilities() -> dict[str, Any]:
     }
     return {
         "contexts": ("auto", "user", "isolated"),
+        "routing": {
+            "contract": "V12 Browser Routing And Permission Contract",
+            "auto_route_policy": "auto_user_chrome_first",
+            "auto_preferred_backend": "user.chrome_extension",
+            "degraded_fallback_backend": "isolated.playwright",
+            "degraded_fallback_for": ("public", "ambiguous"),
+            "user_state_fail_closed": True,
+            "requires_user_state_flag": "requires_user_state=True",
+        },
         "primitives": (
             "tabs.open",
             "tabs.active",
@@ -81,6 +90,7 @@ def browser_capabilities() -> dict[str, Any]:
             "mutation_observations": ("snapshot", "screenshot"),
             "download_max_wait_ms_default": 30000,
             "raw_cdp_public_hot_path": False,
+            "raw_cdp_public_entrypoint": False,
         },
     }
 
@@ -91,7 +101,10 @@ def browser_sdk_help() -> str:
     actions = ", ".join(sorted(capabilities["actions"]))
     return "\n".join(
         (
-            'Browser.connect(context="auto") selects isolated or user Chrome.',
+            'Browser.connect(context="auto") auto prefers user Chrome.',
+            "Use requires_user_state=True for logged-in or existing-tab work.",
+            "Degraded isolated fallback is only for public or ambiguous work "
+            "when user Chrome is unavailable.",
             "Use tab.snapshot() before every mutating action.",
             "Use tab.screenshot() for visual fallback evidence.",
             f"Available actions: {actions}.",
