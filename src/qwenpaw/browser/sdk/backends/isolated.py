@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """First-class isolated Playwright backend for the Browser SDK."""
-# pylint: disable=redefined-builtin
+# pylint: disable=redefined-builtin,too-many-public-methods
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import time
 import mimetypes
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import quote_plus
 from urllib.parse import urlparse
 
@@ -220,6 +220,12 @@ class IsolatedBrowserSession:
     async def active_tab(self) -> dict[str, Any]:
         return await self.runtime.active_tab()
 
+    async def create_tab(self, url: str | None = None) -> dict[str, Any]:
+        create_tab = getattr(self.runtime, "create_tab", None)
+        if callable(create_tab):
+            return await create_tab(url)
+        return await self.runtime.open_tab(url)
+
     async def open_tab(self, url: str | None = None) -> dict[str, Any]:
         return await self.runtime.open_tab(url)
 
@@ -339,6 +345,229 @@ class IsolatedBrowserSession:
         del instruction, format
         observation = await self.snapshot(tab_id)
         return observation.text
+
+    async def wait_for(
+        self,
+        tab_id: str,
+        condition: dict[str, Any] | str,
+        *,
+        timeout_ms: int = 10000,
+    ) -> BrowserActionResult:
+        return await self.runtime.wait_for(
+            tab_id,
+            condition,
+            timeout_ms=timeout_ms,
+        )
+
+    async def navigate(self, tab_id: str, url: str) -> BrowserActionResult:
+        return await self._typed_action(
+            tab_id,
+            "navigate",
+            {"url": url},
+            lambda: self.runtime.navigate(tab_id, url),
+        )
+
+    async def back(self, tab_id: str) -> BrowserActionResult:
+        return await self._typed_action(
+            tab_id,
+            "back",
+            {},
+            lambda: self.runtime.back(tab_id),
+        )
+
+    async def forward(self, tab_id: str) -> BrowserActionResult:
+        return await self._typed_action(
+            tab_id,
+            "forward",
+            {},
+            lambda: self.runtime.forward(tab_id),
+        )
+
+    async def reload(self, tab_id: str) -> BrowserActionResult:
+        return await self._typed_action(
+            tab_id,
+            "reload",
+            {},
+            lambda: self.runtime.reload(tab_id),
+        )
+
+    async def click(
+        self,
+        tab_id: str,
+        target: dict[str, Any],
+        *,
+        allow_new_context: bool = False,
+    ) -> BrowserActionResult:
+        return await self._typed_action(
+            tab_id,
+            "click",
+            {"target": target, "allow_new_context": allow_new_context},
+            lambda: self.runtime.click(
+                tab_id,
+                target,
+                allow_new_context=allow_new_context,
+            ),
+        )
+
+    async def fill(
+        self,
+        tab_id: str,
+        target: dict[str, Any],
+        text: str,
+    ) -> BrowserActionResult:
+        return await self._typed_action(
+            tab_id,
+            "fill",
+            {"target": target, "text": text},
+            lambda: self.runtime.fill(tab_id, target, text),
+        )
+
+    async def press_key(
+        self,
+        tab_id: str,
+        key: str,
+    ) -> BrowserActionResult:
+        return await self._typed_action(
+            tab_id,
+            "press_key",
+            {"key": key},
+            lambda: self.runtime.press_key(tab_id, key),
+        )
+
+    async def scroll(
+        self,
+        tab_id: str,
+        *,
+        direction: str = "down",
+        amount: str | int | None = None,
+        target: dict[str, Any] | None = None,
+    ) -> BrowserActionResult:
+        metadata: dict[str, Any] = {
+            "direction": direction,
+            "amount": amount,
+        }
+        if target is not None:
+            metadata["target"] = target
+        return await self._typed_action(
+            tab_id,
+            "scroll",
+            metadata,
+            lambda: self.runtime.scroll(
+                tab_id,
+                direction=direction,
+                amount=amount,
+                target=target,
+            ),
+        )
+
+    async def select_option(
+        self,
+        tab_id: str,
+        target: dict[str, Any],
+        value: Any,
+    ) -> BrowserActionResult:
+        return await self._typed_action(
+            tab_id,
+            "select_option",
+            {"target": target, "value": value},
+            lambda: self.runtime.select_option(tab_id, target, value),
+        )
+
+    async def hover(
+        self,
+        tab_id: str,
+        target: dict[str, Any],
+    ) -> BrowserActionResult:
+        return await self._typed_action(
+            tab_id,
+            "hover",
+            {"target": target},
+            lambda: self.runtime.hover(tab_id, target),
+        )
+
+    async def upload_file(
+        self,
+        tab_id: str,
+        target: dict[str, Any],
+        file_path: str | list[str],
+    ) -> BrowserActionResult:
+        return await self._typed_action(
+            tab_id,
+            "upload_file",
+            {"target": target, "file_path": file_path},
+            lambda: self.runtime.upload_file(tab_id, target, file_path),
+        )
+
+    async def download_file(
+        self,
+        tab_id: str,
+        target: dict[str, Any] | None = None,
+        *,
+        timeout_ms: int = 30000,
+    ) -> BrowserActionResult:
+        return await self._typed_action(
+            tab_id,
+            "download_file",
+            {"target": target, "timeout_ms": timeout_ms},
+            lambda: self.runtime.download_file(
+                tab_id,
+                target,
+                timeout_ms=timeout_ms,
+            ),
+        )
+
+    async def handle_dialog(
+        self,
+        tab_id: str,
+        *,
+        accept: bool = True,
+        prompt_text: str | None = None,
+    ) -> BrowserActionResult:
+        return await self._typed_action(
+            tab_id,
+            "handle_dialog",
+            {"accept": accept, "prompt_text": prompt_text},
+            lambda: self.runtime.handle_dialog(
+                tab_id,
+                accept=accept,
+                prompt_text=prompt_text,
+            ),
+        )
+
+    async def _typed_action(
+        self,
+        tab_id: str,
+        name: str,
+        kwargs: dict[str, Any],
+        operation: Callable[[], Any],
+    ) -> BrowserActionResult:
+        metadata = await self._action_metadata(
+            tab_id,
+            policy_metadata_kwargs(name, kwargs),
+        )
+        evaluation = await evaluate_browser_boundary(
+            policy=self._policy,
+            session_id=self.session_id,
+            context=self.context,
+            action=name,
+            metadata=metadata,
+        )
+        raise_if_boundary_denied(
+            evaluation,
+            action=name,
+            tab_id=tab_id,
+            action_metadata=metadata,
+            context=self.context,
+            backend_id=self.backend_id,
+        )
+        payload = operation()
+        if hasattr(payload, "__await__"):
+            payload = await payload
+        return action_result_with_boundary_decision(
+            payload,
+            name,
+            boundary_decision=evaluation.boundary_decision,
+        )
 
     async def _action_metadata(
         self,
@@ -495,6 +724,9 @@ class IsolatedPlaywrightRuntime:
         self.current_page_id = page_id
         return await self._tab_info(page_id)
 
+    async def create_tab(self, url: str | None = None) -> dict[str, Any]:
+        return await self.open_tab(url)
+
     async def open_workspace_tab(self, url: str) -> dict[str, Any]:
         await self._ensure_started()
         target = str(url or "").strip()
@@ -601,6 +833,130 @@ class IsolatedPlaywrightRuntime:
         if source.startswith("(") or source.startswith("function"):
             return await page.evaluate(source)
         return await page.evaluate(f"() => {{ return ({source}); }}")
+
+    async def wait_for(
+        self,
+        tab_id: str,
+        condition: dict[str, Any] | str,
+        *,
+        timeout_ms: int = 10000,
+    ) -> BrowserActionResult:
+        page_id = str(tab_id)
+        page = await self._page(page_id)
+        kwargs: dict[str, Any] = (
+            dict(condition)
+            if isinstance(condition, dict)
+            else {"instruction": str(condition)}
+        )
+        kwargs["max_wait_ms"] = timeout_ms
+        await self._wait_for(page, page_id, kwargs)
+        return BrowserActionResult(ok=True, message="wait_for")
+
+    async def navigate(self, tab_id: str, url: str) -> BrowserActionResult:
+        return await self.action(tab_id, "navigate", url=url)
+
+    async def back(self, tab_id: str) -> BrowserActionResult:
+        return await self.action(tab_id, "back")
+
+    async def forward(self, tab_id: str) -> BrowserActionResult:
+        return await self.action(tab_id, "forward")
+
+    async def reload(self, tab_id: str) -> BrowserActionResult:
+        return await self.action(tab_id, "reload")
+
+    async def click(
+        self,
+        tab_id: str,
+        target: dict[str, Any],
+        *,
+        allow_new_context: bool = False,
+    ) -> BrowserActionResult:
+        return await self.action(
+            tab_id,
+            "click",
+            target=target,
+            allow_new_context=allow_new_context,
+        )
+
+    async def fill(
+        self,
+        tab_id: str,
+        target: dict[str, Any],
+        text: str,
+    ) -> BrowserActionResult:
+        return await self.action(tab_id, "type", target=target, text=text)
+
+    async def press_key(self, tab_id: str, key: str) -> BrowserActionResult:
+        return await self.action(tab_id, "press", key=key)
+
+    async def scroll(
+        self,
+        tab_id: str,
+        *,
+        direction: str = "down",
+        amount: str | int | None = None,
+        target: dict[str, Any] | None = None,
+    ) -> BrowserActionResult:
+        kwargs: dict[str, Any] = {"direction": direction}
+        if amount is not None:
+            kwargs["amount"] = amount
+        if target is not None:
+            kwargs["target"] = target
+        return await self.action(tab_id, "scroll", **kwargs)
+
+    async def select_option(
+        self,
+        tab_id: str,
+        target: dict[str, Any],
+        value: Any,
+    ) -> BrowserActionResult:
+        return await self.action(tab_id, "select", target=target, value=value)
+
+    async def hover(
+        self,
+        tab_id: str,
+        target: dict[str, Any],
+    ) -> BrowserActionResult:
+        return await self.action(tab_id, "hover", target=target)
+
+    async def upload_file(
+        self,
+        tab_id: str,
+        target: dict[str, Any],
+        file_path: str | list[str],
+    ) -> BrowserActionResult:
+        return await self.action(
+            tab_id,
+            "upload",
+            target=target,
+            file_path=file_path,
+        )
+
+    async def download_file(
+        self,
+        tab_id: str,
+        target: dict[str, Any] | None = None,
+        *,
+        timeout_ms: int = 30000,
+    ) -> BrowserActionResult:
+        kwargs: dict[str, Any] = {"max_wait_ms": timeout_ms}
+        if target is not None:
+            kwargs["target"] = target
+        return await self.action(tab_id, "download", **kwargs)
+
+    async def handle_dialog(
+        self,
+        tab_id: str,
+        *,
+        accept: bool = True,
+        prompt_text: str | None = None,
+    ) -> BrowserActionResult:
+        return await self.action(
+            tab_id,
+            "dialog",
+            accept=accept,
+            prompt_text=prompt_text,
+        )
 
     async def browser_action(
         self,
