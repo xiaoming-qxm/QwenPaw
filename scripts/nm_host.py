@@ -110,7 +110,7 @@ def load_bridge_entries(
             "entryId": "legacy-default",
             "wsUrl": legacy["ws_url"],
             "token": legacy["token"],
-            "protocolVersion": 1,
+            "protocolVersion": 2,
             "legacy": True,
         },
     ]

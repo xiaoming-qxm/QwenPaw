@@ -30,6 +30,7 @@ LOCAL_INITIAL_RECONNECT_BACKOFF_SECONDS = 5
 LOCAL_MAX_RECONNECT_BACKOFF_SECONDS = 60
 BRIDGE_MANIFEST_FILENAME = "browser-bridge-hosts.json"
 BRIDGE_MANIFEST_SCHEMA_VERSION = 1
+BRIDGE_PROTOCOL_VERSION = 2
 NATIVE_HOST_REPAIR_INSTRUCTION = (
     "Run qwenpaw setup-extension --yes --reset, then reload the Browser "
     "Bridge Chrome extension."
@@ -202,7 +203,7 @@ def _write_bridge_manifest_entry(
                 "entryId": entry_id,
                 "channel": "stable",
                 "appVersion": "",
-                "protocolVersion": BRIDGE_MANIFEST_SCHEMA_VERSION,
+                "protocolVersion": BRIDGE_PROTOCOL_VERSION,
                 "wsUrl": ws_url,
                 "token": token,
                 "presence": {
@@ -345,9 +346,9 @@ def setup_extension_files(
         "installed": True,
         "install_mode": install_mode,
         "extension_id": extension_id,
-        "extension_dir": str(extension_dir)
-        if extension_dir is not None
-        else "",
+        "extension_dir": (
+            str(extension_dir) if extension_dir is not None else ""
+        ),
         "native_manifest_path": str(manifest_path),
         "native_host_path": str(host_path),
         "config_path": str(config_path),

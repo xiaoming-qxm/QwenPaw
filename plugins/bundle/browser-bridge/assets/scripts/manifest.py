@@ -12,6 +12,7 @@ from uuid import uuid4
 
 MANIFEST_PATH = Path.home() / ".qwenpaw" / "browser-bridge-hosts.json"
 SCHEMA_VERSION = 1
+PROTOCOL_VERSION = 2
 
 
 @dataclass(frozen=True)
@@ -65,7 +66,7 @@ def register_instance(
         entryId=entry_id,
         channel=channel,
         appVersion=app_version,
-        protocolVersion=SCHEMA_VERSION,
+        protocolVersion=PROTOCOL_VERSION,
         wsUrl=ws_url,
         token=token,
         presence={
@@ -119,6 +120,7 @@ def _utc_now() -> str:
 
 __all__ = [
     "MANIFEST_PATH",
+    "PROTOCOL_VERSION",
     "SCHEMA_VERSION",
     "ManifestEntry",
     "deregister_instance",
