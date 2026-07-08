@@ -14,8 +14,10 @@ from qwenpaw.browser.sdk.governance.error_codes import BrowserErrorCode
 from qwenpaw.browser.sdk.telemetry.trace import record_browser_trace_event
 from qwenpaw.browser.sdk.primitives.types import (
     BrowserActionRequest,
+    BrowserActionRisk,
     BrowserContextRequest,
     BrowserPolicyDecision,
+    ResolvedBrowserContext,
 )
 from qwenpaw.constant import TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS
 from qwenpaw.security.tool_guard.approval import ApprovalDecision
@@ -80,7 +82,9 @@ class BrowserApprovalCache:
     ) -> None:
         self._now = now or time.time
         self._ttl_seconds = float(ttl_seconds)
-        self._items: dict[BrowserApprovalCacheKey, BrowserApprovalCacheEntry] = {}
+        self._items: dict[
+            BrowserApprovalCacheKey, BrowserApprovalCacheEntry
+        ] = {}
 
     def get(
         self,
@@ -592,9 +596,7 @@ def _approval_brief(request: BrowserActionRequest) -> ApprovalBrief | None:
         subject="Browser action approval",
         target=str(payload["url"] or payload["domain"] or request.action),
         evidence=evidence,
-        uncertainties=(
-            "Browser state may change after the action runs.",
-        ),
+        uncertainties=("Browser state may change after the action runs.",),
         possible_consequences=(
             risk.consequence_summary
             or "This Browser action may change page or account state.",
@@ -711,6 +713,11 @@ async def resolve_cdp_browser_approval(
     del now
     approval_level = resolve_browser_approval_level(
         request_context=request_context,
+        agent_id=str(
+            request_context.get("agent_id")
+            or request_context.get("root_agent_id")
+            or "",
+        ),
     )
     if approval_level.level == ToolExecutionLevel.OFF:
         return BrowserApprovalResolution(
@@ -736,6 +743,18 @@ async def resolve_cdp_browser_approval(
     cache_entry = cache.get(cache_key)
     if cache_entry is not None:
         return _resolution_from_cache(cache_entry)
+
+    matrix_decision = _browser_boundary_matrix_decision(
+        _cdp_browser_action_request(request_context, request),
+        approval_level,
+    )
+    if matrix_decision is not None:
+        return BrowserApprovalResolution(
+            allowed=matrix_decision.allowed,
+            reason=matrix_decision.reason,
+            metadata=matrix_decision.metadata,
+        )
+
     if not session_id:
         return BrowserApprovalResolution(
             allowed=False,
@@ -813,6 +832,55 @@ async def resolve_cdp_browser_approval(
             else f"browser_action_approval_{state}"
         ),
         metadata=metadata,
+    )
+
+
+def _cdp_browser_action_request(
+    request_context: dict[str, Any],
+    request: dict[str, Any],
+) -> BrowserActionRequest:
+    risk_kind = _cdp_risk_kind(request)
+    is_navigation = risk_kind == "navigation"
+    return BrowserActionRequest(
+        session_id=str(request_context.get("session_id") or ""),
+        action=str(request.get("method") or request.get("action") or ""),
+        context=ResolvedBrowserContext(
+            requested="user",
+            selected="user",
+            reason="cdp_relay",
+            requires_user_state=True,
+            backend_id="user.chrome_extension",
+        ),
+        sensitive=not is_navigation,
+        risk=BrowserActionRisk(
+            sensitive=not is_navigation,
+            level="low" if is_navigation else "high",
+            kind=risk_kind,  # type: ignore[arg-type]
+            reason=(
+                "ordinary CDP navigation"
+                if is_navigation
+                else "unknown sensitive CDP command"
+            ),
+            capability_class=(
+                "navigation" if is_navigation else "unknown_write"
+            ),
+            boundary_severity=(
+                "operational" if is_navigation else "sensitive"
+            ),
+            confidence=1.0 if is_navigation else 0.0,
+            decision_reason=(
+                "CDP navigation is an operational browser boundary"
+                if is_navigation
+                else "CDP command lacks a safe operational classification"
+            ),
+        ),
+        metadata={
+            "method": str(request.get("method") or ""),
+            "url": str(request.get("url") or ""),
+            "domain": _cdp_domain_scope(request),
+            "tab_id": str(request.get("tab_id") or ""),
+            "holder_id": str(request.get("holder_id") or ""),
+        },
     )
 
 

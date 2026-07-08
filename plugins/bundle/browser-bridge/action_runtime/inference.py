@@ -117,7 +117,17 @@ async def _control_request_domain_approval(
 
 
 def _control_approval_level(request_context: dict[str, Any]) -> str:
-    return str(request_context.get("approval_level") or "").strip().casefold()
+    from qwenpaw.browser.approval_policy import resolve_browser_approval_level
+
+    resolution = resolve_browser_approval_level(
+        request_context=request_context,
+        agent_id=str(
+            request_context.get("agent_id")
+            or request_context.get("root_agent_id")
+            or "",
+        ),
+    )
+    return resolution.level.name.casefold()
 
 
 async def _control_tab_create_denial_reason(

@@ -343,11 +343,19 @@ class CDPRelaySession:
         return f"Chrome browser control wants to run CDP command {method}."
 
     def _approval_level(self) -> str:
-        return (
-            str(self.request_context.get("approval_level") or "")
-            .strip()
-            .casefold()
+        from qwenpaw.browser.approval_policy import (
+            resolve_browser_approval_level,
         )
+
+        resolution = resolve_browser_approval_level(
+            request_context=self.request_context,
+            agent_id=str(
+                self.request_context.get("agent_id")
+                or self.request_context.get("root_agent_id")
+                or "",
+            ),
+        )
+        return resolution.level.name.casefold()
 
     async def _request_approval(self, request: dict[str, Any]) -> bool:
         if self._approval_level() == "off":
