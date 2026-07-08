@@ -12,6 +12,7 @@ from typing import Any
 from ..actions.tab_actions import BrowserActions
 from ..backends.registry import get_default_backend_registry
 from ..docs.capabilities import browser_capabilities
+from ..docs.capabilities import browser_sdk_help
 from ..governance.error_codes import classify_browser_error
 from ..governance.errors import BrowserContextUnavailable
 from ..governance.resolver import BrowserContextResolver
@@ -284,10 +285,20 @@ class Browser:
         )
 
     @classmethod
-    def capabilities(cls) -> dict[str, Any]:
+    def capabilities(cls, scope: str = "all") -> dict[str, Any]:
         """Return public Browser SDK contexts, primitives, actions, limits."""
         del cls
-        return browser_capabilities()
+        return browser_capabilities(scope=scope)
+
+    @classmethod
+    def help(
+        cls,
+        scope: str | None = None,
+        api_id: str | None = None,
+    ) -> str:
+        """Return generated Browser SDK help text."""
+        del cls
+        return browser_sdk_help(scope=scope, api_id=api_id)
 
     async def _call_browser_action(
         self,

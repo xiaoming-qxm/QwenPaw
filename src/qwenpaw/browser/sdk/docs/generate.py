@@ -25,6 +25,9 @@ from ..primitives.types import BrowserScreenshot
 CATALOG_PATH = (
     Path(__file__).resolve().parents[1] / "generated" / "api_catalog.json"
 )
+GENERATED_DIR = Path(__file__).resolve().parents[1] / "generated"
+CAPABILITIES_PATH = GENERATED_DIR / "capabilities.json"
+HELP_INDEX_PATH = GENERATED_DIR / "help" / "index.md"
 
 _REQUIRED_TARGET = BrowserTargetContract(
     required=True,
@@ -601,6 +604,93 @@ def check_api_catalog(path: Path = CATALOG_PATH) -> bool:
     return path.read_text(encoding="utf-8") == _catalog_text()
 
 
+def build_capabilities() -> dict[str, Any]:
+    """Build compact machine-readable capabilities from the API catalog."""
+    apis = build_api_catalog()["apis"]
+    compact = {api["api_id"]: _compact_api_entry(api) for api in apis}
+    scopes = {
+        "all": sorted(compact),
+        "actions": _ids_for_kind(apis, "action"),
+        "primitives": _ids_for_kind(apis, "primitive"),
+        "diagnostics": _ids_for_kind(apis, "diagnostic"),
+        "lifecycle": _ids_for_kind(apis, "lifecycle"),
+    }
+    return {
+        "version": 1,
+        "source": "api_catalog.json",
+        "contexts": ["auto", "user", "isolated"],
+        "scopes": scopes,
+        "apis": compact,
+        "actions": _entries_for_ids(compact, scopes["actions"]),
+        "primitives": _entries_for_ids(compact, scopes["primitives"]),
+        "diagnostics": _entries_for_ids(compact, scopes["diagnostics"]),
+        "lifecycle": _entries_for_ids(compact, scopes["lifecycle"]),
+        "help": build_help_payload(compact=compact, scopes=scopes),
+    }
+
+
+def build_help_payload(
+    *,
+    compact: dict[str, Any] | None = None,
+    scopes: dict[str, list[str]] | None = None,
+) -> dict[str, Any]:
+    """Build generated help text from compact capabilities."""
+    if compact is None or scopes is None:
+        capabilities = build_capabilities()
+        if compact is None:
+            compact = capabilities["apis"]
+        if scopes is None:
+            scopes = capabilities["scopes"]
+    scope_help = {
+        scope: _scope_help(scope, [compact[api_id] for api_id in api_ids])
+        for scope, api_ids in scopes.items()
+        if scope != "all"
+    }
+    api_help = {
+        api_id: _api_help(entry) for api_id, entry in sorted(compact.items())
+    }
+    index = _index_help(compact, scopes)
+    return {
+        "index": index,
+        "scopes": scope_help,
+        "apis": api_help,
+    }
+
+
+def write_generated_artifacts(output_dir: Path = GENERATED_DIR) -> None:
+    """Write the generated catalog, capabilities, and help artifacts."""
+    output_dir.mkdir(parents=True, exist_ok=True)
+    (output_dir / "api_catalog.json").write_text(
+        _json_text(build_api_catalog()),
+        encoding="utf-8",
+    )
+    (output_dir / "capabilities.json").write_text(
+        _json_text(build_capabilities()),
+        encoding="utf-8",
+    )
+    help_dir = output_dir / "help"
+    help_dir.mkdir(parents=True, exist_ok=True)
+    (help_dir / "index.md").write_text(
+        build_help_payload()["index"],
+        encoding="utf-8",
+    )
+
+
+def check_generated_artifacts(output_dir: Path = GENERATED_DIR) -> bool:
+    """Return whether all generated artifacts match regenerated content."""
+    expected = {
+        output_dir / "api_catalog.json": _json_text(build_api_catalog()),
+        output_dir / "capabilities.json": _json_text(build_capabilities()),
+        output_dir / "help" / "index.md": build_help_payload()["index"],
+    }
+    for path, content in expected.items():
+        if not path.exists():
+            return False
+        if path.read_text(encoding="utf-8") != content:
+            return False
+    return True
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the catalog generator command."""
     parser = argparse.ArgumentParser(
@@ -613,8 +703,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
     if args.check:
-        return 0 if check_api_catalog() else 1
-    write_api_catalog()
+        return 0 if check_generated_artifacts() else 1
+    write_generated_artifacts()
     return 0
 
 
@@ -639,6 +729,110 @@ def _contract_for(func: Callable[..., Any]) -> BrowserAPIContract:
     if not isinstance(contract, BrowserAPIContract):
         raise TypeError(f"Missing Browser API contract for {func!r}")
     return contract
+
+
+def _compact_api_entry(api: dict[str, Any]) -> dict[str, Any]:
+    entry = {
+        "api_id": api["api_id"],
+        "kind": api["kind"],
+        "summary": api["summary"],
+        "signature": api["signature"],
+        "parameters": api["parameters"],
+        "return_type": api["return_type"],
+        "mutates": api["mutates"],
+        "requires_observation": api["requires_observation"],
+        "satisfies_observation": api["satisfies_observation"],
+        "invalidates_observation": api["invalidates_observation"],
+    }
+    for key in ("target", "backend_op"):
+        if key in api:
+            entry[key] = api[key]
+    return entry
+
+
+def _ids_for_kind(apis: list[dict[str, Any]], kind: str) -> list[str]:
+    return sorted(
+        api["api_id"]
+        for api in apis
+        if api["kind"] == kind and api["visibility"] == "default"
+    )
+
+
+def _entries_for_ids(
+    compact: dict[str, Any],
+    api_ids: list[str],
+) -> dict[str, Any]:
+    return {api_id: compact[api_id] for api_id in api_ids}
+
+
+def _index_help(
+    compact: dict[str, Any],
+    scopes: dict[str, list[str]],
+) -> str:
+    lines = [
+        "# Browser SDK Generated Help",
+        "",
+        "Generated from `api_catalog.json`.",
+        "",
+        'Use `Browser.capabilities(scope="actions")` for compact indexes.',
+        'Use `Browser.help(api_id="tab.actions.click")` for one API.',
+        "",
+    ]
+    for scope in ("actions", "primitives", "diagnostics", "lifecycle"):
+        lines.append(f"## {scope.title()}")
+        lines.append("")
+        for api_id in scopes[scope]:
+            entry = compact[api_id]
+            lines.append(f"- `{api_id}` - {entry['summary']}")
+        lines.append("")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _scope_help(scope: str, entries: list[dict[str, Any]]) -> str:
+    lines = [
+        f"# Browser SDK {scope.title()}",
+        "",
+        "Generated from `api_catalog.json`.",
+        "",
+    ]
+    for entry in entries:
+        lines.append(f"## `{entry['api_id']}`")
+        lines.append("")
+        lines.append(entry["summary"])
+        lines.append("")
+        lines.append(f"Signature: `{entry['signature']}`")
+        lines.append("")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _api_help(entry: dict[str, Any]) -> str:
+    lines = [
+        f"# `{entry['api_id']}`",
+        "",
+        entry["summary"],
+        "",
+        f"Kind: `{entry['kind']}`",
+        f"Signature: `{entry['signature']}`",
+        "",
+        "Metadata:",
+        f"- mutates: `{entry['mutates']}`",
+        f"- requires_observation: `{entry['requires_observation']}`",
+        f"- satisfies_observation: `{entry['satisfies_observation']}`",
+        f"- invalidates_observation: `{entry['invalidates_observation']}`",
+    ]
+    if "target" in entry:
+        target = entry["target"]
+        methods = ", ".join(target["methods"])
+        lines.extend(
+            [
+                f"- target_required: `{target['required']}`",
+                f"- target_methods: `{methods}`",
+                f"- target_snapshot_bound: `{target['snapshot_bound']}`",
+            ],
+        )
+    if "backend_op" in entry:
+        lines.append(f"- backend_op: `{entry['backend_op']}`")
+    return "\n".join(lines).rstrip() + "\n"
 
 
 def _parameters_for(
@@ -726,14 +920,12 @@ def _summary_for(func: Callable[..., Any]) -> str:
 
 
 def _catalog_text() -> str:
+    return _json_text(build_api_catalog())
+
+
+def _json_text(payload: dict[str, Any]) -> str:
     return (
-        json.dumps(
-            build_api_catalog(),
-            ensure_ascii=True,
-            indent=2,
-            sort_keys=True,
-        )
-        + "\n"
+        json.dumps(payload, ensure_ascii=True, indent=2, sort_keys=True) + "\n"
     )
 
 
@@ -742,9 +934,16 @@ if __name__ == "__main__":
 
 
 __all__ = [
+    "CAPABILITIES_PATH",
     "CATALOG_PATH",
+    "GENERATED_DIR",
+    "HELP_INDEX_PATH",
     "build_api_catalog",
+    "build_capabilities",
+    "build_help_payload",
     "check_api_catalog",
+    "check_generated_artifacts",
     "main",
+    "write_generated_artifacts",
     "write_api_catalog",
 ]

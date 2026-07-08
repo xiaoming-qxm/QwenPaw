@@ -1,0 +1,1468 @@
+{
+  "actions": {
+    "browser.actions.search_web": {
+      "api_id": "browser.actions.search_web",
+      "invalidates_observation": true,
+      "kind": "action",
+      "mutates": true,
+      "parameters": {
+        "engine": {
+          "annotation": "str",
+          "default": "'google'",
+          "kind": "positional_or_keyword",
+          "required": false
+        },
+        "query": {
+          "annotation": "str",
+          "kind": "positional_or_keyword",
+          "required": true
+        }
+      },
+      "requires_observation": false,
+      "return_type": "BrowserActionResult",
+      "satisfies_observation": false,
+      "signature": "(query: str, engine: str = 'google') -> BrowserActionResult",
+      "summary": "Search the public web using a supported engine."
+    },
+    "tab.actions.back": {
+      "api_id": "tab.actions.back",
+      "backend_op": "back",
+      "invalidates_observation": true,
+      "kind": "action",
+      "mutates": true,
+      "parameters": {},
+      "requires_observation": false,
+      "return_type": "BrowserActionResult",
+      "satisfies_observation": false,
+      "signature": "() -> BrowserActionResult",
+      "summary": "Navigate the tab backward in history."
+    },
+    "tab.actions.click": {
+      "api_id": "tab.actions.click",
+      "backend_op": "click",
+      "invalidates_observation": true,
+      "kind": "action",
+      "mutates": true,
+      "parameters": {
+        "allow_new_context": {
+          "annotation": "bool",
+          "default": "False",
+          "kind": "positional_or_keyword",
+          "required": false
+        },
+        "target": {
+          "annotation": "dict[str, Any]",
+          "kind": "positional_or_keyword",
+          "required": true
+        }
+      },
+      "requires_observation": true,
+      "return_type": "BrowserActionResult",
+      "satisfies_observation": false,
+      "signature": "(target: dict[str, Any], allow_new_context: bool = False) -> BrowserActionResult",
+      "summary": "Click one target from the latest observation.",
+      "target": {
+        "methods": [
+          "ref",
+          "role_name",
+          "text_exact",
+          "coords"
+        ],
+        "required": true,
+        "snapshot_bound": true
+      }
+    },
+    "tab.actions.download_file": {
+      "api_id": "tab.actions.download_file",
+      "backend_op": "download_file",
+      "invalidates_observation": true,
+      "kind": "action",
+      "mutates": true,
+      "parameters": {
+        "target": {
+          "annotation": "dict[str, Any] | NoneType",
+          "default": "None",
+          "kind": "positional_or_keyword",
+          "required": false
+        },
+        "timeout_ms": {
+          "annotation": "int",
+          "default": "30000",
+          "kind": "positional_or_keyword",
+          "required": false
+        }
+      },
+      "requires_observation": false,
+      "return_type": "BrowserActionResult",
+      "satisfies_observation": false,
+      "signature": "(target: dict[str, Any] | NoneType = None, timeout_ms: int = 30000) -> BrowserActionResult",
+      "summary": "Download a file from the page.",
+      "target": {
+        "methods": [
+          "ref",
+          "role_name",
+          "text_exact",
+          "coords"
+        ],
+        "required": false,
+        "snapshot_bound": true
+      }
+    },
+    "tab.actions.fill": {
+      "api_id": "tab.actions.fill",
+      "backend_op": "fill",
+      "invalidates_observation": true,
+      "kind": "action",
+      "mutates": true,
+      "parameters": {
+        "target": {
+          "annotation": "dict[str, Any]",
+          "kind": "positional_or_keyword",
+          "required": true
+        },
+        "text": {
+          "annotation": "str",
+          "kind": "positional_or_keyword",
+          "required": true
+        }
+      },
+      "requires_observation": true,
+      "return_type": "BrowserActionResult",
+      "satisfies_observation": false,
+      "signature": "(target: dict[str, Any], text: str) -> BrowserActionResult",
+      "summary": "Fill an editable target with text.",
+      "target": {
+        "methods": [
+          "ref",
+          "role_name",
+          "text_exact",
+          "coords"
+        ],
+        "required": true,
+        "snapshot_bound": true
+      }
+    },
+    "tab.actions.forward": {
+      "api_id": "tab.actions.forward",
+      "backend_op": "forward",
+      "invalidates_observation": true,
+      "kind": "action",
+      "mutates": true,
+      "parameters": {},
+      "requires_observation": false,
+      "return_type": "BrowserActionResult",
+      "satisfies_observation": false,
+      "signature": "() -> BrowserActionResult",
+      "summary": "Navigate the tab forward in history."
+    },
+    "tab.actions.handle_dialog": {
+      "api_id": "tab.actions.handle_dialog",
+      "backend_op": "handle_dialog",
+      "invalidates_observation": true,
+      "kind": "action",
+      "mutates": true,
+      "parameters": {
+        "accept": {
+          "annotation": "bool",
+          "default": "True",
+          "kind": "positional_or_keyword",
+          "required": false
+        },
+        "prompt_text": {
+          "annotation": "str | NoneType",
+          "default": "None",
+          "kind": "positional_or_keyword",
+          "required": false
+        }
+      },
+      "requires_observation": false,
+      "return_type": "BrowserActionResult",
+      "satisfies_observation": false,
+      "signature": "(accept: bool = True, prompt_text: str | NoneType = None) -> BrowserActionResult",
+      "summary": "Handle a browser dialog."
+    },
+    "tab.actions.hover": {
+      "api_id": "tab.actions.hover",
+      "backend_op": "hover",
+      "invalidates_observation": true,
+      "kind": "action",
+      "mutates": true,
+      "parameters": {
+        "target": {
+          "annotation": "dict[str, Any]",
+          "kind": "positional_or_keyword",
+          "required": true
+        }
+      },
+      "requires_observation": true,
+      "return_type": "BrowserActionResult",
+      "satisfies_observation": false,
+      "signature": "(target: dict[str, Any]) -> BrowserActionResult",
+      "summary": "Hover over one target from the latest observation.",
+      "target": {
+        "methods": [
+          "ref",
+          "role_name",
+          "text_exact",
+          "coords"
+        ],
+        "required": true,
+        "snapshot_bound": true
+      }
+    },
+    "tab.actions.navigate": {
+      "api_id": "tab.actions.navigate",
+      "backend_op": "navigate",
+      "invalidates_observation": true,
+      "kind": "action",
+      "mutates": true,
+      "parameters": {
+        "url": {
+          "annotation": "str",
+          "kind": "positional_or_keyword",
+          "required": true
+        }
+      },
+      "requires_observation": false,
+      "return_type": "BrowserActionResult",
+      "satisfies_observation": false,
+      "signature": "(url: str) -> BrowserActionResult",
+      "summary": "Navigate the tab to a URL."
+    },
+    "tab.actions.press_key": {
+      "api_id": "tab.actions.press_key",
+      "backend_op": "press_key",
+      "invalidates_observation": true,
+      "kind": "action",
+      "mutates": true,
+      "parameters": {
+        "key": {
+          "annotation": "str",
+          "kind": "positional_or_keyword",
+          "required": true
+        }
+      },
+      "requires_observation": false,
+      "return_type": "BrowserActionResult",
+      "satisfies_observation": false,
+      "signature": "(key: str) -> BrowserActionResult",
+      "summary": "Press a page-level keyboard key."
+    },
+    "tab.actions.reload": {
+      "api_id": "tab.actions.reload",
+      "backend_op": "reload",
+      "invalidates_observation": true,
+      "kind": "action",
+      "mutates": true,
+      "parameters": {},
+      "requires_observation": false,
+      "return_type": "BrowserActionResult",
+      "satisfies_observation": false,
+      "signature": "() -> BrowserActionResult",
+      "summary": "Reload the current tab."
+    },
+    "tab.actions.scroll": {
+      "api_id": "tab.actions.scroll",
+      "backend_op": "scroll",
+      "invalidates_observation": true,
+      "kind": "action",
+      "mutates": true,
+      "parameters": {
+        "amount": {
+          "annotation": "str | int | NoneType",
+          "default": "None",
+          "kind": "positional_or_keyword",
+          "required": false
+        },
+        "direction": {
+          "annotation": "str",
+          "default": "'down'",
+          "kind": "positional_or_keyword",
+          "required": false
+        },
+        "target": {
+          "annotation": "dict[str, Any] | NoneType",
+          "default": "None",
+          "kind": "positional_or_keyword",
+          "required": false
+        }
+      },
+      "requires_observation": false,
+      "return_type": "BrowserActionResult",
+      "satisfies_observation": false,
+      "signature": "(direction: str = 'down', amount: str | int | NoneType = None, target: dict[str, Any] | NoneType = None) -> BrowserActionResult",
+      "summary": "Scroll the page or a target region.",
+      "target": {
+        "methods": [
+          "ref",
+          "role_name",
+          "text_exact",
+          "coords"
+        ],
+        "required": false,
+        "snapshot_bound": true
+      }
+    },
+    "tab.actions.select_option": {
+      "api_id": "tab.actions.select_option",
+      "backend_op": "select_option",
+      "invalidates_observation": true,
+      "kind": "action",
+      "mutates": true,
+      "parameters": {
+        "target": {
+          "annotation": "dict[str, Any]",
+          "kind": "positional_or_keyword",
+          "required": true
+        },
+        "value": {
+          "annotation": "str",
+          "kind": "positional_or_keyword",
+          "required": true
+        }
+      },
+      "requires_observation": true,
+      "return_type": "BrowserActionResult",
+      "satisfies_observation": false,
+      "signature": "(target: dict[str, Any], value: str) -> BrowserActionResult",
+      "summary": "Select an option on a target control.",
+      "target": {
+        "methods": [
+          "ref",
+          "role_name",
+          "text_exact",
+          "coords"
+        ],
+        "required": true,
+        "snapshot_bound": true
+      }
+    },
+    "tab.actions.upload_file": {
+      "api_id": "tab.actions.upload_file",
+      "backend_op": "upload_file",
+      "invalidates_observation": true,
+      "kind": "action",
+      "mutates": true,
+      "parameters": {
+        "file_path": {
+          "annotation": "str | list[str]",
+          "kind": "positional_or_keyword",
+          "required": true
+        },
+        "target": {
+          "annotation": "dict[str, Any]",
+          "kind": "positional_or_keyword",
+          "required": true
+        }
+      },
+      "requires_observation": true,
+      "return_type": "BrowserActionResult",
+      "satisfies_observation": false,
+      "signature": "(target: dict[str, Any], file_path: str | list[str]) -> BrowserActionResult",
+      "summary": "Upload one or more files through a target control.",
+      "target": {
+        "methods": [
+          "ref",
+          "role_name",
+          "text_exact",
+          "coords"
+        ],
+        "required": true,
+        "snapshot_bound": true
+      }
+    }
+  },
+  "apis": {
+    "browser.actions.search_web": {
+      "api_id": "browser.actions.search_web",
+      "invalidates_observation": true,
+      "kind": "action",
+      "mutates": true,
+      "parameters": {
+        "engine": {
+          "annotation": "str",
+          "default": "'google'",
+          "kind": "positional_or_keyword",
+          "required": false
+        },
+        "query": {
+          "annotation": "str",
+          "kind": "positional_or_keyword",
+          "required": true
+        }
+      },
+      "requires_observation": false,
+      "return_type": "BrowserActionResult",
+      "satisfies_observation": false,
+      "signature": "(query: str, engine: str = 'google') -> BrowserActionResult",
+      "summary": "Search the public web using a supported engine."
+    },
+    "browser.capabilities": {
+      "api_id": "browser.capabilities",
+      "invalidates_observation": false,
+      "kind": "diagnostic",
+      "mutates": false,
+      "parameters": {
+        "scope": {
+          "annotation": "str",
+          "default": "'all'",
+          "kind": "positional_or_keyword",
+          "required": false
+        }
+      },
+      "requires_observation": false,
+      "return_type": "dict[str, Any]",
+      "satisfies_observation": false,
+      "signature": "(scope: str = 'all') -> dict[str, Any]",
+      "summary": "Return generated Browser SDK capabilities."
+    },
+    "browser.close": {
+      "api_id": "browser.close",
+      "invalidates_observation": false,
+      "kind": "lifecycle",
+      "mutates": true,
+      "parameters": {},
+      "requires_observation": false,
+      "return_type": "NoneType",
+      "satisfies_observation": false,
+      "signature": "() -> NoneType",
+      "summary": "Release browser session resources through the selected backend."
+    },
+    "browser.connect": {
+      "api_id": "browser.connect",
+      "invalidates_observation": false,
+      "kind": "lifecycle",
+      "mutates": false,
+      "parameters": {
+        "context": {
+          "annotation": "str",
+          "default": "'auto'",
+          "kind": "positional_or_keyword",
+          "required": false
+        },
+        "requires_user_state": {
+          "annotation": "bool | NoneType",
+          "default": "None",
+          "kind": "keyword_only",
+          "required": false
+        },
+        "retention": {
+          "annotation": "str",
+          "default": "'clean'",
+          "kind": "keyword_only",
+          "required": false
+        },
+        "session_id": {
+          "annotation": "str | NoneType",
+          "default": "None",
+          "kind": "keyword_only",
+          "required": false
+        }
+      },
+      "requires_observation": false,
+      "return_type": "Any",
+      "satisfies_observation": false,
+      "signature": "(context: str = 'auto', *, requires_user_state: bool | NoneType = None, session_id: str | NoneType = None, retention: str = 'clean') -> Any",
+      "summary": "Connect to a browser backend using runtime context arbitration."
+    },
+    "browser.diagnostics": {
+      "api_id": "browser.diagnostics",
+      "invalidates_observation": false,
+      "kind": "diagnostic",
+      "mutates": false,
+      "parameters": {
+        "context": {
+          "annotation": "str",
+          "default": "'auto'",
+          "kind": "positional_or_keyword",
+          "required": false
+        }
+      },
+      "requires_observation": false,
+      "return_type": "BrowserDiagnostics",
+      "satisfies_observation": false,
+      "signature": "(context: str = 'auto') -> BrowserDiagnostics",
+      "summary": "Return backend availability diagnostics without connecting."
+    },
+    "browser.help": {
+      "api_id": "browser.help",
+      "invalidates_observation": false,
+      "kind": "diagnostic",
+      "mutates": false,
+      "parameters": {
+        "api_id": {
+          "annotation": "str | NoneType",
+          "default": "None",
+          "kind": "positional_or_keyword",
+          "required": false
+        },
+        "scope": {
+          "annotation": "str | NoneType",
+          "default": "None",
+          "kind": "positional_or_keyword",
+          "required": false
+        }
+      },
+      "requires_observation": false,
+      "return_type": "str",
+      "satisfies_observation": false,
+      "signature": "(scope: str | NoneType = None, api_id: str | NoneType = None) -> str",
+      "summary": "Return generated Browser SDK help text."
+    },
+    "browser.tabs.active": {
+      "api_id": "browser.tabs.active",
+      "backend_op": "active_tab",
+      "invalidates_observation": false,
+      "kind": "primitive",
+      "mutates": false,
+      "parameters": {},
+      "requires_observation": false,
+      "return_type": "Any",
+      "satisfies_observation": false,
+      "signature": "() -> Any",
+      "summary": "Return the current request tab without creating one."
+    },
+    "browser.tabs.list": {
+      "api_id": "browser.tabs.list",
+      "backend_op": "list_tabs",
+      "invalidates_observation": false,
+      "kind": "primitive",
+      "mutates": false,
+      "parameters": {},
+      "requires_observation": false,
+      "return_type": "list[Any]",
+      "satisfies_observation": false,
+      "signature": "() -> list[Any]",
+      "summary": "List browser tabs."
+    },
+    "browser.tabs.new": {
+      "api_id": "browser.tabs.new",
+      "backend_op": "create_tab",
+      "invalidates_observation": true,
+      "kind": "primitive",
+      "mutates": true,
+      "parameters": {
+        "url": {
+          "annotation": "str",
+          "kind": "positional_or_keyword",
+          "required": true
+        }
+      },
+      "requires_observation": false,
+      "return_type": "Any",
+      "satisfies_observation": false,
+      "signature": "(url: str) -> Any",
+      "summary": "Explicitly create a new browser tab for the request workspace."
+    },
+    "browser.tabs.open": {
+      "api_id": "browser.tabs.open",
+      "backend_op": "open_workspace_tab",
+      "invalidates_observation": true,
+      "kind": "primitive",
+      "mutates": true,
+      "parameters": {
+        "url": {
+          "annotation": "str",
+          "kind": "positional_or_keyword",
+          "required": true
+        }
+      },
+      "requires_observation": false,
+      "return_type": "Any",
+      "satisfies_observation": false,
+      "signature": "(url: str) -> Any",
+      "summary": "Reuse the request workspace tab and navigate it to a URL."
+    },
+    "browser.tabs.select": {
+      "api_id": "browser.tabs.select",
+      "backend_op": "select_tab",
+      "invalidates_observation": false,
+      "kind": "primitive",
+      "mutates": false,
+      "parameters": {
+        "tab_id": {
+          "annotation": "str",
+          "kind": "positional_or_keyword",
+          "required": true
+        }
+      },
+      "requires_observation": false,
+      "return_type": "Any",
+      "satisfies_observation": false,
+      "signature": "(tab_id: str) -> Any",
+      "summary": "Select a tab by id."
+    },
+    "tab.actions.back": {
+      "api_id": "tab.actions.back",
+      "backend_op": "back",
+      "invalidates_observation": true,
+      "kind": "action",
+      "mutates": true,
+      "parameters": {},
+      "requires_observation": false,
+      "return_type": "BrowserActionResult",
+      "satisfies_observation": false,
+      "signature": "() -> BrowserActionResult",
+      "summary": "Navigate the tab backward in history."
+    },
+    "tab.actions.click": {
+      "api_id": "tab.actions.click",
+      "backend_op": "click",
+      "invalidates_observation": true,
+      "kind": "action",
+      "mutates": true,
+      "parameters": {
+        "allow_new_context": {
+          "annotation": "bool",
+          "default": "False",
+          "kind": "positional_or_keyword",
+          "required": false
+        },
+        "target": {
+          "annotation": "dict[str, Any]",
+          "kind": "positional_or_keyword",
+          "required": true
+        }
+      },
+      "requires_observation": true,
+      "return_type": "BrowserActionResult",
+      "satisfies_observation": false,
+      "signature": "(target: dict[str, Any], allow_new_context: bool = False) -> BrowserActionResult",
+      "summary": "Click one target from the latest observation.",
+      "target": {
+        "methods": [
+          "ref",
+          "role_name",
+          "text_exact",
+          "coords"
+        ],
+        "required": true,
+        "snapshot_bound": true
+      }
+    },
+    "tab.actions.download_file": {
+      "api_id": "tab.actions.download_file",
+      "backend_op": "download_file",
+      "invalidates_observation": true,
+      "kind": "action",
+      "mutates": true,
+      "parameters": {
+        "target": {
+          "annotation": "dict[str, Any] | NoneType",
+          "default": "None",
+          "kind": "positional_or_keyword",
+          "required": false
+        },
+        "timeout_ms": {
+          "annotation": "int",
+          "default": "30000",
+          "kind": "positional_or_keyword",
+          "required": false
+        }
+      },
+      "requires_observation": false,
+      "return_type": "BrowserActionResult",
+      "satisfies_observation": false,
+      "signature": "(target: dict[str, Any] | NoneType = None, timeout_ms: int = 30000) -> BrowserActionResult",
+      "summary": "Download a file from the page.",
+      "target": {
+        "methods": [
+          "ref",
+          "role_name",
+          "text_exact",
+          "coords"
+        ],
+        "required": false,
+        "snapshot_bound": true
+      }
+    },
+    "tab.actions.fill": {
+      "api_id": "tab.actions.fill",
+      "backend_op": "fill",
+      "invalidates_observation": true,
+      "kind": "action",
+      "mutates": true,
+      "parameters": {
+        "target": {
+          "annotation": "dict[str, Any]",
+          "kind": "positional_or_keyword",
+          "required": true
+        },
+        "text": {
+          "annotation": "str",
+          "kind": "positional_or_keyword",
+          "required": true
+        }
+      },
+      "requires_observation": true,
+      "return_type": "BrowserActionResult",
+      "satisfies_observation": false,
+      "signature": "(target: dict[str, Any], text: str) -> BrowserActionResult",
+      "summary": "Fill an editable target with text.",
+      "target": {
+        "methods": [
+          "ref",
+          "role_name",
+          "text_exact",
+          "coords"
+        ],
+        "required": true,
+        "snapshot_bound": true
+      }
+    },
+    "tab.actions.forward": {
+      "api_id": "tab.actions.forward",
+      "backend_op": "forward",
+      "invalidates_observation": true,
+      "kind": "action",
+      "mutates": true,
+      "parameters": {},
+      "requires_observation": false,
+      "return_type": "BrowserActionResult",
+      "satisfies_observation": false,
+      "signature": "() -> BrowserActionResult",
+      "summary": "Navigate the tab forward in history."
+    },
+    "tab.actions.handle_dialog": {
+      "api_id": "tab.actions.handle_dialog",
+      "backend_op": "handle_dialog",
+      "invalidates_observation": true,
+      "kind": "action",
+      "mutates": true,
+      "parameters": {
+        "accept": {
+          "annotation": "bool",
+          "default": "True",
+          "kind": "positional_or_keyword",
+          "required": false
+        },
+        "prompt_text": {
+          "annotation": "str | NoneType",
+          "default": "None",
+          "kind": "positional_or_keyword",
+          "required": false
+        }
+      },
+      "requires_observation": false,
+      "return_type": "BrowserActionResult",
+      "satisfies_observation": false,
+      "signature": "(accept: bool = True, prompt_text: str | NoneType = None) -> BrowserActionResult",
+      "summary": "Handle a browser dialog."
+    },
+    "tab.actions.hover": {
+      "api_id": "tab.actions.hover",
+      "backend_op": "hover",
+      "invalidates_observation": true,
+      "kind": "action",
+      "mutates": true,
+      "parameters": {
+        "target": {
+          "annotation": "dict[str, Any]",
+          "kind": "positional_or_keyword",
+          "required": true
+        }
+      },
+      "requires_observation": true,
+      "return_type": "BrowserActionResult",
+      "satisfies_observation": false,
+      "signature": "(target: dict[str, Any]) -> BrowserActionResult",
+      "summary": "Hover over one target from the latest observation.",
+      "target": {
+        "methods": [
+          "ref",
+          "role_name",
+          "text_exact",
+          "coords"
+        ],
+        "required": true,
+        "snapshot_bound": true
+      }
+    },
+    "tab.actions.navigate": {
+      "api_id": "tab.actions.navigate",
+      "backend_op": "navigate",
+      "invalidates_observation": true,
+      "kind": "action",
+      "mutates": true,
+      "parameters": {
+        "url": {
+          "annotation": "str",
+          "kind": "positional_or_keyword",
+          "required": true
+        }
+      },
+      "requires_observation": false,
+      "return_type": "BrowserActionResult",
+      "satisfies_observation": false,
+      "signature": "(url: str) -> BrowserActionResult",
+      "summary": "Navigate the tab to a URL."
+    },
+    "tab.actions.press_key": {
+      "api_id": "tab.actions.press_key",
+      "backend_op": "press_key",
+      "invalidates_observation": true,
+      "kind": "action",
+      "mutates": true,
+      "parameters": {
+        "key": {
+          "annotation": "str",
+          "kind": "positional_or_keyword",
+          "required": true
+        }
+      },
+      "requires_observation": false,
+      "return_type": "BrowserActionResult",
+      "satisfies_observation": false,
+      "signature": "(key: str) -> BrowserActionResult",
+      "summary": "Press a page-level keyboard key."
+    },
+    "tab.actions.reload": {
+      "api_id": "tab.actions.reload",
+      "backend_op": "reload",
+      "invalidates_observation": true,
+      "kind": "action",
+      "mutates": true,
+      "parameters": {},
+      "requires_observation": false,
+      "return_type": "BrowserActionResult",
+      "satisfies_observation": false,
+      "signature": "() -> BrowserActionResult",
+      "summary": "Reload the current tab."
+    },
+    "tab.actions.scroll": {
+      "api_id": "tab.actions.scroll",
+      "backend_op": "scroll",
+      "invalidates_observation": true,
+      "kind": "action",
+      "mutates": true,
+      "parameters": {
+        "amount": {
+          "annotation": "str | int | NoneType",
+          "default": "None",
+          "kind": "positional_or_keyword",
+          "required": false
+        },
+        "direction": {
+          "annotation": "str",
+          "default": "'down'",
+          "kind": "positional_or_keyword",
+          "required": false
+        },
+        "target": {
+          "annotation": "dict[str, Any] | NoneType",
+          "default": "None",
+          "kind": "positional_or_keyword",
+          "required": false
+        }
+      },
+      "requires_observation": false,
+      "return_type": "BrowserActionResult",
+      "satisfies_observation": false,
+      "signature": "(direction: str = 'down', amount: str | int | NoneType = None, target: dict[str, Any] | NoneType = None) -> BrowserActionResult",
+      "summary": "Scroll the page or a target region.",
+      "target": {
+        "methods": [
+          "ref",
+          "role_name",
+          "text_exact",
+          "coords"
+        ],
+        "required": false,
+        "snapshot_bound": true
+      }
+    },
+    "tab.actions.select_option": {
+      "api_id": "tab.actions.select_option",
+      "backend_op": "select_option",
+      "invalidates_observation": true,
+      "kind": "action",
+      "mutates": true,
+      "parameters": {
+        "target": {
+          "annotation": "dict[str, Any]",
+          "kind": "positional_or_keyword",
+          "required": true
+        },
+        "value": {
+          "annotation": "str",
+          "kind": "positional_or_keyword",
+          "required": true
+        }
+      },
+      "requires_observation": true,
+      "return_type": "BrowserActionResult",
+      "satisfies_observation": false,
+      "signature": "(target: dict[str, Any], value: str) -> BrowserActionResult",
+      "summary": "Select an option on a target control.",
+      "target": {
+        "methods": [
+          "ref",
+          "role_name",
+          "text_exact",
+          "coords"
+        ],
+        "required": true,
+        "snapshot_bound": true
+      }
+    },
+    "tab.actions.upload_file": {
+      "api_id": "tab.actions.upload_file",
+      "backend_op": "upload_file",
+      "invalidates_observation": true,
+      "kind": "action",
+      "mutates": true,
+      "parameters": {
+        "file_path": {
+          "annotation": "str | list[str]",
+          "kind": "positional_or_keyword",
+          "required": true
+        },
+        "target": {
+          "annotation": "dict[str, Any]",
+          "kind": "positional_or_keyword",
+          "required": true
+        }
+      },
+      "requires_observation": true,
+      "return_type": "BrowserActionResult",
+      "satisfies_observation": false,
+      "signature": "(target: dict[str, Any], file_path: str | list[str]) -> BrowserActionResult",
+      "summary": "Upload one or more files through a target control.",
+      "target": {
+        "methods": [
+          "ref",
+          "role_name",
+          "text_exact",
+          "coords"
+        ],
+        "required": true,
+        "snapshot_bound": true
+      }
+    },
+    "tab.close": {
+      "api_id": "tab.close",
+      "backend_op": "close_tab",
+      "invalidates_observation": false,
+      "kind": "primitive",
+      "mutates": true,
+      "parameters": {},
+      "requires_observation": false,
+      "return_type": "BrowserActionResult",
+      "satisfies_observation": false,
+      "signature": "() -> BrowserActionResult",
+      "summary": "Close or release the tab through the backend."
+    },
+    "tab.extract": {
+      "api_id": "tab.extract",
+      "backend_op": "extract",
+      "invalidates_observation": false,
+      "kind": "primitive",
+      "mutates": false,
+      "parameters": {
+        "format": {
+          "annotation": "Literal['text', 'json']",
+          "default": "'text'",
+          "kind": "positional_or_keyword",
+          "required": false
+        },
+        "instruction": {
+          "annotation": "str",
+          "kind": "positional_or_keyword",
+          "required": true
+        }
+      },
+      "requires_observation": false,
+      "return_type": "BrowserExtractionResult",
+      "satisfies_observation": false,
+      "signature": "(instruction: str, format: Literal['text', 'json'] = 'text') -> BrowserExtractionResult",
+      "summary": "Extract page data according to an instruction."
+    },
+    "tab.page_info": {
+      "api_id": "tab.page_info",
+      "backend_op": "page_info",
+      "invalidates_observation": false,
+      "kind": "primitive",
+      "mutates": false,
+      "parameters": {},
+      "requires_observation": false,
+      "return_type": "BrowserPageInfo",
+      "satisfies_observation": false,
+      "signature": "() -> BrowserPageInfo",
+      "summary": "Read tab metadata without satisfying the observation guard."
+    },
+    "tab.screenshot": {
+      "api_id": "tab.screenshot",
+      "backend_op": "screenshot",
+      "invalidates_observation": false,
+      "kind": "primitive",
+      "mutates": false,
+      "parameters": {},
+      "requires_observation": false,
+      "return_type": "BrowserScreenshot",
+      "satisfies_observation": true,
+      "signature": "() -> BrowserScreenshot",
+      "summary": "Capture a visual observation and satisfy the guard."
+    },
+    "tab.snapshot": {
+      "api_id": "tab.snapshot",
+      "backend_op": "snapshot",
+      "invalidates_observation": false,
+      "kind": "primitive",
+      "mutates": false,
+      "parameters": {},
+      "requires_observation": false,
+      "return_type": "BrowserObservation",
+      "satisfies_observation": true,
+      "signature": "() -> BrowserObservation",
+      "summary": "Observe the tab and satisfy the fresh-observation guard."
+    },
+    "tab.wait_for": {
+      "api_id": "tab.wait_for",
+      "backend_op": "wait_for",
+      "invalidates_observation": false,
+      "kind": "primitive",
+      "mutates": false,
+      "parameters": {
+        "condition": {
+          "annotation": "dict[str, Any] | str",
+          "kind": "positional_or_keyword",
+          "required": true
+        },
+        "timeout_ms": {
+          "annotation": "int",
+          "default": "10000",
+          "kind": "positional_or_keyword",
+          "required": false
+        }
+      },
+      "requires_observation": false,
+      "return_type": "BrowserActionResult",
+      "satisfies_observation": false,
+      "signature": "(condition: dict[str, Any] | str, timeout_ms: int = 10000) -> BrowserActionResult",
+      "summary": "Wait until the page matches a structured condition."
+    }
+  },
+  "contexts": [
+    "auto",
+    "user",
+    "isolated"
+  ],
+  "diagnostics": {
+    "browser.capabilities": {
+      "api_id": "browser.capabilities",
+      "invalidates_observation": false,
+      "kind": "diagnostic",
+      "mutates": false,
+      "parameters": {
+        "scope": {
+          "annotation": "str",
+          "default": "'all'",
+          "kind": "positional_or_keyword",
+          "required": false
+        }
+      },
+      "requires_observation": false,
+      "return_type": "dict[str, Any]",
+      "satisfies_observation": false,
+      "signature": "(scope: str = 'all') -> dict[str, Any]",
+      "summary": "Return generated Browser SDK capabilities."
+    },
+    "browser.diagnostics": {
+      "api_id": "browser.diagnostics",
+      "invalidates_observation": false,
+      "kind": "diagnostic",
+      "mutates": false,
+      "parameters": {
+        "context": {
+          "annotation": "str",
+          "default": "'auto'",
+          "kind": "positional_or_keyword",
+          "required": false
+        }
+      },
+      "requires_observation": false,
+      "return_type": "BrowserDiagnostics",
+      "satisfies_observation": false,
+      "signature": "(context: str = 'auto') -> BrowserDiagnostics",
+      "summary": "Return backend availability diagnostics without connecting."
+    },
+    "browser.help": {
+      "api_id": "browser.help",
+      "invalidates_observation": false,
+      "kind": "diagnostic",
+      "mutates": false,
+      "parameters": {
+        "api_id": {
+          "annotation": "str | NoneType",
+          "default": "None",
+          "kind": "positional_or_keyword",
+          "required": false
+        },
+        "scope": {
+          "annotation": "str | NoneType",
+          "default": "None",
+          "kind": "positional_or_keyword",
+          "required": false
+        }
+      },
+      "requires_observation": false,
+      "return_type": "str",
+      "satisfies_observation": false,
+      "signature": "(scope: str | NoneType = None, api_id: str | NoneType = None) -> str",
+      "summary": "Return generated Browser SDK help text."
+    }
+  },
+  "help": {
+    "apis": {
+      "browser.actions.search_web": "# `browser.actions.search_web`\n\nSearch the public web using a supported engine.\n\nKind: `action`\nSignature: `(query: str, engine: str = 'google') -> BrowserActionResult`\n\nMetadata:\n- mutates: `True`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `True`\n",
+      "browser.capabilities": "# `browser.capabilities`\n\nReturn generated Browser SDK capabilities.\n\nKind: `diagnostic`\nSignature: `(scope: str = 'all') -> dict[str, Any]`\n\nMetadata:\n- mutates: `False`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `False`\n",
+      "browser.close": "# `browser.close`\n\nRelease browser session resources through the selected backend.\n\nKind: `lifecycle`\nSignature: `() -> NoneType`\n\nMetadata:\n- mutates: `True`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `False`\n",
+      "browser.connect": "# `browser.connect`\n\nConnect to a browser backend using runtime context arbitration.\n\nKind: `lifecycle`\nSignature: `(context: str = 'auto', *, requires_user_state: bool | NoneType = None, session_id: str | NoneType = None, retention: str = 'clean') -> Any`\n\nMetadata:\n- mutates: `False`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `False`\n",
+      "browser.diagnostics": "# `browser.diagnostics`\n\nReturn backend availability diagnostics without connecting.\n\nKind: `diagnostic`\nSignature: `(context: str = 'auto') -> BrowserDiagnostics`\n\nMetadata:\n- mutates: `False`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `False`\n",
+      "browser.help": "# `browser.help`\n\nReturn generated Browser SDK help text.\n\nKind: `diagnostic`\nSignature: `(scope: str | NoneType = None, api_id: str | NoneType = None) -> str`\n\nMetadata:\n- mutates: `False`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `False`\n",
+      "browser.tabs.active": "# `browser.tabs.active`\n\nReturn the current request tab without creating one.\n\nKind: `primitive`\nSignature: `() -> Any`\n\nMetadata:\n- mutates: `False`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `False`\n- backend_op: `active_tab`\n",
+      "browser.tabs.list": "# `browser.tabs.list`\n\nList browser tabs.\n\nKind: `primitive`\nSignature: `() -> list[Any]`\n\nMetadata:\n- mutates: `False`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `False`\n- backend_op: `list_tabs`\n",
+      "browser.tabs.new": "# `browser.tabs.new`\n\nExplicitly create a new browser tab for the request workspace.\n\nKind: `primitive`\nSignature: `(url: str) -> Any`\n\nMetadata:\n- mutates: `True`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `True`\n- backend_op: `create_tab`\n",
+      "browser.tabs.open": "# `browser.tabs.open`\n\nReuse the request workspace tab and navigate it to a URL.\n\nKind: `primitive`\nSignature: `(url: str) -> Any`\n\nMetadata:\n- mutates: `True`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `True`\n- backend_op: `open_workspace_tab`\n",
+      "browser.tabs.select": "# `browser.tabs.select`\n\nSelect a tab by id.\n\nKind: `primitive`\nSignature: `(tab_id: str) -> Any`\n\nMetadata:\n- mutates: `False`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `False`\n- backend_op: `select_tab`\n",
+      "tab.actions.back": "# `tab.actions.back`\n\nNavigate the tab backward in history.\n\nKind: `action`\nSignature: `() -> BrowserActionResult`\n\nMetadata:\n- mutates: `True`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `True`\n- backend_op: `back`\n",
+      "tab.actions.click": "# `tab.actions.click`\n\nClick one target from the latest observation.\n\nKind: `action`\nSignature: `(target: dict[str, Any], allow_new_context: bool = False) -> BrowserActionResult`\n\nMetadata:\n- mutates: `True`\n- requires_observation: `True`\n- satisfies_observation: `False`\n- invalidates_observation: `True`\n- target_required: `True`\n- target_methods: `ref, role_name, text_exact, coords`\n- target_snapshot_bound: `True`\n- backend_op: `click`\n",
+      "tab.actions.download_file": "# `tab.actions.download_file`\n\nDownload a file from the page.\n\nKind: `action`\nSignature: `(target: dict[str, Any] | NoneType = None, timeout_ms: int = 30000) -> BrowserActionResult`\n\nMetadata:\n- mutates: `True`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `True`\n- target_required: `False`\n- target_methods: `ref, role_name, text_exact, coords`\n- target_snapshot_bound: `True`\n- backend_op: `download_file`\n",
+      "tab.actions.fill": "# `tab.actions.fill`\n\nFill an editable target with text.\n\nKind: `action`\nSignature: `(target: dict[str, Any], text: str) -> BrowserActionResult`\n\nMetadata:\n- mutates: `True`\n- requires_observation: `True`\n- satisfies_observation: `False`\n- invalidates_observation: `True`\n- target_required: `True`\n- target_methods: `ref, role_name, text_exact, coords`\n- target_snapshot_bound: `True`\n- backend_op: `fill`\n",
+      "tab.actions.forward": "# `tab.actions.forward`\n\nNavigate the tab forward in history.\n\nKind: `action`\nSignature: `() -> BrowserActionResult`\n\nMetadata:\n- mutates: `True`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `True`\n- backend_op: `forward`\n",
+      "tab.actions.handle_dialog": "# `tab.actions.handle_dialog`\n\nHandle a browser dialog.\n\nKind: `action`\nSignature: `(accept: bool = True, prompt_text: str | NoneType = None) -> BrowserActionResult`\n\nMetadata:\n- mutates: `True`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `True`\n- backend_op: `handle_dialog`\n",
+      "tab.actions.hover": "# `tab.actions.hover`\n\nHover over one target from the latest observation.\n\nKind: `action`\nSignature: `(target: dict[str, Any]) -> BrowserActionResult`\n\nMetadata:\n- mutates: `True`\n- requires_observation: `True`\n- satisfies_observation: `False`\n- invalidates_observation: `True`\n- target_required: `True`\n- target_methods: `ref, role_name, text_exact, coords`\n- target_snapshot_bound: `True`\n- backend_op: `hover`\n",
+      "tab.actions.navigate": "# `tab.actions.navigate`\n\nNavigate the tab to a URL.\n\nKind: `action`\nSignature: `(url: str) -> BrowserActionResult`\n\nMetadata:\n- mutates: `True`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `True`\n- backend_op: `navigate`\n",
+      "tab.actions.press_key": "# `tab.actions.press_key`\n\nPress a page-level keyboard key.\n\nKind: `action`\nSignature: `(key: str) -> BrowserActionResult`\n\nMetadata:\n- mutates: `True`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `True`\n- backend_op: `press_key`\n",
+      "tab.actions.reload": "# `tab.actions.reload`\n\nReload the current tab.\n\nKind: `action`\nSignature: `() -> BrowserActionResult`\n\nMetadata:\n- mutates: `True`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `True`\n- backend_op: `reload`\n",
+      "tab.actions.scroll": "# `tab.actions.scroll`\n\nScroll the page or a target region.\n\nKind: `action`\nSignature: `(direction: str = 'down', amount: str | int | NoneType = None, target: dict[str, Any] | NoneType = None) -> BrowserActionResult`\n\nMetadata:\n- mutates: `True`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `True`\n- target_required: `False`\n- target_methods: `ref, role_name, text_exact, coords`\n- target_snapshot_bound: `True`\n- backend_op: `scroll`\n",
+      "tab.actions.select_option": "# `tab.actions.select_option`\n\nSelect an option on a target control.\n\nKind: `action`\nSignature: `(target: dict[str, Any], value: str) -> BrowserActionResult`\n\nMetadata:\n- mutates: `True`\n- requires_observation: `True`\n- satisfies_observation: `False`\n- invalidates_observation: `True`\n- target_required: `True`\n- target_methods: `ref, role_name, text_exact, coords`\n- target_snapshot_bound: `True`\n- backend_op: `select_option`\n",
+      "tab.actions.upload_file": "# `tab.actions.upload_file`\n\nUpload one or more files through a target control.\n\nKind: `action`\nSignature: `(target: dict[str, Any], file_path: str | list[str]) -> BrowserActionResult`\n\nMetadata:\n- mutates: `True`\n- requires_observation: `True`\n- satisfies_observation: `False`\n- invalidates_observation: `True`\n- target_required: `True`\n- target_methods: `ref, role_name, text_exact, coords`\n- target_snapshot_bound: `True`\n- backend_op: `upload_file`\n",
+      "tab.close": "# `tab.close`\n\nClose or release the tab through the backend.\n\nKind: `primitive`\nSignature: `() -> BrowserActionResult`\n\nMetadata:\n- mutates: `True`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `False`\n- backend_op: `close_tab`\n",
+      "tab.extract": "# `tab.extract`\n\nExtract page data according to an instruction.\n\nKind: `primitive`\nSignature: `(instruction: str, format: Literal['text', 'json'] = 'text') -> BrowserExtractionResult`\n\nMetadata:\n- mutates: `False`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `False`\n- backend_op: `extract`\n",
+      "tab.page_info": "# `tab.page_info`\n\nRead tab metadata without satisfying the observation guard.\n\nKind: `primitive`\nSignature: `() -> BrowserPageInfo`\n\nMetadata:\n- mutates: `False`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `False`\n- backend_op: `page_info`\n",
+      "tab.screenshot": "# `tab.screenshot`\n\nCapture a visual observation and satisfy the guard.\n\nKind: `primitive`\nSignature: `() -> BrowserScreenshot`\n\nMetadata:\n- mutates: `False`\n- requires_observation: `False`\n- satisfies_observation: `True`\n- invalidates_observation: `False`\n- backend_op: `screenshot`\n",
+      "tab.snapshot": "# `tab.snapshot`\n\nObserve the tab and satisfy the fresh-observation guard.\n\nKind: `primitive`\nSignature: `() -> BrowserObservation`\n\nMetadata:\n- mutates: `False`\n- requires_observation: `False`\n- satisfies_observation: `True`\n- invalidates_observation: `False`\n- backend_op: `snapshot`\n",
+      "tab.wait_for": "# `tab.wait_for`\n\nWait until the page matches a structured condition.\n\nKind: `primitive`\nSignature: `(condition: dict[str, Any] | str, timeout_ms: int = 10000) -> BrowserActionResult`\n\nMetadata:\n- mutates: `False`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `False`\n- backend_op: `wait_for`\n"
+    },
+    "index": "# Browser SDK Generated Help\n\nGenerated from `api_catalog.json`.\n\nUse `Browser.capabilities(scope=\"actions\")` for compact indexes.\nUse `Browser.help(api_id=\"tab.actions.click\")` for one API.\n\n## Actions\n\n- `browser.actions.search_web` - Search the public web using a supported engine.\n- `tab.actions.back` - Navigate the tab backward in history.\n- `tab.actions.click` - Click one target from the latest observation.\n- `tab.actions.download_file` - Download a file from the page.\n- `tab.actions.fill` - Fill an editable target with text.\n- `tab.actions.forward` - Navigate the tab forward in history.\n- `tab.actions.handle_dialog` - Handle a browser dialog.\n- `tab.actions.hover` - Hover over one target from the latest observation.\n- `tab.actions.navigate` - Navigate the tab to a URL.\n- `tab.actions.press_key` - Press a page-level keyboard key.\n- `tab.actions.reload` - Reload the current tab.\n- `tab.actions.scroll` - Scroll the page or a target region.\n- `tab.actions.select_option` - Select an option on a target control.\n- `tab.actions.upload_file` - Upload one or more files through a target control.\n\n## Primitives\n\n- `browser.tabs.active` - Return the current request tab without creating one.\n- `browser.tabs.list` - List browser tabs.\n- `browser.tabs.new` - Explicitly create a new browser tab for the request workspace.\n- `browser.tabs.open` - Reuse the request workspace tab and navigate it to a URL.\n- `browser.tabs.select` - Select a tab by id.\n- `tab.close` - Close or release the tab through the backend.\n- `tab.extract` - Extract page data according to an instruction.\n- `tab.page_info` - Read tab metadata without satisfying the observation guard.\n- `tab.screenshot` - Capture a visual observation and satisfy the guard.\n- `tab.snapshot` - Observe the tab and satisfy the fresh-observation guard.\n- `tab.wait_for` - Wait until the page matches a structured condition.\n\n## Diagnostics\n\n- `browser.capabilities` - Return generated Browser SDK capabilities.\n- `browser.diagnostics` - Return backend availability diagnostics without connecting.\n- `browser.help` - Return generated Browser SDK help text.\n\n## Lifecycle\n\n- `browser.close` - Release browser session resources through the selected backend.\n- `browser.connect` - Connect to a browser backend using runtime context arbitration.\n",
+    "scopes": {
+      "actions": "# Browser SDK Actions\n\nGenerated from `api_catalog.json`.\n\n## `browser.actions.search_web`\n\nSearch the public web using a supported engine.\n\nSignature: `(query: str, engine: str = 'google') -> BrowserActionResult`\n\n## `tab.actions.back`\n\nNavigate the tab backward in history.\n\nSignature: `() -> BrowserActionResult`\n\n## `tab.actions.click`\n\nClick one target from the latest observation.\n\nSignature: `(target: dict[str, Any], allow_new_context: bool = False) -> BrowserActionResult`\n\n## `tab.actions.download_file`\n\nDownload a file from the page.\n\nSignature: `(target: dict[str, Any] | NoneType = None, timeout_ms: int = 30000) -> BrowserActionResult`\n\n## `tab.actions.fill`\n\nFill an editable target with text.\n\nSignature: `(target: dict[str, Any], text: str) -> BrowserActionResult`\n\n## `tab.actions.forward`\n\nNavigate the tab forward in history.\n\nSignature: `() -> BrowserActionResult`\n\n## `tab.actions.handle_dialog`\n\nHandle a browser dialog.\n\nSignature: `(accept: bool = True, prompt_text: str | NoneType = None) -> BrowserActionResult`\n\n## `tab.actions.hover`\n\nHover over one target from the latest observation.\n\nSignature: `(target: dict[str, Any]) -> BrowserActionResult`\n\n## `tab.actions.navigate`\n\nNavigate the tab to a URL.\n\nSignature: `(url: str) -> BrowserActionResult`\n\n## `tab.actions.press_key`\n\nPress a page-level keyboard key.\n\nSignature: `(key: str) -> BrowserActionResult`\n\n## `tab.actions.reload`\n\nReload the current tab.\n\nSignature: `() -> BrowserActionResult`\n\n## `tab.actions.scroll`\n\nScroll the page or a target region.\n\nSignature: `(direction: str = 'down', amount: str | int | NoneType = None, target: dict[str, Any] | NoneType = None) -> BrowserActionResult`\n\n## `tab.actions.select_option`\n\nSelect an option on a target control.\n\nSignature: `(target: dict[str, Any], value: str) -> BrowserActionResult`\n\n## `tab.actions.upload_file`\n\nUpload one or more files through a target control.\n\nSignature: `(target: dict[str, Any], file_path: str | list[str]) -> BrowserActionResult`\n",
+      "diagnostics": "# Browser SDK Diagnostics\n\nGenerated from `api_catalog.json`.\n\n## `browser.capabilities`\n\nReturn generated Browser SDK capabilities.\n\nSignature: `(scope: str = 'all') -> dict[str, Any]`\n\n## `browser.diagnostics`\n\nReturn backend availability diagnostics without connecting.\n\nSignature: `(context: str = 'auto') -> BrowserDiagnostics`\n\n## `browser.help`\n\nReturn generated Browser SDK help text.\n\nSignature: `(scope: str | NoneType = None, api_id: str | NoneType = None) -> str`\n",
+      "lifecycle": "# Browser SDK Lifecycle\n\nGenerated from `api_catalog.json`.\n\n## `browser.close`\n\nRelease browser session resources through the selected backend.\n\nSignature: `() -> NoneType`\n\n## `browser.connect`\n\nConnect to a browser backend using runtime context arbitration.\n\nSignature: `(context: str = 'auto', *, requires_user_state: bool | NoneType = None, session_id: str | NoneType = None, retention: str = 'clean') -> Any`\n",
+      "primitives": "# Browser SDK Primitives\n\nGenerated from `api_catalog.json`.\n\n## `browser.tabs.active`\n\nReturn the current request tab without creating one.\n\nSignature: `() -> Any`\n\n## `browser.tabs.list`\n\nList browser tabs.\n\nSignature: `() -> list[Any]`\n\n## `browser.tabs.new`\n\nExplicitly create a new browser tab for the request workspace.\n\nSignature: `(url: str) -> Any`\n\n## `browser.tabs.open`\n\nReuse the request workspace tab and navigate it to a URL.\n\nSignature: `(url: str) -> Any`\n\n## `browser.tabs.select`\n\nSelect a tab by id.\n\nSignature: `(tab_id: str) -> Any`\n\n## `tab.close`\n\nClose or release the tab through the backend.\n\nSignature: `() -> BrowserActionResult`\n\n## `tab.extract`\n\nExtract page data according to an instruction.\n\nSignature: `(instruction: str, format: Literal['text', 'json'] = 'text') -> BrowserExtractionResult`\n\n## `tab.page_info`\n\nRead tab metadata without satisfying the observation guard.\n\nSignature: `() -> BrowserPageInfo`\n\n## `tab.screenshot`\n\nCapture a visual observation and satisfy the guard.\n\nSignature: `() -> BrowserScreenshot`\n\n## `tab.snapshot`\n\nObserve the tab and satisfy the fresh-observation guard.\n\nSignature: `() -> BrowserObservation`\n\n## `tab.wait_for`\n\nWait until the page matches a structured condition.\n\nSignature: `(condition: dict[str, Any] | str, timeout_ms: int = 10000) -> BrowserActionResult`\n"
+    }
+  },
+  "lifecycle": {
+    "browser.close": {
+      "api_id": "browser.close",
+      "invalidates_observation": false,
+      "kind": "lifecycle",
+      "mutates": true,
+      "parameters": {},
+      "requires_observation": false,
+      "return_type": "NoneType",
+      "satisfies_observation": false,
+      "signature": "() -> NoneType",
+      "summary": "Release browser session resources through the selected backend."
+    },
+    "browser.connect": {
+      "api_id": "browser.connect",
+      "invalidates_observation": false,
+      "kind": "lifecycle",
+      "mutates": false,
+      "parameters": {
+        "context": {
+          "annotation": "str",
+          "default": "'auto'",
+          "kind": "positional_or_keyword",
+          "required": false
+        },
+        "requires_user_state": {
+          "annotation": "bool | NoneType",
+          "default": "None",
+          "kind": "keyword_only",
+          "required": false
+        },
+        "retention": {
+          "annotation": "str",
+          "default": "'clean'",
+          "kind": "keyword_only",
+          "required": false
+        },
+        "session_id": {
+          "annotation": "str | NoneType",
+          "default": "None",
+          "kind": "keyword_only",
+          "required": false
+        }
+      },
+      "requires_observation": false,
+      "return_type": "Any",
+      "satisfies_observation": false,
+      "signature": "(context: str = 'auto', *, requires_user_state: bool | NoneType = None, session_id: str | NoneType = None, retention: str = 'clean') -> Any",
+      "summary": "Connect to a browser backend using runtime context arbitration."
+    }
+  },
+  "primitives": {
+    "browser.tabs.active": {
+      "api_id": "browser.tabs.active",
+      "backend_op": "active_tab",
+      "invalidates_observation": false,
+      "kind": "primitive",
+      "mutates": false,
+      "parameters": {},
+      "requires_observation": false,
+      "return_type": "Any",
+      "satisfies_observation": false,
+      "signature": "() -> Any",
+      "summary": "Return the current request tab without creating one."
+    },
+    "browser.tabs.list": {
+      "api_id": "browser.tabs.list",
+      "backend_op": "list_tabs",
+      "invalidates_observation": false,
+      "kind": "primitive",
+      "mutates": false,
+      "parameters": {},
+      "requires_observation": false,
+      "return_type": "list[Any]",
+      "satisfies_observation": false,
+      "signature": "() -> list[Any]",
+      "summary": "List browser tabs."
+    },
+    "browser.tabs.new": {
+      "api_id": "browser.tabs.new",
+      "backend_op": "create_tab",
+      "invalidates_observation": true,
+      "kind": "primitive",
+      "mutates": true,
+      "parameters": {
+        "url": {
+          "annotation": "str",
+          "kind": "positional_or_keyword",
+          "required": true
+        }
+      },
+      "requires_observation": false,
+      "return_type": "Any",
+      "satisfies_observation": false,
+      "signature": "(url: str) -> Any",
+      "summary": "Explicitly create a new browser tab for the request workspace."
+    },
+    "browser.tabs.open": {
+      "api_id": "browser.tabs.open",
+      "backend_op": "open_workspace_tab",
+      "invalidates_observation": true,
+      "kind": "primitive",
+      "mutates": true,
+      "parameters": {
+        "url": {
+          "annotation": "str",
+          "kind": "positional_or_keyword",
+          "required": true
+        }
+      },
+      "requires_observation": false,
+      "return_type": "Any",
+      "satisfies_observation": false,
+      "signature": "(url: str) -> Any",
+      "summary": "Reuse the request workspace tab and navigate it to a URL."
+    },
+    "browser.tabs.select": {
+      "api_id": "browser.tabs.select",
+      "backend_op": "select_tab",
+      "invalidates_observation": false,
+      "kind": "primitive",
+      "mutates": false,
+      "parameters": {
+        "tab_id": {
+          "annotation": "str",
+          "kind": "positional_or_keyword",
+          "required": true
+        }
+      },
+      "requires_observation": false,
+      "return_type": "Any",
+      "satisfies_observation": false,
+      "signature": "(tab_id: str) -> Any",
+      "summary": "Select a tab by id."
+    },
+    "tab.close": {
+      "api_id": "tab.close",
+      "backend_op": "close_tab",
+      "invalidates_observation": false,
+      "kind": "primitive",
+      "mutates": true,
+      "parameters": {},
+      "requires_observation": false,
+      "return_type": "BrowserActionResult",
+      "satisfies_observation": false,
+      "signature": "() -> BrowserActionResult",
+      "summary": "Close or release the tab through the backend."
+    },
+    "tab.extract": {
+      "api_id": "tab.extract",
+      "backend_op": "extract",
+      "invalidates_observation": false,
+      "kind": "primitive",
+      "mutates": false,
+      "parameters": {
+        "format": {
+          "annotation": "Literal['text', 'json']",
+          "default": "'text'",
+          "kind": "positional_or_keyword",
+          "required": false
+        },
+        "instruction": {
+          "annotation": "str",
+          "kind": "positional_or_keyword",
+          "required": true
+        }
+      },
+      "requires_observation": false,
+      "return_type": "BrowserExtractionResult",
+      "satisfies_observation": false,
+      "signature": "(instruction: str, format: Literal['text', 'json'] = 'text') -> BrowserExtractionResult",
+      "summary": "Extract page data according to an instruction."
+    },
+    "tab.page_info": {
+      "api_id": "tab.page_info",
+      "backend_op": "page_info",
+      "invalidates_observation": false,
+      "kind": "primitive",
+      "mutates": false,
+      "parameters": {},
+      "requires_observation": false,
+      "return_type": "BrowserPageInfo",
+      "satisfies_observation": false,
+      "signature": "() -> BrowserPageInfo",
+      "summary": "Read tab metadata without satisfying the observation guard."
+    },
+    "tab.screenshot": {
+      "api_id": "tab.screenshot",
+      "backend_op": "screenshot",
+      "invalidates_observation": false,
+      "kind": "primitive",
+      "mutates": false,
+      "parameters": {},
+      "requires_observation": false,
+      "return_type": "BrowserScreenshot",
+      "satisfies_observation": true,
+      "signature": "() -> BrowserScreenshot",
+      "summary": "Capture a visual observation and satisfy the guard."
+    },
+    "tab.snapshot": {
+      "api_id": "tab.snapshot",
+      "backend_op": "snapshot",
+      "invalidates_observation": false,
+      "kind": "primitive",
+      "mutates": false,
+      "parameters": {},
+      "requires_observation": false,
+      "return_type": "BrowserObservation",
+      "satisfies_observation": true,
+      "signature": "() -> BrowserObservation",
+      "summary": "Observe the tab and satisfy the fresh-observation guard."
+    },
+    "tab.wait_for": {
+      "api_id": "tab.wait_for",
+      "backend_op": "wait_for",
+      "invalidates_observation": false,
+      "kind": "primitive",
+      "mutates": false,
+      "parameters": {
+        "condition": {
+          "annotation": "dict[str, Any] | str",
+          "kind": "positional_or_keyword",
+          "required": true
+        },
+        "timeout_ms": {
+          "annotation": "int",
+          "default": "10000",
+          "kind": "positional_or_keyword",
+          "required": false
+        }
+      },
+      "requires_observation": false,
+      "return_type": "BrowserActionResult",
+      "satisfies_observation": false,
+      "signature": "(condition: dict[str, Any] | str, timeout_ms: int = 10000) -> BrowserActionResult",
+      "summary": "Wait until the page matches a structured condition."
+    }
+  },
+  "scopes": {
+    "actions": [
+      "browser.actions.search_web",
+      "tab.actions.back",
+      "tab.actions.click",
+      "tab.actions.download_file",
+      "tab.actions.fill",
+      "tab.actions.forward",
+      "tab.actions.handle_dialog",
+      "tab.actions.hover",
+      "tab.actions.navigate",
+      "tab.actions.press_key",
+      "tab.actions.reload",
+      "tab.actions.scroll",
+      "tab.actions.select_option",
+      "tab.actions.upload_file"
+    ],
+    "all": [
+      "browser.actions.search_web",
+      "browser.capabilities",
+      "browser.close",
+      "browser.connect",
+      "browser.diagnostics",
+      "browser.help",
+      "browser.tabs.active",
+      "browser.tabs.list",
+      "browser.tabs.new",
+      "browser.tabs.open",
+      "browser.tabs.select",
+      "tab.actions.back",
+      "tab.actions.click",
+      "tab.actions.download_file",
+      "tab.actions.fill",
+      "tab.actions.forward",
+      "tab.actions.handle_dialog",
+      "tab.actions.hover",
+      "tab.actions.navigate",
+      "tab.actions.press_key",
+      "tab.actions.reload",
+      "tab.actions.scroll",
+      "tab.actions.select_option",
+      "tab.actions.upload_file",
+      "tab.close",
+      "tab.extract",
+      "tab.page_info",
+      "tab.screenshot",
+      "tab.snapshot",
+      "tab.wait_for"
+    ],
+    "diagnostics": [
+      "browser.capabilities",
+      "browser.diagnostics",
+      "browser.help"
+    ],
+    "lifecycle": [
+      "browser.close",
+      "browser.connect"
+    ],
+    "primitives": [
+      "browser.tabs.active",
+      "browser.tabs.list",
+      "browser.tabs.new",
+      "browser.tabs.open",
+      "browser.tabs.select",
+      "tab.close",
+      "tab.extract",
+      "tab.page_info",
+      "tab.screenshot",
+      "tab.snapshot",
+      "tab.wait_for"
+    ]
+  },
+  "source": "api_catalog.json",
+  "version": 1
+}

@@ -1,137 +1,65 @@
 # -*- coding: utf-8 -*-
-"""Browser SDK public capability docs and gap helpers."""
+"""Browser SDK generated capability docs and gap helpers."""
 
 from __future__ import annotations
 
+import json
+from functools import lru_cache
+from importlib import resources
 from typing import Any
 
 from ..governance.errors import BrowserSDKGap
 
 
-def browser_capabilities() -> dict[str, Any]:
-    """Return the compact public Browser SDK capability contract."""
-    actions = {
-        "navigate": {
-            "kind": "mutation",
-            "kwargs": ("url",),
-        },
-        "back": {"kind": "mutation", "kwargs": ()},
-        "forward": {"kind": "mutation", "kwargs": ()},
-        "reload": {"kind": "mutation", "kwargs": ()},
-        "click": {
-            "kind": "mutation",
-            "kwargs": (
-                "target",
-                "selector",
-                "ref",
-                "text",
-                "x",
-                "y",
-                "allow_new_context",
-            ),
-        },
-        "type": {
-            "kind": "mutation",
-            "kwargs": ("target", "selector", "ref", "text"),
-        },
-        "press": {"kind": "mutation", "kwargs": ("key",)},
-        "scroll": {"kind": "mutation", "kwargs": ("direction", "amount")},
-        "select": {
-            "kind": "mutation",
-            "kwargs": ("target", "selector", "ref", "value"),
-        },
-        "upload": {
-            "kind": "mutation",
-            "kwargs": ("target", "selector", "ref", "file_path"),
-        },
-        "download": {
-            "kind": "transition",
-            "kwargs": ("target", "selector", "ref", "max_wait_ms"),
-        },
-        "dialog": {
-            "kind": "transition",
-            "kwargs": ("accept", "prompt_text"),
-        },
-        "hover": {
-            "kind": "mutation",
-            "kwargs": ("target", "selector", "ref", "text"),
-        },
-        "wait_for": {
-            "kind": "read_transition",
-            "kwargs": ("instruction", "max_wait_ms"),
-        },
-    }
+def browser_capabilities(scope: str = "all") -> dict[str, Any]:
+    """Return generated public Browser SDK capabilities."""
+    capabilities = _generated_capabilities()
+    normalized_scope = _normalize_scope(scope)
+    if normalized_scope == "all":
+        return dict(capabilities)
+    scopes = capabilities["scopes"]
+    if normalized_scope not in scopes:
+        raise BrowserSDKGap(
+            f"Unknown Browser capabilities scope: {scope}",
+            action="browser.capabilities",
+            metadata={"available_scopes": tuple(sorted(scopes))},
+        )
+    api_ids = scopes[normalized_scope]
     return {
-        "ownership_protocol_version": 2,
-        "contexts": ("auto", "user", "isolated"),
-        "routing": {
-            "contract": "V12 Browser Routing And Permission Contract",
-            "auto_route_policy": "auto_user_chrome_first",
-            "auto_preferred_backend": "user.chrome_extension",
-            "degraded_fallback_backend": "isolated.playwright",
-            "degraded_fallback_for": ("public", "ambiguous"),
-            "user_state_fail_closed": True,
-            "requires_user_state_flag": "requires_user_state=True",
-        },
-        "primitives": (
-            "tabs.open",
-            "tabs.new",
-            "tabs.active",
-            "tabs.list",
-            "tabs.select",
-            "snapshot",
-            "screenshot",
-            "page_info",
-            "evaluate",
-            "extract",
-            "close",
-        ),
-        "tab_semantics": {
-            "open": "reuse_request_workspace_tab_with_target_url",
-            "new": "explicit_new_tab_requires_target_url",
-            "active": "return_existing_request_tab_without_creation",
-        },
-        "diagnostics": {
-            "user_backend": (
-                "connected_routable_actionable_cleanup_verified"
-            ),
-        },
-        "actions": actions,
-        "limits": {
-            "requires_fresh_observe_after_mutation": True,
-            "mutation_observations": ("snapshot", "screenshot"),
-            "download_max_wait_ms_default": 30000,
-            "raw_cdp_public_hot_path": False,
-            "raw_cdp_public_entrypoint": False,
-            "normal_task_blank_tab_creation": False,
-        },
+        "version": capabilities["version"],
+        "source": capabilities["source"],
+        "scope": normalized_scope,
+        "apis": {api_id: capabilities["apis"][api_id] for api_id in api_ids},
     }
 
 
-def browser_sdk_help() -> str:
-    """Return concise model-facing Browser SDK usage help."""
-    capabilities = browser_capabilities()
-    actions = ", ".join(sorted(capabilities["actions"]))
-    return "\n".join(
-        (
-            'Browser.connect(context="auto") auto prefers user Chrome.',
-            "Protocol v2: start normal page work with "
-            "tabs.open(target_url), which reuses the request workspace tab.",
-            "Use tabs.new(target_url) only for an explicit additional tab; "
-            "tabs.active() never creates a tab.",
-            "Browser.diagnostics() checks connected, routable, actionable, "
-            "and cleanup_verified health.",
-            "Use requires_user_state=True for logged-in or existing-tab work.",
-            "Degraded isolated fallback is only for public or ambiguous work "
-            "when user Chrome is unavailable.",
-            "Use tab.snapshot() before every mutating action.",
-            "Use tab.screenshot() for visual fallback evidence.",
-            f"Available actions: {actions}.",
-            "Examples: tab.actions.upload(target, file_path), "
-            "tab.actions.download(target), tab.actions.dialog(accept=True), "
-            "tab.actions.click(target, allow_new_context=True).",
-        ),
-    )
+def browser_sdk_help(
+    scope: str | None = None,
+    api_id: str | None = None,
+) -> str:
+    """Return generated model-facing Browser SDK usage help."""
+    help_payload = _generated_capabilities().get("help") or {}
+    if api_id:
+        api_help = help_payload.get("apis") or {}
+        normalized_api_id = str(api_id).strip()
+        if normalized_api_id in api_help:
+            return str(api_help[normalized_api_id])
+        raise BrowserSDKGap(
+            f"Unknown Browser help API id: {api_id}",
+            action="browser.help",
+            metadata={"available_api_ids": tuple(sorted(api_help))},
+        )
+    if scope:
+        scope_help = help_payload.get("scopes") or {}
+        normalized_scope = _normalize_scope(scope)
+        if normalized_scope in scope_help:
+            return str(scope_help[normalized_scope])
+        raise BrowserSDKGap(
+            f"Unknown Browser help scope: {scope}",
+            action="browser.help",
+            metadata={"available_scopes": tuple(sorted(scope_help))},
+        )
+    return str(help_payload.get("index") or "")
 
 
 def capability_gap(action: str, message: str) -> dict[str, Any]:
@@ -140,6 +68,21 @@ def capability_gap(action: str, message: str) -> dict[str, Any]:
         message,
         action=str(action or "browser"),
     ).to_dict()
+
+
+@lru_cache(maxsize=1)
+def _generated_capabilities() -> dict[str, Any]:
+    artifact = (
+        resources.files("qwenpaw.browser.sdk")
+        / "generated"
+        / "capabilities.json"
+    )
+    return json.loads(artifact.read_text(encoding="utf-8"))
+
+
+def _normalize_scope(scope: str | None) -> str:
+    normalized = str(scope or "all").strip().casefold()
+    return normalized or "all"
 
 
 __all__ = [
