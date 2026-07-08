@@ -88,6 +88,12 @@ class BrowserObservationRequired(BrowserSDKError):
     code = "browser_observation_required"
 
 
+class BrowserTargetResolutionError(BrowserSDKError):
+    """Raised when a validated target cannot resolve from observation facts."""
+
+    code = "target_resolution_error"
+
+
 class BrowserProtocolTimeout(BrowserSDKError):
     """Raised when a bounded low-level browser protocol wait expires."""
 
@@ -102,4 +108,5 @@ __all__ = [
     "BrowserProtocolTimeout",
     "BrowserSDKError",
     "BrowserSDKGap",
+    "BrowserTargetResolutionError",
 ]

@@ -31,6 +31,7 @@ BrowserEvidenceSource = Literal[
     "backend",
     "unknown",
 ]
+BrowserTargetSource = Literal["aria", "dom", "snapshot", "visual"]
 BrowserBoundarySeverity = Literal[
     "operational",
     "sensitive",
@@ -243,6 +244,18 @@ class BrowserPolicyDecision:
 
 
 @dataclass(frozen=True)
+class BrowserTargetCandidate:
+    """One model-visible target candidate from a browser observation."""
+
+    ref: str
+    role: str = ""
+    name: str = ""
+    text: str = ""
+    bounds: dict[str, Any] | None = None
+    source: BrowserTargetSource = "snapshot"
+
+
+@dataclass(frozen=True)
 class BrowserObservation:
     """Textual browser observation for a tab."""
 
@@ -253,6 +266,23 @@ class BrowserObservation:
     refs: dict[str, Any] = field(default_factory=dict)
     degraded: bool = False
     metadata: dict[str, Any] = field(default_factory=dict)
+    targets: tuple[BrowserTargetCandidate, ...] = ()
+
+    def __post_init__(self) -> None:
+        targets = tuple(self.targets)
+        if targets is not self.targets:
+            object.__setattr__(self, "targets", targets)
+        if self.refs or not targets:
+            return
+        object.__setattr__(
+            self,
+            "refs",
+            {
+                candidate.ref: candidate
+                for candidate in targets
+                if candidate.ref
+            },
+        )
 
     def __str__(self) -> str:
         parts: list[str] = []
@@ -348,6 +378,8 @@ __all__ = [
     "BrowserRiskKind",
     "BrowserRiskLevel",
     "BrowserScreenshot",
+    "BrowserTargetCandidate",
+    "BrowserTargetSource",
     "ConcreteBrowserContext",
     "ExtractionFormat",
     "ResolvedBrowserContext",
