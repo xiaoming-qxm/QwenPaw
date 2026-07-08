@@ -48,6 +48,12 @@ class BrowserErrorCode(StrEnum):
     SDK_USAGE_ERROR = "sdk_usage_error"
     CLICK_WITHOUT_NAVIGATION = "click_without_navigation"
     CAPABILITY_MISSING = "capability_missing"
+    BROWSER_STALE_LEASE = "browser_stale_lease"
+    BROWSER_TAB_OCCUPIED = "browser_tab_occupied"
+    BROWSER_TARGET_URL_REQUIRED = "browser_target_url_required"
+    BROWSER_NO_CURRENT_TAB = "browser_no_current_tab"
+    BROWSER_OWNERSHIP_CONTEXT_MISSING = "browser_ownership_context_missing"
+    BROWSER_OWNERSHIP_MISMATCH = "browser_ownership_mismatch"
 
 
 @dataclass(frozen=True)
@@ -275,6 +281,53 @@ _ERROR_INFO: dict[BrowserErrorCode, BrowserErrorInfo] = {
         recovery_hint=(
             "Add or use a generic Browser SDK capability instead of a "
             "one-off workaround."
+        ),
+    ),
+    BrowserErrorCode.BROWSER_STALE_LEASE: BrowserErrorInfo(
+        code=BrowserErrorCode.BROWSER_STALE_LEASE,
+        outcome=BrowserOutcome.FAILED,
+        recovery_hint=(
+            "The Browser tab lease is stale; stop this request and let "
+            "owner-scoped cleanup release request resources."
+        ),
+    ),
+    BrowserErrorCode.BROWSER_TAB_OCCUPIED: BrowserErrorInfo(
+        code=BrowserErrorCode.BROWSER_TAB_OCCUPIED,
+        outcome=BrowserOutcome.FAILED,
+        recovery_hint=(
+            "The Browser tab is owned by another request; do not reclaim it "
+            "from this request."
+        ),
+    ),
+    BrowserErrorCode.BROWSER_TARGET_URL_REQUIRED: BrowserErrorInfo(
+        code=BrowserErrorCode.BROWSER_TARGET_URL_REQUIRED,
+        outcome=BrowserOutcome.FAILED,
+        recovery_hint=(
+            "Call Browser tab APIs with an explicit target URL for normal "
+            "page entry."
+        ),
+    ),
+    BrowserErrorCode.BROWSER_NO_CURRENT_TAB: BrowserErrorInfo(
+        code=BrowserErrorCode.BROWSER_NO_CURRENT_TAB,
+        outcome=BrowserOutcome.FAILED,
+        recovery_hint=(
+            "Open a target URL explicitly before requesting the current "
+            "Browser tab."
+        ),
+    ),
+    BrowserErrorCode.BROWSER_OWNERSHIP_CONTEXT_MISSING: BrowserErrorInfo(
+        code=BrowserErrorCode.BROWSER_OWNERSHIP_CONTEXT_MISSING,
+        outcome=BrowserOutcome.FAILED,
+        recovery_hint=(
+            "Browser action cannot proceed without Protocol v2 ownership "
+            "context."
+        ),
+    ),
+    BrowserErrorCode.BROWSER_OWNERSHIP_MISMATCH: BrowserErrorInfo(
+        code=BrowserErrorCode.BROWSER_OWNERSHIP_MISMATCH,
+        outcome=BrowserOutcome.FAILED,
+        recovery_hint=(
+            "Browser action ownership does not match the current request."
         ),
     ),
 }

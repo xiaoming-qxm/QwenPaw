@@ -52,6 +52,18 @@ def _runtime(bridge: Any):
     )
 
 
+def _ownership_state(workspace_id: str = "workspace-1") -> dict[str, Any]:
+    owner_id = f"browser_owner:{workspace_id}"
+    return {
+        "workspace_id": workspace_id,
+        "ownership_context": {
+            "protocol_version": 2,
+            "owner_id": owner_id,
+            "workspace_id": f"browser_workspace:{workspace_id}",
+        },
+    }
+
+
 class _FakeWebSocket:
     def __init__(self) -> None:
         self.sent_json: list[dict[str, Any]] = []
@@ -110,7 +122,8 @@ async def test_nm_bridge_claims_renews_and_releases_leases() -> None:
     now = [100.0]
     bridge = NMBridge(time_fn=lambda: now[0])
 
-    assert await bridge.claim_tab(7, "holder-a") is True
+    lease_version = await bridge.claim_tab(7, "holder-a")
+    assert lease_version == 1
     assert bridge.tab_holder(7) == "holder-a"
     with pytest.raises(TabOccupiedError):
         await bridge.claim_tab(7, "holder-b")
@@ -194,11 +207,12 @@ async def test_cdp_relay_sends_jsonrpc_and_returns_result() -> None:
     assert bridge.requests == [
         (
             "cdp.send",
-            {
-                "tabId": 3,
-                "holderId": "holder",
-                "method": "Accessibility.getFullAXTree",
-                "params": {},
+                {
+                    "tabId": 3,
+                    "ownerId": "holder",
+                    "holderId": "holder",
+                    "method": "Accessibility.getFullAXTree",
+                    "params": {},
             },
         ),
     ]
@@ -307,7 +321,7 @@ async def test_control_session_uses_request_context_for_approval(
     agent_context.set_current_session_id("session-1")
     agent_context.set_current_root_session_id("root-session-1")
 
-    state: dict[str, Any] = {"workspace_id": "workspace-1"}
+    state = _ownership_state("workspace-1")
     await _runtime(bridge).dispatch(
         state,
         "claim_tab",
@@ -502,7 +516,7 @@ async def test_claim_tab_denied_domain_does_not_create_tab(
     )
 
     response = await _runtime(bridge).dispatch(
-        {"workspace_id": "workspace-1"},
+        _ownership_state("workspace-1"),
         "claim_tab",
         url="https://denied.example.com/path",
     )
@@ -547,7 +561,7 @@ async def test_claim_tab_attach_rollback_releases_lease() -> None:
     bridge = Bridge()
 
     response = await _runtime(bridge).dispatch(
-        {"workspace_id": "workspace-1"},
+        _ownership_state("workspace-1"),
         "claim_tab",
         page_id="tab_7",
     )
@@ -555,8 +569,8 @@ async def test_claim_tab_attach_rollback_releases_lease() -> None:
 
     assert payload["ok"] is False
     assert "DevTools conflict" in payload["error"]
-    assert bridge.claimed == [(7, "browser_sdk:workspace-1")]
-    assert bridge.released == [(7, "browser_sdk:workspace-1")]
+    assert bridge.claimed == [(7, "browser_owner:workspace-1")]
+    assert bridge.released == [(7, "browser_owner:workspace-1")]
 
 
 def test_from_cdp_ax_tree_builds_refs_and_prunes_ignored_nodes() -> None:
@@ -604,7 +618,7 @@ async def test_browser_use_routes_control_start() -> None:
         connected = True
 
     response = await _runtime(Bridge()).dispatch(
-        {"workspace_id": "default"},
+        _ownership_state("default"),
         "start",
         mode="control",
     )

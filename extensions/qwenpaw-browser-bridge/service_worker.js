@@ -24,6 +24,7 @@ const LOCAL_QWENPAW_HOSTS = new Set([
 const LOCAL_QWENPAW_PORTS = new Set(["8088"]);
 const TAB_OWNERSHIP_OWNED = "owned";
 const TAB_OWNERSHIP_BORROWED = "borrowed";
+const TAB_OWNERSHIP_PENDING_CLAIM = "pending_claim";
 const TAB_OWNERSHIP_PROTECTED = "protected";
 const TAB_OWNERSHIP_ORPHANED = "orphaned";
 const TAB_OWNERSHIP_RELEASED = "released";
@@ -51,16 +52,26 @@ let reconnectAttempts = 0;
 let lastDisconnectReason = "";
 const managedTabs = new Set();
 const createdTabs = new Set();
+const tabMetadata = new Map();
 
 async function persistManagedTabs() {
+  const persistedMetadata = {};
+  for (const [tabId, metadata] of tabMetadata.entries()) {
+    persistedMetadata[String(tabId)] = { ...metadata };
+  }
   await chrome.storage.session.set({
     managedTabs: Array.from(managedTabs),
     createdTabs: Array.from(createdTabs),
+    tabMetadata: persistedMetadata,
   });
 }
 
 async function restoreManagedTabs() {
-  const data = await chrome.storage.session.get(["managedTabs", "createdTabs"]);
+  const data = await chrome.storage.session.get([
+    "managedTabs",
+    "createdTabs",
+    "tabMetadata",
+  ]);
   const tabIds = Array.isArray(data.managedTabs) ? data.managedTabs : [];
   for (const tabId of tabIds) {
     managedTabs.add(tabId);
@@ -70,6 +81,13 @@ async function restoreManagedTabs() {
     : [];
   for (const tabId of createdTabIds) {
     createdTabs.add(tabId);
+  }
+  const restoredMetadata = data.tabMetadata || {};
+  for (const [rawTabId, metadata] of Object.entries(restoredMetadata)) {
+    const tabId = Number(rawTabId);
+    if (Number.isFinite(tabId) && metadata && typeof metadata === "object") {
+      tabMetadata.set(tabId, { ...metadata, tabId });
+    }
   }
 }
 
@@ -109,7 +127,39 @@ function sendEvent(method, params) {
 }
 
 function hasControlInterest() {
-  return managedTabs.size > 0 || createdTabs.size > 0;
+  return managedTabs.size > 0 || createdTabs.size > 0 || tabMetadata.size > 0;
+}
+
+function tabProtocolMetadata(tabId) {
+  const metadata = tabMetadata.get(Number(tabId));
+  return metadata ? { ...metadata } : {};
+}
+
+async function storeTabProtocolMetadata(tabId, metadata) {
+  if (tabId === undefined || tabId === null) {
+    throw new Error("tabId required");
+  }
+  const normalized = {
+    protocolVersion: Number(metadata.protocolVersion || 2),
+    tabId: Number(tabId),
+    ownerId: String(metadata.ownerId || ""),
+    workspaceId: String(metadata.workspaceId || ""),
+    ownershipState: String(metadata.ownershipState || ""),
+    createdByQwenPaw: Boolean(metadata.createdByQwenPaw),
+  };
+  if (normalized.protocolVersion === 2) {
+    if (!normalized.ownerId || !normalized.workspaceId) {
+      throw new Error("ownerId and workspaceId are required");
+    }
+  }
+  tabMetadata.set(Number(tabId), normalized);
+  await persistManagedTabs();
+  return { ...normalized };
+}
+
+async function removeTabProtocolMetadata(tabId) {
+  tabMetadata.delete(Number(tabId));
+  await persistManagedTabs();
 }
 
 function tabLifecycleEventParams(tab, extra) {
@@ -127,6 +177,7 @@ function tabLifecycleEventParams(tab, extra) {
     params.managed = managedTabs.has(tabId);
     params.createdByQwenPaw = createdTabs.has(tabId);
     params.ownershipState = tabOwnershipState(tabId, tab);
+    Object.assign(params, tabProtocolMetadata(tabId));
   }
 
   for (const key of [
@@ -388,7 +439,7 @@ async function detachDebugger(tabId) {
     });
   });
   managedTabs.delete(tabId);
-  await persistManagedTabs();
+  await removeTabProtocolMetadata(tabId);
   return { tabId, detached: true, ownershipState: TAB_OWNERSHIP_RELEASED };
 }
 
@@ -452,6 +503,10 @@ function assertTabNotProtected(tab) {
 }
 
 function tabOwnershipState(tabId, tab) {
+  const metadata = tabProtocolMetadata(tabId);
+  if (metadata.ownershipState) {
+    return metadata.ownershipState;
+  }
   if (createdTabs.has(tabId)) {
     return TAB_OWNERSHIP_OWNED;
   }
@@ -516,15 +571,26 @@ async function listTabs(queryInfo) {
 
   const visibleTabs = tabs.filter(isAttachableTab);
   return Promise.all(
-    visibleTabs.map(async (tab) => ({
-      ...tab,
-      ...(await attachGroupInfo(tab)),
-      managed: tab && tab.id !== undefined ? managedTabs.has(tab.id) : false,
-      createdByQwenPaw:
-        tab && tab.id !== undefined ? createdTabs.has(tab.id) : false,
-      ownershipState:
-        tab && tab.id !== undefined ? tabOwnershipState(tab.id, tab) : "",
-    })),
+    visibleTabs.map(async (tab) => {
+      const metadata =
+        tab && tab.id !== undefined ? tabProtocolMetadata(tab.id) : {};
+      return {
+        ...tab,
+        ...(await attachGroupInfo(tab)),
+        managed:
+          tab && tab.id !== undefined ? managedTabs.has(tab.id) : false,
+        createdByQwenPaw:
+          metadata.createdByQwenPaw !== undefined
+            ? metadata.createdByQwenPaw
+            : tab && tab.id !== undefined
+              ? createdTabs.has(tab.id)
+              : false,
+        ownershipState:
+          metadata.ownershipState ||
+          (tab && tab.id !== undefined ? tabOwnershipState(tab.id, tab) : ""),
+        ...metadata,
+      };
+    }),
   );
 }
 
@@ -550,6 +616,14 @@ async function groupControlTab(tab) {
 }
 
 async function createTab(params) {
+  const protocolVersion = Number(params && params.protocolVersion ? params.protocolVersion : 2);
+  const ownerId = String((params && params.ownerId) || "");
+  const workspaceId = String(
+    (params && (params.workspaceId || params.workspace)) || "",
+  );
+  if (protocolVersion === 2 && (!ownerId || !workspaceId)) {
+    throw new Error("ownerId and workspaceId are required");
+  }
   const tab = await chrome.tabs.create({
     url: params && params.url ? params.url : "about:blank",
     active:
@@ -558,14 +632,51 @@ async function createTab(params) {
   const controlTab = await groupControlTab(tab);
   if (controlTab && controlTab.id !== undefined) {
     createdTabs.add(controlTab.id);
+    await storeTabProtocolMetadata(controlTab.id, {
+      protocolVersion,
+      ownerId,
+      workspaceId,
+      ownershipState: TAB_OWNERSHIP_PENDING_CLAIM,
+      createdByQwenPaw: true,
+    });
     await persistManagedTabs();
   }
   return {
     ...controlTab,
+    ...(
+      controlTab && controlTab.id !== undefined
+        ? tabProtocolMetadata(controlTab.id)
+        : {}
+    ),
     createdByQwenPaw: true,
-    workspace: (params && params.workspace) || "",
-    ownershipState: TAB_OWNERSHIP_OWNED,
+    workspace: workspaceId,
   };
+}
+
+async function commitTabMetadata(params) {
+  const tabId = params && params.tabId;
+  if (tabId === undefined || tabId === null) {
+    throw new Error("tabId required");
+  }
+  const current = tabProtocolMetadata(tabId);
+  const ownerId = String((params && params.ownerId) || current.ownerId || "");
+  const workspaceId = String(
+    (params && params.workspaceId) || current.workspaceId || "",
+  );
+  if (current.ownerId && current.ownerId !== ownerId) {
+    throw new Error("ownerId mismatch");
+  }
+  if (current.workspaceId && current.workspaceId !== workspaceId) {
+    throw new Error("workspaceId mismatch");
+  }
+  createdTabs.add(Number(tabId));
+  return storeTabProtocolMetadata(tabId, {
+    protocolVersion: Number(current.protocolVersion || 2),
+    ownerId,
+    workspaceId,
+    ownershipState: TAB_OWNERSHIP_OWNED,
+    createdByQwenPaw: true,
+  });
 }
 
 async function ensureTabAvailable(params) {
@@ -615,7 +726,7 @@ async function closeTab(params) {
   await chrome.tabs.remove(tabId);
   managedTabs.delete(tabId);
   createdTabs.delete(tabId);
-  await persistManagedTabs();
+  await removeTabProtocolMetadata(tabId);
   return { tabId, closed: true, ownershipState: TAB_OWNERSHIP_RELEASED };
 }
 
@@ -710,7 +821,7 @@ async function cleanupOrphans(reason) {
     } finally {
       createdTabs.delete(tabId);
       managedTabs.delete(tabId);
-      await persistManagedTabs();
+      await removeTabProtocolMetadata(tabId);
     }
   }
 }
@@ -782,6 +893,8 @@ async function handleMessage(message) {
         return jsonRpcResult(id, await closeTab(params));
       case "tab.create":
         return jsonRpcResult(id, await createTab(params));
+      case "tab.metadata.commit":
+        return jsonRpcResult(id, await commitTabMetadata(params));
       case "banner.show":
         return jsonRpcResult(
           id,
@@ -964,6 +1077,7 @@ chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {
   });
   managedTabs.delete(tabId);
   createdTabs.delete(tabId);
+  tabMetadata.delete(Number(tabId));
   void persistManagedTabs();
 });
 

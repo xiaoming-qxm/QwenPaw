@@ -27,8 +27,10 @@ from ..primitives.types import (
     BrowserDiagnosticCheck,
     BrowserDiagnosticStatus,
     BrowserDiagnostics,
+    BrowserOwnershipContext,
     BrowserRetention,
     ResolvedBrowserContext,
+    build_browser_ownership_context,
 )
 from ..runtime.kernel import get_current_execution_context
 from ..telemetry.trace import record_browser_trace_event
@@ -45,6 +47,7 @@ class Browser:
     session: Any
     context: ResolvedBrowserContext
     session_id: str = ""
+    ownership_context: BrowserOwnershipContext | None = None
     retention: BrowserRetention = "clean"
     tabs: BrowserTabs = field(init=False)
     actions: BrowserActions = field(init=False)
@@ -171,6 +174,14 @@ class Browser:
             )
             or "default"
         )
+        effective_root_session_id = (
+            str(
+                execution_context.root_session_id
+                if execution_context is not None
+                else "",
+            )
+            or effective_session_id
+        )
         request_scope_key = (
             str(
                 execution_context.request_scope_key
@@ -180,6 +191,13 @@ class Browser:
             or effective_session_id
         )
         effective_retention = _normalize_retention(retention)
+        ownership_context = build_browser_ownership_context(
+            session_id=effective_session_id,
+            root_session_id=effective_root_session_id,
+            request_scope_key=request_scope_key,
+            retention=effective_retention,
+        )
+        request_scope_key = ownership_context.request_scope_key
 
         started = perf_counter()
         try:
@@ -203,6 +221,7 @@ class Browser:
                 resolved,
                 request_scope_key=request_scope_key,
                 retention=effective_retention,
+                ownership_context=ownership_context,
             )
         except Exception as exc:
             record_browser_trace_event(
@@ -220,6 +239,7 @@ class Browser:
             session=session,
             context=resolved,
             session_id=effective_session_id,
+            ownership_context=ownership_context,
             retention=effective_retention,
         )
         browser._trace(
@@ -229,6 +249,10 @@ class Browser:
             metadata={
                 **_route_metadata(resolved),
                 "request_scope_key": request_scope_key,
+                "ownership_protocol_version": (
+                    ownership_context.protocol_version
+                ),
+                "workspace_id": ownership_context.workspace_id,
                 "retention": effective_retention,
             },
         )
@@ -378,6 +402,7 @@ async def _connect_backend(
     *,
     request_scope_key: str,
     retention: BrowserRetention,
+    ownership_context: BrowserOwnershipContext,
 ) -> Any:
     connect = getattr(backend, "connect")
     kwargs: dict[str, Any] = {}
@@ -395,6 +420,8 @@ async def _connect_backend(
             kwargs["request_scope_key"] = request_scope_key
         if accepts_kwargs or "retention" in parameters:
             kwargs["retention"] = retention
+        if accepts_kwargs or "ownership_context" in parameters:
+            kwargs["ownership_context"] = ownership_context
     result = connect(session_id, context, **kwargs)
     if inspect.isawaitable(result):
         return await result

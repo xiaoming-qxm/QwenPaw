@@ -7,6 +7,8 @@ from typing import Any, Protocol, runtime_checkable
 
 from ..primitives.types import (
     BrowserBackendCapabilities,
+    BrowserOwnershipContext,
+    BrowserRetention,
     ResolvedBrowserContext,
 )
 
@@ -31,6 +33,10 @@ class BrowserBackend(Protocol):
         self,
         session_id: str,
         context: ResolvedBrowserContext,
+        *,
+        request_scope_key: str = "",
+        retention: BrowserRetention = "clean",
+        ownership_context: BrowserOwnershipContext | None = None,
     ) -> BrowserSession | Any:
         """Create or attach a browser session."""
 

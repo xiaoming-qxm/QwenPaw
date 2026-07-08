@@ -65,13 +65,20 @@ class _SnapshotBridge:
 
 
 def _state() -> dict[str, Any]:
+    owner_id = "browser_owner:snapshot-test"
     return {
         "workspace_id": "snapshot-test",
+        "ownership_context": {
+            "protocol_version": 2,
+            "owner_id": owner_id,
+            "workspace_id": "browser_workspace:snapshot-test",
+        },
         "current_page_id": "42",
         "control_tabs": {
             "42": {
                 "tab_id": 42,
-                "holder_id": "browser_sdk:snapshot-test",
+                "holder_id": owner_id,
+                "owner_id": owner_id,
                 "url": "https://example.com/",
             },
         },

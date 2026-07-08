@@ -62,6 +62,7 @@ def browser_capabilities() -> dict[str, Any]:
         },
     }
     return {
+        "ownership_protocol_version": 2,
         "contexts": ("auto", "user", "isolated"),
         "routing": {
             "contract": "V12 Browser Routing And Permission Contract",
@@ -74,6 +75,7 @@ def browser_capabilities() -> dict[str, Any]:
         },
         "primitives": (
             "tabs.open",
+            "tabs.new",
             "tabs.active",
             "tabs.list",
             "tabs.select",
@@ -84,6 +86,16 @@ def browser_capabilities() -> dict[str, Any]:
             "extract",
             "close",
         ),
+        "tab_semantics": {
+            "open": "reuse_request_workspace_tab_with_target_url",
+            "new": "explicit_new_tab_requires_target_url",
+            "active": "return_existing_request_tab_without_creation",
+        },
+        "diagnostics": {
+            "user_backend": (
+                "connected_routable_actionable_cleanup_verified"
+            ),
+        },
         "actions": actions,
         "limits": {
             "requires_fresh_observe_after_mutation": True,
@@ -91,6 +103,7 @@ def browser_capabilities() -> dict[str, Any]:
             "download_max_wait_ms_default": 30000,
             "raw_cdp_public_hot_path": False,
             "raw_cdp_public_entrypoint": False,
+            "normal_task_blank_tab_creation": False,
         },
     }
 
@@ -102,6 +115,12 @@ def browser_sdk_help() -> str:
     return "\n".join(
         (
             'Browser.connect(context="auto") auto prefers user Chrome.',
+            "Protocol v2: start normal page work with "
+            "tabs.open(target_url), which reuses the request workspace tab.",
+            "Use tabs.new(target_url) only for an explicit additional tab; "
+            "tabs.active() never creates a tab.",
+            "Browser.diagnostics() checks connected, routable, actionable, "
+            "and cleanup_verified health.",
             "Use requires_user_state=True for logged-in or existing-tab work.",
             "Degraded isolated fallback is only for public or ambiguous work "
             "when user Chrome is unavailable.",

@@ -268,7 +268,7 @@ batch 的补充参考（见 2c），不是主要执行指令。
     {
       "tool_name": "browser",
       "arguments": {
-        "code": "browser = await Browser.connect(context=\"auto\")\ntab = await browser.tabs.active()\nsnapshot = await tab.snapshot()\nprint(snapshot.text)"
+        "code": "browser = await Browser.connect(context=\"auto\")\ntab = await browser.tabs.open(\"${args.url}\")\nsnapshot = await tab.snapshot()\nprint(snapshot.text)"
       }
     },
     {

@@ -4,10 +4,12 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from agentscope.tool import ToolChunk
 
+from qwenpaw.browser.sdk.runtime.responses import _tool_response
 from .action_runtime import tab_manager as control_tab_manager
 from .action_runtime import navigation as control_navigation
 from .action_runtime.handlers import ACTION_HANDLERS
@@ -26,7 +28,6 @@ from .action_runtime.network_settle import (
     _network_quiescence_wait,
 )
 from .action_runtime.session_manager import (
-    _control_holder_id,
     _control_remove_dialog_auto_handlers,
     _control_request_context,
 )
@@ -54,7 +55,9 @@ class ControlEngineImpl:
         manager = self._bridge_manager
         bridge = manager.get_connection() if manager is not None else None
         request_context = _control_request_context()
-        holder_id = _control_holder_id(state_obj, request_context)
+        owner_id = _control_owner_id(state_obj)
+        if not owner_id:
+            return _ownership_context_missing_response()
         try:
             set_network_quiescence_wait(_network_quiescence_wait)
             control_navigation._CONTROL_NAVIGATE_LOAD_TIMEOUT_SECONDS = (
@@ -68,7 +71,7 @@ class ControlEngineImpl:
             return await dispatch(
                 state_obj,
                 action_name,
-                holder_id=holder_id,
+                holder_id=owner_id,
                 bridge=bridge,
                 request_context=request_context,
                 **kwargs,
@@ -121,3 +124,33 @@ class ControlEngineImpl:
             workspace_id=workspace_id,
             bridge_manager=self._bridge_manager,
         )
+
+
+def _control_owner_id(state: Any) -> str:
+    context = state.get("ownership_context")
+    if context is None:
+        context = state.get("browser_ownership_context")
+    if isinstance(context, dict):
+        owner_id = str(context.get("owner_id") or context.get("ownerId") or "")
+        if owner_id:
+            return owner_id
+    owner_id = str(getattr(context, "owner_id", "") or "")
+    if owner_id:
+        return owner_id
+    return ""
+
+
+def _ownership_context_missing_response() -> ToolChunk:
+    return _tool_response(
+        json.dumps(
+            {
+                "ok": False,
+                "mode": "control",
+                "code": "browser_ownership_context_missing",
+                "error": "browser_ownership_context_missing",
+                "message": "Browser ownership context is required.",
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+    )

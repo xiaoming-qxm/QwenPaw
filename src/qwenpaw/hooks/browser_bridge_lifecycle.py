@@ -12,6 +12,7 @@ from .base import LifecycleHook
 from ..browser.sdk.backends.registry import (
     cleanup_browser_backend_request_resources,
 )
+from ..browser.sdk.primitives.types import build_browser_ownership_context
 from ..browser.sdk.governance.errors import BrowserPolicyDenied
 from ..browser.sdk.runtime.kernel import cleanup_browser_kernels_for_lifecycle
 from ..browser.sdk.telemetry.trace import record_browser_trace_event
@@ -149,11 +150,20 @@ async def cleanup_browser_bridge_request_resources(
     preserve_owned_tabs: bool = False,
 ) -> dict[str, Any]:
     """Release Browser SDK backend request resources."""
+    ownership_context = build_browser_ownership_context(
+        session_id=session_id,
+        root_session_id=root_session_id,
+        request_scope_key=request_scope_key,
+        retention="debug" if preserve_owned_tabs else "clean",
+    )
     return await cleanup_browser_backend_request_resources(
         session_id=session_id,
         root_session_id=root_session_id,
         request_scope_key=request_scope_key,
-        workspace_id=workspace_id,
+        owner_id=ownership_context.owner_id,
+        workspace_id=ownership_context.workspace_id,
+        legacy_workspace_id=workspace_id,
+        ownership_context=ownership_context,
         cleanup_reason=cleanup_reason,
         preserve_owned_tabs=preserve_owned_tabs,
     )

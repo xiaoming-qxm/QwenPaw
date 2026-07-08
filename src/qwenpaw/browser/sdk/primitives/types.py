@@ -62,6 +62,52 @@ _OBSERVATION_TEXT_LIMIT = 1200
 
 
 @dataclass(frozen=True)
+class BrowserOwnershipContext:
+    """Protocol v2 ownership identity for one Browser request."""
+
+    protocol_version: int
+    session_id: str
+    root_session_id: str
+    request_scope_key: str
+    owner_id: str
+    workspace_id: str
+    retention: BrowserRetention
+
+
+def build_browser_ownership_context(
+    *,
+    session_id: str,
+    root_session_id: str = "",
+    request_scope_key: str = "",
+    retention: BrowserRetention = "clean",
+) -> BrowserOwnershipContext:
+    """Build the single ownership identity for one Browser request."""
+    normalized_session_id = _normalize_ownership_identity(session_id)
+    normalized_root_session_id = _normalize_ownership_identity(
+        root_session_id or normalized_session_id,
+    )
+    normalized_request_scope_key = str(request_scope_key or "").strip()
+    if not normalized_request_scope_key:
+        normalized_request_scope_key = (
+            f"{normalized_root_session_id}:request:default"
+        )
+    return BrowserOwnershipContext(
+        protocol_version=2,
+        session_id=normalized_session_id,
+        root_session_id=normalized_root_session_id,
+        request_scope_key=normalized_request_scope_key,
+        owner_id=f"browser_owner:{normalized_request_scope_key}",
+        workspace_id=f"browser_workspace:{normalized_request_scope_key}",
+        retention=retention,
+    )
+
+
+def _normalize_ownership_identity(value: str) -> str:
+    normalized = str(value or "").strip()
+    return normalized or "default"
+
+
+@dataclass(frozen=True)
 class ResolvedBrowserContext:
     """Concrete backend chosen for one browser SDK request."""
 

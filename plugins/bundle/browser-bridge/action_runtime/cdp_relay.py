@@ -73,6 +73,7 @@ class CDPRelaySession:
     ) -> None:
         self.tab_id = tab_id
         self.holder_id = holder_id
+        self.owner_id = holder_id
         self.bridge = bridge
         self.approval_callback = approval_callback
         self.request_context = request_context or {}
@@ -126,10 +127,18 @@ class CDPRelaySession:
         method: str,
         params: dict[str, Any],
     ) -> dict[str, Any]:
-        if hasattr(self.bridge, "validate_lease"):
+        validate_or_renew = getattr(self.bridge, "validate_or_renew", None)
+        if callable(validate_or_renew):
+            lease = validate_or_renew(
+                self.tab_id,
+                self.owner_id,
+                self.lease_version,
+            )
+            self.lease_version = getattr(lease, "version", self.lease_version)
+        elif hasattr(self.bridge, "validate_lease"):
             self.bridge.validate_lease(
                 self.tab_id,
-                self.holder_id,
+                self.owner_id,
                 self.lease_version,
             )
         self._last_activity = self._now()
@@ -139,6 +148,7 @@ class CDPRelaySession:
                 "cdp.send",
                 {
                     "tabId": self.tab_id,
+                    "ownerId": self.owner_id,
                     "holderId": self.holder_id,
                     "method": method,
                     "params": params,

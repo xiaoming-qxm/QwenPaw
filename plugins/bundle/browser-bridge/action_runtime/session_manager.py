@@ -49,11 +49,14 @@ def _control_validate_session_lease(
     tab_id: int,
     holder_id: str,
     lease_version: int | None = None,
-) -> None:
+) -> Any | None:
+    validate_or_renew = getattr(bridge, "validate_or_renew", None)
+    if callable(validate_or_renew):
+        return validate_or_renew(tab_id, holder_id, lease_version)
     validate_lease = getattr(bridge, "validate_lease", None)
     if not callable(validate_lease):
-        return
-    validate_lease(tab_id, holder_id, lease_version)
+        return None
+    return validate_lease(tab_id, holder_id, lease_version)
 
 
 async def _control_ensure_tab_lease(

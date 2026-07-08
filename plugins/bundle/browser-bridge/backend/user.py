@@ -14,7 +14,9 @@ from qwenpaw.browser.sdk.backends.registry import get_default_backend_registry
 from qwenpaw.browser.sdk.governance.errors import (
     BrowserContextUnavailable,
     BrowserPolicyDenied,
+    BrowserSDKError,
 )
+from qwenpaw.browser.sdk.governance.error_codes import classify_browser_error
 from qwenpaw.browser.sdk.primitives.observation import (
     coerce_observation,
     coerce_screenshot,
@@ -37,9 +39,11 @@ from qwenpaw.browser.sdk.primitives.types import (
     BrowserContextRequest,
     BrowserDiagnosticCheck,
     BrowserDiagnosticStatus,
+    BrowserOwnershipContext,
     BrowserPageInfo,
     BrowserRetention,
     ResolvedBrowserContext,
+    build_browser_ownership_context,
 )
 from qwenpaw.browser.sdk.primitives.types import (
     BrowserObservation,
@@ -150,7 +154,7 @@ class ChromeExtensionBrowserBackend:
         if trace_recorder is not None:
             self._trace_recorder = trace_recorder
 
-    def diagnose(self) -> BrowserBackendDiagnostic:
+    async def diagnose(self) -> BrowserBackendDiagnostic:
         """Return typed Chrome Extension backend diagnostics."""
         bridge = self._bridge()
         bridge_manager_present = bridge is not None
@@ -180,6 +184,22 @@ class ChromeExtensionBrowserBackend:
             code = ""
             message = "Chrome Extension browser backend is available."
             hint_key = ""
+        actionable_check, cleanup_check = await _diagnose_actionable_round_trip(
+            bridge,
+            enabled=bridge_connected,
+        )
+        if actionable_check.status != "available":
+            available = False
+            status = "unavailable"
+            code = actionable_check.code or "browser_backend_unavailable"
+            message = actionable_check.message
+            hint_key = actionable_check.hint_key or code
+        elif cleanup_check.status != "available":
+            available = False
+            status = "degraded"
+            code = cleanup_check.code or "browser_cleanup_incomplete"
+            message = cleanup_check.message
+            hint_key = cleanup_check.hint_key or code
         return BrowserBackendDiagnostic(
             backend_id=self.backend_id,
             browser_context="user",
@@ -192,22 +212,10 @@ class ChromeExtensionBrowserBackend:
             message_fallback=message,
             checks=(
                 BrowserDiagnosticCheck(
-                    name="bridge_manager",
+                    name="connected",
                     status="available"
-                    if bridge_manager_present
+                    if bridge_connected
                     else "unavailable",
-                    code="" if bridge_manager_present else code,
-                    message=(
-                        "Bridge manager is configured."
-                        if bridge_manager_present
-                        else "Bridge manager is missing."
-                    ),
-                    hint_key="" if bridge_manager_present else hint_key,
-                    metadata={"backend_id": self.backend_id},
-                ),
-                BrowserDiagnosticCheck(
-                    name="bridge_connection",
-                    status="available" if bridge_connected else "unavailable",
                     code="" if bridge_connected else code,
                     message=(
                         "Chrome Extension bridge is connected."
@@ -215,6 +223,30 @@ class ChromeExtensionBrowserBackend:
                         else "Chrome Extension bridge is disconnected."
                     ),
                     hint_key="" if bridge_connected else hint_key,
+                    metadata={"backend_id": self.backend_id},
+                ),
+                BrowserDiagnosticCheck(
+                    name="routable",
+                    status=(
+                        "available"
+                        if bridge_manager_present and bridge_connected
+                        else "unavailable"
+                    ),
+                    code=(
+                        ""
+                        if bridge_manager_present and bridge_connected
+                        else code
+                    ),
+                    message=(
+                        "Chrome Extension bridge is routable."
+                        if bridge_manager_present and bridge_connected
+                        else "Chrome Extension bridge is not routable."
+                    ),
+                    hint_key=(
+                        ""
+                        if bridge_manager_present and bridge_connected
+                        else hint_key
+                    ),
                     metadata={"backend_id": self.backend_id},
                 ),
                 BrowserDiagnosticCheck(
@@ -239,6 +271,8 @@ class ChromeExtensionBrowserBackend:
                     ),
                     metadata={"backend_id": self.backend_id},
                 ),
+                actionable_check,
+                cleanup_check,
             ),
             observed_at=_diagnostic_observed_at(),
             features=self.capabilities().features,
@@ -257,6 +291,7 @@ class ChromeExtensionBrowserBackend:
         *,
         request_scope_key: str = "",
         retention: BrowserRetention = "clean",
+        ownership_context: BrowserOwnershipContext | None = None,
     ) -> "ChromeExtensionBrowserSession":
         if not self.is_available():
             raise BrowserContextUnavailable(
@@ -295,6 +330,7 @@ class ChromeExtensionBrowserBackend:
             policy=self._policy,
             control_engine=self._engine(),
             trace_recorder=self._trace_recorder,
+            ownership_context=ownership_context,
         )
         _register_user_browser_session(session)
         return session
@@ -356,9 +392,31 @@ class ChromeExtensionBrowserBackend:
                 exc_info=True,
             )
 
+        fallback_result: dict[str, Any] = {}
+        try:
+            fallback_result = await _cleanup_extension_metadata_fallback(
+                self._bridge(),
+                owner_id=str(kwargs.get("owner_id") or ""),
+                workspace_id=workspace_id,
+                cleanup_reason=cleanup_reason,
+                preserve_owned_tabs=bool(
+                    kwargs.get("preserve_owned_tabs", False),
+                ),
+            )
+        except Exception:
+            cleanup_errors += 1
+            logger.debug(
+                "browser_bridge extension metadata cleanup failed",
+                exc_info=True,
+            )
+
         merged = _merge_cleanup_results(
             user_result,
-            runtime_result,
+            _merge_cleanup_results(
+                runtime_result,
+                fallback_result,
+                cleanup_reason=cleanup_reason,
+            ),
             cleanup_reason=cleanup_reason,
         )
         merged["cleanup_errors"] = cleanup_errors
@@ -381,6 +439,7 @@ class ChromeExtensionBrowserSession:
         policy: BrowserPolicy,
         control_engine: Any | None = None,
         trace_recorder: Callable[..., Any] | None = None,
+        ownership_context: BrowserOwnershipContext | None = None,
     ) -> None:
         self.bridge = bridge
         self.session_id = session_id
@@ -388,13 +447,22 @@ class ChromeExtensionBrowserSession:
             request_scope_key or session_id,
         )
         self.retention = _normalize_retention(retention)
+        self.ownership_context = ownership_context or build_browser_ownership_context(
+            session_id=session_id,
+            root_session_id=session_id,
+            request_scope_key=self.request_scope_key,
+            retention=self.retention,
+        )
         self.context = context
-        self.holder_id = _browser_sdk_holder_id(self.request_scope_key)
+        self.owner_id = self.ownership_context.owner_id
+        self.holder_id = self.owner_id
         self._policy = policy
         self._control_engine = control_engine
         self._trace_recorder = trace_recorder or record_browser_trace_event
         self._state: dict[str, Any] = {
-            "workspace_id": _browser_workspace_id(self.request_scope_key),
+            "workspace_id": self.ownership_context.workspace_id,
+            "owner_id": self.owner_id,
+            "ownership_context": self.ownership_context,
         }
         self._tab_ownership: dict[str, _TabOwnership] = {}
         self._registry_keys: set[str] = set()
@@ -440,6 +508,7 @@ class ChromeExtensionBrowserSession:
         released_borrowed_tabs = 0
         preserved_owned_tabs = 0
         skipped_protected_tabs = 0
+        cleanup_errors = 0
         should_preserve_owned_tabs = (
             preserve_owned_tabs
             or cleanup_reason == "handoff_required"
@@ -453,12 +522,22 @@ class ChromeExtensionBrowserSession:
             close_owned = (
                 ownership == "owned" and not should_preserve_owned_tabs
             )
-            await self._cleanup_tab(
-                tab_id,
-                ownership,
-                cleanup_reason=cleanup_reason,
-                close_owned=close_owned,
-            )
+            try:
+                await self._cleanup_tab(
+                    tab_id,
+                    ownership,
+                    cleanup_reason=cleanup_reason,
+                    close_owned=close_owned,
+                )
+            except Exception:
+                cleanup_errors += 1
+                logger.debug(
+                    "browser_bridge tab cleanup failed tab=%s",
+                    tab_id,
+                    exc_info=True,
+                )
+                self._tab_ownership.pop(str(tab_id), None)
+                continue
             if ownership == "owned" and close_owned:
                 closed_tabs += 1
             elif ownership == "owned":
@@ -477,6 +556,7 @@ class ChromeExtensionBrowserSession:
             "preserved_owned_tabs": preserved_owned_tabs,
             "skipped_protected_tabs": skipped_protected_tabs,
             "remaining_orphaned_tabs": self._remaining_orphaned_tabs(),
+            "cleanup_errors": cleanup_errors,
             "cleanup_reason": cleanup_reason,
             "preserve_owned_tabs": should_preserve_owned_tabs,
             "retention": self.retention,
@@ -491,18 +571,17 @@ class ChromeExtensionBrowserSession:
             workspace_id=self._state["workspace_id"],
         )
         if selected is None:
-            tab = await self._create_workspace_tab()
-            self._record_workspace_selection_trace(
-                tab,
-                duration_ms=_duration_ms(started),
-                selection_reason="created_controlled_workspace",
-                activation_reason="default_workspace_hidden",
+            raise BrowserSDKError(
+                "No current Browser tab exists for this request.",
+                code="browser_no_current_tab",
+                backend_id=self.backend_id,
+                action="tabs.active",
+                metadata={"creation_allowed": False},
             )
-            return tab
         await self._claim_existing_tab(selected)
         tab = self._tab_metadata(
             selected,
-            ownership="borrowed",
+            ownership=_ownership_from_tab(selected, default="owned"),
             selection_reason="existing_controlled_workspace",
         )
         self._record_workspace_selection_trace(
@@ -518,22 +597,50 @@ class ChromeExtensionBrowserSession:
         return [_normalize_tab(tab) for tab in tabs if isinstance(tab, dict)]
 
     async def open_tab(self, url: str | None = None) -> dict[str, Any]:
-        target_url = url or "about:blank"
-        payload = {
-            "url": target_url,
-            "active": False,
-            "workspace": self._state["workspace_id"],
-        }
-        response = await self.bridge.request("tab.create", payload)
-        tab = _tab_from_create_response(
-            response,
-            fallback_url=target_url,
-            fallback_active=False,
-            fallback_workspace=self._state["workspace_id"],
+        target_url = _require_target_url(url)
+        return await self._create_owned_tab(
+            target_url,
+            selection_reason="created_explicit_new_tab",
         )
-        await self._claim(tab["id"])
-        await self._attach(tab["id"])
-        self._record_tab_ownership(tab["id"], "owned")
+
+    async def open_workspace_tab(self, url: str) -> dict[str, Any]:
+        target_url = _require_target_url(url)
+        started = perf_counter()
+        tabs = await self.list_tabs()
+        selected = _default_workspace_tab(
+            tabs,
+            workspace_id=self._state["workspace_id"],
+        )
+        if selected is None:
+            tab = await self._create_owned_tab(
+                target_url,
+                selection_reason="created_controlled_workspace",
+            )
+            self._record_workspace_selection_trace(
+                tab,
+                duration_ms=_duration_ms(started),
+                selection_reason="created_controlled_workspace",
+                activation_reason="target_url_create",
+            )
+            return tab
+
+        tab_id = str(selected.get("id") or "")
+        await self._claim(tab_id)
+        await self._attach(tab_id)
+        self._record_tab_ownership(tab_id, "owned")
+        await self._bridge_or_engine_action("navigate", tab_id, url=target_url)
+        selected = {**selected, "url": target_url}
+        tab = self._tab_metadata(
+            selected,
+            ownership="owned",
+            selection_reason="reused_controlled_workspace",
+        )
+        self._record_workspace_selection_trace(
+            tab,
+            duration_ms=_duration_ms(started),
+            selection_reason="reused_controlled_workspace",
+            activation_reason="target_url_navigation",
+        )
         return tab
 
     async def select_tab(self, tab_id: str) -> dict[str, Any]:
@@ -675,14 +782,20 @@ class ChromeExtensionBrowserSession:
         message = "Tab closed" if ownership == "owned" else "Tab released"
         return BrowserActionResult(ok=True, message=message)
 
-    async def _create_workspace_tab(self) -> dict[str, Any]:
-        target_url = "about:blank"
+    async def _create_owned_tab(
+        self,
+        target_url: str,
+        *,
+        selection_reason: str,
+    ) -> dict[str, Any]:
         response = await self.bridge.request(
             "tab.create",
             {
+                "protocolVersion": self.ownership_context.protocol_version,
+                "ownerId": self.owner_id,
+                "workspaceId": self._state["workspace_id"],
                 "url": target_url,
                 "active": False,
-                "workspace": self._state["workspace_id"],
             },
         )
         tab = _tab_from_create_response(
@@ -693,11 +806,12 @@ class ChromeExtensionBrowserSession:
         )
         await self._claim(tab["id"])
         await self._attach(tab["id"])
+        await self._commit_tab_metadata(tab["id"])
         self._record_tab_ownership(tab["id"], "owned")
         return self._tab_metadata(
             tab,
             ownership="owned",
-            selection_reason="created_controlled_workspace",
+            selection_reason=selection_reason,
         )
 
     async def _claim_existing_tab(self, tab: dict[str, Any]) -> None:
@@ -776,13 +890,34 @@ class ChromeExtensionBrowserSession:
             return
         result = claim_tab(int(tab_id), self.holder_id)
         if hasattr(result, "__await__"):
-            await result
+            result = await result
+        self._validate_claimed_lease(tab_id, result)
 
     async def _attach(self, tab_id: str) -> None:
         await self.bridge.request(
             "tab.attach",
-            {"tabId": int(tab_id), "holderId": self.holder_id},
+            {"tabId": int(tab_id), "ownerId": self.owner_id},
         )
+
+    async def _commit_tab_metadata(self, tab_id: str) -> None:
+        await self.bridge.request(
+            "tab.metadata.commit",
+            {
+                "tabId": int(tab_id),
+                "ownerId": self.owner_id,
+                "workspaceId": self._state["workspace_id"],
+            },
+        )
+
+    def _validate_claimed_lease(
+        self,
+        tab_id: str,
+        lease_version: Any,
+    ) -> None:
+        validate_or_renew = getattr(self.bridge, "validate_or_renew", None)
+        if not callable(validate_or_renew):
+            return
+        validate_or_renew(int(tab_id), self.owner_id, lease_version)
 
     def _record_tab_ownership(
         self,
@@ -848,12 +983,12 @@ class ChromeExtensionBrowserSession:
             await self._hide_banner_best_effort(tab_id_int)
             await self.bridge.request(
                 "tab.detach",
-                {"tabId": tab_id_int, "holderId": self.holder_id},
+                {"tabId": tab_id_int, "ownerId": self.owner_id},
             )
             if ownership == "owned" and close_owned:
                 await self.bridge.request(
                     "tab.close",
-                    {"tabId": tab_id_int, "holderId": self.holder_id},
+                    {"tabId": tab_id_int, "ownerId": self.owner_id},
                 )
             await self._release_tab(tab_id_int)
         except Exception:
@@ -1058,6 +1193,187 @@ async def _cleanup_action_runtime_for_request(
     return dict(result or {}) if isinstance(result, dict) else {}
 
 
+async def _cleanup_extension_metadata_fallback(
+    bridge: Any | None,
+    *,
+    owner_id: str,
+    workspace_id: str,
+    cleanup_reason: str,
+    preserve_owned_tabs: bool,
+) -> dict[str, Any]:
+    if bridge is None or not owner_id or not workspace_id:
+        return {}
+    discover_tabs = getattr(bridge, "discover_tabs", None)
+    if not callable(discover_tabs):
+        return {}
+    raw_tabs = discover_tabs()
+    if hasattr(raw_tabs, "__await__"):
+        raw_tabs = await raw_tabs
+    tabs = raw_tabs if isinstance(raw_tabs, list) else []
+    result: dict[str, Any] = {
+        "matched_tabs": 0,
+        "closed_tabs": 0,
+        "released_tabs": 0,
+        "closed_owned_tabs": 0,
+        "released_borrowed_tabs": 0,
+        "preserved_owned_tabs": 0,
+        "remaining_orphaned_tabs": 0,
+        "cleanup_reason": cleanup_reason,
+    }
+    for tab in tabs:
+        if not isinstance(tab, dict):
+            continue
+        if str(tab.get("ownerId") or "") != owner_id:
+            continue
+        if str(tab.get("workspaceId") or tab.get("workspace") or "") != workspace_id:
+            continue
+        tab_id = tab.get("id") or tab.get("tabId")
+        if tab_id is None:
+            continue
+        ownership = str(tab.get("ownershipState") or "").strip().lower()
+        created = bool(tab.get("createdByQwenPaw", False))
+        if ownership != "owned" and not created:
+            continue
+        result["matched_tabs"] += 1
+        if preserve_owned_tabs:
+            result["preserved_owned_tabs"] += 1
+            result["released_tabs"] += 1
+            await bridge.request(
+                "tab.metadata.commit",
+                {
+                    "tabId": int(tab_id),
+                    "ownerId": owner_id,
+                    "workspaceId": workspace_id,
+                },
+            )
+            continue
+        await bridge.request(
+            "tab.close",
+            {"tabId": int(tab_id), "ownerId": owner_id},
+        )
+        result["closed_tabs"] += 1
+        result["closed_owned_tabs"] += 1
+    return result
+
+
+async def _diagnose_actionable_round_trip(
+    bridge: Any | None,
+    *,
+    enabled: bool,
+) -> tuple[BrowserDiagnosticCheck, BrowserDiagnosticCheck]:
+    owner_context = build_browser_ownership_context(
+        session_id="browser-diagnostics",
+        root_session_id="browser-diagnostics",
+        request_scope_key="browser-diagnostics:request:scratch",
+        retention="clean",
+    )
+    base_metadata = {
+        "backend_id": BACKEND_ID,
+        "protocol_version": owner_context.protocol_version,
+        "owner_id": owner_context.owner_id,
+        "workspace_id": owner_context.workspace_id,
+        "scratch": True,
+    }
+    if bridge is None or not enabled:
+        unavailable = BrowserDiagnosticCheck(
+            name="actionable",
+            status="unavailable",
+            code="browser_bridge_disconnected",
+            message="Chrome Extension bridge is not connected.",
+            hint_key="browser_bridge_disconnected",
+            metadata=base_metadata,
+        )
+        cleanup = BrowserDiagnosticCheck(
+            name="cleanup_verified",
+            status="unavailable",
+            code="browser_bridge_disconnected",
+            message="Scratch cleanup could not run.",
+            hint_key="browser_bridge_disconnected",
+            metadata=base_metadata,
+        )
+        return unavailable, cleanup
+
+    tab_id: int | None = None
+    actionable_status: BrowserDiagnosticStatus = "available"
+    actionable_code = ""
+    actionable_message = "Scratch Browser round-trip succeeded."
+    try:
+        response = await bridge.request(
+            "tab.create",
+            {
+                "protocolVersion": owner_context.protocol_version,
+                "ownerId": owner_context.owner_id,
+                "workspaceId": owner_context.workspace_id,
+                "url": "about:blank",
+                "active": False,
+                "diagnostic": True,
+            },
+        )
+        result = response.get("result") if isinstance(response, dict) else {}
+        if not isinstance(result, dict):
+            result = {}
+        raw_tab_id = result.get("id") or result.get("tabId")
+        if raw_tab_id is None:
+            raise RuntimeError(
+                "Scratch Browser round-trip did not return a tab id."
+            )
+        tab_id = int(raw_tab_id)
+        claim_tab = getattr(bridge, "claim_tab", None)
+        lease_version = None
+        if callable(claim_tab):
+            lease_version = claim_tab(tab_id, owner_context.owner_id)
+            if hasattr(lease_version, "__await__"):
+                lease_version = await lease_version
+        validate_or_renew = getattr(bridge, "validate_or_renew", None)
+        if callable(validate_or_renew):
+            validate_or_renew(tab_id, owner_context.owner_id, lease_version)
+        await bridge.request(
+            "tab.ensure",
+            {"tabId": tab_id, "ownerId": owner_context.owner_id},
+        )
+    except Exception as exc:
+        info = classify_browser_error(exc)
+        actionable_status = "unavailable"
+        actionable_code = info.code.value
+        actionable_message = str(exc) or "Scratch Browser round-trip failed."
+
+    cleanup_status: BrowserDiagnosticStatus = "available"
+    cleanup_code = ""
+    cleanup_message = "Scratch Browser cleanup succeeded."
+    if tab_id is None:
+        cleanup_status = "unavailable"
+        cleanup_code = actionable_code or "browser_cleanup_incomplete"
+        cleanup_message = "Scratch tab was not created."
+    else:
+        try:
+            await bridge.request(
+                "tab.close",
+                {"tabId": tab_id, "ownerId": owner_context.owner_id},
+            )
+        except Exception as exc:
+            cleanup_status = "unavailable"
+            cleanup_code = classify_browser_error(exc).code.value
+            cleanup_message = str(exc) or "Scratch Browser cleanup failed."
+
+    actionable = BrowserDiagnosticCheck(
+        name="actionable",
+        status=actionable_status,
+        code=actionable_code,
+        message=actionable_message,
+        hint_key=actionable_code,
+        metadata={**base_metadata, "tab_id": tab_id or ""},
+    )
+    cleanup = BrowserDiagnosticCheck(
+        name="cleanup_verified",
+        status=cleanup_status,
+        code=cleanup_code,
+        message=cleanup_message,
+        hint_key=cleanup_code,
+        metadata={**base_metadata, "tab_id": tab_id or ""},
+    )
+    return actionable, cleanup
+
+
 def _merge_cleanup_results(
     user_result: dict[str, Any] | None,
     runtime_result: dict[str, Any] | None,
@@ -1228,6 +1544,12 @@ def _normalize_retention(retention: str) -> BrowserRetention:
 
 
 def _normalize_tab(tab: dict[str, Any]) -> dict[str, Any]:
+    workspace_id = str(
+        tab.get("workspaceId")
+        or tab.get("workspace_id")
+        or tab.get("workspace")
+        or "",
+    )
     return {
         "id": str(tab.get("id") or tab.get("tabId") or ""),
         "url": str(tab.get("url") or tab.get("pendingUrl") or ""),
@@ -1235,7 +1557,11 @@ def _normalize_tab(tab: dict[str, Any]) -> dict[str, Any]:
         "active": bool(tab.get("active", False)),
         "created_by_qwenpaw": bool(tab.get("createdByQwenPaw", False)),
         "managed": bool(tab.get("managed", False)),
-        "workspace": str(tab.get("workspace") or ""),
+        "workspace": workspace_id,
+        "workspaceId": workspace_id,
+        "ownerId": str(tab.get("ownerId") or ""),
+        "protocolVersion": int(tab.get("protocolVersion") or 0),
+        "ownershipState": str(tab.get("ownershipState") or ""),
     }
 
 
@@ -1250,6 +1576,11 @@ def _tab_from_create_response(
     if not isinstance(result, dict):
         result = response if isinstance(response, dict) else {}
     tab_id = result.get("id") or result.get("tabId")
+    workspace_id = str(
+        result.get("workspaceId")
+        or result.get("workspace")
+        or fallback_workspace,
+    )
     return {
         "id": str(tab_id or ""),
         "url": str(result.get("url") or fallback_url),
@@ -1257,7 +1588,11 @@ def _tab_from_create_response(
         "active": bool(result.get("active", fallback_active)),
         "created_by_qwenpaw": bool(result.get("createdByQwenPaw", False)),
         "managed": bool(result.get("managed", False)),
-        "workspace": str(result.get("workspace") or fallback_workspace),
+        "workspace": workspace_id,
+        "workspaceId": workspace_id,
+        "ownerId": str(result.get("ownerId") or ""),
+        "protocolVersion": int(result.get("protocolVersion") or 0),
+        "ownershipState": str(result.get("ownershipState") or ""),
     }
 
 
@@ -1299,6 +1634,29 @@ def _workspace_id(tab: dict[str, Any]) -> str:
         or tab.get("workspaceId")
         or "",
     )
+
+
+def _ownership_from_tab(
+    tab: dict[str, Any],
+    *,
+    default: _TabOwnership,
+) -> _TabOwnership:
+    value = str(tab.get("ownershipState") or tab.get("ownership") or "")
+    normalized = value.strip().lower()
+    if normalized in _TAB_OWNERSHIP_STATES:
+        return normalized  # type: ignore[return-value]
+    return default
+
+
+def _require_target_url(url: str | None) -> str:
+    target_url = str(url or "").strip()
+    if not target_url:
+        raise BrowserSDKError(
+            "A non-empty target URL is required.",
+            code="browser_target_url_required",
+            backend_id=BACKEND_ID,
+        )
+    return target_url
 
 
 def _page_info_metadata(tab: dict[str, Any]) -> dict[str, Any]:

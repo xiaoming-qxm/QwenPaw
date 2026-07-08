@@ -60,13 +60,20 @@ class _EscalationBridge:
 
 
 def _state() -> dict[str, Any]:
+    owner_id = "browser_owner:escalation-test"
     return {
         "workspace_id": "escalation-test",
+        "ownership_context": {
+            "protocol_version": 2,
+            "owner_id": owner_id,
+            "workspace_id": "browser_workspace:escalation-test",
+        },
         "current_page_id": "42",
         "control_tabs": {
             "42": {
                 "tab_id": 42,
-                "holder_id": "browser_sdk:escalation-test",
+                "holder_id": owner_id,
+                "owner_id": owner_id,
                 "url": "https://example.com/",
             },
         },

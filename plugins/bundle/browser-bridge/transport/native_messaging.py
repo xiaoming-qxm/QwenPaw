@@ -51,17 +51,26 @@ class NMBridgeDisconnectedError(NMBridgeError):
 class TabOccupiedError(NMBridgeError):
     """Raised when a tab is already held by another holder."""
 
+    browser_error_code = str(BrowserErrorCode.BROWSER_TAB_OCCUPIED.value)
+
 
 class StaleLeaseError(NMBridgeError):
     """Raised when a holder presents an old lease version."""
+
+    browser_error_code = str(BrowserErrorCode.BROWSER_STALE_LEASE.value)
 
 
 @dataclass(frozen=True)
 class TabLease:
     tab_id: int
-    holder_id: str
+    owner_id: str
     version: int
     expires_at: float
+
+    @property
+    def holder_id(self) -> str:
+        """Compatibility alias for pre-v2 internal callers."""
+        return self.owner_id
 
 
 class NMBridge:
@@ -160,7 +169,7 @@ class NMBridge:
 
     def tab_holder(self, tab_id: int) -> str | None:
         lease = self.get_lease(tab_id)
-        return lease.holder_id if lease is not None else None
+        return lease.owner_id if lease is not None else None
 
     def now(self) -> float:
         return self._time_fn()
@@ -176,27 +185,27 @@ class NMBridge:
 
     def lease_version(self, tab_id: int, holder_id: str) -> int | None:
         lease = self.get_lease(tab_id)
-        if lease is None or lease.holder_id != holder_id:
+        if lease is None or lease.owner_id != holder_id:
             return None
         return lease.version
 
-    async def claim_tab(self, tab_id: int, holder_id: str) -> bool:
+    async def claim_tab(self, tab_id: int, holder_id: str) -> int:
         current = self.get_lease(tab_id)
-        if current is not None and current.holder_id != holder_id:
+        if current is not None and current.owner_id != holder_id:
             raise TabOccupiedError(
-                f"Tab {tab_id} is already held by {current.holder_id}",
+                f"Tab {tab_id} is already held by {current.owner_id}",
             )
-        if current is not None and current.holder_id == holder_id:
-            return True
+        if current is not None and current.owner_id == holder_id:
+            return current.version
         version = self._lease_versions.get(tab_id, 0) + 1
         self._lease_versions[tab_id] = version
         self._leases[tab_id] = TabLease(
             tab_id=tab_id,
-            holder_id=holder_id,
+            owner_id=holder_id,
             version=version,
             expires_at=self._time_fn() + LEASE_TTL_SECONDS,
         )
-        return True
+        return version
 
     def validate_lease(
         self,
@@ -205,7 +214,7 @@ class NMBridge:
         lease_version: int | None = None,
     ) -> TabLease:
         current = self.get_lease(tab_id)
-        if current is None or current.holder_id != holder_id:
+        if current is None or current.owner_id != holder_id:
             raise TabOccupiedError(f"Tab {tab_id} is not held by {holder_id}")
         if lease_version is not None and current.version != lease_version:
             raise StaleLeaseError(
@@ -214,29 +223,37 @@ class NMBridge:
             )
         return current
 
-    async def renew_lease(
+    def validate_or_renew(
         self,
         tab_id: int,
         holder_id: str,
-        version: int,
+        lease_version: int | None = None,
     ) -> TabLease:
-        current = self.validate_lease(tab_id, holder_id, version)
+        current = self.validate_lease(tab_id, holder_id, lease_version)
         renewed = TabLease(
             tab_id=current.tab_id,
-            holder_id=current.holder_id,
+            owner_id=current.owner_id,
             version=current.version,
             expires_at=self._time_fn() + LEASE_TTL_SECONDS,
         )
         self._leases[tab_id] = renewed
         return renewed
 
+    async def renew_lease(
+        self,
+        tab_id: int,
+        holder_id: str,
+        version: int,
+    ) -> TabLease:
+        return self.validate_or_renew(tab_id, holder_id, version)
+
     async def release(self, tab_id: int, holder_id: str) -> None:
         current = self.get_lease(tab_id)
         if current is None:
             return
-        if current.holder_id != holder_id:
+        if current.owner_id != holder_id:
             raise TabOccupiedError(
-                f"Tab {tab_id} is held by {current.holder_id}",
+                f"Tab {tab_id} is held by {current.owner_id}",
             )
         self._leases.pop(tab_id, None)
 
@@ -245,7 +262,7 @@ class NMBridge:
             self._leases.clear()
             return
         for tab_id, lease in list(self._leases.items()):
-            if lease.holder_id == holder_id:
+            if lease.owner_id == holder_id:
                 self._leases.pop(tab_id, None)
 
     async def request(
@@ -304,7 +321,7 @@ class NMBridge:
         params: dict[str, Any] | None = None,
         lease_version: int | None = None,
     ) -> dict[str, Any]:
-        self.validate_lease(tab_id, holder_id, lease_version)
+        self.validate_or_renew(tab_id, holder_id, lease_version)
         response = await self.request(
             "cdp.send",
             {

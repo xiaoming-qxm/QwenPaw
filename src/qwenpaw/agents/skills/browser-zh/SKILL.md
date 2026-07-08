@@ -2,7 +2,7 @@
 name: browser
 description: "通过 browser(code=...) 使用 Browser SDK，处理网页检索、标签页操作和用户 Chrome 任务。"
 metadata:
-  builtin_skill_version: "13.0"
+  builtin_skill_version: "14.0"
   qwenpaw:
     emoji: ""
     requires: {}
@@ -25,7 +25,7 @@ snapshot = await tab.snapshot()
 长时间浏览器任务可以持续到真实终止状态。用户要求取消或外层 runtime 停止时，
 使用 task cancellation 结束它。
 
-V13 路由和 workspace 合同：
+V14 路由、workspace 和 Protocol v2 ownership 合同：
 
 - `context="auto"`：默认。auto 优先使用用户 Chrome，也就是
   `user.chrome_extension`。只有当用户 Chrome 不可用且任务是公开或含糊
@@ -45,15 +45,22 @@ primitive 操作和结构化 actions 是同级能力：
 
 ```python
 browser = await Browser.connect(context="auto", retention="clean")
-tab = await browser.tabs.active()
-await tab.actions.navigate("https://example.com")
+tab = await browser.tabs.open("https://example.com")
 snapshot = await tab.snapshot()
 info = await tab.page_info()
 await tab.actions.click({"ref": "r1_e3"})
 ```
 
-`browser.tabs.open(url)` 会复用本次请求的 workspace 标签页并导航到目标 URL；
-只有明确需要新标签页时才使用 `browser.tabs.new(url)`。
+Browser Ownership Protocol v2 的标签页语义：
+
+- `browser.tabs.open(url)` 是普通页面任务入口。`url` 必填；它复用本次请求的
+  workspace 标签页并导航到目标 URL；正常任务不会先创建空白页。
+- `browser.tabs.new(url)` 只用于明确需要额外标签页的工作。`url` 必填；不要用
+  URL-less new。
+- `browser.tabs.active()` 只返回本请求已经控制的当前标签页；它不会创建标签页，
+  也不要把它当成普通任务起点。
+- `Browser.diagnostics(context="auto")` 不只检查连接，还检查 connected、
+  routable、actionable 和 cleanup_verified。
 
 通用产品能力也走结构化 actions：
 

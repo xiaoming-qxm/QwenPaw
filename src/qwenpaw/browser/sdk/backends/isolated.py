@@ -15,6 +15,7 @@ from urllib.parse import urlparse
 from ..actions.tab_actions import BrowserActionResult
 from ..backends.registry import get_default_backend_registry
 from ..governance.error_codes import BrowserErrorCode, classify_browser_error
+from ..governance.errors import BrowserSDKError
 from ..governance.boundary import (
     action_result_with_boundary_decision,
     evaluate_browser_boundary,
@@ -29,7 +30,9 @@ from ..primitives.types import (
     BrowserDiagnosticCheck,
     BrowserDiagnosticStatus,
     BrowserObservation,
+    BrowserOwnershipContext,
     BrowserPageInfo,
+    BrowserRetention,
     BrowserScreenshot,
     ResolvedBrowserContext,
 )
@@ -150,7 +153,12 @@ class IsolatedBrowserBackend:
         self,
         session_id: str,
         context: ResolvedBrowserContext,
+        *,
+        request_scope_key: str = "",
+        retention: BrowserRetention = "clean",
+        ownership_context: BrowserOwnershipContext | None = None,
     ) -> "IsolatedBrowserSession":
+        del request_scope_key, retention, ownership_context
         runtime = await self._manager.connect(session_id, context)
         return IsolatedBrowserSession(
             manager=self._manager,
@@ -214,6 +222,9 @@ class IsolatedBrowserSession:
 
     async def open_tab(self, url: str | None = None) -> dict[str, Any]:
         return await self.runtime.open_tab(url)
+
+    async def open_workspace_tab(self, url: str) -> dict[str, Any]:
+        return await self.runtime.open_workspace_tab(url)
 
     async def list_tabs(self) -> list[dict[str, Any]]:
         return await self.runtime.list_tabs()
@@ -460,7 +471,13 @@ class IsolatedPlaywrightRuntime:
         if tabs:
             self.current_page_id = tabs[0]["id"]
             return tabs[0]
-        return await self.open_tab("about:blank")
+        raise BrowserSDKError(
+            "No current Browser tab exists for this request.",
+            code="browser_no_current_tab",
+            backend_id=BACKEND_ID,
+            action="tabs.active",
+            metadata={"creation_allowed": False},
+        )
 
     async def open_tab(self, url: str | None = None) -> dict[str, Any]:
         await self._ensure_started()
@@ -476,6 +493,30 @@ class IsolatedPlaywrightRuntime:
         if target:
             await page.goto(target)
         self.current_page_id = page_id
+        return await self._tab_info(page_id)
+
+    async def open_workspace_tab(self, url: str) -> dict[str, Any]:
+        await self._ensure_started()
+        target = str(url or "").strip()
+        if not target:
+            raise BrowserSDKError(
+                "A non-empty target URL is required.",
+                code="browser_target_url_required",
+                backend_id=BACKEND_ID,
+                action="tabs.open",
+            )
+        if self.current_page_id and self.current_page_id in self.pages:
+            page_id = self.current_page_id
+            page = await self._page(page_id)
+        else:
+            tabs = await self.list_tabs()
+            if tabs:
+                page_id = tabs[0]["id"]
+                page = await self._page(page_id)
+                self.current_page_id = page_id
+            else:
+                return await self.open_tab(target)
+        await page.goto(target)
         return await self._tab_info(page_id)
 
     async def list_tabs(self) -> list[dict[str, Any]]:

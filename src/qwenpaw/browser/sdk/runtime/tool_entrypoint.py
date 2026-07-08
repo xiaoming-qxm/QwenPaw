@@ -26,6 +26,7 @@ from ..telemetry.trace import BrowserTraceEvent
 from ..telemetry.trace import (
     get_browser_trace_store,
     record_browser_trace_event,
+    summarize_browser_reliability_counters,
 )
 from ..telemetry.trace import validate_browser_trace_events
 from .kernel import BrowserKernelResult, get_default_kernel_manager
@@ -83,6 +84,12 @@ _ERROR_HINTS = {
     ),
     "browser_kernel_timeout": "Reduce the browser task size and retry.",
 }
+_BROWSER_INVARIANT_ERROR_CODES = {
+    "browser_ownership_context_missing",
+    "browser_ownership_mismatch",
+    "browser_stale_lease",
+    "browser_tab_occupied",
+}
 
 
 @tool_descriptor(
@@ -100,15 +107,48 @@ async def browser(
 ) -> ToolChunk:
     """Execute Browser SDK Python code in a session-scoped kernel."""
     session_id = _current_session_id()
+    root_session_id = _current_root_session_id(session_id)
     request_scope_key = _current_request_scope_key(session_id)
     trace_store = get_browser_trace_store()
     trace_start_index = len(trace_store.list(session_id))
-    result = await get_default_kernel_manager().execute(
-        session_id=session_id,
-        code=code,
-        context=context,  # type: ignore[arg-type]
+    fail_fast_code = _fail_fast_error_code(
+        trace_store.list(session_id),
         request_scope_key=request_scope_key,
     )
+    if fail_fast_code:
+        record_browser_trace_event(
+            session_id=session_id,
+            phase="tool",
+            requested_context=context,
+            action="browser_fail_fast",
+            status="error",
+            error_code=fail_fast_code,
+            metadata={
+                "request_scope_key": request_scope_key,
+                "fail_fast_triggered": True,
+            },
+        )
+        result = BrowserKernelResult(
+            output="",
+            return_value=None,
+            error={
+                "type": "BrowserOwnershipInvariantError",
+                "message": (
+                    "Browser ownership or lease invariant failed earlier in "
+                    "this request."
+                ),
+                "code": fail_fast_code,
+                "action": "browser_fail_fast",
+            },
+        )
+    else:
+        result = await get_default_kernel_manager().execute(
+            session_id=session_id,
+            root_session_id=root_session_id,
+            code=code,
+            context=context,  # type: ignore[arg-type]
+            request_scope_key=request_scope_key,
+        )
     ok = result.error is None
     trace_events = trace_store.list(session_id)[trace_start_index:]
     if result.error and not trace_events:
@@ -135,6 +175,9 @@ async def browser(
         browser_trace=[event.to_dict() for event in trace_events],
         progress_decision=progress_decision,
     )
+    metadata["reliability_counters"] = summarize_browser_reliability_counters(
+        trace_store.list(session_id),
+    )
     metadata["recovery_decision"] = _recovery_decision_metadata(
         session_id=session_id,
         trace_events=trace_events,
@@ -159,17 +202,21 @@ async def browser(
 def _current_session_id() -> str:
     try:
         from qwenpaw.app.agent_context import (
-            get_current_root_session_id,
             get_current_session_id,
         )
 
-        return (
-            get_current_root_session_id()
-            or get_current_session_id()
-            or "default"
-        )
+        return get_current_session_id() or "default"
     except Exception:  # pragma: no cover - defensive runtime fallback
         return "default"
+
+
+def _current_root_session_id(session_id: str) -> str:
+    try:
+        from qwenpaw.app.agent_context import get_current_root_session_id
+
+        return get_current_root_session_id() or session_id or "default"
+    except Exception:  # pragma: no cover - defensive runtime fallback
+        return session_id or "default"
 
 
 def _current_request_scope_key(session_id: str) -> str:
@@ -237,6 +284,23 @@ def _metadata(
             for artifact in result.artifacts
         ]
     return metadata
+
+
+def _fail_fast_error_code(
+    trace_events: tuple[BrowserTraceEvent, ...],
+    *,
+    request_scope_key: str,
+) -> str:
+    for event in reversed(trace_events):
+        error_code = str(event.error_code or "")
+        if error_code not in _BROWSER_INVARIANT_ERROR_CODES:
+            continue
+        metadata = event.metadata if isinstance(event.metadata, dict) else {}
+        event_scope = str(metadata.get("request_scope_key") or "")
+        if event_scope and event_scope != request_scope_key:
+            continue
+        return error_code
+    return ""
 
 
 def _recovery_decision_metadata(

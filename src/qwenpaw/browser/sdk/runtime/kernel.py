@@ -24,6 +24,7 @@ class BrowserExecutionContext:
 
     session_id: str
     context: BrowserContext
+    root_session_id: str = ""
     requires_user_state: bool | None = None
     browser_intent: BrowserIntent | None = None
     request_scope_key: str = ""
@@ -108,11 +109,13 @@ class BrowserKernelRuntime:
         requires_user_state: bool | None = None,
         browser_intent: BrowserIntent | None = None,
         request_scope_key: str = "",
+        root_session_id: str = "",
     ) -> BrowserKernelResult:
         """Execute code in a session-scoped browser kernel."""
         execution_context = BrowserExecutionContext(
             session_id=session_id,
             context=context,
+            root_session_id=root_session_id or session_id,
             requires_user_state=requires_user_state,
             browser_intent=browser_intent,
             request_scope_key=request_scope_key,
@@ -211,6 +214,7 @@ class BrowserKernel:
             requires_user_state=execution_context.requires_user_state,
             browser_intent=execution_context.browser_intent,
             request_scope_key=execution_context.request_scope_key,
+            root_session_id=execution_context.root_session_id,
         )
 
 

@@ -21,6 +21,7 @@ class MessageRouter:
         self._instances: dict[str, Any] = {}
         self._msg_id_to_instance: dict[Any, str] = {}
         self._holder_to_instance: dict[str, str] = {}
+        self._owner_to_instance: dict[str, str] = {}
 
     def register_instance(self, instance_id: str, ws: Any) -> None:
         self._instances[instance_id] = ws
@@ -34,9 +35,15 @@ class MessageRouter:
         for holder_id, owner in list(self._holder_to_instance.items()):
             if owner == instance_id:
                 self._holder_to_instance.pop(holder_id, None)
+        for owner_id, owner in list(self._owner_to_instance.items()):
+            if owner == instance_id:
+                self._owner_to_instance.pop(owner_id, None)
 
     def note_holder(self, holder_id: str, instance_id: str) -> None:
         self._holder_to_instance[str(holder_id)] = instance_id
+
+    def note_owner(self, owner_id: str, instance_id: str) -> None:
+        self._owner_to_instance[str(owner_id)] = instance_id
 
     def instance_ws(self, instance_id: str) -> Any | None:
         return self._instances.get(instance_id)
@@ -51,6 +58,10 @@ class MessageRouter:
             self._msg_id_to_instance[msg_id] = instance_id
 
         params = _params(message)
+        owner_id = params.get("ownerId")
+        if owner_id:
+            self.note_owner(str(owner_id), instance_id)
+            self._apply_lease_side_effect(instance_id, message)
         holder_id = params.get("holderId")
         if holder_id:
             self.note_holder(str(holder_id), instance_id)
@@ -67,6 +78,11 @@ class MessageRouter:
             return [(response_target, message)]
 
         params = _params(message)
+        owner_id = params.get("ownerId")
+        if owner_id:
+            owner_target = self._owner_to_instance.get(str(owner_id))
+            return self._targeted(owner_target, message)
+
         holder_id = params.get("holderId")
         if holder_id:
             holder_target = self._holder_to_instance.get(str(holder_id))
@@ -97,7 +113,7 @@ class MessageRouter:
     ) -> None:
         params = _params(message)
         tab_id = params.get("tabId")
-        holder_id = params.get("holderId")
+        holder_id = params.get("holderId") or params.get("ownerId")
         if tab_id is None or not holder_id:
             return
 

@@ -47,6 +47,12 @@ TAB_OWNERSHIP_STATES = (
     "orphaned",
     "released",
 )
+_OWNERSHIP_INVARIANT_ERROR_CODES = {
+    "browser_ownership_context_missing",
+    "browser_ownership_mismatch",
+    "browser_tab_occupied",
+}
+_STALE_LEASE_ERROR_CODES = {"browser_stale_lease"}
 
 
 @dataclass(frozen=True)
@@ -282,6 +288,53 @@ def summarize_browser_tab_ownership(
     }
 
 
+def summarize_browser_reliability_counters(
+    events: list[dict[str, Any]] | tuple[BrowserTraceEvent, ...],
+) -> dict[str, Any]:
+    """Summarize Browser Ownership Protocol v2 reliability counters."""
+    counters: dict[str, Any] = {
+        "about_blank_create_count": 0,
+        "reacquire_count": 0,
+        "stale_lease_count": 0,
+        "ownership_invariant_error_count": 0,
+        "workspace_metadata_missing_count": 0,
+        "fail_fast_triggered": False,
+    }
+    for event in events:
+        payload = (
+            event.to_dict() if isinstance(event, BrowserTraceEvent) else event
+        )
+        metadata = payload.get("metadata") or {}
+        if not isinstance(metadata, dict):
+            metadata = {}
+        action = str(payload.get("action") or "")
+        url = str(payload.get("url") or "")
+        error_code = str(
+            payload.get("error_code") or metadata.get("error_code") or "",
+        )
+        if action in {"tab.create", "open", "new"} and url == "about:blank":
+            counters["about_blank_create_count"] += 1
+        if metadata.get("reacquire") or action in {
+            "workspace_reacquire",
+            "lease_reacquire",
+        }:
+            counters["reacquire_count"] += 1
+        if error_code in _STALE_LEASE_ERROR_CODES:
+            counters["stale_lease_count"] += 1
+        if error_code in _OWNERSHIP_INVARIANT_ERROR_CODES:
+            counters["ownership_invariant_error_count"] += 1
+        if (
+            error_code == "browser_workspace_metadata_missing"
+            or metadata.get("workspace_metadata_missing")
+        ):
+            counters["workspace_metadata_missing_count"] += 1
+    counters["fail_fast_triggered"] = bool(
+        counters["stale_lease_count"]
+        or counters["ownership_invariant_error_count"]
+    )
+    return counters
+
+
 def _trace_ownership_state(metadata: dict[str, Any]) -> str:
     for key in ("ownership_state_after", "ownership_state", "ownership"):
         value = str(metadata.get(key) or "").strip().lower()
@@ -360,6 +413,7 @@ __all__ = [
     "get_browser_trace_store",
     "record_browser_trace_event",
     "reset_browser_trace_store_for_tests",
+    "summarize_browser_reliability_counters",
     "summarize_browser_tab_ownership",
     "validate_browser_trace_event",
     "validate_browser_trace_events",

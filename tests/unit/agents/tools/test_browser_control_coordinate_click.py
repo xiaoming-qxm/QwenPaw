@@ -70,14 +70,21 @@ class _CoordinateBridge:
 
 
 def _state() -> dict[str, Any]:
+    owner_id = "browser_owner:coordinate-test"
     return {
         "workspace_id": "coordinate-test",
+        "ownership_context": {
+            "protocol_version": 2,
+            "owner_id": owner_id,
+            "workspace_id": "browser_workspace:coordinate-test",
+        },
         "current_page_id": "42",
         "refs": {"42": {"e5": {"role": "button", "x": 111, "y": 222}}},
         "control_tabs": {
             "42": {
                 "tab_id": 42,
-                "holder_id": "browser_sdk:coordinate-test",
+                "holder_id": owner_id,
+                "owner_id": owner_id,
                 "url": "https://example.com/",
             },
         },

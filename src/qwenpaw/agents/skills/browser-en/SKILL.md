@@ -2,7 +2,7 @@
 name: browser
 description: "Use browser(code=...) with the Browser SDK for web research, tab work, user Chrome tasks, and advanced browser diagnostics."
 metadata:
-  builtin_skill_version: "10.0"
+  builtin_skill_version: "11.0"
   qwenpaw:
     emoji: ""
     requires: {}
@@ -23,7 +23,7 @@ Long-running browser work may continue until it reaches a real terminal
 outcome. Stop it with task cancellation when the user asks to cancel or when
 the outer runtime is stopped.
 
-V12 routing contract:
+V13 routing, workspace, and Protocol v2 ownership contract:
 
 In short: auto prefers user Chrome.
 
@@ -49,12 +49,24 @@ Primitive operations and structured actions are peer capabilities:
 
 ```python
 browser = await Browser.connect(context="auto")
-tab = await browser.tabs.active()
-await tab.actions.navigate("https://example.com")
+tab = await browser.tabs.open("https://example.com")
 snapshot = await tab.snapshot()
 info = await tab.page_info()
 await tab.actions.click({"ref": "r1_e3"})
 ```
+
+Browser Ownership Protocol v2 tab semantics:
+
+- `browser.tabs.open(url)` is the normal page-entry API. `url` is required; it
+  reuses the current request workspace tab and navigates it to the target URL.
+  Normal tasks do not create a blank page first.
+- `browser.tabs.new(url)` is only for an explicit additional tab. `url` is
+  required; do not call URL-less new.
+- `browser.tabs.active()` only returns an existing tab controlled by the
+  current request. It never creates a tab and is not a normal task starting
+  point.
+- `Browser.diagnostics(context="auto")` checks connected, routable,
+  actionable, and cleanup_verified health, not only bridge connectivity.
 
 Generic product capabilities use structured actions:
 

@@ -8,6 +8,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from ..governance.error_codes import classify_browser_error
+from ..governance.errors import BrowserSDKError
 from ..telemetry.trace import record_browser_trace_event
 from .tab import Tab, tab_from_backend
 
@@ -22,13 +23,20 @@ class BrowserTabs:
         self._cache: dict[str, Tab] = {}
 
     async def active(self) -> Tab:
-        """Return the active tab."""
+        """Return the current request tab without creating one."""
         active_tab = getattr(self._session, "active_tab", None)
         if callable(active_tab):
             raw = await active_tab()
         else:
             tabs = await self.list()
-            raw = tabs[0] if tabs else {"id": "default"}
+            raw = tabs[0] if tabs else None
+        if not raw:
+            raise BrowserSDKError(
+                "No current Browser tab exists for this request.",
+                code="browser_no_current_tab",
+                action="tabs.active",
+                metadata={"creation_allowed": False},
+            )
         return self._remember(
             tab_from_backend(
                 raw,
@@ -40,18 +48,32 @@ class BrowserTabs:
 
     async def open(self, url: str | None = None) -> Tab:
         """Reuse the request workspace tab and navigate it to *url*."""
+        target_url = _require_target_url(url, action="tabs.open")
         started = perf_counter()
         try:
-            tab = await self.active()
-            if url:
-                await tab.actions.open(url)
-                tab.url = str(url)
+            open_workspace_tab = getattr(
+                self._session,
+                "open_workspace_tab",
+                None,
+            )
+            if callable(open_workspace_tab):
+                raw = await open_workspace_tab(target_url)
+                tab = tab_from_backend(
+                    raw,
+                    session=self._session,
+                    context=self._context,
+                    session_id=self._browser.session_id,
+                )
+            else:
+                tab = await self.active()
+                await tab.actions.open(target_url)
+                tab.url = target_url
         except Exception as exc:
             self._trace(
                 action="open",
                 status="error",
                 duration_ms=_duration_ms(started),
-                url=str(url or ""),
+                url=target_url,
                 error_code=_error_code(exc),
                 metadata={"error_type": type(exc).__name__},
             )
@@ -61,14 +83,14 @@ class BrowserTabs:
             status="ok",
             duration_ms=_duration_ms(started),
             tab_id=tab.id,
-            url=tab.url or str(url or ""),
+            url=tab.url or target_url,
             metadata={"workspace_reuse": True},
         )
         return self._remember(tab)
 
     async def new(self, url: str | None = None) -> Tab:
         """Explicitly create a new browser tab for the request workspace."""
-        return await self._open_new_tab(url)
+        return await self._open_new_tab(_require_target_url(url, action="tabs.new"))
 
     async def _open_new_tab(self, url: str | None = None) -> Tab:
         """Open a new tab and mark it as needing observation before mutation."""
@@ -220,6 +242,17 @@ def _domain_from_url(url: str) -> str:
         return (urlparse(str(url or "")).hostname or "").lower()
     except ValueError:
         return ""
+
+
+def _require_target_url(url: str | None, *, action: str) -> str:
+    target_url = str(url or "").strip()
+    if not target_url:
+        raise BrowserSDKError(
+            "A non-empty target URL is required.",
+            code="browser_target_url_required",
+            action=action,
+        )
+    return target_url
 
 
 __all__ = ["BrowserTabs"]
