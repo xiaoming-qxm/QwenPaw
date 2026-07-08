@@ -41,5 +41,5 @@ When the user asks for "latest news", "what's in the news today", or "news in ca
 ## Notes
 
 - Page structure may change when sites are updated; if extraction fails, say so and suggest the user open the link directly.
-- When visiting multiple categories, open each URL in a fresh Browser SDK tab and take a fresh snapshot, to avoid mixing content from different pages.
+- When visiting multiple categories, use sequential `tabs.open(url)` navigation in the same Browser SDK working context and take a fresh snapshot after each URL, to avoid mixing content from different pages.
 - You may include the original link in the reply so the user can open it.

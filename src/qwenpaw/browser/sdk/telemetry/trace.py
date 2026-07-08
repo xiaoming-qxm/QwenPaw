@@ -181,6 +181,10 @@ def record_browser_trace_event(
 ) -> BrowserTraceEvent:
     """Record one Browser SDK trace event in the default store."""
     safe_metadata = dict(metadata or {})
+    if not str(safe_metadata.get("request_scope_key") or "").strip():
+        request_scope_key = _current_request_scope_key()
+        if request_scope_key:
+            safe_metadata["request_scope_key"] = request_scope_key
     current_tool_call_id = _current_tool_call_id()
     effective_url = str(url or "")
     event = BrowserTraceEvent(
@@ -351,6 +355,23 @@ def _current_tool_call_id() -> str:
         return str(getattr(context, "tool_call_id", "") or "")
     except Exception:  # pragma: no cover - defensive runtime fallback
         return ""
+
+
+def _current_request_scope_key() -> str:
+    try:
+        from qwenpaw.tool_calls import get_call_context
+
+        context = get_call_context()
+    except Exception:  # pragma: no cover - defensive runtime fallback
+        return ""
+    request_context = getattr(context, "request_context", {}) or {}
+    if not isinstance(request_context, dict):
+        return ""
+    for key in ("browser_request_scope_key", "request_scope_key"):
+        value = str(request_context.get(key) or "").strip()
+        if value:
+            return value
+    return ""
 
 
 def _trace_field_present(payload: dict[str, Any], field_name: str) -> bool:

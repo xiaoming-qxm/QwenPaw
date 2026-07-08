@@ -297,7 +297,7 @@ def _fail_fast_error_code(
             continue
         metadata = event.metadata if isinstance(event.metadata, dict) else {}
         event_scope = str(metadata.get("request_scope_key") or "")
-        if event_scope and event_scope != request_scope_key:
+        if request_scope_key and event_scope != request_scope_key:
             continue
         return error_code
     return ""

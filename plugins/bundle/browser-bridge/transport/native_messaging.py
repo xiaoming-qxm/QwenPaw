@@ -21,6 +21,7 @@ from qwenpaw.browser.sdk.telemetry.trace import record_browser_trace_event
 from .state import get_nm_bridge_route_state
 
 JSONRPC_VERSION = "2.0"
+SUPPORTED_PROTOCOL_VERSION = 2
 LEASE_TTL_SECONDS = 30.0
 DEFAULT_REQUEST_TIMEOUT_SECONDS = 30.0
 logger = logging.getLogger(__name__)
@@ -88,6 +89,7 @@ class NMBridge:
             str,
             list[Callable[[dict[str, Any]], Any]],
         ] = defaultdict(list)
+        self.protocol_error: dict[str, Any] | None = None
         self.connected = False
         self._closed = False
 
@@ -175,13 +177,10 @@ class NMBridge:
         return self._time_fn()
 
     def get_lease(self, tab_id: int) -> TabLease | None:
-        lease = self._leases.get(tab_id)
-        if lease is None:
-            return None
-        if lease.expires_at <= self._time_fn():
-            self._leases.pop(tab_id, None)
-            return None
-        return lease
+        return self._leases.get(tab_id)
+
+    def _is_expired(self, lease: TabLease) -> bool:
+        return lease.expires_at <= self._time_fn()
 
     def lease_version(self, tab_id: int, holder_id: str) -> int | None:
         lease = self.get_lease(tab_id)
@@ -191,12 +190,36 @@ class NMBridge:
 
     async def claim_tab(self, tab_id: int, holder_id: str) -> int:
         current = self.get_lease(tab_id)
+        if current is not None and self._is_expired(current):
+            if current.owner_id == holder_id:
+                raise StaleLeaseError(
+                    f"Lease for tab {tab_id} held by {holder_id} expired",
+                )
+            raise TabOccupiedError(
+                f"Tab {tab_id} is still owned by {current.owner_id}",
+            )
         if current is not None and current.owner_id != holder_id:
             raise TabOccupiedError(
                 f"Tab {tab_id} is already held by {current.owner_id}",
             )
         if current is not None and current.owner_id == holder_id:
             return current.version
+        version = self._lease_versions.get(tab_id, 0) + 1
+        self._lease_versions[tab_id] = version
+        self._leases[tab_id] = TabLease(
+            tab_id=tab_id,
+            owner_id=holder_id,
+            version=version,
+            expires_at=self._time_fn() + LEASE_TTL_SECONDS,
+        )
+        return version
+
+    async def reclaim_tab(self, tab_id: int, holder_id: str) -> int:
+        current = self.get_lease(tab_id)
+        if current is not None and current.owner_id != holder_id:
+            raise TabOccupiedError(
+                f"Tab {tab_id} is already held by {current.owner_id}",
+            )
         version = self._lease_versions.get(tab_id, 0) + 1
         self._lease_versions[tab_id] = version
         self._leases[tab_id] = TabLease(
@@ -216,6 +239,8 @@ class NMBridge:
         current = self.get_lease(tab_id)
         if current is None or current.owner_id != holder_id:
             raise TabOccupiedError(f"Tab {tab_id} is not held by {holder_id}")
+        if self._is_expired(current):
+            raise StaleLeaseError(f"Lease for tab {tab_id} has expired")
         if lease_version is not None and current.version != lease_version:
             raise StaleLeaseError(
                 f"Lease version mismatch for tab {tab_id}: "
@@ -381,11 +406,27 @@ class NMBridge:
         if message.get("type") != "hello":
             return None
         _store_extension_version(message)
+        actual_protocol_version = int(message.get("protocolVersion") or 1)
+        if actual_protocol_version != SUPPORTED_PROTOCOL_VERSION:
+            self.protocol_error = {
+                "code": str(
+                    BrowserErrorCode.BROWSER_PROTOCOL_VERSION_MISMATCH.value,
+                ),
+                "expected_protocol_version": SUPPORTED_PROTOCOL_VERSION,
+                "actual_protocol_version": actual_protocol_version,
+            }
+            return {
+                "type": "hello_ack",
+                "status": "error",
+                "entryId": str(message.get("entryId") or ""),
+                **self.protocol_error,
+            }
+        self.protocol_error = None
         return {
             "type": "hello_ack",
             "status": "ok",
             "entryId": str(message.get("entryId") or ""),
-            "protocolVersion": int(message.get("protocolVersion") or 1),
+            "protocolVersion": SUPPORTED_PROTOCOL_VERSION,
         }
 
     def add_event_listener(

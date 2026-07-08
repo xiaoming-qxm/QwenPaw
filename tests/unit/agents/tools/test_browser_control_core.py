@@ -150,15 +150,18 @@ async def test_nm_bridge_expires_stale_lease_and_forwards_cdp() -> None:
     await bridge.claim_tab(7, "holder-a")
     first_version = bridge.lease_version(7, "holder-a")
     now[0] += LEASE_TTL_SECONDS + 0.1
-    await bridge.claim_tab(7, "holder-b")
-    assert bridge.lease_version(7, "holder-b") == first_version + 1
+    with pytest.raises(TabOccupiedError):
+        await bridge.claim_tab(7, "holder-b")
+    reclaimed_version = await bridge.reclaim_tab(7, "holder-a")
+    assert reclaimed_version == first_version + 1
 
     task = asyncio.create_task(
         bridge.send_cdp(
             7,
-            "holder-b",
+            "holder-a",
             "Accessibility.getFullAXTree",
             {"depth": -1},
+            lease_version=reclaimed_version,
         ),
     )
     while not ws.sent_json:

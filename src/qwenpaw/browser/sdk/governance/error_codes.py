@@ -54,6 +54,9 @@ class BrowserErrorCode(StrEnum):
     BROWSER_NO_CURRENT_TAB = "browser_no_current_tab"
     BROWSER_OWNERSHIP_CONTEXT_MISSING = "browser_ownership_context_missing"
     BROWSER_OWNERSHIP_MISMATCH = "browser_ownership_mismatch"
+    BROWSER_PROTOCOL_VERSION_MISMATCH = "browser_protocol_version_mismatch"
+    BROWSER_WORKSPACE_METADATA_MISSING = "browser_workspace_metadata_missing"
+    BROWSER_CLEANUP_INCOMPLETE = "browser_cleanup_incomplete"
 
 
 @dataclass(frozen=True)
@@ -328,6 +331,30 @@ _ERROR_INFO: dict[BrowserErrorCode, BrowserErrorInfo] = {
         outcome=BrowserOutcome.FAILED,
         recovery_hint=(
             "Browser action ownership does not match the current request."
+        ),
+    ),
+    BrowserErrorCode.BROWSER_PROTOCOL_VERSION_MISMATCH: BrowserErrorInfo(
+        code=BrowserErrorCode.BROWSER_PROTOCOL_VERSION_MISMATCH,
+        outcome=BrowserOutcome.FAILED,
+        recovery_hint=(
+            "Reload the Chrome Extension and Browser Bridge so both sides "
+            "speak the same Browser protocol version."
+        ),
+    ),
+    BrowserErrorCode.BROWSER_WORKSPACE_METADATA_MISSING: BrowserErrorInfo(
+        code=BrowserErrorCode.BROWSER_WORKSPACE_METADATA_MISSING,
+        outcome=BrowserOutcome.FAILED,
+        recovery_hint=(
+            "Stop this Browser request; workspace tab metadata is incomplete "
+            "and cleanup or diagnostics must repair the lifecycle state."
+        ),
+    ),
+    BrowserErrorCode.BROWSER_CLEANUP_INCOMPLETE: BrowserErrorInfo(
+        code=BrowserErrorCode.BROWSER_CLEANUP_INCOMPLETE,
+        outcome=BrowserOutcome.FAILED,
+        recovery_hint=(
+            "Browser cleanup did not fully release request-scoped resources; "
+            "run diagnostics before starting another browser task."
         ),
     ),
 }

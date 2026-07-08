@@ -465,6 +465,7 @@ class ChromeExtensionBrowserSession:
             "ownership_context": self.ownership_context,
         }
         self._tab_ownership: dict[str, _TabOwnership] = {}
+        self._current_tab_id: str | None = None
         self._registry_keys: set[str] = set()
 
     def set_registry_keys(self, keys: set[str]) -> None:
@@ -566,10 +567,25 @@ class ChromeExtensionBrowserSession:
     async def active_tab(self) -> dict[str, Any]:
         started = perf_counter()
         tabs = await self.list_tabs()
-        selected = _default_workspace_tab(
-            tabs,
-            workspace_id=self._state["workspace_id"],
-        )
+        selected = self._current_working_tab(tabs)
+        selection_reason = "current_working_tab"
+        if selected is None:
+            selected = _default_workspace_tab(
+                tabs,
+                workspace_id=self._state["workspace_id"],
+                owner_id=self.owner_id,
+                protocol_version=self.ownership_context.protocol_version,
+            )
+            selection_reason = "existing_controlled_workspace"
+        if selected is None:
+            _raise_workspace_candidate_error(
+                tabs,
+                workspace_id=self._state["workspace_id"],
+                owner_id=self.owner_id,
+                protocol_version=self.ownership_context.protocol_version,
+                backend_id=self.backend_id,
+                action="tabs.active",
+            )
         if selected is None:
             raise BrowserSDKError(
                 "No current Browser tab exists for this request.",
@@ -578,16 +594,23 @@ class ChromeExtensionBrowserSession:
                 action="tabs.active",
                 metadata={"creation_allowed": False},
             )
-        await self._claim_existing_tab(selected)
+        tab_id = str(selected.get("id") or "")
+        if selection_reason == "current_working_tab":
+            await self._claim(tab_id)
+            await self._attach(tab_id)
+            ownership = self._tab_ownership.get(tab_id, "borrowed")
+        else:
+            await self._claim_existing_tab(selected)
+            ownership = _ownership_from_tab(selected, default="owned")
         tab = self._tab_metadata(
             selected,
-            ownership=_ownership_from_tab(selected, default="owned"),
-            selection_reason="existing_controlled_workspace",
+            ownership=ownership,
+            selection_reason=selection_reason,
         )
         self._record_workspace_selection_trace(
             tab,
             duration_ms=_duration_ms(started),
-            selection_reason="existing_controlled_workspace",
+            selection_reason=selection_reason,
             activation_reason="existing_tab_not_activated",
         )
         return tab
@@ -607,15 +630,52 @@ class ChromeExtensionBrowserSession:
         target_url = _require_target_url(url)
         started = perf_counter()
         tabs = await self.list_tabs()
+        selected = self._current_working_tab(tabs)
+        if selected is not None:
+            tab_id = str(selected.get("id") or "")
+            ownership = self._tab_ownership.get(tab_id, "borrowed")
+            await self._claim(tab_id)
+            await self._attach(tab_id)
+            await self._bridge_or_engine_action(
+                "navigate",
+                tab_id,
+                url=target_url,
+            )
+            selected = {**selected, "url": target_url}
+            tab = self._tab_metadata(
+                selected,
+                ownership=ownership,
+                selection_reason="reused_current_working_tab",
+            )
+            self._record_workspace_selection_trace(
+                tab,
+                duration_ms=_duration_ms(started),
+                selection_reason="reused_current_working_tab",
+                activation_reason="target_url_navigation",
+            )
+            return tab
+
         selected = _default_workspace_tab(
             tabs,
             workspace_id=self._state["workspace_id"],
+            owner_id=self.owner_id,
+            protocol_version=self.ownership_context.protocol_version,
         )
+        if selected is None:
+            _raise_workspace_candidate_error(
+                tabs,
+                workspace_id=self._state["workspace_id"],
+                owner_id=self.owner_id,
+                protocol_version=self.ownership_context.protocol_version,
+                backend_id=self.backend_id,
+                action="tabs.open",
+            )
         if selected is None:
             tab = await self._create_owned_tab(
                 target_url,
                 selection_reason="created_controlled_workspace",
             )
+            self._current_tab_id = str(tab.get("id") or "") or None
             self._record_workspace_selection_trace(
                 tab,
                 duration_ms=_duration_ms(started),
@@ -628,6 +688,7 @@ class ChromeExtensionBrowserSession:
         await self._claim(tab_id)
         await self._attach(tab_id)
         self._record_tab_ownership(tab_id, "owned")
+        self._current_tab_id = tab_id
         await self._bridge_or_engine_action("navigate", tab_id, url=target_url)
         selected = {**selected, "url": target_url}
         tab = self._tab_metadata(
@@ -658,6 +719,7 @@ class ChromeExtensionBrowserSession:
         await self._claim(tab_id)
         await self._attach(tab_id)
         self._record_tab_ownership(tab_id, "borrowed")
+        self._current_tab_id = str(tab_id)
         return self._tab_metadata(
             tab or {"id": str(tab_id)},
             ownership="borrowed",
@@ -779,8 +841,27 @@ class ChromeExtensionBrowserSession:
             cleanup_reason="tab_close",
             close_owned=True,
         )
+        if self._current_tab_id == normalized:
+            self._current_tab_id = None
         message = "Tab closed" if ownership == "owned" else "Tab released"
         return BrowserActionResult(ok=True, message=message)
+
+    def _current_working_tab(
+        self,
+        tabs: list[dict[str, Any]],
+    ) -> dict[str, Any] | None:
+        current_tab_id = str(self._current_tab_id or "")
+        if not current_tab_id:
+            return None
+        if self._tab_ownership.get(current_tab_id) not in {"owned", "borrowed"}:
+            return None
+        for tab in tabs:
+            if (
+                str(tab.get("id") or "") == current_tab_id
+                and not _is_protected_tab(tab)
+            ):
+                return tab
+        return None
 
     async def _create_owned_tab(
         self,
@@ -804,9 +885,18 @@ class ChromeExtensionBrowserSession:
             fallback_active=False,
             fallback_workspace=self._state["workspace_id"],
         )
-        await self._claim(tab["id"])
-        await self._attach(tab["id"])
-        await self._commit_tab_metadata(tab["id"])
+        claimed = False
+        try:
+            await self._claim(tab["id"])
+            claimed = True
+            await self._attach(tab["id"])
+            await self._commit_tab_metadata(tab["id"])
+        except Exception:
+            await self._rollback_created_owned_tab(
+                tab["id"],
+                release_lease=claimed,
+            )
+            raise
         self._record_tab_ownership(tab["id"], "owned")
         return self._tab_metadata(
             tab,
@@ -814,13 +904,47 @@ class ChromeExtensionBrowserSession:
             selection_reason=selection_reason,
         )
 
+    async def _rollback_created_owned_tab(
+        self,
+        tab_id: str,
+        *,
+        release_lease: bool,
+    ) -> None:
+        try:
+            tab_id_int = int(tab_id)
+        except (TypeError, ValueError):
+            return
+        if release_lease:
+            try:
+                await self._release_tab(tab_id_int)
+            except Exception:
+                logger.debug(
+                    "browser_bridge rollback release failed tab=%s",
+                    tab_id,
+                    exc_info=True,
+                )
+        try:
+            await self.bridge.request(
+                "tab.close",
+                {"tabId": tab_id_int, "ownerId": self.owner_id},
+            )
+        except Exception:
+            logger.debug(
+                "browser_bridge rollback close failed tab=%s",
+                tab_id,
+                exc_info=True,
+            )
+
     async def _claim_existing_tab(self, tab: dict[str, Any]) -> None:
         tab_id = str(tab.get("id") or "")
         if not tab_id or tab_id == "default":
             return
         await self._claim(tab_id)
         await self._attach(tab_id)
-        self._record_tab_ownership(tab_id, "borrowed")
+        self._record_tab_ownership(
+            tab_id,
+            _ownership_from_tab(tab, default="owned"),
+        )
 
     async def _find_listed_tab(self, tab_id: str) -> dict[str, Any] | None:
         normalized = str(tab_id)
@@ -933,6 +1057,8 @@ class ChromeExtensionBrowserSession:
             return
         if ownership_state == "released":
             self._tab_ownership.pop(normalized, None)
+            if self._current_tab_id == normalized:
+                self._current_tab_id = None
         else:
             self._tab_ownership[normalized] = ownership_state
         self._record_ownership_trace(
@@ -1004,6 +1130,8 @@ class ChromeExtensionBrowserSession:
             )
             raise
         self._tab_ownership.pop(str(tab_id), None)
+        if self._current_tab_id == str(tab_id):
+            self._current_tab_id = None
         self._record_ownership_trace(
             tab_id=str(tab_id),
             ownership_state_before=ownership,
@@ -1293,6 +1421,31 @@ async def _diagnose_actionable_round_trip(
         )
         return unavailable, cleanup
 
+    protocol_error = _bridge_protocol_error(bridge)
+    if protocol_error:
+        code = str(
+            protocol_error.get("code")
+            or "browser_protocol_version_mismatch"
+        )
+        metadata = {**base_metadata, **protocol_error}
+        return _diagnostic_failure_pair(
+            code=code,
+            message="Browser Bridge protocol version is not supported.",
+            metadata=metadata,
+        )
+
+    metadata_error = await _diagnose_workspace_metadata(
+        bridge,
+        owner_context=owner_context,
+        base_metadata=base_metadata,
+    )
+    if metadata_error:
+        return _diagnostic_failure_pair(
+            code="browser_workspace_metadata_missing",
+            message="Browser workspace tab is missing Protocol v2 metadata.",
+            metadata=metadata_error,
+        )
+
     tab_id: int | None = None
     actionable_status: BrowserDiagnosticStatus = "available"
     actionable_code = ""
@@ -1372,6 +1525,75 @@ async def _diagnose_actionable_round_trip(
         metadata={**base_metadata, "tab_id": tab_id or ""},
     )
     return actionable, cleanup
+
+
+def _diagnostic_failure_pair(
+    *,
+    code: str,
+    message: str,
+    metadata: dict[str, Any],
+) -> tuple[BrowserDiagnosticCheck, BrowserDiagnosticCheck]:
+    actionable = BrowserDiagnosticCheck(
+        name="actionable",
+        status="unavailable",
+        code=code,
+        message=message,
+        hint_key=code,
+        metadata=metadata,
+    )
+    cleanup = BrowserDiagnosticCheck(
+        name="cleanup_verified",
+        status="unavailable",
+        code=code,
+        message="Scratch cleanup was skipped because diagnostics failed early.",
+        hint_key=code,
+        metadata=metadata,
+    )
+    return actionable, cleanup
+
+
+def _bridge_protocol_error(bridge: Any) -> dict[str, Any]:
+    error = getattr(bridge, "protocol_error", None)
+    if callable(error):
+        error = error()
+    if not isinstance(error, dict):
+        return {}
+    code = str(error.get("code") or "")
+    if code != "browser_protocol_version_mismatch":
+        return {}
+    return dict(error)
+
+
+async def _diagnose_workspace_metadata(
+    bridge: Any,
+    *,
+    owner_context: BrowserOwnershipContext,
+    base_metadata: dict[str, Any],
+) -> dict[str, Any]:
+    discover_tabs = getattr(bridge, "discover_tabs", None)
+    if not callable(discover_tabs):
+        return {}
+    raw_tabs = discover_tabs()
+    if hasattr(raw_tabs, "__await__"):
+        raw_tabs = await raw_tabs
+    tabs = raw_tabs if isinstance(raw_tabs, list) else []
+    for tab in tabs:
+        if not isinstance(tab, dict):
+            continue
+        if (
+            _classify_workspace_candidate(
+                tab,
+                workspace_id=owner_context.workspace_id,
+                owner_id=owner_context.owner_id,
+                protocol_version=owner_context.protocol_version,
+            )
+            == "metadata_missing"
+        ):
+            return {
+                **base_metadata,
+                "tab_id": str(tab.get("id") or tab.get("tabId") or ""),
+            }
+    return {}
 
 
 def _merge_cleanup_results(
@@ -1600,14 +1822,83 @@ def _default_workspace_tab(
     tabs: list[dict[str, Any]],
     *,
     workspace_id: str = "browser_sdk",
+    owner_id: str = "",
+    protocol_version: int = 2,
 ) -> dict[str, Any] | None:
-    safe_tabs = [tab for tab in tabs if not _is_protected_tab(tab)]
-    if not safe_tabs:
-        return None
-    for tab in safe_tabs:
-        if _is_controlled_workspace_tab(tab, workspace_id=workspace_id):
+    for tab in tabs:
+        if (
+            _classify_workspace_candidate(
+                tab,
+                workspace_id=workspace_id,
+                owner_id=owner_id,
+                protocol_version=protocol_version,
+            )
+            == "usable"
+        ):
             return tab
     return None
+
+
+def _raise_workspace_candidate_error(
+    tabs: list[dict[str, Any]],
+    *,
+    workspace_id: str,
+    owner_id: str,
+    protocol_version: int,
+    backend_id: str,
+    action: str,
+) -> None:
+    statuses = [
+        _classify_workspace_candidate(
+            tab,
+            workspace_id=workspace_id,
+            owner_id=owner_id,
+            protocol_version=protocol_version,
+        )
+        for tab in tabs
+    ]
+    if "ownership_mismatch" in statuses:
+        raise BrowserSDKError(
+            "Browser workspace tab is owned by another request.",
+            code="browser_ownership_mismatch",
+            backend_id=backend_id,
+            action=action,
+            metadata={
+                "workspace_id": workspace_id,
+                "expected_owner_id": owner_id,
+            },
+        )
+    if "metadata_missing" in statuses:
+        raise BrowserSDKError(
+            "Browser workspace tab is missing Protocol v2 metadata.",
+            code="browser_workspace_metadata_missing",
+            backend_id=backend_id,
+            action=action,
+            metadata={
+                "workspace_id": workspace_id,
+                "expected_protocol_version": protocol_version,
+            },
+        )
+
+
+def _classify_workspace_candidate(
+    tab: dict[str, Any],
+    *,
+    workspace_id: str,
+    owner_id: str,
+    protocol_version: int,
+) -> str:
+    if _is_protected_tab(tab):
+        return "ignored"
+    if _workspace_id(tab) != workspace_id:
+        return "ignored"
+    tab_owner_id = str(tab.get("ownerId") or "")
+    tab_protocol_version = int(tab.get("protocolVersion") or 0)
+    if not tab_owner_id or tab_protocol_version != protocol_version:
+        return "metadata_missing"
+    if owner_id and tab_owner_id != owner_id:
+        return "ownership_mismatch"
+    return "usable"
 
 
 def _is_controlled_workspace_tab(
