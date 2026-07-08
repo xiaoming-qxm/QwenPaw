@@ -11,6 +11,9 @@ from typing import Any
 from urllib.parse import urlparse
 
 from ..actions.tab_actions import TabActions
+from ..contract_runtime import BrowserContractRuntime
+from ..contracts import BrowserAPIContract
+from ..contracts import browser_api
 from ..governance.error_codes import classify_browser_error
 from ..governance.errors import BrowserObservationRequired
 from ..runtime.kernel import record_browser_artifact
@@ -54,8 +57,26 @@ class Tab:
         """Compatibility alias for tab id."""
         return self.id
 
+    @browser_api(
+        public_name="tab.snapshot",
+        kind="primitive",
+        visibility="default",
+        mutates=False,
+        requires_observation=False,
+        satisfies_observation=True,
+        invalidates_observation=False,
+        backend_op="snapshot",
+    )
     async def snapshot(self) -> BrowserObservation:
         """Observe the tab and satisfy the fresh-observation guard."""
+        return await BrowserContractRuntime().execute(
+            _browser_api_contract(type(self).snapshot),
+            self._snapshot_impl,
+            owner=self,
+        )
+
+    async def _snapshot_impl(self) -> BrowserObservation:
+        """Call the backend snapshot primitive."""
         started = perf_counter()
         try:
             result = coerce_observation(
@@ -63,7 +84,6 @@ class Tab:
                 await self._session.snapshot(self.id),
             )
             self._sync_metadata(result.url, result.title)
-            self._mark_observed()
         except Exception as exc:
             self._trace(
                 phase="observe",
@@ -90,8 +110,26 @@ class Tab:
         )
         return result
 
+    @browser_api(
+        public_name="tab.screenshot",
+        kind="primitive",
+        visibility="default",
+        mutates=False,
+        requires_observation=False,
+        satisfies_observation=True,
+        invalidates_observation=False,
+        backend_op="screenshot",
+    )
     async def screenshot(self) -> BrowserScreenshot:
         """Capture a visual observation and satisfy the guard."""
+        return await BrowserContractRuntime().execute(
+            _browser_api_contract(type(self).screenshot),
+            self._screenshot_impl,
+            owner=self,
+        )
+
+    async def _screenshot_impl(self) -> BrowserScreenshot:
+        """Call the backend screenshot primitive."""
         started = perf_counter()
         try:
             result = coerce_screenshot(
@@ -99,7 +137,6 @@ class Tab:
                 await self._session.screenshot(self.id),
             )
             self._sync_metadata(result.url, result.title)
-            self._mark_observed()
             if result.path:
                 record_browser_artifact(_artifact_from_screenshot(result))
         except Exception as exc:
@@ -431,6 +468,13 @@ def _coerce_page_info(tab_id: str, value: Any) -> BrowserPageInfo:
 
 def _duration_ms(started: float) -> float:
     return round((perf_counter() - started) * 1000, 3)
+
+
+def _browser_api_contract(func: Any) -> BrowserAPIContract:
+    contract = getattr(func, "__browser_api_contract__", None)
+    if not isinstance(contract, BrowserAPIContract):
+        raise TypeError(f"Missing Browser API contract for {func!r}")
+    return contract
 
 
 def _error_code(exc: Exception) -> str:
