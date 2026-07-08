@@ -11,6 +11,12 @@ from .backends.registry import (
     BrowserBackendRegistry,
     get_default_backend_registry,
 )
+from .contracts import (
+    BrowserAPIContract,
+    BrowserTargetContract,
+    browser_api,
+    iter_browser_api_contracts,
+)
 from .docs.capabilities import (
     browser_capabilities,
     browser_sdk_help,
@@ -94,6 +100,7 @@ __all__ = [
     "BrowserActionResult",
     "BrowserActionRisk",
     "BrowserActionSignature",
+    "BrowserAPIContract",
     "Browser",
     "BrowserActions",
     "BrowserBackend",
@@ -138,6 +145,7 @@ __all__ = [
     "BrowserScreenshot",
     "BrowserSession",
     "BrowserTabs",
+    "BrowserTargetContract",
     "BrowserTraceEvent",
     "BrowserTraceStore",
     "ConcreteBrowserContext",
@@ -148,6 +156,7 @@ __all__ = [
     "Tab",
     "TabActions",
     "browser_capabilities",
+    "browser_api",
     "browser_sdk_help",
     "capability_gap",
     "classify_browser_action",
@@ -157,6 +166,7 @@ __all__ = [
     "detect_no_progress",
     "get_browser_trace_store",
     "get_default_backend_registry",
+    "iter_browser_api_contracts",
     "record_browser_trace_event",
     "register_browser_loop_gate_provider_once",
     "register_isolated_backend_once",

@@ -1,0 +1,750 @@
+# -*- coding: utf-8 -*-
+"""Generate Browser SDK public API catalog artifacts."""
+# pylint: disable=unused-argument,redefined-builtin,too-many-return-statements
+
+from __future__ import annotations
+
+import argparse
+import inspect
+import json
+from collections.abc import Callable, Sequence
+from pathlib import Path
+from typing import Any, Literal, NoReturn, get_args, get_origin, get_type_hints
+
+from ..contracts import BrowserAPIContract
+from ..contracts import BrowserTargetContract
+from ..contracts import browser_api
+from ..primitives.types import BrowserActionResult
+from ..primitives.types import BrowserDiagnostics
+from ..primitives.types import BrowserExtractionResult
+from ..primitives.types import BrowserObservation
+from ..primitives.types import BrowserPageInfo
+from ..primitives.types import BrowserScreenshot
+
+
+CATALOG_PATH = (
+    Path(__file__).resolve().parents[1] / "generated" / "api_catalog.json"
+)
+
+_REQUIRED_TARGET = BrowserTargetContract(
+    required=True,
+    methods=("ref", "role_name", "text_exact", "coords"),
+    snapshot_bound=True,
+)
+_OPTIONAL_TARGET = BrowserTargetContract(
+    required=False,
+    methods=("ref", "role_name", "text_exact", "coords"),
+    snapshot_bound=True,
+)
+
+
+def _catalog_seed() -> NoReturn:
+    raise NotImplementedError(
+        "Browser API catalog seed callables are not run.",
+    )
+
+
+@browser_api(
+    public_name="browser.connect",
+    kind="lifecycle",
+    visibility="default",
+    mutates=False,
+    requires_observation=False,
+    satisfies_observation=False,
+    invalidates_observation=False,
+)
+async def _seed_browser_connect(
+    context: str = "auto",
+    *,
+    requires_user_state: bool | None = None,
+    session_id: str | None = None,
+    retention: str = "clean",
+) -> Any:
+    """Connect to a browser backend using runtime context arbitration."""
+    _catalog_seed()
+
+
+@browser_api(
+    public_name="browser.capabilities",
+    kind="diagnostic",
+    visibility="default",
+    mutates=False,
+    requires_observation=False,
+    satisfies_observation=False,
+    invalidates_observation=False,
+)
+def _seed_browser_capabilities(scope: str = "all") -> dict[str, Any]:
+    """Return generated Browser SDK capabilities."""
+    _catalog_seed()
+
+
+@browser_api(
+    public_name="browser.help",
+    kind="diagnostic",
+    visibility="default",
+    mutates=False,
+    requires_observation=False,
+    satisfies_observation=False,
+    invalidates_observation=False,
+)
+def _seed_browser_help(
+    scope: str | None = None,
+    api_id: str | None = None,
+) -> str:
+    """Return generated Browser SDK help text."""
+    _catalog_seed()
+
+
+@browser_api(
+    public_name="browser.diagnostics",
+    kind="diagnostic",
+    visibility="default",
+    mutates=False,
+    requires_observation=False,
+    satisfies_observation=False,
+    invalidates_observation=False,
+)
+async def _seed_browser_diagnostics(
+    context: str = "auto",
+) -> BrowserDiagnostics:
+    """Return backend availability diagnostics without connecting."""
+    _catalog_seed()
+
+
+@browser_api(
+    public_name="browser.close",
+    kind="lifecycle",
+    visibility="default",
+    mutates=True,
+    requires_observation=False,
+    satisfies_observation=False,
+    invalidates_observation=False,
+)
+async def _seed_browser_close() -> None:
+    """Release browser session resources through the selected backend."""
+    _catalog_seed()
+
+
+@browser_api(
+    public_name="browser.tabs.open",
+    kind="primitive",
+    visibility="default",
+    mutates=True,
+    requires_observation=False,
+    satisfies_observation=False,
+    invalidates_observation=True,
+    backend_op="open_workspace_tab",
+)
+async def _seed_tabs_open(url: str) -> Any:
+    """Reuse the request workspace tab and navigate it to a URL."""
+    _catalog_seed()
+
+
+@browser_api(
+    public_name="browser.tabs.new",
+    kind="primitive",
+    visibility="default",
+    mutates=True,
+    requires_observation=False,
+    satisfies_observation=False,
+    invalidates_observation=True,
+    backend_op="create_tab",
+)
+async def _seed_tabs_new(url: str) -> Any:
+    """Explicitly create a new browser tab for the request workspace."""
+    _catalog_seed()
+
+
+@browser_api(
+    public_name="browser.tabs.active",
+    kind="primitive",
+    visibility="default",
+    mutates=False,
+    requires_observation=False,
+    satisfies_observation=False,
+    invalidates_observation=False,
+    backend_op="active_tab",
+)
+async def _seed_tabs_active() -> Any:
+    """Return the current request tab without creating one."""
+    _catalog_seed()
+
+
+@browser_api(
+    public_name="browser.tabs.list",
+    kind="primitive",
+    visibility="default",
+    mutates=False,
+    requires_observation=False,
+    satisfies_observation=False,
+    invalidates_observation=False,
+    backend_op="list_tabs",
+)
+async def _seed_tabs_list() -> list[Any]:
+    """List browser tabs."""
+    _catalog_seed()
+
+
+@browser_api(
+    public_name="browser.tabs.select",
+    kind="primitive",
+    visibility="default",
+    mutates=False,
+    requires_observation=False,
+    satisfies_observation=False,
+    invalidates_observation=False,
+    backend_op="select_tab",
+)
+async def _seed_tabs_select(tab_id: str) -> Any:
+    """Select a tab by id."""
+    _catalog_seed()
+
+
+@browser_api(
+    public_name="tab.snapshot",
+    kind="primitive",
+    visibility="default",
+    mutates=False,
+    requires_observation=False,
+    satisfies_observation=True,
+    invalidates_observation=False,
+    backend_op="snapshot",
+)
+async def _seed_tab_snapshot() -> BrowserObservation:
+    """Observe the tab and satisfy the fresh-observation guard."""
+    _catalog_seed()
+
+
+@browser_api(
+    public_name="tab.screenshot",
+    kind="primitive",
+    visibility="default",
+    mutates=False,
+    requires_observation=False,
+    satisfies_observation=True,
+    invalidates_observation=False,
+    backend_op="screenshot",
+)
+async def _seed_tab_screenshot() -> BrowserScreenshot:
+    """Capture a visual observation and satisfy the guard."""
+    _catalog_seed()
+
+
+@browser_api(
+    public_name="tab.page_info",
+    kind="primitive",
+    visibility="default",
+    mutates=False,
+    requires_observation=False,
+    satisfies_observation=False,
+    invalidates_observation=False,
+    backend_op="page_info",
+)
+async def _seed_tab_page_info() -> BrowserPageInfo:
+    """Read tab metadata without satisfying the observation guard."""
+    _catalog_seed()
+
+
+@browser_api(
+    public_name="tab.extract",
+    kind="primitive",
+    visibility="default",
+    mutates=False,
+    requires_observation=False,
+    satisfies_observation=False,
+    invalidates_observation=False,
+    backend_op="extract",
+)
+async def _seed_tab_extract(
+    instruction: str,
+    format: Literal["text", "json"] = "text",
+) -> BrowserExtractionResult:
+    """Extract page data according to an instruction."""
+    _catalog_seed()
+
+
+@browser_api(
+    public_name="tab.wait_for",
+    kind="primitive",
+    visibility="default",
+    mutates=False,
+    requires_observation=False,
+    satisfies_observation=False,
+    invalidates_observation=False,
+    backend_op="wait_for",
+)
+async def _seed_tab_wait_for(
+    condition: dict[str, Any] | str,
+    timeout_ms: int = 10000,
+) -> BrowserActionResult:
+    """Wait until the page matches a structured condition."""
+    _catalog_seed()
+
+
+@browser_api(
+    public_name="tab.close",
+    kind="primitive",
+    visibility="default",
+    mutates=True,
+    requires_observation=False,
+    satisfies_observation=False,
+    invalidates_observation=False,
+    backend_op="close_tab",
+)
+async def _seed_tab_close() -> BrowserActionResult:
+    """Close or release the tab through the backend."""
+    _catalog_seed()
+
+
+@browser_api(
+    public_name="browser.actions.search_web",
+    kind="action",
+    visibility="default",
+    mutates=True,
+    requires_observation=False,
+    satisfies_observation=False,
+    invalidates_observation=True,
+)
+async def _seed_browser_actions_search_web(
+    query: str,
+    engine: str = "google",
+) -> BrowserActionResult:
+    """Search the public web using a supported engine."""
+    _catalog_seed()
+
+
+@browser_api(
+    public_name="tab.actions.navigate",
+    kind="action",
+    visibility="default",
+    mutates=True,
+    requires_observation=False,
+    satisfies_observation=False,
+    invalidates_observation=True,
+    backend_op="navigate",
+)
+async def _seed_tab_actions_navigate(url: str) -> BrowserActionResult:
+    """Navigate the tab to a URL."""
+    _catalog_seed()
+
+
+@browser_api(
+    public_name="tab.actions.back",
+    kind="action",
+    visibility="default",
+    mutates=True,
+    requires_observation=False,
+    satisfies_observation=False,
+    invalidates_observation=True,
+    backend_op="back",
+)
+async def _seed_tab_actions_back() -> BrowserActionResult:
+    """Navigate the tab backward in history."""
+    _catalog_seed()
+
+
+@browser_api(
+    public_name="tab.actions.forward",
+    kind="action",
+    visibility="default",
+    mutates=True,
+    requires_observation=False,
+    satisfies_observation=False,
+    invalidates_observation=True,
+    backend_op="forward",
+)
+async def _seed_tab_actions_forward() -> BrowserActionResult:
+    """Navigate the tab forward in history."""
+    _catalog_seed()
+
+
+@browser_api(
+    public_name="tab.actions.reload",
+    kind="action",
+    visibility="default",
+    mutates=True,
+    requires_observation=False,
+    satisfies_observation=False,
+    invalidates_observation=True,
+    backend_op="reload",
+)
+async def _seed_tab_actions_reload() -> BrowserActionResult:
+    """Reload the current tab."""
+    _catalog_seed()
+
+
+@browser_api(
+    public_name="tab.actions.click",
+    kind="action",
+    visibility="default",
+    mutates=True,
+    requires_observation=True,
+    satisfies_observation=False,
+    invalidates_observation=True,
+    target=_REQUIRED_TARGET,
+    backend_op="click",
+)
+async def _seed_tab_actions_click(
+    target: dict[str, Any],
+    allow_new_context: bool = False,
+) -> BrowserActionResult:
+    """Click one target from the latest observation."""
+    _catalog_seed()
+
+
+@browser_api(
+    public_name="tab.actions.fill",
+    kind="action",
+    visibility="default",
+    mutates=True,
+    requires_observation=True,
+    satisfies_observation=False,
+    invalidates_observation=True,
+    target=_REQUIRED_TARGET,
+    backend_op="fill",
+)
+async def _seed_tab_actions_fill(
+    target: dict[str, Any],
+    text: str,
+) -> BrowserActionResult:
+    """Fill an editable target with text."""
+    _catalog_seed()
+
+
+@browser_api(
+    public_name="tab.actions.press_key",
+    kind="action",
+    visibility="default",
+    mutates=True,
+    requires_observation=False,
+    satisfies_observation=False,
+    invalidates_observation=True,
+    backend_op="press_key",
+)
+async def _seed_tab_actions_press_key(key: str) -> BrowserActionResult:
+    """Press a page-level keyboard key."""
+    _catalog_seed()
+
+
+@browser_api(
+    public_name="tab.actions.scroll",
+    kind="action",
+    visibility="default",
+    mutates=True,
+    requires_observation=False,
+    satisfies_observation=False,
+    invalidates_observation=True,
+    target=_OPTIONAL_TARGET,
+    backend_op="scroll",
+)
+async def _seed_tab_actions_scroll(
+    direction: str = "down",
+    amount: str | int | None = None,
+    target: dict[str, Any] | None = None,
+) -> BrowserActionResult:
+    """Scroll the page or a target region."""
+    _catalog_seed()
+
+
+@browser_api(
+    public_name="tab.actions.select_option",
+    kind="action",
+    visibility="default",
+    mutates=True,
+    requires_observation=True,
+    satisfies_observation=False,
+    invalidates_observation=True,
+    target=_REQUIRED_TARGET,
+    backend_op="select_option",
+)
+async def _seed_tab_actions_select_option(
+    target: dict[str, Any],
+    value: str,
+) -> BrowserActionResult:
+    """Select an option on a target control."""
+    _catalog_seed()
+
+
+@browser_api(
+    public_name="tab.actions.upload_file",
+    kind="action",
+    visibility="default",
+    mutates=True,
+    requires_observation=True,
+    satisfies_observation=False,
+    invalidates_observation=True,
+    target=_REQUIRED_TARGET,
+    backend_op="upload_file",
+)
+async def _seed_tab_actions_upload_file(
+    target: dict[str, Any],
+    file_path: str | list[str],
+) -> BrowserActionResult:
+    """Upload one or more files through a target control."""
+    _catalog_seed()
+
+
+@browser_api(
+    public_name="tab.actions.download_file",
+    kind="action",
+    visibility="default",
+    mutates=True,
+    requires_observation=False,
+    satisfies_observation=False,
+    invalidates_observation=True,
+    target=_OPTIONAL_TARGET,
+    backend_op="download_file",
+)
+async def _seed_tab_actions_download_file(
+    target: dict[str, Any] | None = None,
+    timeout_ms: int = 30000,
+) -> BrowserActionResult:
+    """Download a file from the page."""
+    _catalog_seed()
+
+
+@browser_api(
+    public_name="tab.actions.handle_dialog",
+    kind="action",
+    visibility="default",
+    mutates=True,
+    requires_observation=False,
+    satisfies_observation=False,
+    invalidates_observation=True,
+    backend_op="handle_dialog",
+)
+async def _seed_tab_actions_handle_dialog(
+    accept: bool = True,
+    prompt_text: str | None = None,
+) -> BrowserActionResult:
+    """Handle a browser dialog."""
+    _catalog_seed()
+
+
+@browser_api(
+    public_name="tab.actions.hover",
+    kind="action",
+    visibility="default",
+    mutates=True,
+    requires_observation=True,
+    satisfies_observation=False,
+    invalidates_observation=True,
+    target=_REQUIRED_TARGET,
+    backend_op="hover",
+)
+async def _seed_tab_actions_hover(
+    target: dict[str, Any],
+) -> BrowserActionResult:
+    """Hover over one target from the latest observation."""
+    _catalog_seed()
+
+
+_SEED_APIS: tuple[Callable[..., Any], ...] = (
+    _seed_browser_connect,
+    _seed_browser_capabilities,
+    _seed_browser_help,
+    _seed_browser_diagnostics,
+    _seed_browser_close,
+    _seed_tabs_open,
+    _seed_tabs_new,
+    _seed_tabs_active,
+    _seed_tabs_list,
+    _seed_tabs_select,
+    _seed_tab_snapshot,
+    _seed_tab_screenshot,
+    _seed_tab_page_info,
+    _seed_tab_extract,
+    _seed_tab_wait_for,
+    _seed_tab_close,
+    _seed_browser_actions_search_web,
+    _seed_tab_actions_navigate,
+    _seed_tab_actions_back,
+    _seed_tab_actions_forward,
+    _seed_tab_actions_reload,
+    _seed_tab_actions_click,
+    _seed_tab_actions_fill,
+    _seed_tab_actions_press_key,
+    _seed_tab_actions_scroll,
+    _seed_tab_actions_select_option,
+    _seed_tab_actions_upload_file,
+    _seed_tab_actions_download_file,
+    _seed_tab_actions_handle_dialog,
+    _seed_tab_actions_hover,
+)
+
+
+def build_api_catalog() -> dict[str, Any]:
+    """Build the public API catalog payload from decorated seed APIs."""
+    return {
+        "version": 1,
+        "source": "browser_api",
+        "apis": [
+            _api_catalog_entry(func)
+            for func in sorted(
+                _SEED_APIS,
+                key=lambda item: _contract_for(item).api_id,
+            )
+        ],
+    }
+
+
+def write_api_catalog(path: Path = CATALOG_PATH) -> None:
+    """Write the generated API catalog artifact."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(_catalog_text(), encoding="utf-8")
+
+
+def check_api_catalog(path: Path = CATALOG_PATH) -> bool:
+    """Return whether the committed API catalog matches regenerated content."""
+    if not path.exists():
+        return False
+    return path.read_text(encoding="utf-8") == _catalog_text()
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """Run the catalog generator command."""
+    parser = argparse.ArgumentParser(
+        description="Generate Browser SDK API catalog artifacts.",
+    )
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="fail if generated artifacts differ from committed files",
+    )
+    args = parser.parse_args(argv)
+    if args.check:
+        return 0 if check_api_catalog() else 1
+    write_api_catalog()
+    return 0
+
+
+def _api_catalog_entry(func: Callable[..., Any]) -> dict[str, Any]:
+    contract = _contract_for(func)
+    hints = get_type_hints(func)
+    parameters = _parameters_for(func, hints)
+    return_type = _format_annotation(hints.get("return", Any))
+    entry = {
+        **contract.as_dict(),
+        "signature": _format_signature(func, parameters, return_type),
+        "parameters": parameters,
+        "return_type": return_type,
+        "summary": _summary_for(func),
+    }
+    entry.pop("callable_path", None)
+    return entry
+
+
+def _contract_for(func: Callable[..., Any]) -> BrowserAPIContract:
+    contract = getattr(func, "__browser_api_contract__", None)
+    if not isinstance(contract, BrowserAPIContract):
+        raise TypeError(f"Missing Browser API contract for {func!r}")
+    return contract
+
+
+def _parameters_for(
+    func: Callable[..., Any],
+    hints: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    signature = inspect.signature(func)
+    parameters: dict[str, dict[str, Any]] = {}
+    for name, parameter in signature.parameters.items():
+        payload = {
+            "kind": parameter.kind.name.lower(),
+            "annotation": _format_annotation(hints.get(name, Any)),
+            "required": parameter.default is inspect.Signature.empty,
+        }
+        if parameter.default is not inspect.Signature.empty:
+            payload["default"] = repr(parameter.default)
+        parameters[name] = payload
+    return parameters
+
+
+def _format_signature(
+    func: Callable[..., Any],
+    parameters: dict[str, dict[str, Any]],
+    return_type: str,
+) -> str:
+    signature = inspect.signature(func)
+    formatted: list[str] = []
+    inserted_kw_separator = False
+    for name, parameter in signature.parameters.items():
+        if (
+            parameter.kind is inspect.Parameter.KEYWORD_ONLY
+            and not inserted_kw_separator
+        ):
+            formatted.append("*")
+            inserted_kw_separator = True
+        part = f"{name}: {parameters[name]['annotation']}"
+        if "default" in parameters[name]:
+            part = f"{part} = {parameters[name]['default']}"
+        formatted.append(part)
+    return f"({', '.join(formatted)}) -> {return_type}"
+
+
+def _format_annotation(annotation: Any) -> str:
+    if annotation is Any:
+        return "Any"
+    origin = get_origin(annotation)
+    if origin is None:
+        name = getattr(annotation, "__name__", None)
+        if name:
+            return str(name)
+        return str(annotation).replace("typing.", "")
+    if origin is Literal:
+        return (
+            "Literal["
+            + ", ".join(repr(arg) for arg in get_args(annotation))
+            + "]"
+        )
+    if origin is type(None):
+        return "None"
+    args = get_args(annotation)
+    if origin is list:
+        return f"list[{_format_annotation(args[0])}]"
+    if origin is dict:
+        key, value = args
+        return f"dict[{_format_annotation(key)}, {_format_annotation(value)}]"
+    if origin is tuple:
+        return (
+            "tuple[" + ", ".join(_format_annotation(arg) for arg in args) + "]"
+        )
+    if origin is Callable:
+        return "Callable"
+    if str(origin) in {"typing.Union", "types.UnionType"} or args:
+        return " | ".join(_format_annotation(arg) for arg in args)
+    return str(annotation).replace("typing.", "")
+
+
+def _summary_for(func: Callable[..., Any]) -> str:
+    docstring = inspect.getdoc(func) or ""
+    if not docstring:
+        return ""
+    first_line = docstring.strip().splitlines()[0].strip()
+    if "." not in first_line:
+        return first_line
+    return first_line.split(".", 1)[0].strip() + "."
+
+
+def _catalog_text() -> str:
+    return (
+        json.dumps(
+            build_api_catalog(),
+            ensure_ascii=True,
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n"
+    )
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+
+
+__all__ = [
+    "CATALOG_PATH",
+    "build_api_catalog",
+    "check_api_catalog",
+    "main",
+    "write_api_catalog",
+]
