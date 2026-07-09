@@ -623,8 +623,8 @@ def _setup_lifecycle(
             "open_setup_page",
         ]
         recovery_copy = (
-            "Open the Chrome setup page to repair the Native "
-            "Messaging files, then reload the Chrome extension."
+            "Open the Chrome setup page to repair the local Chrome "
+            "connection files, then reload the Chrome extension."
         )
     elif build_freshness.get("status") == "stale":
         setup_phase = "stale_build"
