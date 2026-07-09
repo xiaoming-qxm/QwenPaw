@@ -48,6 +48,30 @@ PRIVATE_SDK_ATTRIBUTES = frozenset(
         "_session",
     },
 )
+META_INTROSPECTION_ATTRIBUTES = frozenset(
+    {
+        "__bases__",
+        "__base__",
+        "__call__",
+        "__class__",
+        "__closure__",
+        "__code__",
+        "__dict__",
+        "__func__",
+        "__getattr__",
+        "__getattribute__",
+        "__globals__",
+        "__mro__",
+        "__self__",
+        "__subclasses__",
+    },
+)
+META_INTROSPECTION_CALLS = frozenset(
+    {
+        "object.__getattribute__",
+        "type.__getattribute__",
+    },
+)
 _INITIAL_SDK_OBJECT_NAMES = frozenset({"browser", "tab"})
 _BROWSER_FACTORY_CALLS = frozenset({"Browser.connect", "connect_browser"})
 _TAB_FACTORY_SUFFIXES = (
@@ -60,6 +84,10 @@ _CANONICAL_SDK_HINT = (
     "Use canonical tab.actions.* methods, tab primitives, or "
     "Browser.capabilities(...)/Browser.help(...) instead of private backend "
     "dispatch."
+)
+_META_INTROSPECTION_HINT = (
+    "Use canonical Browser SDK calls directly instead of Python object "
+    "introspection or raw SDK recovery."
 )
 
 
@@ -133,11 +161,21 @@ class _GuardVisitor(ast.NodeVisitor):
         call_name = _call_name(node.func)
         if call_name:
             self._guard.validate_call(call_name)
+            if call_name in META_INTROSPECTION_CALLS:
+                self._guard.deny_invalid_sdk_usage(
+                    "python_meta_introspection",
+                    _META_INTROSPECTION_HINT,
+                )
             self._validate_sdk_call(call_name)
         self.generic_visit(node)
 
     def visit_Attribute(self, node: ast.Attribute) -> None:  # noqa: N802
         chain = _attribute_chain(node)
+        if node.attr in META_INTROSPECTION_ATTRIBUTES:
+            self._guard.deny_invalid_sdk_usage(
+                "python_meta_introspection",
+                _META_INTROSPECTION_HINT,
+            )
         if _has_session_action(chain):
             self._guard.deny_invalid_sdk_usage(
                 "session.action",
@@ -294,5 +332,7 @@ __all__ = [
     "DISALLOWED_CALLS",
     "DISALLOWED_IMPORT_ROOTS",
     "OLD_PUBLIC_ACTIONS",
+    "META_INTROSPECTION_ATTRIBUTES",
+    "META_INTROSPECTION_CALLS",
     "PRIVATE_SDK_ATTRIBUTES",
 ]
