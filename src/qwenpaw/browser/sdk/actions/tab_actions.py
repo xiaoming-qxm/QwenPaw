@@ -16,7 +16,7 @@ class BrowserActions:
     def __init__(self, browser: Any) -> None:
         self._browser = browser
 
-    async def search(
+    async def search_web(
         self,
         query: str,
         *,
@@ -36,9 +36,6 @@ class TabActions:
 
     def __init__(self, tab: Any) -> None:
         self._tab = tab
-
-    async def open(self, url: str) -> BrowserActionResult:
-        return await self.navigate(url)
 
     async def navigate(self, url: str) -> BrowserActionResult:
         return await self._mutate("navigate", url=url)
@@ -64,16 +61,12 @@ class TabActions:
         _ensure_target("click", kwargs)
         return await self._mutate("click", **kwargs)
 
-    async def type(self, target: Any, text: str) -> BrowserActionResult:
+    async def fill(self, target: Any, text: str) -> BrowserActionResult:
         kwargs = _target_kwargs(target)
-        _ensure_target("type", kwargs)
+        _ensure_target("fill", kwargs)
         return await self._mutate("type", **kwargs, text=text)
 
-    async def fill(self, target: Any, text: str) -> BrowserActionResult:
-        """Stable alias for typing text into an editable target."""
-        return await self.type(target, text)
-
-    async def press(self, key: str) -> BrowserActionResult:
+    async def press_key(self, key: str) -> BrowserActionResult:
         return await self._mutate("press", key=key)
 
     async def scroll(
@@ -86,26 +79,30 @@ class TabActions:
             kwargs["amount"] = amount
         return await self._mutate("scroll", **kwargs)
 
-    async def select(self, target: Any, value: Any) -> BrowserActionResult:
+    async def select_option(
+        self,
+        target: Any,
+        value: Any,
+    ) -> BrowserActionResult:
         kwargs = _target_kwargs(target)
-        _ensure_target("select", kwargs)
+        _ensure_target("select_option", kwargs)
         return await self._mutate("select", **kwargs, value=value)
 
-    async def upload(
+    async def upload_file(
         self,
         target: Any,
         file_path: str | list[str],
     ) -> BrowserActionResult:
         kwargs = _target_kwargs(target)
-        _ensure_target("upload", kwargs)
+        _ensure_target("upload_file", kwargs)
         return await self._mutate("upload", **kwargs, file_path=file_path)
 
-    async def download(
+    async def download_file(
         self,
         target: Any | None = None,
-        max_wait_ms: int = 30000,
+        timeout_ms: int = 30000,
     ) -> BrowserActionResult:
-        kwargs: dict[str, Any] = {"max_wait_ms": max_wait_ms}
+        kwargs: dict[str, Any] = {"max_wait_ms": timeout_ms}
         if target is not None:
             kwargs.update(_target_kwargs(target))
         return await self._run(
@@ -115,7 +112,7 @@ class TabActions:
             **kwargs,
         )
 
-    async def dialog(
+    async def handle_dialog(
         self,
         accept: bool = True,
         prompt_text: str | None = None,

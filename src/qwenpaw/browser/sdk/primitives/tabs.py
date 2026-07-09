@@ -66,7 +66,7 @@ class BrowserTabs:
                 )
             else:
                 tab = await self.active()
-                await tab.actions.open(target_url)
+                await tab.actions.navigate(target_url)
                 tab.url = target_url
         except Exception as exc:
             self._trace(
@@ -90,10 +90,12 @@ class BrowserTabs:
 
     async def new(self, url: str | None = None) -> Tab:
         """Explicitly create a new browser tab for the request workspace."""
-        return await self._open_new_tab(_require_target_url(url, action="tabs.new"))
+        return await self._open_new_tab(
+            _require_target_url(url, action="tabs.new"),
+        )
 
     async def _open_new_tab(self, url: str | None = None) -> Tab:
-        """Open a new tab and mark it as needing observation before mutation."""
+        """Open a new tab and require observation before mutation."""
         started = perf_counter()
         try:
             raw = await self._session.open_tab(url)
