@@ -38,6 +38,29 @@ OLD_PUBLIC_ACTIONS = frozenset(
         "upload",
     },
 )
+PRIVATE_SDK_ATTRIBUTES = frozenset(
+    {
+        "_backend",
+        "_call_action",
+        "_call_browser_action",
+        "_executor",
+        "_runtime",
+        "_session",
+    },
+)
+_INITIAL_SDK_OBJECT_NAMES = frozenset({"browser", "tab"})
+_BROWSER_FACTORY_CALLS = frozenset({"Browser.connect", "connect_browser"})
+_TAB_FACTORY_SUFFIXES = (
+    ".tabs.active",
+    ".tabs.new",
+    ".tabs.open",
+    ".tabs.select",
+)
+_CANONICAL_SDK_HINT = (
+    "Use canonical tab.actions.* methods, tab primitives, or "
+    "Browser.capabilities(...)/Browser.help(...) instead of private backend "
+    "dispatch."
+)
 
 
 @dataclass(frozen=True)
@@ -91,6 +114,7 @@ class _GuardVisitor(ast.NodeVisitor):
     def __init__(self, guard: CapabilityGuard) -> None:
         self._guard = guard
         self._imported_sleep_names: set[str] = set()
+        self._sdk_object_names: set[str] = set(_INITIAL_SDK_OBJECT_NAMES)
 
     def visit_Import(self, node: ast.Import) -> None:  # noqa: N802
         for alias in node.names:
@@ -111,6 +135,35 @@ class _GuardVisitor(ast.NodeVisitor):
             self._guard.validate_call(call_name)
             self._validate_sdk_call(call_name)
         self.generic_visit(node)
+
+    def visit_Attribute(self, node: ast.Attribute) -> None:  # noqa: N802
+        chain = _attribute_chain(node)
+        if _has_session_action(chain):
+            self._guard.deny_invalid_sdk_usage(
+                "session.action",
+                _CANONICAL_SDK_HINT,
+            )
+        if self._is_sdk_object_chain(chain):
+            for part in chain[1:]:
+                if part.startswith("_") or part in PRIVATE_SDK_ATTRIBUTES:
+                    self._guard.deny_invalid_sdk_usage(
+                        "private_sdk_attribute",
+                        _CANONICAL_SDK_HINT,
+                    )
+        self.generic_visit(node)
+
+    def visit_Assign(self, node: ast.Assign) -> None:  # noqa: N802
+        self.generic_visit(node)
+        self._track_sdk_assignment(node.value, node.targets)
+
+    def visit_AnnAssign(self, node: ast.AnnAssign) -> None:  # noqa: N802
+        self.generic_visit(node)
+        if node.value is not None:
+            self._track_sdk_assignment(node.value, [node.target])
+
+    def visit_NamedExpr(self, node: ast.NamedExpr) -> None:  # noqa: N802
+        self.generic_visit(node)
+        self._track_sdk_assignment(node.value, [node.target])
 
     def visit_Dict(self, node: ast.Dict) -> None:  # noqa: N802
         for key in node.keys:
@@ -163,6 +216,21 @@ class _GuardVisitor(ast.NodeVisitor):
                     "Browser.capabilities(...) or Browser.help(...).",
                 )
 
+    def _is_sdk_object_chain(self, chain: list[str]) -> bool:
+        return bool(chain) and chain[0] in self._sdk_object_names
+
+    def _track_sdk_assignment(
+        self,
+        value: ast.AST,
+        targets: list[ast.expr],
+    ) -> None:
+        call_name = _value_call_name(value)
+        if not call_name:
+            return
+        if _is_sdk_factory_call(call_name):
+            for name in _target_names(targets):
+                self._sdk_object_names.add(name)
+
 
 def _call_name(node: ast.AST) -> str:
     if isinstance(node, ast.Name):
@@ -173,6 +241,46 @@ def _call_name(node: ast.AST) -> str:
             return f"{parent}.{node.attr}"
         return node.attr
     return ""
+
+
+def _value_call_name(node: ast.AST) -> str:
+    value = node.value if isinstance(node, ast.Await) else node
+    if isinstance(value, ast.Call):
+        return _call_name(value.func)
+    return ""
+
+
+def _is_sdk_factory_call(call_name: str) -> bool:
+    if call_name in _BROWSER_FACTORY_CALLS:
+        return True
+    return call_name.endswith(_TAB_FACTORY_SUFFIXES)
+
+
+def _target_names(targets: list[ast.expr]) -> tuple[str, ...]:
+    names: list[str] = []
+    for target in targets:
+        if isinstance(target, ast.Name):
+            names.append(target.id)
+    return tuple(names)
+
+
+def _attribute_chain(node: ast.AST) -> list[str]:
+    if isinstance(node, ast.Name):
+        return [node.id]
+    if isinstance(node, ast.Attribute):
+        parent = _attribute_chain(node.value)
+        if parent:
+            return [*parent, node.attr]
+    if isinstance(node, ast.Call):
+        return _attribute_chain(node.func)
+    return []
+
+
+def _has_session_action(chain: list[str]) -> bool:
+    return any(
+        left in {"session", "_session"} and right == "action"
+        for left, right in zip(chain, chain[1:])
+    )
 
 
 def _literal_string(node: ast.AST | None) -> str:
@@ -186,4 +294,5 @@ __all__ = [
     "DISALLOWED_CALLS",
     "DISALLOWED_IMPORT_ROOTS",
     "OLD_PUBLIC_ACTIONS",
+    "PRIVATE_SDK_ATTRIBUTES",
 ]
