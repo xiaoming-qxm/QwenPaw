@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import quote_plus
 
 from ..contract_runtime import BrowserContractRuntime
 from ..contracts import BrowserTargetContract, browser_api
@@ -44,12 +45,27 @@ class BrowserActions:
         engine: str = "google",
     ) -> BrowserActionResult:
         """Search the public web using the selected backend."""
-        result = await self._browser._call_browser_action(
-            "search",
-            query=query,
-            engine=engine,
+        contract = getattr(self.search_web, "__browser_api_contract__")
+
+        async def dispatch(query: str, engine: str = "google") -> Any:
+            search_url = _search_url(query, engine)
+            tab = await self._browser.tabs.open(search_url)
+            tab_id = getattr(tab, "id", getattr(tab, "tab_id", ""))
+            return BrowserActionResult(
+                ok=True,
+                message=f"Opened {engine} search for {query}",
+                data={"url": search_url, "tab_id": str(tab_id or "")},
+            )
+
+        return _coerce_action_result(
+            await BrowserContractRuntime().execute(
+                contract,
+                dispatch,
+                owner=self._browser,
+                query=query,
+                engine=engine,
+            ),
         )
-        return _coerce_action_result(result)
 
 
 class TabActions:
@@ -373,6 +389,16 @@ def _coerce_action_result(value: Any) -> BrowserActionResult:
             data=dict(value.get("data") or {}),
         )
     return BrowserActionResult(ok=True, message=str(value or ""))
+
+
+def _search_url(query: str, engine: str) -> str:
+    encoded = quote_plus(query)
+    normalized_engine = str(engine or "google").strip().casefold()
+    if normalized_engine in {"bing", "microsoft"}:
+        return f"https://www.bing.com/search?q={encoded}"
+    if normalized_engine in {"duckduckgo", "ddg"}:
+        return f"https://duckduckgo.com/?q={encoded}"
+    return f"https://www.google.com/search?q={encoded}"
 
 
 __all__ = ["BrowserActions", "TabActions"]
