@@ -137,7 +137,6 @@ def _compile_code(code: str, guard: CapabilityGuard) -> CodeType:
 
 
 def _new_namespace(guard: CapabilityGuard) -> dict[str, Any]:
-    from ..facade.browser import Browser, connect_browser
     from ..governance.errors import (
         BrowserContextConflict,
         BrowserContextUnavailable,
@@ -145,11 +144,13 @@ def _new_namespace(guard: CapabilityGuard) -> dict[str, Any]:
         BrowserSDKError,
         BrowserSDKGap,
     )
+    from .proxy import BrowserProxyClass
+    from .proxy import connect_browser
 
     namespace: dict[str, Any] = {"__builtins__": _safe_builtins(guard)}
     namespace.update(
         {
-            "Browser": Browser,
+            "Browser": BrowserProxyClass,
             "BrowserSDKError": BrowserSDKError,
             "BrowserContextUnavailable": BrowserContextUnavailable,
             "BrowserContextConflict": BrowserContextConflict,
