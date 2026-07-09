@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Chrome Extension backend adapter for the unified Browser SDK."""
+# pylint: disable=redefined-builtin,too-many-public-methods,too-many-statements
 
 from __future__ import annotations
 
@@ -184,7 +185,10 @@ class ChromeExtensionBrowserBackend:
             code = ""
             message = "Chrome Extension browser backend is available."
             hint_key = ""
-        actionable_check, cleanup_check = await _diagnose_actionable_round_trip(
+        (
+            actionable_check,
+            cleanup_check,
+        ) = await _diagnose_actionable_round_trip(
             bridge,
             enabled=bridge_connected,
         )
@@ -213,9 +217,7 @@ class ChromeExtensionBrowserBackend:
             checks=(
                 BrowserDiagnosticCheck(
                     name="connected",
-                    status="available"
-                    if bridge_connected
-                    else "unavailable",
+                    status="available" if bridge_connected else "unavailable",
                     code="" if bridge_connected else code,
                     message=(
                         "Chrome Extension bridge is connected."
@@ -447,11 +449,14 @@ class ChromeExtensionBrowserSession:
             request_scope_key or session_id,
         )
         self.retention = _normalize_retention(retention)
-        self.ownership_context = ownership_context or build_browser_ownership_context(
-            session_id=session_id,
-            root_session_id=session_id,
-            request_scope_key=self.request_scope_key,
-            retention=self.retention,
+        self.ownership_context = (
+            ownership_context
+            or build_browser_ownership_context(
+                session_id=session_id,
+                root_session_id=session_id,
+                request_scope_key=self.request_scope_key,
+                retention=self.retention,
+            )
         )
         self.context = context
         self.owner_id = self.ownership_context.owner_id
@@ -626,6 +631,10 @@ class ChromeExtensionBrowserSession:
             selection_reason="created_explicit_new_tab",
         )
 
+    async def create_tab(self, url: str | None = None) -> dict[str, Any]:
+        """Create a new backend tab through the existing user flow."""
+        return await self.open_tab(url)
+
     async def open_workspace_tab(self, url: str) -> dict[str, Any]:
         target_url = _require_target_url(url)
         started = perf_counter()
@@ -754,6 +763,31 @@ class ChromeExtensionBrowserSession:
         payload = await self._bridge_or_engine_action("screenshot", tab_id)
         return coerce_screenshot(str(tab_id), payload)
 
+    async def extract(
+        self,
+        tab_id: str,
+        instruction: str,
+        *,
+        format: str = "text",
+    ) -> str:
+        del instruction, format
+        observation = await self.snapshot(tab_id)
+        return observation.text
+
+    async def wait_for(
+        self,
+        tab_id: str,
+        condition: dict[str, Any] | str,
+        *,
+        timeout_ms: int = 10000,
+    ) -> BrowserActionResult:
+        return await self.action(
+            tab_id,
+            "wait_for",
+            condition=condition,
+            timeout_ms=timeout_ms,
+        )
+
     async def evaluate(
         self,
         tab_id: str,
@@ -790,6 +824,117 @@ class ChromeExtensionBrowserSession:
             script=script,
             code=script,
             read_only=read_only,
+        )
+
+    async def navigate(self, tab_id: str, url: str) -> BrowserActionResult:
+        return await self.action(tab_id, "navigate", url=url)
+
+    async def back(self, tab_id: str) -> BrowserActionResult:
+        return await self.action(tab_id, "back")
+
+    async def forward(self, tab_id: str) -> BrowserActionResult:
+        return await self.action(tab_id, "forward")
+
+    async def reload(self, tab_id: str) -> BrowserActionResult:
+        return await self.action(tab_id, "reload")
+
+    async def click(
+        self,
+        tab_id: str,
+        target: dict[str, Any],
+        *,
+        allow_new_context: bool = False,
+    ) -> BrowserActionResult:
+        return await self.action(
+            tab_id,
+            "click",
+            target=target,
+            allow_new_context=allow_new_context,
+        )
+
+    async def fill(
+        self,
+        tab_id: str,
+        target: dict[str, Any],
+        text: str,
+    ) -> BrowserActionResult:
+        return await self.action(tab_id, "type", target=target, text=text)
+
+    async def press_key(self, tab_id: str, key: str) -> BrowserActionResult:
+        return await self.action(tab_id, "press", key=key)
+
+    async def scroll(
+        self,
+        tab_id: str,
+        *,
+        direction: str = "down",
+        amount: str | int | None = None,
+        target: dict[str, Any] | None = None,
+    ) -> BrowserActionResult:
+        kwargs: dict[str, Any] = {"direction": direction}
+        if amount is not None:
+            kwargs["amount"] = amount
+        if target is not None:
+            kwargs["target"] = target
+        return await self.action(tab_id, "scroll", **kwargs)
+
+    async def select_option(
+        self,
+        tab_id: str,
+        target: dict[str, Any],
+        value: Any,
+    ) -> BrowserActionResult:
+        return await self.action(
+            tab_id,
+            "select",
+            target=target,
+            value=value,
+        )
+
+    async def hover(
+        self,
+        tab_id: str,
+        target: dict[str, Any],
+    ) -> BrowserActionResult:
+        return await self.action(tab_id, "hover", target=target)
+
+    async def upload_file(
+        self,
+        tab_id: str,
+        target: dict[str, Any],
+        file_path: str | list[str],
+    ) -> BrowserActionResult:
+        return await self.action(
+            tab_id,
+            "upload",
+            target=target,
+            file_path=file_path,
+        )
+
+    async def download_file(
+        self,
+        tab_id: str,
+        target: dict[str, Any] | None = None,
+        *,
+        timeout_ms: int = 30000,
+    ) -> BrowserActionResult:
+        kwargs: dict[str, Any] = {"max_wait_ms": timeout_ms}
+        if target is not None:
+            kwargs["target"] = target
+        return await self.action(tab_id, "download", **kwargs)
+
+    async def handle_dialog(
+        self,
+        tab_id: str,
+        *,
+        accept: bool = True,
+        prompt_text: str | None = None,
+    ) -> BrowserActionResult:
+        return await self.action(
+            tab_id,
+            "dialog",
+            accept=accept,
+            prompt_text=prompt_text,
         )
 
     async def action(
@@ -853,13 +998,15 @@ class ChromeExtensionBrowserSession:
         current_tab_id = str(self._current_tab_id or "")
         if not current_tab_id:
             return None
-        if self._tab_ownership.get(current_tab_id) not in {"owned", "borrowed"}:
+        if self._tab_ownership.get(current_tab_id) not in {
+            "owned",
+            "borrowed",
+        }:
             return None
         for tab in tabs:
-            if (
-                str(tab.get("id") or "") == current_tab_id
-                and not _is_protected_tab(tab)
-            ):
+            if str(
+                tab.get("id") or "",
+            ) == current_tab_id and not _is_protected_tab(tab):
                 return tab
         return None
 
@@ -1353,7 +1500,10 @@ async def _cleanup_extension_metadata_fallback(
             continue
         if str(tab.get("ownerId") or "") != owner_id:
             continue
-        if str(tab.get("workspaceId") or tab.get("workspace") or "") != workspace_id:
+        if (
+            str(tab.get("workspaceId") or tab.get("workspace") or "")
+            != workspace_id
+        ):
             continue
         tab_id = tab.get("id") or tab.get("tabId")
         if tab_id is None:
@@ -1424,8 +1574,7 @@ async def _diagnose_actionable_round_trip(
     protocol_error = _bridge_protocol_error(bridge)
     if protocol_error:
         code = str(
-            protocol_error.get("code")
-            or "browser_protocol_version_mismatch"
+            protocol_error.get("code") or "browser_protocol_version_mismatch",
         )
         metadata = {**base_metadata, **protocol_error}
         return _diagnostic_failure_pair(
@@ -1468,7 +1617,7 @@ async def _diagnose_actionable_round_trip(
         raw_tab_id = result.get("id") or result.get("tabId")
         if raw_tab_id is None:
             raise RuntimeError(
-                "Scratch Browser round-trip did not return a tab id."
+                "Scratch Browser round-trip did not return a tab id.",
             )
         tab_id = int(raw_tab_id)
         claim_tab = getattr(bridge, "claim_tab", None)
@@ -1545,7 +1694,7 @@ def _diagnostic_failure_pair(
         name="cleanup_verified",
         status="unavailable",
         code=code,
-        message="Scratch cleanup was skipped because diagnostics failed early.",
+        message="Scratch cleanup skipped after early diagnostics failure.",
         hint_key=code,
         metadata=metadata,
     )
@@ -1909,8 +2058,11 @@ def _is_controlled_workspace_tab(
     actual_workspace_id = _workspace_id(tab)
     if workspace_id:
         return actual_workspace_id == workspace_id
-    return actual_workspace_id == "browser_sdk" or actual_workspace_id.startswith(
-        "browser_sdk:",
+    return (
+        actual_workspace_id == "browser_sdk"
+        or actual_workspace_id.startswith(
+            "browser_sdk:",
+        )
     )
 
 
