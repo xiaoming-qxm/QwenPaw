@@ -49,14 +49,14 @@ from ..extension_setup import (  # type: ignore[misc]
 )
 from ..transport.state import get_nm_bridge_route_state  # type: ignore[misc]
 
-ws_router = APIRouter(tags=["browser-bridge"])
-api_router = APIRouter(tags=["browser-bridge"])
+ws_router = APIRouter(tags=["chrome"])
+api_router = APIRouter(tags=["chrome"])
 router = api_router
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = PLUGIN_ROOT.parents[2]
 DEFAULT_CONFIG_PATH = Path.home() / ".qwenpaw" / "nm-bridge.json"
-CANONICAL_SETUP_URL = "/plugin/browser-bridge"
+CANONICAL_SETUP_URL = "/plugin/chrome"
 EXTENSION_MANIFEST_PATH = (
     PLUGIN_ROOT
     / "assets"
@@ -212,7 +212,7 @@ async def startup_nm_bridge() -> None:
     _expected_token()
 
 
-@ws_router.websocket("/browser-bridge")
+@ws_router.websocket("/chrome")
 async def nm_bridge_ws(websocket: WebSocket) -> None:
     """Accept the Native Messaging host WebSocket connection."""
     if _request_token(websocket) != _expected_token():
@@ -648,7 +648,7 @@ def _setup_lifecycle(
             "open_extension_folder",
         ]
         recovery_copy = (
-            "Open the Chrome setup page at /plugin/browser-bridge, "
+            "Open the Chrome setup page at /plugin/chrome, "
             "then reload or reconnect the Chrome extension."
         )
     else:

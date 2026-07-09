@@ -23,7 +23,7 @@ CWS_URL = (
     "https://chromewebstore.google.com/detail/"
     f"qwenpaw-browser-bridge/{CWS_EXTENSION_ID}"
 )
-DEFAULT_WS_URL = "ws://127.0.0.1:8088/ws/browser-bridge"
+DEFAULT_WS_URL = "ws://127.0.0.1:8088/ws/chrome"
 CHROME_EXTENSIONS_URL = "chrome://extensions"
 LOCAL_BRIDGE_CONFIG_JS = "bridge_config.js"
 LOCAL_INITIAL_RECONNECT_BACKOFF_SECONDS = 5
@@ -146,7 +146,7 @@ def resolve_default_ws_url() -> str:
     host = "127.0.0.1" if host in {"", "0.0.0.0"} else str(host)
     if ":" in host and not host.startswith("["):
         host = f"[{host}]"
-    return f"ws://{host}:{port}/ws/browser-bridge"
+    return f"ws://{host}:{port}/ws/chrome"
 
 
 def _copy_extension(qwenpaw_home: Path) -> Path:

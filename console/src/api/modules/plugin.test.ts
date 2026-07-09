@@ -10,6 +10,7 @@ vi.mock("../authHeaders", () => ({
 import {
   fetchPlugins,
   fetchPluginCatalog,
+  getOfficialPluginInstallMode,
   installPlugin,
   uploadPlugin,
   uninstallPlugin,
@@ -113,6 +114,24 @@ describe("plugin module", () => {
     await expect(fetchPluginCatalog()).rejects.toThrow(
       "Failed to load plugin catalog (503)",
     );
+  });
+
+  it("getOfficialPluginInstallMode defaults missing mode to download", () => {
+    expect(
+      getOfficialPluginInstallMode({
+        id: "remote-tool",
+        plugin_id: "remote-tool",
+        name: "Remote Tool",
+      }),
+    ).toBe("download");
+    expect(
+      getOfficialPluginInstallMode({
+        id: "chrome",
+        plugin_id: "chrome",
+        name: "Chrome",
+        install_mode: "builtin_enable",
+      }),
+    ).toBe("builtin_enable");
   });
 
   it("installPlugin posts JSON with force defaulting to false", async () => {

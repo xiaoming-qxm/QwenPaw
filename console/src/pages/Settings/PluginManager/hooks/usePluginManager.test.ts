@@ -10,6 +10,7 @@ const hoisted = vi.hoisted(() => ({
   stableT: (k: string) => k,
   fetchPluginsMock: vi.fn(),
   uninstallPluginMock: vi.fn(),
+  updatePluginEnabledMock: vi.fn(),
   // Captured Modal.confirm options; initialized per-test in beforeEach.
   modalConfirmMock: vi.fn(),
   refreshMock: vi.fn(),
@@ -27,6 +28,7 @@ vi.mock("react-i18next", () => ({
 vi.mock("@/api/modules/plugin", () => ({
   fetchPlugins: hoisted.fetchPluginsMock,
   uninstallPlugin: hoisted.uninstallPluginMock,
+  updatePluginEnabled: hoisted.updatePluginEnabledMock,
 }));
 
 vi.mock("ahooks", () => ({
@@ -52,6 +54,7 @@ const {
   messageMock,
   modalConfirmMock,
   refreshMock,
+  updatePluginEnabledMock,
   uninstallPluginMock,
   pluginsData,
 } = hoisted;
@@ -69,6 +72,7 @@ describe("usePluginManager", () => {
     messageMock.error.mockReset();
     modalConfirmMock.mockReset();
     refreshMock.mockReset();
+    updatePluginEnabledMock.mockReset();
     uninstallPluginMock.mockReset();
     pluginsData.length = 0;
     pluginsData.push(makePlugin());
@@ -114,6 +118,34 @@ describe("usePluginManager", () => {
     });
 
     expect(uninstallPluginMock).toHaveBeenCalledWith("p1");
+    expect(messageMock.success).toHaveBeenCalledWith(
+      "pluginManager.uninstallSuccess",
+    );
+    expect(refreshMock).toHaveBeenCalled();
+  });
+
+  it("Modal.confirm onOk disables installed Chrome instead of uninstalling", async () => {
+    updatePluginEnabledMock.mockResolvedValue(undefined);
+    const { result } = renderHook(() => usePluginManager());
+
+    act(() => {
+      result.current.handleUninstall({
+        ...makePlugin(),
+        id: "chrome",
+        name: "Chrome",
+      });
+    });
+
+    const opts = modalConfirmMock.mock.calls[0][0] as {
+      onOk: () => Promise<void>;
+    };
+
+    await act(async () => {
+      await opts.onOk();
+    });
+
+    expect(updatePluginEnabledMock).toHaveBeenCalledWith("chrome", false);
+    expect(uninstallPluginMock).not.toHaveBeenCalled();
     expect(messageMock.success).toHaveBeenCalledWith(
       "pluginManager.uninstallSuccess",
     );

@@ -43,6 +43,7 @@ def _list_plugins_from_disk() -> list[dict]:
     from ...plugins.loader import _is_disabled_plugin_dir
 
     from ...plugins.architecture import PluginManifest
+    from ...plugins.state import PluginStateStore
 
     result_by_id: dict[str, dict] = {}
     for plugins_dir in plugin_roots:
@@ -64,6 +65,13 @@ def _list_plugins_from_disk() -> list[dict]:
                 continue
 
             plugin_id = manifest.get("id", item.name)
+            meta = manifest.get("meta") or {}
+            default_enabled = bool(meta.get("default_enabled", True))
+            if not PluginStateStore().is_enabled(
+                plugin_id,
+                default=default_enabled,
+            ):
+                continue
             frontend_entry = manifest.get("entry", {}).get("frontend")
             disk_manifest = PluginManifest.from_dict(manifest)
 
@@ -467,6 +475,8 @@ async def list_plugins(request: Request):
 
     result = []
     for _plugin_id, record in loader.get_all_loaded_plugins().items():
+        if not record.enabled:
+            continue
         manifest = record.manifest
         result.append(
             {
@@ -536,6 +546,19 @@ def _plugin_summary(record) -> dict[str, Any]:
     }
 
 
+def _chrome_builtin_installed(loader) -> bool:
+    """Return whether builtin Chrome is enabled and loaded."""
+    if loader is None:
+        return False
+    try:
+        record = loader.get_loaded_plugin("chrome")
+    except Exception:
+        return False
+    if record is None:
+        return False
+    return bool(record.enabled and record.instance is not None)
+
+
 @router.get(
     "/catalog",
     summary="Official plugin catalog",
@@ -544,11 +567,19 @@ def _plugin_summary(record) -> dict[str, Any]:
         "Marks plugins already installed under the working directory."
     ),
 )
-async def get_plugin_catalog():
+async def get_plugin_catalog(request: Request):
     """Return official plugins from OSS metadata (server-side fetch)."""
-    from ...plugins.download_catalog import fetch_plugin_catalog_async
+    from ...plugins.download_catalog import (
+        fetch_plugin_catalog_async,
+        _with_builtin_chrome_entry,
+    )
 
-    return await fetch_plugin_catalog_async()
+    catalog = await fetch_plugin_catalog_async()
+    loader = getattr(request.app.state, "plugin_loader", None)
+    return _with_builtin_chrome_entry(
+        catalog,
+        chrome_installed=_chrome_builtin_installed(loader),
+    )
 
 
 class InstallPluginRequest(BaseModel):
@@ -910,6 +941,53 @@ async def uninstall_plugin(plugin_id: str, request: Request):
         )
 
     meta: dict = record.manifest.meta or {}
+
+    if plugin_id == "chrome" and meta.get("builtin") is True:
+        from ...plugins.architecture import PluginRecord
+        from ...plugins.state import PluginStateStore
+
+        PluginStateStore().set_enabled(plugin_id, False)
+
+        provider_ids, command_names = _collect_plugin_runtime_ids(
+            loader.registry,
+            plugin_id,
+        )
+        manifest = record.manifest
+        source_path = record.source_path
+        diagnostics = list(record.diagnostics)
+
+        try:
+            if record.instance is not None:
+                await loader.unload_plugin(plugin_id, delete_files=False)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except Exception as exc:
+            logger.error(
+                f"Plugin disable failed for '{plugin_id}': {exc}",
+                exc_info=True,
+            )
+            raise HTTPException(
+                status_code=500,
+                detail=f"Plugin disable failed: {exc}",
+            ) from exc
+
+        loader.set_loaded_plugin_record(
+            plugin_id,
+            PluginRecord(
+                manifest=manifest,
+                source_path=source_path,
+                enabled=False,
+                instance=None,
+                diagnostics=diagnostics,
+            ),
+        )
+        _post_unload_cleanup(request, plugin_id, provider_ids, command_names)
+        _remove_plugin_tools_from_agents(plugin_id, meta)
+        _schedule_all_agents_reload(request)
+        return {
+            "id": plugin_id,
+            "message": f"Plugin '{plugin_id}' disabled successfully.",
+        }
 
     # Collect provider / command IDs *before* unload clears the registry
     provider_ids, command_names = _collect_plugin_runtime_ids(

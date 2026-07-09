@@ -89,13 +89,13 @@ class BrowserBridgePlugin:
         )
         api.register_http_router(
             api_router,
-            prefix="/browser-bridge",
-            tags=["browser-bridge"],
+            prefix="/chrome",
+            tags=["chrome"],
         )
         api.register_http_router(
             ws_router,
             prefix="/ws",
-            tags=["browser-bridge"],
+            tags=["chrome"],
             under_api=False,
         )
         api.register_shutdown_hook(

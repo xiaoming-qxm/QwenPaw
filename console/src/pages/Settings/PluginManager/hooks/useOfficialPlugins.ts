@@ -4,6 +4,7 @@ import { useAppMessage } from "@/hooks/useAppMessage";
 import {
   fetchPluginCatalog,
   installPlugin,
+  updatePluginEnabled,
   type OfficialPluginCatalogEntry,
 } from "@/api/modules/plugin";
 
@@ -50,9 +51,17 @@ export function useOfficialPlugins({ onInstalled }: UseOfficialPluginsOptions) {
     async (entry: OfficialPluginCatalogEntry) => {
       setInstallingId(entry.id);
       try {
-        const result = await installPlugin(entry.install_url, {
-          force: entry.installed || entry.upgrade_available,
-        });
+        let result;
+        if (entry.install_mode === "builtin_enable") {
+          result = await updatePluginEnabled(entry.plugin_id, true);
+        } else {
+          if (!entry.install_url) {
+            throw new Error(t("pluginManager.installFailed"));
+          }
+          result = await installPlugin(entry.install_url, {
+            force: entry.installed || entry.upgrade_available,
+          });
+        }
         message.success(`${t("pluginManager.installSuccess")}: ${result.name}`);
         onInstalled();
         setTimeout(() => window.location.reload(), 800);

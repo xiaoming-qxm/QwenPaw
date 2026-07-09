@@ -1,5 +1,6 @@
 import { getApiUrl } from "../config";
 import { buildAuthHeaders } from "../authHeaders";
+import { request } from "../request";
 
 /** Matches the backend ``PluginType`` enum values. */
 export type PluginType =
@@ -222,29 +223,38 @@ export interface PluginStatus {
   version?: string;
 }
 
+export type OfficialPluginInstallMode = "download" | "builtin_enable";
+
 /** Entry from ``GET /api/plugins/catalog`` (official CDN manifest). */
 export interface OfficialPluginCatalogEntry {
   id: string;
   plugin_id: string;
   name: string;
-  description: string;
+  description?: string;
   /** Locale-keyed descriptions, e.g. { "zh-CN": "...", "en-US": "..." } */
   description_i18n?: Record<string, string>;
-  version: string;
-  author: string;
-  kind: string;
-  size: string;
-  sha256: string;
-  install_url: string;
-  installed: boolean;
+  version?: string;
+  author?: string;
+  kind?: string;
+  size?: string;
+  sha256?: string;
+  install_url?: string;
+  install_mode?: OfficialPluginInstallMode;
+  installed?: boolean;
   installed_version?: string;
-  upgrade_available: boolean;
+  upgrade_available?: boolean;
 }
 
 export interface OfficialPluginCatalog {
   updated_at: string | null;
   plugins: OfficialPluginCatalogEntry[];
   error?: string | null;
+}
+
+export function getOfficialPluginInstallMode(
+  entry: OfficialPluginCatalogEntry,
+): OfficialPluginInstallMode {
+  return entry.install_mode ?? "download";
 }
 
 /**
@@ -351,6 +361,16 @@ export async function uninstallPlugin(pluginId: string): Promise<void> {
     const body = await response.json().catch(() => ({}));
     throw new Error(body.detail ?? `Uninstall failed (${response.status})`);
   }
+}
+
+export async function updatePluginEnabled(
+  pluginId: string,
+  enabled: boolean,
+): Promise<PluginInfo> {
+  return request<PluginInfo>(`/plugins/${pluginId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ enabled }),
+  });
 }
 
 /**

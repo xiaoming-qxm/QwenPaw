@@ -20,13 +20,13 @@ class PluginStateStore:
     def __init__(self, path: Path | None = None) -> None:
         self.path = path or Path(WORKING_DIR) / "plugin_state.json"
 
-    def is_enabled(self, plugin_id: str) -> bool:
+    def is_enabled(self, plugin_id: str, default: bool = True) -> bool:
         """Return whether a plugin should be loaded by default."""
         state = self._read()
         plugin_state = state.get(plugin_id)
         if not isinstance(plugin_state, dict):
-            return True
-        return bool(plugin_state.get("enabled", True))
+            return bool(default)
+        return bool(plugin_state.get("enabled", default))
 
     def set_enabled(self, plugin_id: str, enabled: bool) -> None:
         """Persist a plugin enabled flag."""

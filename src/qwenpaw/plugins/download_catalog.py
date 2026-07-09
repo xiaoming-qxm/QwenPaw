@@ -21,6 +21,28 @@ PLUGIN_DOWNLOAD_CDN = "https://download.qwenpaw.agentscope.io"
 _FETCH_TIMEOUT = 30
 
 
+_CHROME_BUILTIN_CATALOG_ENTRY: dict[str, Any] = {
+    "id": "chrome",
+    "plugin_id": "chrome",
+    "name": "Chrome",
+    "description": "Connect QwenPaw to this Chrome browser.",
+    "description_i18n": {
+        "en-US": "Connect QwenPaw to this Chrome browser.",
+        "zh-CN": "将 QwenPaw 连接到此 Chrome 浏览器。",
+    },
+    "version": "builtin",
+    "author": "QwenPaw",
+    "kind": "builtin",
+    "size": "",
+    "sha256": "",
+    "install_mode": "builtin_enable",
+    "install_url": "",
+    "installed": False,
+    "installed_version": None,
+    "upgrade_available": False,
+}
+
+
 def _fetch_json(url: str) -> Any:
     req = urllib.request.Request(
         url,
@@ -28,6 +50,31 @@ def _fetch_json(url: str) -> Any:
     )
     with urllib.request.urlopen(req, timeout=_FETCH_TIMEOUT) as resp:
         return json.loads(resp.read().decode("utf-8"))
+
+
+def _with_builtin_chrome_entry(
+    catalog: dict[str, Any],
+    *,
+    chrome_installed: bool,
+) -> dict[str, Any]:
+    """Return catalog data with the pinned builtin Chrome entry included."""
+    result = dict(catalog)
+    plugins: list[dict[str, Any]] = []
+
+    for entry in catalog.get("plugins") or []:
+        if not isinstance(entry, dict):
+            continue
+        if str(entry.get("plugin_id") or "") == "chrome":
+            continue
+        normalized = dict(entry)
+        normalized.setdefault("install_mode", "download")
+        plugins.append(normalized)
+
+    chrome_entry = dict(_CHROME_BUILTIN_CATALOG_ENTRY)
+    chrome_entry["installed"] = bool(chrome_installed)
+    plugins.append(chrome_entry)
+    result["plugins"] = plugins
+    return result
 
 
 def _plugin_id_from_file_entry(entry: dict[str, Any]) -> str:

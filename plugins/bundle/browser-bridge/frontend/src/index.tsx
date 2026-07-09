@@ -1,5 +1,4 @@
-// Browser Bridge plugin UI. React and antd are provided by the QwenPaw
-// console host, so this bundle only contains the plugin page itself.
+// Chrome plugin UI. React and antd are provided by the QwenPaw console host.
 import type * as ReactNS from "react";
 
 import {
@@ -15,27 +14,10 @@ const antd = host.antd;
 const getApiUrl = host.getApiUrl;
 const getApiToken = host.getApiToken;
 
-const {
-  Alert,
-  Button,
-  Card,
-  Collapse,
-  Space,
-  Spin,
-  Steps,
-  Typography,
-  message,
-} = antd;
-const { Paragraph, Text, Title } = Typography;
+const { Alert, Button, Collapse, Space, Spin, Typography, message } = antd;
+const { Text, Title } = Typography;
 
 type InstallMode = "unpacked" | "cws";
-type LifecycleState =
-  | "preparing"
-  | "needs_load_unpacked"
-  | "extension_loaded_bridge_disconnected"
-  | "repairing"
-  | "connected"
-  | "failed_actionable";
 type StatusKey =
   | "extension_dir"
   | "native_manifest_path"
@@ -54,48 +36,11 @@ interface ExtensionStatus {
   canonical_setup_url?: string;
   setup_phase?: string;
   recommended_action?: string;
-  repair_actions?: string[];
   recovery_copy?: string;
   ws_url?: string;
   chrome_extensions_url?: string;
   version?: string | null;
   connected_since?: string | null;
-  build_freshness?: { status?: string; repair_action?: string };
-  native_host_status?: { status?: string; repair_action?: string };
-  sdk_diagnostics?: BrowserDiagnostics;
-}
-
-type BrowserDiagnosticStatus = "available" | "degraded" | "unavailable";
-
-interface BrowserDiagnosticCheck {
-  name: string;
-  status: BrowserDiagnosticStatus;
-  message: string;
-  hint_key?: string | null;
-  message_fallback?: string | null;
-  metadata?: Record<string, unknown>;
-}
-
-interface BrowserBackendDiagnostic {
-  backend_id: string;
-  browser_context: "auto" | "isolated" | "user";
-  available: boolean;
-  status: BrowserDiagnosticStatus;
-  code?: string | null;
-  reason?: string | null;
-  message: string;
-  hint_key?: string | null;
-  message_fallback?: string | null;
-  features: string[];
-  checks?: BrowserDiagnosticCheck[];
-  observed_at?: string | null;
-  metadata?: Record<string, unknown>;
-}
-
-interface BrowserDiagnostics {
-  requested_context: "auto" | "isolated" | "user";
-  selected_backend_id?: string | null;
-  backends: BrowserBackendDiagnostic[];
 }
 
 interface ExtensionSetupRequest {
@@ -116,173 +61,99 @@ interface OpenExtensionFolderResult {
   error?: string | null;
 }
 
-interface ExtensionProbeStatus {
-  ok?: boolean;
-  connected?: boolean;
-  version?: string;
-  nativeHost?: string;
-  managedTabsCount?: number;
-  reconnectAttempts?: number;
-  lastDisconnectReason?: string;
-  reloading?: boolean;
-  error?: string;
-}
-
-interface ChromeRuntimeForProbe {
-  lastError?: { message?: string };
-  sendMessage?: (
-    extensionId: string,
-    payload: { method: string },
-    callback: (response?: ExtensionProbeStatus) => void,
-  ) => void;
-}
-
-declare const chrome:
-  | {
-      runtime?: ChromeRuntimeForProbe;
-    }
-  | undefined;
-
 interface PathRow {
   key: StatusKey;
-  label: string;
-}
-
-interface PrimaryAction {
-  disabled?: boolean;
   label: MessageKey;
-  loading?: boolean;
-  onClick: () => void;
 }
 
 const styles: Record<string, ReactNS.CSSProperties> = {
   page: {
+    minHeight: "100%",
+    overflowY: "auto",
+    padding: 24,
+    background: "transparent",
+  },
+  shell: {
+    width: "min(100%, 900px)",
+    margin: "0 auto",
     display: "flex",
     flexDirection: "column",
-    height: "100%",
-    minHeight: 0,
-    overflow: "hidden",
+    gap: 16,
   },
   header: {
-    padding: "16px 20px 12px",
-    borderBottom: "1px solid rgba(0,0,0,0.06)",
+    display: "flex",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 16,
+    flexWrap: "wrap",
   },
-  headerTitleRow: {
+  titleRow: {
     display: "flex",
     alignItems: "center",
     gap: 12,
-  },
-  headerIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    flexShrink: 0,
-    background: "#fff",
-    border: "1px solid rgba(0,0,0,0.12)",
-    color: "rgba(0,0,0,0.78)",
-  },
-  headerText: {
     minWidth: 0,
   },
-  content: {
-    flex: 1,
-    minHeight: 0,
-    overflowY: "auto",
-    padding: 16,
-    display: "flex",
-    flexDirection: "column",
-    gap: 16,
-  },
-  centeredCard: {
-    width: "min(100%, 720px)",
-    margin: "0 auto",
-    borderRadius: 8,
-  },
-  heroCard: {
-    width: "min(100%, 600px)",
-    margin: "0 auto",
-    borderRadius: 8,
-    textAlign: "center",
-  },
-  iconCircle: {
-    width: 64,
-    height: 64,
+  chromeIcon: {
+    position: "relative",
+    width: 42,
+    height: 42,
+    flex: "0 0 42px",
     borderRadius: "50%",
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 12,
+    background:
+      "radial-gradient(circle at center, #fff 0 18%, transparent 19%), " +
+      "radial-gradient(circle at center, #1a73e8 0 36%, transparent 37%), " +
+      "conic-gradient(#ea4335 0 34%, #fbbc04 0 67%, #34a853 0 100%)",
+    boxShadow: "inset 0 0 0 1px rgba(0,0,0,0.10)",
+  },
+  panel: {
+    border: "1px solid rgba(0,0,0,0.08)",
+    borderRadius: 8,
     background: "#fff",
-    border: "1px solid rgba(0,0,0,0.12)",
-    color: "rgba(0,0,0,0.78)",
+    padding: 24,
+    boxShadow: "0 1px 2px rgba(0,0,0,0.03)",
   },
-  successCircle: {
-    width: 64,
-    height: 64,
-    borderRadius: "50%",
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 12,
-    color: "#389e0d",
-    background: "rgba(82, 196, 26, 0.12)",
-    fontSize: 30,
-    fontWeight: 700,
+  statusBlock: {
+    display: "grid",
+    gridTemplateColumns: "minmax(0, 1fr) auto",
+    gap: 20,
+    alignItems: "start",
   },
-  heroActions: {
+  statusTitleRow: {
     display: "flex",
     alignItems: "center",
-    justifyContent: "center",
-    gap: 12,
-    flexWrap: "wrap",
+    gap: 10,
+    marginBottom: 8,
   },
-  progressBody: {
-    textAlign: "center",
+  statusDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 999,
+    flexShrink: 0,
+  },
+  statusCopy: {
+    maxWidth: 610,
+    color: "rgba(0,0,0,0.58)",
+    lineHeight: 1.55,
+  },
+  actions: {
     display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
+    justifyContent: "flex-end",
     gap: 8,
-    margin: "22px 0",
-  },
-  readyMeta: {
-    margin: "18px 0 20px",
-    display: "flex",
-    justifyContent: "center",
-    gap: 16,
     flexWrap: "wrap",
   },
-  usageSection: {
-    margin: "18px 0 22px",
+  section: {
+    marginTop: 22,
     display: "flex",
     flexDirection: "column",
-    gap: 10,
+    gap: 12,
   },
-  usageList: {
+  methodGrid: {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
-    gap: 10,
-    textAlign: "left",
-  },
-  usageItem: {
-    minHeight: 72,
-    padding: 12,
-    border: "1px solid rgba(0,0,0,0.06)",
-    borderRadius: 8,
-    background: "rgba(0,0,0,0.02)",
-    overflowWrap: "anywhere",
-  },
-  setupGrid: {
-    width: "min(100%, 920px)",
-    margin: "0 auto",
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+    gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
     gap: 12,
   },
   methodTile: {
-    minHeight: 148,
+    minHeight: 128,
     padding: 14,
     border: "1px solid rgba(0,0,0,0.08)",
     borderRadius: 8,
@@ -291,8 +162,8 @@ const styles: Record<string, ReactNS.CSSProperties> = {
     flexDirection: "column",
     gap: 10,
   },
-  disabledMethodTile: {
-    minHeight: 148,
+  disabledTile: {
+    minHeight: 128,
     padding: 14,
     border: "1px dashed rgba(0,0,0,0.16)",
     borderRadius: 8,
@@ -300,80 +171,78 @@ const styles: Record<string, ReactNS.CSSProperties> = {
     display: "flex",
     flexDirection: "column",
     gap: 10,
-    opacity: 0.74,
+    opacity: 0.72,
   },
   methodHeader: {
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 10,
+    gap: 8,
   },
   badge: {
-    display: "inline-flex",
-    alignItems: "center",
     minHeight: 22,
     padding: "1px 8px",
     borderRadius: 999,
-    border: "1px solid rgba(22, 119, 255, 0.22)",
-    background: "rgba(22, 119, 255, 0.08)",
+    border: "1px solid rgba(22,119,255,0.22)",
     color: "#0958d9",
+    background: "rgba(22,119,255,0.08)",
     fontSize: 12,
     whiteSpace: "nowrap",
   },
-  statusPill: {
-    display: "inline-flex",
+  steps: {
+    margin: 0,
+    paddingLeft: 20,
+    color: "rgba(0,0,0,0.72)",
+    lineHeight: 1.65,
+  },
+  directoryBox: {
+    display: "flex",
     alignItems: "center",
-    gap: 6,
-    minHeight: 28,
-    padding: "2px 10px",
-    borderRadius: 999,
+    justifyContent: "space-between",
+    gap: 12,
+    flexWrap: "wrap",
+    padding: 12,
     border: "1px solid rgba(0,0,0,0.08)",
-    background: "rgba(0,0,0,0.03)",
-  },
-  localPanel: {
-    width: "min(100%, 920px)",
-    margin: "0 auto",
     borderRadius: 8,
+    background: "rgba(0,0,0,0.02)",
   },
-  localBody: {
+  checkGrid: {
     display: "grid",
-    gridTemplateColumns: "minmax(0, 1.2fr) minmax(240px, 0.8fr)",
-    gap: 16,
+    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+    gap: 12,
   },
-  connectedChecks: {
-    width: "min(100%, 920px)",
-    margin: "0 auto",
+  checkTile: {
+    minHeight: 86,
+    padding: 14,
+    border: "1px solid rgba(0,0,0,0.08)",
     borderRadius: 8,
-  },
-  developerPanel: {
-    width: "min(100%, 920px)",
-    margin: "0 auto",
-    borderRadius: 8,
-    overflow: "hidden",
-  },
-  developerContent: {
+    background: "rgba(31,122,63,0.05)",
     display: "flex",
     flexDirection: "column",
-    gap: 16,
+    gap: 8,
   },
-  modeRow: {
-    display: "grid",
-    gridTemplateColumns: "minmax(128px, 180px) minmax(0, 1fr)",
+  checkTitle: {
+    display: "flex",
     alignItems: "center",
     gap: 8,
   },
-  pathList: {
+  advanced: {
+    marginTop: 18,
+    borderRadius: 8,
+    background: "#fff",
+  },
+  advancedRows: {
     display: "flex",
     flexDirection: "column",
     gap: 10,
   },
-  pathRow: {
+  advancedRow: {
     display: "grid",
     gridTemplateColumns: "minmax(128px, 180px) minmax(0, 1fr) auto",
-    alignItems: "center",
     gap: 8,
+    alignItems: "center",
   },
-  pathValue: {
+  advancedValue: {
     minWidth: 0,
     overflowWrap: "anywhere",
     wordBreak: "break-word",
@@ -385,58 +254,6 @@ const styles: Record<string, ReactNS.CSSProperties> = {
     border: "1px solid rgba(0,0,0,0.06)",
     borderRadius: 4,
     padding: "4px 8px",
-  },
-  developerActions: {
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
-    flexWrap: "wrap",
-  },
-  unpackedSteps: {
-    display: "flex",
-    flexDirection: "column",
-    gap: 8,
-    padding: 12,
-    border: "1px solid rgba(0,0,0,0.06)",
-    borderRadius: 8,
-    background: "rgba(0,0,0,0.02)",
-  },
-  diagnosticsPanel: {
-    width: "min(100%, 720px)",
-    margin: "0 auto",
-    borderRadius: 8,
-  },
-  diagnosticsList: {
-    display: "flex",
-    flexDirection: "column",
-    gap: 10,
-  },
-  diagnosticRow: {
-    display: "grid",
-    gridTemplateColumns: "minmax(140px, 1fr) minmax(0, 2fr)",
-    gap: 10,
-    padding: 10,
-    border: "1px solid rgba(0,0,0,0.06)",
-    borderRadius: 8,
-    background: "rgba(0,0,0,0.02)",
-  },
-  diagnosticCode: {
-    display: "inline-block",
-    maxWidth: "100%",
-    overflowWrap: "anywhere",
-    fontFamily:
-      "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
-    fontSize: 12,
-    borderRadius: 4,
-    padding: "2px 6px",
-    background: "rgba(0,0,0,0.05)",
-    color: "rgba(0,0,0,0.76)",
-  },
-  diagnosticMessage: {
-    display: "flex",
-    minWidth: 0,
-    flexDirection: "column",
-    gap: 4,
   },
 };
 
@@ -468,13 +285,13 @@ async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 function getStatus(): Promise<ExtensionStatus> {
-  return apiRequest<ExtensionStatus>("/browser-bridge/status");
+  return apiRequest<ExtensionStatus>("/chrome/status");
 }
 
 function setupExtension(
   payload: ExtensionSetupRequest,
 ): Promise<ExtensionStatus> {
-  return apiRequest<ExtensionStatus>("/browser-bridge/setup", {
+  return apiRequest<ExtensionStatus>("/chrome/setup", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -483,7 +300,7 @@ function setupExtension(
 
 function openChromeExtensionsPage(): Promise<OpenChromeExtensionsResult> {
   return apiRequest<OpenChromeExtensionsResult>(
-    "/browser-bridge/open-chrome-extensions",
+    "/chrome/open-chrome-extensions",
     {
       method: "POST",
     },
@@ -492,7 +309,7 @@ function openChromeExtensionsPage(): Promise<OpenChromeExtensionsResult> {
 
 function openExtensionFolder(): Promise<OpenExtensionFolderResult> {
   return apiRequest<OpenExtensionFolderResult>(
-    "/browser-bridge/open-extension-folder",
+    "/chrome/open-extension-folder",
     {
       method: "POST",
     },
@@ -501,222 +318,7 @@ function openExtensionFolder(): Promise<OpenExtensionFolderResult> {
 
 function currentBridgeWsUrl() {
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  return `${protocol}//${window.location.host}/ws/browser-bridge`;
-}
-
-function shouldAutoPrepare(status: ExtensionStatus | null): boolean {
-  if (!status) {
-    return false;
-  }
-  return (
-    !status.installed ||
-    status.recommended_action === "setup_extension" ||
-    status.setup_phase === "setup_missing" ||
-    status.setup_phase === "native_host_repair_required" ||
-    status.setup_phase === "stale_build"
-  );
-}
-
-function shouldResetForRepair(status: ExtensionStatus | null): boolean {
-  if (!status) {
-    return false;
-  }
-  return (
-    status.setup_phase === "native_host_repair_required" ||
-    status.native_host_status?.status === "repair_required"
-  );
-}
-
-function deriveLifecycleState(
-  status: ExtensionStatus | null,
-  probe: ExtensionProbeStatus | null,
-  busy: boolean,
-  error: string | null,
-): LifecycleState {
-  if (error) {
-    return "failed_actionable";
-  }
-  if (busy && !status) {
-    return "preparing";
-  }
-  if (busy && status && shouldAutoPrepare(status)) {
-    return "repairing";
-  }
-  if (status?.connected) {
-    return "connected";
-  }
-  if (probe?.ok) {
-    return "extension_loaded_bridge_disconnected";
-  }
-  if (status?.installed) {
-    return "needs_load_unpacked";
-  }
-  return busy ? "preparing" : "failed_actionable";
-}
-
-function probeExtension(
-  extensionId: string | undefined,
-  method: "status.get" | "bridge.connect" | "extension.reload",
-): Promise<ExtensionProbeStatus | null> {
-  if (
-    !extensionId ||
-    typeof chrome === "undefined" ||
-    !chrome.runtime ||
-    !chrome.runtime.sendMessage
-  ) {
-    return Promise.resolve(null);
-  }
-  const sendMessage = chrome.runtime.sendMessage;
-  return new Promise((resolve) => {
-    sendMessage(extensionId, { method }, (response) => {
-      const error = chrome.runtime?.lastError?.message;
-      if (error) {
-        resolve({ ok: false, error });
-        return;
-      }
-      resolve(response || null);
-    });
-  });
-}
-
-const diagnosticHintKeys = new Set<MessageKey>([
-  "browser_bridge_disconnected",
-  "browser_backend_unavailable",
-  "browser_bridge_action_runtime_missing",
-  "isolated_backend_unavailable",
-]);
-
-function diagnosticRows(
-  status: ExtensionStatus | null,
-): BrowserBackendDiagnostic[] {
-  return (status?.sdk_diagnostics?.backends ?? []).filter(
-    (backend) => backend.code || backend.status !== "available",
-  );
-}
-
-function diagnosticHint(
-  backend: BrowserBackendDiagnostic,
-  locale: BrowserBridgeLocale,
-) {
-  const hintKey = backend.hint_key || backend.code;
-  if (hintKey && diagnosticHintKeys.has(hintKey as MessageKey)) {
-    return translate(locale, hintKey as MessageKey);
-  }
-  return (
-    backend.message_fallback ||
-    backend.message ||
-    backend.reason ||
-    backend.code ||
-    backend.backend_id
-  );
-}
-
-function diagnosticStatusLabel(
-  status: BrowserDiagnosticStatus,
-  locale: BrowserBridgeLocale,
-) {
-  if (status === "available") {
-    return translate(locale, "diagnosticAvailable");
-  }
-  if (status === "degraded") {
-    return translate(locale, "diagnosticDegraded");
-  }
-  return translate(locale, "diagnosticUnavailable");
-}
-
-function normalizeCollapseKeys(keys: unknown) {
-  return Array.isArray(keys) ? keys : keys ? [String(keys)] : [];
-}
-
-function BrowserBridgeLogo({ size = 38 }: { size?: number }) {
-  return (
-    <svg
-      aria-hidden="true"
-      fill="none"
-      focusable="false"
-      height={size}
-      style={{ display: "block" }}
-      viewBox="0 0 38 38"
-      width={size}
-    >
-      <rect
-        fill="none"
-        height="25"
-        rx="6"
-        stroke="currentColor"
-        strokeWidth="2"
-        width="30"
-        x="4"
-        y="6"
-      />
-      <path d="M4 13H34" stroke="currentColor" strokeWidth="2" />
-      <circle cx="9" cy="9.5" fill="currentColor" r="1.2" />
-      <circle cx="13" cy="9.5" fill="currentColor" opacity="0.62" r="1.2" />
-      <path
-        d="M18.5 17.5L29.5 22.1L24.8 24L28 30.1L25.3 31.5L22.1 25.5L18.5 29.2V17.5Z"
-        fill="currentColor"
-      />
-    </svg>
-  );
-}
-
-function DiagnosticsPanel({
-  locale,
-  status,
-}: {
-  locale: BrowserBridgeLocale;
-  status: ExtensionStatus | null;
-}) {
-  const rows = diagnosticRows(status);
-
-  if (!rows.length) {
-    return null;
-  }
-
-  return (
-    <Card style={styles.diagnosticsPanel}>
-      <Space direction="vertical" size={12} style={{ width: "100%" }}>
-        <Text strong>{translate(locale, "diagnosticsTitle")}</Text>
-        <div style={styles.diagnosticsList}>
-          {rows.map((backend) => (
-            <div
-              key={`${backend.backend_id}:${backend.code || backend.status}`}
-              style={styles.diagnosticRow}
-            >
-              <div>
-                <Text strong>{backend.backend_id}</Text>
-                <br />
-                <Text type="secondary">
-                  {diagnosticStatusLabel(backend.status, locale)}
-                </Text>
-              </div>
-              <div style={styles.diagnosticMessage}>
-                {backend.code ? (
-                  <code style={styles.diagnosticCode}>{backend.code}</code>
-                ) : null}
-                <Text>{diagnosticHint(backend, locale)}</Text>
-              </div>
-            </div>
-          ))}
-        </div>
-      </Space>
-    </Card>
-  );
-}
-
-function BrowserBridgeRouteIcon() {
-  return (
-    <span
-      style={{
-        display: "inline-block",
-        filter: "grayscale(1) contrast(1.08)",
-        lineHeight: 1,
-        WebkitFilter: "grayscale(1) contrast(1.08)",
-      }}
-    >
-      🌐
-    </span>
-  );
+  return `${protocol}//${window.location.host}/ws/chrome`;
 }
 
 function formatConnectedSince(
@@ -726,285 +328,85 @@ function formatConnectedSince(
   if (!value) {
     return translate(locale, "justNow");
   }
-
   const timestamp = new Date(value).getTime();
   if (Number.isNaN(timestamp)) {
     return translate(locale, "justNow");
   }
-
-  const seconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
-  if (seconds < 60) {
+  const minutes = Math.max(0, Math.floor((Date.now() - timestamp) / 60000));
+  if (minutes < 1) {
     return translate(locale, "justNow");
   }
-
-  const minutes = Math.floor(seconds / 60);
   if (minutes < 60) {
     return translate(locale, "minutesAgo", { count: minutes });
   }
-
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) {
-    return translate(locale, "hoursAgo", { count: hours });
-  }
-
-  return translate(locale, "daysAgo", { count: Math.floor(hours / 24) });
+  return translate(locale, "hoursAgo", { count: Math.floor(minutes / 60) });
 }
 
-function lifecycleTitle(state: LifecycleState): MessageKey {
-  if (state === "preparing") {
-    return "lifecyclePreparingTitle";
-  }
-  if (state === "repairing") {
-    return "lifecycleRepairingTitle";
-  }
-  if (state === "needs_load_unpacked") {
-    return "lifecycleLoadUnpackedTitle";
-  }
-  if (state === "extension_loaded_bridge_disconnected") {
-    return "lifecycleConnectTitle";
-  }
-  if (state === "connected") {
-    return "readyTitle";
-  }
-  return "lifecycleFailedTitle";
-}
-
-function lifecycleDescription(state: LifecycleState): MessageKey {
-  if (state === "preparing") {
-    return "lifecyclePreparingDescription";
-  }
-  if (state === "repairing") {
-    return "lifecycleRepairingDescription";
-  }
-  if (state === "needs_load_unpacked") {
-    return "lifecycleLoadUnpackedDescription";
-  }
-  if (state === "extension_loaded_bridge_disconnected") {
-    return "lifecycleConnectDescription";
-  }
-  if (state === "connected") {
-    return "lifecycleConnectedDescription";
-  }
-  return "lifecycleFailedDescription";
-}
-
-function lifecycleStepIndex(state: LifecycleState): number {
-  if (state === "connected") {
-    return 2;
-  }
-  if (state === "needs_load_unpacked") {
-    return 1;
-  }
-  if (state === "extension_loaded_bridge_disconnected") {
-    return 1;
-  }
-  return 0;
-}
-
-function LifecycleWizardView({
-  error,
-  locale,
-  primaryAction,
-  state,
-  status,
-}: {
-  error: string | null;
-  locale: BrowserBridgeLocale;
-  primaryAction: {
-    disabled?: boolean;
-    label: MessageKey;
-    loading?: boolean;
-    onClick: () => void;
-  };
-  state: LifecycleState;
-  status: ExtensionStatus | null;
-}) {
-  const version = status?.version || translate(locale, "versionUnknown");
-  const connectedSince = formatConnectedSince(status?.connected_since, locale);
-
+function StatusDot({ ready }: { ready: boolean }) {
   return (
-    <Card style={styles.centeredCard}>
-      <Steps
-        size="small"
-        current={lifecycleStepIndex(state)}
-        items={[
-          {
-            title: translate(locale, "lifecycleStepPrepare"),
-            status: state === "failed_actionable" ? "error" : "finish",
-          },
-          {
-            title: translate(locale, "lifecycleStepLoad"),
-            status:
-              state === "needs_load_unpacked" ||
-              state === "extension_loaded_bridge_disconnected"
-                ? "process"
-                : state === "connected"
-                ? "finish"
-                : "wait",
-          },
-          {
-            title: translate(locale, "ready"),
-            status: state === "connected" ? "finish" : "wait",
-          },
-        ]}
-      />
-      <div style={styles.progressBody}>
-        {state === "connected" ? (
-          <div style={styles.successCircle}>✓</div>
-        ) : (
-          <div style={styles.iconCircle}>
-            <BrowserBridgeLogo />
-          </div>
-        )}
-        <Title level={3}>{translate(locale, lifecycleTitle(state))}</Title>
-        <Paragraph type="secondary">
-          {translate(locale, lifecycleDescription(state))}
-        </Paragraph>
-        {error ? <Text type="danger">{error}</Text> : null}
-        {state === "connected" ? (
-          <div style={styles.readyMeta}>
-            <Text>
-              {translate(locale, "version")}: {version}
-            </Text>
-            <Text>
-              {translate(locale, "connected")}: {connectedSince}
-            </Text>
-          </div>
-        ) : null}
-        <Button
-          type="primary"
-          size="large"
-          disabled={primaryAction.disabled}
-          loading={primaryAction.loading}
-          onClick={primaryAction.onClick}
-        >
-          {translate(locale, primaryAction.label)}
-        </Button>
-      </div>
-      {status?.recovery_copy && state !== "connected" ? (
-        <Alert
-          showIcon
-          type={state === "failed_actionable" ? "error" : "info"}
-          message={status.recovery_copy}
-        />
-      ) : null}
-    </Card>
+    <span
+      aria-hidden="true"
+      style={{
+        ...styles.statusDot,
+        background: ready ? "#1f7a3f" : "#9a6700",
+      }}
+    />
   );
 }
 
-function DeveloperOptions({
+function AdvancedInfo({
   locale,
-  activeKey,
-  loading,
-  pathRows,
-  setupLoading,
-  status,
-  onChange,
   onCopy,
-  onOpenChromeExtensions,
-  onOpenExtensionFolder,
-  onRegenerate,
-  onReloadExtension,
-  onReset,
+  status,
 }: {
   locale: BrowserBridgeLocale;
-  activeKey: string[];
-  loading: boolean;
-  pathRows: PathRow[];
-  setupLoading: boolean;
-  status: ExtensionStatus | null;
-  onChange: (keys: unknown) => void;
   onCopy: (value: string) => void;
-  onOpenChromeExtensions: () => void;
-  onOpenExtensionFolder: () => void;
-  onRegenerate: () => void;
-  onReloadExtension: () => void;
-  onReset: () => void;
+  status: ExtensionStatus | null;
 }) {
+  const rows: PathRow[] = [
+    { key: "extension_dir", label: "extensionDir" },
+    { key: "native_manifest_path", label: "nativeManifest" },
+    { key: "native_host_path", label: "nativeHost" },
+    { key: "config_path", label: "config" },
+  ];
   const wsUrl = status?.ws_url || currentBridgeWsUrl();
 
   return (
     <Collapse
-      activeKey={activeKey}
-      style={styles.developerPanel}
-      onChange={onChange}
+      style={styles.advanced}
       items={[
         {
-          key: "developer",
-          label: (
-            <Space size={8}>
-              {translate(locale, "advancedDiagnosticsTitle")}
-            </Space>
-          ),
+          key: "advanced",
+          label: translate(locale, "advancedInfo"),
           children: (
-            <Spin spinning={loading && !status}>
-              <div style={styles.developerContent}>
-                <div style={styles.modeRow}>
-                  <Text type="secondary">
-                    {translate(locale, "installMode")}
-                  </Text>
-                  <Text>{status?.install_mode || "-"}</Text>
-                </div>
-
-                <div style={styles.pathList}>
-                  {pathRows.map(({ key, label }) => {
-                    const value = status?.[key] || "-";
-                    return (
-                      <div style={styles.pathRow} key={key}>
-                        <Text type="secondary">{label}</Text>
-                        <code style={styles.pathValue}>{value}</code>
-                        <Button
-                          disabled={!status?.[key]}
-                          onClick={() => onCopy(value)}
-                          aria-label={translate(locale, "copyPathFallback")}
-                        >
-                          {translate(locale, "copyPathFallback")}
-                        </Button>
-                      </div>
-                    );
-                  })}
-                  <div style={styles.pathRow}>
+            <div style={styles.advancedRows}>
+              {rows.map((row) => {
+                const value = status?.[row.key] || "-";
+                return (
+                  <div key={row.key} style={styles.advancedRow}>
                     <Text type="secondary">
-                      {translate(locale, "bridgeEndpoint")}
+                      {translate(locale, row.label)}
                     </Text>
-                    <code style={styles.pathValue}>{wsUrl}</code>
+                    <code style={styles.advancedValue}>{value}</code>
                     <Button
-                      onClick={() => onCopy(wsUrl)}
-                      aria-label={translate(locale, "copyPathFallback")}
+                      disabled={!status?.[row.key]}
+                      onClick={() => onCopy(value)}
                     >
-                      {translate(locale, "copyPathFallback")}
+                      {translate(locale, "copyPath")}
                     </Button>
                   </div>
-                </div>
-
-                <div style={styles.developerActions}>
-                  <Button onClick={onOpenChromeExtensions}>
-                    {translate(locale, "openChromeExtensions")}
-                  </Button>
-                  <Button onClick={onOpenExtensionFolder}>
-                    {translate(locale, "openExtensionFolder")}
-                  </Button>
-                  <Button onClick={onReloadExtension}>
-                    {translate(locale, "reloadExtension")}
-                  </Button>
-                  <Button loading={setupLoading} onClick={onRegenerate}>
-                    {translate(locale, "regenerate")}
-                  </Button>
-                  <Button loading={setupLoading} onClick={onReset}>
-                    {translate(locale, "reset")}
-                  </Button>
-                </div>
-
-                <div style={styles.unpackedSteps}>
-                  <Text strong>{translate(locale, "unpackedTitle")}</Text>
-                  <ol>
-                    <li>{translate(locale, "stepOpen")}</li>
-                    <li>{translate(locale, "stepLoad")}</li>
-                    <li>{translate(locale, "stepVerify")}</li>
-                  </ol>
-                </div>
+                );
+              })}
+              <div style={styles.advancedRow}>
+                <Text type="secondary">
+                  {translate(locale, "bridgeEndpoint")}
+                </Text>
+                <code style={styles.advancedValue}>{wsUrl}</code>
+                <Button onClick={() => onCopy(wsUrl)}>
+                  {translate(locale, "copyPath")}
+                </Button>
               </div>
-            </Spin>
+            </div>
           ),
         },
       ]}
@@ -1012,601 +414,257 @@ function DeveloperOptions({
   );
 }
 
-function statusLabelForState(state: LifecycleState): MessageKey {
-  if (state === "connected") {
-    return "statusConnected";
-  }
-  if (state === "preparing" || state === "repairing") {
-    return "statusPreparing";
-  }
-  if (state === "needs_load_unpacked") {
-    return "statusNeedsLoad";
-  }
-  if (state === "extension_loaded_bridge_disconnected") {
-    return "statusNotConnected";
-  }
-  return "statusActionNeeded";
-}
-
-function statusColorForState(state: LifecycleState): string {
-  if (state === "connected") {
-    return "#389e0d";
-  }
-  if (state === "failed_actionable") {
-    return "#cf1322";
-  }
-  if (state === "needs_load_unpacked") {
-    return "#d46b08";
-  }
-  return "#0958d9";
-}
-
-function StatusDot({ color }: { color: string }) {
-  return (
-    <span
-      aria-hidden="true"
-      style={{
-        width: 8,
-        height: 8,
-        borderRadius: 999,
-        background: color,
-        display: "inline-block",
-        flexShrink: 0,
-      }}
-    />
-  );
-}
-
-function ConnectionStatusCard({
-  error,
-  locale,
-  loading,
-  primaryAction,
-  state,
-  status,
-}: {
-  error: string | null;
-  locale: BrowserBridgeLocale;
-  loading: boolean;
-  primaryAction: PrimaryAction;
-  state: LifecycleState;
-  status: ExtensionStatus | null;
-}) {
-  const color = statusColorForState(state);
-  const version = status?.version || translate(locale, "versionUnknown");
-  const connectedSince = formatConnectedSince(status?.connected_since, locale);
-
-  return (
-    <Card style={styles.centeredCard}>
-      <Space direction="vertical" size={14} style={{ width: "100%" }}>
-        <div>
-          <Text strong>{translate(locale, "statusTitle")}</Text>
-          <br />
-          <Text type="secondary">
-            {translate(locale, lifecycleDescription(state))}
-          </Text>
-        </div>
-        <div style={styles.statusPill}>
-          <StatusDot color={color} />
-          <Text>{translate(locale, statusLabelForState(state))}</Text>
-        </div>
-        {state === "connected" ? (
-          <Space size={16} wrap>
-            <Text>
-              {translate(locale, "version")}: {version}
-            </Text>
-            <Text>
-              {translate(locale, "connected")}: {connectedSince}
-            </Text>
-          </Space>
-        ) : null}
-        {status?.recovery_copy && state !== "connected" ? (
-          <Alert
-            showIcon
-            type={state === "failed_actionable" ? "error" : "info"}
-            message={status.recovery_copy}
-          />
-        ) : null}
-        {error ? <Text type="danger">{error}</Text> : null}
-        <Button
-          type="primary"
-          disabled={primaryAction.disabled}
-          loading={primaryAction.loading || loading}
-          onClick={primaryAction.onClick}
-        >
-          {translate(locale, primaryAction.label)}
-        </Button>
-      </Space>
-    </Card>
-  );
-}
-
-function InstallMethods({
-  locale,
-  setupLoading,
-  onRunSetup,
-}: {
-  locale: BrowserBridgeLocale;
-  setupLoading: boolean;
-  onRunSetup: () => void;
-}) {
-  return (
-    <div style={styles.setupGrid}>
-      <div style={styles.methodTile}>
-        <div style={styles.methodHeader}>
-          <Text strong>{translate(locale, "localMethodTitle")}</Text>
-          <span style={styles.badge}>
-            {translate(locale, "recommendedBadge")}
-          </span>
-        </div>
-        <Text type="secondary">
-          {translate(locale, "localMethodDescription")}
-        </Text>
-        <Button type="primary" loading={setupLoading} onClick={onRunSetup}>
-          {translate(locale, "runSetup")}
-        </Button>
-      </div>
-      <div style={styles.disabledMethodTile} aria-disabled="true">
-        <div style={styles.methodHeader}>
-          <Text strong>{translate(locale, "chromeWebStoreTitle")}</Text>
-          <span style={styles.badge}>{translate(locale, "comingSoon")}</span>
-        </div>
-        <Text type="secondary">
-          {translate(locale, "chromeWebStoreDescription")}
-        </Text>
-        <Button disabled>{translate(locale, "comingSoon")}</Button>
-      </div>
-    </div>
-  );
-}
-
-function LocalInstallSteps({
-  locale,
-  loading,
-  setupLoading,
-  status,
-  onCopy,
-  onOpenChromeExtensions,
-  onOpenExtensionFolder,
-  onRunSetup,
-}: {
-  locale: BrowserBridgeLocale;
-  loading: boolean;
-  setupLoading: boolean;
-  status: ExtensionStatus | null;
-  onCopy: (value: string) => void;
-  onOpenChromeExtensions: () => void;
-  onOpenExtensionFolder: () => void;
-  onRunSetup: () => void;
-}) {
-  const extensionDir = status?.extension_dir || "-";
-
-  return (
-    <Card style={styles.localPanel}>
-      <Spin spinning={loading && !status}>
-        <div style={styles.localBody}>
-          <Space direction="vertical" size={10}>
-            <Text strong>{translate(locale, "localStepsTitle")}</Text>
-            <ol style={{ margin: 0, paddingLeft: 20 }}>
-              <li>{translate(locale, "stepOpen")}</li>
-              <li>{translate(locale, "stepLoad")}</li>
-              <li>{translate(locale, "stepVerify")}</li>
-            </ol>
-          </Space>
-          <Space direction="vertical" size={10}>
-            <Text strong>{translate(locale, "directoryActionsTitle")}</Text>
-            <code style={styles.pathValue}>{extensionDir}</code>
-            <Space wrap>
-              <Button onClick={onOpenChromeExtensions}>
-                {translate(locale, "openChromeExtensions")}
-              </Button>
-              <Button onClick={onOpenExtensionFolder}>
-                {translate(locale, "openExtensionFolder")}
-              </Button>
-              <Button
-                disabled={!status?.extension_dir}
-                onClick={() => onCopy(extensionDir)}
-              >
-                {translate(locale, "copyPathFallback")}
-              </Button>
-              <Button loading={setupLoading} onClick={onRunSetup}>
-                {translate(locale, "retrySetup")}
-              </Button>
-            </Space>
-          </Space>
-        </div>
-      </Spin>
-    </Card>
-  );
-}
-
-function ConnectedChecks({
-  locale,
-  loading,
-  status,
-  onConnectExtension,
-  onRefresh,
-  onReloadExtension,
-}: {
-  locale: BrowserBridgeLocale;
-  loading: boolean;
-  status: ExtensionStatus | null;
-  onConnectExtension: () => void;
-  onRefresh: () => void;
-  onReloadExtension: () => void;
-}) {
-  const checks = [
-    {
-      label: translate(locale, "extensionLoadedCheck"),
-      ready: Boolean(status?.installed),
-    },
-    {
-      label: translate(locale, "chromeConnectedCheck"),
-      ready: Boolean(status?.connected),
-    },
-    {
-      label: translate(locale, "backendReadyCheck"),
-      ready: status?.setup_phase === "connected",
-    },
-  ];
-
-  return (
-    <Card style={styles.connectedChecks}>
-      <Space direction="vertical" size={12} style={{ width: "100%" }}>
-        <Text strong>{translate(locale, "connectedChecksTitle")}</Text>
-        <div style={styles.setupGrid}>
-          {checks.map((check) => (
-            <div key={check.label} style={styles.methodTile}>
-              <div style={styles.statusPill}>
-                <StatusDot color={check.ready ? "#389e0d" : "#d46b08"} />
-                <Text>{check.label}</Text>
-              </div>
-              <Text type="secondary">
-                {check.ready
-                  ? translate(locale, "checkReady")
-                  : translate(locale, "checkNeedsAction")}
-              </Text>
-            </div>
-          ))}
-        </div>
-        <Space wrap>
-          <Button loading={loading} onClick={onRefresh}>
-            {translate(locale, "refreshStatus")}
-          </Button>
-          <Button onClick={onConnectExtension}>
-            {translate(locale, "connectExtension")}
-          </Button>
-          <Button onClick={onReloadExtension}>
-            {translate(locale, "reloadExtension")}
-          </Button>
-        </Space>
-      </Space>
-    </Card>
-  );
-}
-
-function BrowserBridgeSetupPage() {
+function ChromeSetupPage() {
   const locale = resolveBrowserBridgeLocale();
-  const developerRef = React.useRef<HTMLDivElement | null>(null);
   const [status, setStatus] = React.useState<ExtensionStatus | null>(null);
-  const [extensionProbe, setExtensionProbe] =
-    React.useState<ExtensionProbeStatus | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [setupLoading, setSetupLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
-  const [developerActiveKey, setDeveloperActiveKey] = React.useState<string[]>(
-    [],
-  );
-  const [lifecycleState, setLifecycleState] =
-    React.useState<LifecycleState>("preparing");
 
-  const pathRows = React.useMemo(
-    () => [
-      {
-        key: "extension_dir" as const,
-        label: translate(locale, "extensionDir"),
-      },
-      {
-        key: "native_manifest_path" as const,
-        label: translate(locale, "nativeManifest"),
-      },
-      {
-        key: "native_host_path" as const,
-        label: translate(locale, "nativeHost"),
-      },
-      {
-        key: "config_path" as const,
-        label: translate(locale, "config"),
-      },
-    ],
+  const refreshStatus = React.useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const next = await getStatus();
+      setStatus(next);
+      return next;
+    } catch (err) {
+      const messageText = err instanceof Error ? err.message : String(err);
+      setError(messageText);
+      return null;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    void refreshStatus();
+  }, [refreshStatus]);
+
+  const prepareLocalFiles = React.useCallback(async () => {
+    if (status?.extension_dir) {
+      return status;
+    }
+    setSetupLoading(true);
+    setError(null);
+    try {
+      const next = await setupExtension({
+        install_mode: "unpacked",
+        ws_url: currentBridgeWsUrl(),
+      });
+      setStatus(next);
+      message.success(translate(locale, "installSuccess"));
+      return next;
+    } catch (err) {
+      const messageText = err instanceof Error ? err.message : String(err);
+      setError(messageText);
+      message.error(translate(locale, "installFailed"));
+      return null;
+    } finally {
+      setSetupLoading(false);
+    }
+  }, [locale, status]);
+
+  const copyValue = React.useCallback(
+    async (value: string) => {
+      await navigator.clipboard?.writeText(value);
+      message.success(translate(locale, "copied"));
+    },
     [locale],
   );
 
-  const runExtensionProbe = React.useCallback(
-    async (
-      nextStatus: ExtensionStatus,
-    ): Promise<ExtensionProbeStatus | null> => {
-      const firstProbe = await probeExtension(
-        nextStatus.extension_id,
-        "status.get",
-      );
-      setExtensionProbe(firstProbe);
-
-      if (!firstProbe?.ok) {
-        return firstProbe;
-      }
-
-      if (nextStatus.connected) {
-        return firstProbe;
-      }
-
-      if (
-        nextStatus.setup_phase === "stale_build" ||
-        nextStatus.build_freshness?.status === "stale"
-      ) {
-        const reloadProbe = await probeExtension(
-          nextStatus.extension_id,
-          "extension.reload",
-        );
-        setExtensionProbe(reloadProbe || firstProbe);
-        return reloadProbe || firstProbe;
-      }
-
-      if (!nextStatus.connected) {
-        const connectProbe = await probeExtension(
-          nextStatus.extension_id,
-          "bridge.connect",
-        );
-        setExtensionProbe(connectProbe || firstProbe);
-        return connectProbe || firstProbe;
-      }
-
-      return firstProbe;
-    },
-    [],
-  );
-
-  const refreshLifecycle = React.useCallback(
-    async (
-      options: { autoPrepare?: boolean } = {},
-    ): Promise<ExtensionStatus | null> => {
-      setLoading(true);
-      setError(null);
-      setLifecycleState((previous) =>
-        previous === "connected" ? previous : "preparing",
-      );
-      try {
-        let next = await getStatus();
-        setStatus(next);
-
-        if (options.autoPrepare && shouldAutoPrepare(next)) {
-          setLifecycleState("repairing");
-          setSetupLoading(true);
-          next = await setupExtension({
-            install_mode: "unpacked",
-            reset: shouldResetForRepair(next),
-            ws_url: currentBridgeWsUrl(),
-          });
-          setStatus(next);
-          message.success(translate(locale, "installSuccess"));
-        }
-
-        const probe = await runExtensionProbe(next);
-        const latest = await getStatus();
-        setStatus(latest);
-        setLifecycleState(deriveLifecycleState(latest, probe, false, null));
-        return latest;
-      } catch (err) {
-        const nextError = err instanceof Error ? err.message : String(err);
-        setError(nextError);
-        setLifecycleState("failed_actionable");
-        message.error(translate(locale, "installFailed"));
-        return null;
-      } finally {
-        setSetupLoading(false);
-        setLoading(false);
-      }
-    },
-    [locale, runExtensionProbe],
-  );
-
-  React.useEffect(() => {
-    void refreshLifecycle({ autoPrepare: true });
-  }, [refreshLifecycle]);
-
-  React.useEffect(() => {
-    if (
-      lifecycleState !== "needs_load_unpacked" &&
-      lifecycleState !== "extension_loaded_bridge_disconnected"
-    ) {
-      return undefined;
+  const handleCopyPath = React.useCallback(async () => {
+    const next = await prepareLocalFiles();
+    if (next?.extension_dir) {
+      await copyValue(next.extension_dir);
     }
+  }, [copyValue, prepareLocalFiles]);
 
-    const pollId = window.setInterval(() => {
-      void refreshLifecycle();
-    }, 3000);
+  const handleOpenFolder = React.useCallback(async () => {
+    await prepareLocalFiles();
+    const result = await openExtensionFolder();
+    if (!result.opened && result.error) {
+      message.warning(result.error);
+    }
+  }, [prepareLocalFiles]);
 
-    return () => {
-      window.clearInterval(pollId);
-    };
-  }, [lifecycleState, refreshLifecycle]);
-
-  const copyValue = async (value: string) => {
-    await navigator.clipboard?.writeText(value);
-    message.success(translate(locale, "copied"));
-  };
-
-  const handleDeveloperChange = (keys: unknown) => {
-    setDeveloperActiveKey(normalizeCollapseKeys(keys));
-  };
-
-  const handleOpenChromeExtensions = React.useCallback(async () => {
+  const handleOpenChrome = React.useCallback(async () => {
     const result = await openChromeExtensionsPage();
     if (!result.opened && result.error) {
       message.warning(result.error);
     }
   }, []);
 
-  const handleOpenExtensionFolder = React.useCallback(async () => {
-    const result = await openExtensionFolder();
-    if (!result.opened && result.error) {
-      message.warning(result.error);
-    }
-  }, []);
-
-  const handleConnectExtension = React.useCallback(async () => {
-    const probe = await probeExtension(status?.extension_id, "bridge.connect");
-    setExtensionProbe(probe);
-    await refreshLifecycle();
-  }, [refreshLifecycle, status?.extension_id]);
-
-  const handleReloadExtension = React.useCallback(async () => {
-    const probe = await probeExtension(
-      status?.extension_id,
-      "extension.reload",
-    );
-    setExtensionProbe(probe);
-    await refreshLifecycle();
-  }, [refreshLifecycle, status?.extension_id]);
-
-  const handleManualRegenerate = React.useCallback(
-    async (reset: boolean) => {
-      setSetupLoading(true);
-      setError(null);
-      try {
-        const next = await setupExtension({
-          install_mode: "unpacked",
-          reset,
-          ws_url: currentBridgeWsUrl(),
-        });
-        setStatus(next);
-        message.success(translate(locale, "installSuccess"));
-        await refreshLifecycle();
-      } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
-        setLifecycleState("failed_actionable");
-        message.error(translate(locale, "installFailed"));
-      } finally {
-        setSetupLoading(false);
-      }
-    },
-    [locale, refreshLifecycle],
-  );
-
-  const primaryAction = React.useMemo<PrimaryAction>(() => {
-    const busy = loading || setupLoading;
-    if (lifecycleState === "needs_load_unpacked") {
-      return {
-        label: "openChromeExtensions" as const,
-        loading: false,
-        onClick: () => void handleOpenChromeExtensions(),
-      };
-    }
-    if (lifecycleState === "extension_loaded_bridge_disconnected") {
-      return {
-        label: "connectExtension" as const,
-        loading: busy,
-        onClick: () => void handleConnectExtension(),
-      };
-    }
-    if (lifecycleState === "connected") {
-      return {
-        label: "refreshStatus" as const,
-        loading,
-        onClick: () => void refreshLifecycle(),
-      };
-    }
-    if (lifecycleState === "failed_actionable") {
-      return {
-        label: "retrySetup" as const,
-        loading: busy,
-        onClick: () => void refreshLifecycle({ autoPrepare: true }),
-      };
-    }
-    return {
-      disabled: true,
-      label:
-        lifecycleState === "repairing"
-          ? ("repairingAction" as const)
-          : ("preparingAction" as const),
-      loading: true,
-      onClick: () => undefined,
-    };
-  }, [
-    handleConnectExtension,
-    handleOpenChromeExtensions,
-    lifecycleState,
-    loading,
-    refreshLifecycle,
-    setupLoading,
-  ]);
+  const isConnected = Boolean(status?.connected);
+  const showInstallFlow = !isConnected;
+  const version = status?.version || translate(locale, "versionUnknown");
+  const connectedSince = formatConnectedSince(status?.connected_since, locale);
+  const connectedChecks = [
+    translate(locale, "extensionLoadedCheck"),
+    translate(locale, "localConnectionCheck"),
+  ];
 
   return (
     <div style={styles.page}>
-      <div style={styles.header}>
-        <div style={styles.headerTitleRow}>
-          <div style={styles.headerIcon}>
-            <BrowserBridgeLogo />
+      <div style={styles.shell}>
+        <div style={styles.panel}>
+          <div style={styles.statusBlock}>
+            <div>
+              <div style={styles.header}>
+                <div style={styles.titleRow}>
+                  <span style={styles.chromeIcon} />
+                  <div>
+                    <Title level={3} style={{ margin: 0 }}>
+                      {translate(locale, "pageTitle")}
+                    </Title>
+                    <Text type="secondary">
+                      {translate(locale, "pageSubtitle")}
+                    </Text>
+                  </div>
+                </div>
+              </div>
+              <div style={{ marginTop: 22 }}>
+                <div style={styles.statusTitleRow}>
+                  <StatusDot ready={isConnected} />
+                  <Title level={4} style={{ margin: 0 }}>
+                    {isConnected
+                      ? translate(locale, "readyTitle")
+                      : translate(locale, "installTitle")}
+                  </Title>
+                </div>
+                <div style={styles.statusCopy}>
+                  {isConnected
+                    ? translate(locale, "readyDescription", {
+                        version,
+                        connectedSince,
+                      })
+                    : status?.recovery_copy ||
+                      translate(locale, "installDescription")}
+                </div>
+              </div>
+            </div>
+            <div style={styles.actions}>
+              {isConnected ? (
+                <>
+                  <Button loading={loading} onClick={() => void refreshStatus()}>
+                    {translate(locale, "refreshStatus")}
+                  </Button>
+                  <Button type="primary" onClick={() => void handleOpenChrome()}>
+                    {translate(locale, "openChrome")}
+                  </Button>
+                </>
+              ) : (
+                <Button
+                  type="primary"
+                  loading={loading}
+                  onClick={() => void refreshStatus()}
+                >
+                  {translate(locale, "installedRefresh")}
+                </Button>
+              )}
+            </div>
           </div>
-          <div style={styles.headerText}>
-            <Title level={3} style={{ margin: 0 }}>
-              {translate(locale, "pageTitle")}
-            </Title>
-            <Text type="secondary">{translate(locale, "pageSubtitle")}</Text>
-          </div>
-        </div>
-      </div>
-      <div style={styles.content}>
-        {error ? <Alert type="error" showIcon message={error} /> : null}
-        <ConnectionStatusCard
-          error={error}
-          loading={loading}
-          locale={locale}
-          primaryAction={primaryAction}
-          state={lifecycleState}
-          status={status}
-        />
-        <InstallMethods
-          locale={locale}
-          onRunSetup={() => void handleManualRegenerate(false)}
-          setupLoading={setupLoading}
-        />
-        <LocalInstallSteps
-          loading={loading}
-          locale={locale}
-          onCopy={(value) => void copyValue(value)}
-          onOpenChromeExtensions={() => void handleOpenChromeExtensions()}
-          onOpenExtensionFolder={() => void handleOpenExtensionFolder()}
-          onRunSetup={() => void handleManualRegenerate(false)}
-          setupLoading={setupLoading}
-          status={status}
-        />
-        <ConnectedChecks
-          loading={loading}
-          locale={locale}
-          onConnectExtension={() => void handleConnectExtension()}
-          onRefresh={() => void refreshLifecycle()}
-          onReloadExtension={() => void handleReloadExtension()}
-          status={status}
-        />
-        <DiagnosticsPanel locale={locale} status={status} />
-        <div ref={developerRef}>
-          <DeveloperOptions
-            activeKey={developerActiveKey}
-            loading={loading}
+
+          {error ? (
+            <Alert
+              showIcon
+              type="error"
+              message={error}
+              style={{ marginTop: 16 }}
+            />
+          ) : null}
+
+          {isConnected ? (
+            <div style={styles.section}>
+              <Text strong>{translate(locale, "checksTitle")}</Text>
+              <div style={styles.checkGrid}>
+                {connectedChecks.map((label) => (
+                  <div key={label} style={styles.checkTile}>
+                    <div style={styles.checkTitle}>
+                      <StatusDot ready />
+                      <Text strong>{label}</Text>
+                    </div>
+                    <Text type="secondary">
+                      {translate(locale, "checkReady")}
+                    </Text>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : showInstallFlow ? (
+            <>
+              <div style={styles.section}>
+                <Text strong>{translate(locale, "installMethodsTitle")}</Text>
+                <div style={styles.methodGrid}>
+                  <div style={styles.methodTile}>
+                    <div style={styles.methodHeader}>
+                      <Text strong>{translate(locale, "localMethodTitle")}</Text>
+                      <span style={styles.badge}>
+                        {translate(locale, "recommendedBadge")}
+                      </span>
+                    </div>
+                    <Text type="secondary">
+                      {translate(locale, "localMethodDescription")}
+                    </Text>
+                  </div>
+                  <div style={styles.disabledTile} aria-disabled="true">
+                    <div style={styles.methodHeader}>
+                      <Text strong>
+                        {translate(locale, "chromeWebStoreTitle")}
+                      </Text>
+                      <span style={styles.badge}>
+                        {translate(locale, "comingSoon")}
+                      </span>
+                    </div>
+                    <Text type="secondary">
+                      {translate(locale, "chromeWebStoreDescription")}
+                    </Text>
+                    <Button disabled>{translate(locale, "comingSoon")}</Button>
+                  </div>
+                </div>
+              </div>
+
+              <div style={styles.section}>
+                <Text strong>{translate(locale, "localStepsTitle")}</Text>
+                <ol style={styles.steps}>
+                  <li>{translate(locale, "stepOpen")}</li>
+                  <li>{translate(locale, "stepLoad")}</li>
+                  <li>{translate(locale, "stepVerify")}</li>
+                </ol>
+                <div style={styles.directoryBox}>
+                  <div>
+                    <Text strong>{translate(locale, "directoryLabel")}</Text>
+                    <br />
+                    <Text type="secondary">
+                      {translate(locale, "directoryHint")}
+                    </Text>
+                  </div>
+                  <Space wrap>
+                    <Button
+                      loading={setupLoading}
+                      onClick={() => void handleOpenFolder()}
+                    >
+                      {translate(locale, "openExtensionFolder")}
+                    </Button>
+                    <Button
+                      loading={setupLoading}
+                      onClick={() => void handleCopyPath()}
+                    >
+                      {translate(locale, "copyPath")}
+                    </Button>
+                  </Space>
+                </div>
+              </div>
+            </>
+          ) : null}
+
+          <AdvancedInfo
             locale={locale}
-            onChange={handleDeveloperChange}
             onCopy={(value) => void copyValue(value)}
-            onOpenChromeExtensions={() => void handleOpenChromeExtensions()}
-            onOpenExtensionFolder={() => void handleOpenExtensionFolder()}
-            onRegenerate={() => void handleManualRegenerate(false)}
-            onReloadExtension={() => void handleReloadExtension()}
-            onReset={() => void handleManualRegenerate(true)}
-            pathRows={pathRows}
-            setupLoading={setupLoading}
             status={status}
           />
         </div>
+        {loading && !status ? <Spin /> : null}
       </div>
     </div>
   );
@@ -1614,12 +672,12 @@ function BrowserBridgeSetupPage() {
 
 const routeLocale = resolveBrowserBridgeLocale();
 
-window.QwenPaw.registerRoutes?.("browser-bridge", [
+window.QwenPaw.registerRoutes?.("chrome", [
   {
-    path: "/plugin/browser-bridge",
-    component: BrowserBridgeSetupPage,
+    path: "/plugin/chrome",
+    component: ChromeSetupPage,
     label: translate(routeLocale, "routeLabel"),
-    icon: <BrowserBridgeRouteIcon />,
+    icon: <span style={styles.chromeIcon} />,
     priority: 40,
   },
 ]);

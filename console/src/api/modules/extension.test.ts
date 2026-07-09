@@ -15,7 +15,7 @@ describe("extensionApi", () => {
 
     await extensionApi.getStatus();
 
-    expect(request).toHaveBeenCalledWith("/browser-bridge/status");
+    expect(request).toHaveBeenCalledWith("/chrome/status");
   });
 
   it("runs one-click setup with install mode and reset flag", async () => {
@@ -23,7 +23,7 @@ describe("extensionApi", () => {
 
     await extensionApi.setup({ install_mode: "unpacked", reset: true });
 
-    expect(request).toHaveBeenCalledWith("/browser-bridge/setup", {
+    expect(request).toHaveBeenCalledWith("/chrome/setup", {
       method: "POST",
       body: JSON.stringify({ install_mode: "unpacked", reset: true }),
     });

@@ -581,7 +581,11 @@ class PluginLoader:
 
         from .state import PluginStateStore
 
-        if not PluginStateStore().is_enabled(plugin_id):
+        default_enabled = bool(manifest.meta.get("default_enabled", True))
+        if not PluginStateStore().is_enabled(
+            plugin_id,
+            default=default_enabled,
+        ):
             record = PluginRecord(
                 manifest=manifest,
                 source_path=source_path,

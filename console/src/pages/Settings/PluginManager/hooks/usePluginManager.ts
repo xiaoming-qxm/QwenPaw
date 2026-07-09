@@ -7,6 +7,7 @@ import {
   fetchPlugins,
   installPlugin,
   uninstallPlugin,
+  updatePluginEnabled,
 } from "@/api/modules/plugin";
 import type { PluginInfo } from "@/api/modules/plugin";
 
@@ -35,7 +36,11 @@ export function usePluginManager() {
         onOk: async () => {
           setUninstallingId(plugin.id);
           try {
-            await uninstallPlugin(plugin.id);
+            if (plugin.id === "chrome") {
+              await updatePluginEnabled(plugin.id, false);
+            } else {
+              await uninstallPlugin(plugin.id);
+            }
             message.success(t("pluginManager.uninstallSuccess"));
             refresh();
             setTimeout(() => window.location.reload(), 800);

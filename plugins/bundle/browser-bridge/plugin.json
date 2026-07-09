@@ -1,5 +1,5 @@
 {
-  "id": "browser-bridge",
+  "id": "chrome",
   "name": "Chrome",
   "version": "0.1.0",
   "type": "general",
@@ -11,21 +11,23 @@
   },
   "capabilities": [
     {
-      "id": "browser-bridge",
+      "id": "chrome",
       "name": "Chrome",
       "description": "Use QwenPaw with this Chrome browser."
     }
   ],
   "setup": {
     "kind": "native-messaging",
-    "route": "/plugin/browser-bridge",
+    "route": "/plugin/chrome",
     "requires": [
       "chrome-extension",
       "native-messaging-host"
     ]
   },
   "meta": {
-    "builtin": true
+    "builtin": true,
+    "default_enabled": false,
+    "implementation_id": "browser-bridge"
   },
   "entry": {
     "backend": "main.py",

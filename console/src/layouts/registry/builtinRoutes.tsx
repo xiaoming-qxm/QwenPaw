@@ -80,7 +80,7 @@ function ACPRedirect() {
 }
 
 function BrowserExtensionRedirect() {
-  return <Navigate to="/plugin/browser-bridge" replace />;
+  return <Navigate to="/plugin/chrome" replace />;
 }
 
 export const BUILTIN_ROUTES: Route[] = [

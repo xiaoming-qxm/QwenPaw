@@ -1,98 +1,50 @@
-const U = {
+const k = {
   en: {
     routeLabel: "Chrome",
     pageTitle: "Chrome",
     pageSubtitle: "Connect QwenPaw to this Chrome browser.",
     loading: "Checking Chrome connection...",
-    ready: "Ready",
     refreshStatus: "Refresh Status",
+    installedRefresh: "I've installed it, refresh status",
     versionUnknown: "unknown",
+    installTitle: "Install Chrome Extension",
+    installDescription: "Load the local extension, then return here to confirm the connection.",
     readyTitle: "Chrome Connected",
+    readyDescription: "Version {version}. Connected {connectedSince}.",
+    openChrome: "Open Chrome",
+    installMethodsTitle: "Install method",
+    localMethodTitle: "Local install",
+    recommendedBadge: "Recommended",
+    localMethodDescription: "Use the extension files included with QwenPaw for this local browser.",
+    chromeWebStoreTitle: "Chrome Web Store",
+    chromeWebStoreDescription: "The store listing is not available yet. Use local install for now.",
+    comingSoon: "Coming soon",
+    localStepsTitle: "Local install steps",
+    stepOpen: "Open chrome://extensions and enable Developer mode.",
+    stepLoad: "Choose Load unpacked and select the QwenPaw extension folder.",
+    stepVerify: "Return here and refresh the status.",
+    directoryLabel: "QwenPaw built-in extension folder",
+    directoryHint: "Path is available from copy or advanced information.",
+    openExtensionFolder: "Open Folder",
+    copyPath: "Copy Path",
+    advancedInfo: "Advanced information",
+    extensionDir: "Extension folder",
+    nativeManifest: "Local connection config",
+    nativeHost: "Local connection helper",
+    config: "Local settings file",
+    bridgeEndpoint: "Connection endpoint",
+    checksTitle: "Connection checks",
+    extensionLoadedCheck: "Chrome Extension",
+    localConnectionCheck: "Local connection",
+    checkReady: "Ready",
     version: "Extension version",
     connected: "Connected",
     justNow: "just now",
     minutesAgo: "{count} minutes ago",
     hoursAgo: "{count} hours ago",
-    daysAgo: "{count} days ago",
-    testSuccess: "Chrome connection is ready",
-    testFailed: "Chrome is not connected yet",
-    developerTitle: "Developer options",
-    statusTitle: "Connection status",
-    statusConnected: "Connected",
-    statusNotConnected: "Not connected",
-    statusPreparing: "Preparing",
-    statusNeedsLoad: "Load extension",
-    statusActionNeeded: "Action needed",
-    installMethodsTitle: "Install method",
-    localMethodTitle: "Load unpacked extension",
-    recommendedBadge: "Recommended",
-    localMethodDescription: "Best for local QwenPaw. QwenPaw prepares the extension files and Chrome loads them from disk.",
-    chromeWebStoreTitle: "Chrome Web Store",
-    chromeWebStoreDescription: "The official listing is not available yet. Use the local method for now.",
-    comingSoon: "Coming soon",
-    localStepsTitle: "Local install steps",
-    directoryActionsTitle: "Directory actions",
-    connectedChecksTitle: "Connected checks",
-    extensionLoadedCheck: "Extension files ready",
-    chromeConnectedCheck: "Chrome connected",
-    backendReadyCheck: "QwenPaw ready",
-    checkReady: "Ready",
-    checkNeedsAction: "Needs action",
-    installMode: "Install mode",
-    extensionDir: "Extension folder",
-    nativeManifest: "Native manifest",
-    nativeHost: "Native host",
-    config: "Bridge config",
-    bridgeEndpoint: "Connection endpoint",
-    regenerate: "Regenerate Files",
-    reset: "Reset Config",
-    unpackedTitle: "Local unpacked extension",
-    stepOpen: "Open chrome://extensions and enable Developer mode.",
-    stepLoad: "Choose Load unpacked and select the extension folder.",
-    stepVerify: "Return here and confirm Chrome connects to QwenPaw.",
     installSuccess: "Extension files ready",
     installFailed: "Extension setup failed",
-    copy: "Copy",
     copied: "Copied",
-    diagnosticsTitle: "SDK diagnostics",
-    advancedDiagnosticsTitle: "Advanced Diagnostics",
-    diagnosticBackend: "Backend",
-    diagnosticAvailable: "Available",
-    diagnosticDegraded: "Degraded",
-    diagnosticUnavailable: "Unavailable",
-    selectedBackend: "Selected backend",
-    nativeHostStatus: "Native host",
-    buildFreshness: "Build freshness",
-    reloadExtension: "Reload extension",
-    openChromeExtensions: "Open Chrome Extensions",
-    openExtensionFolder: "Open Extension Folder",
-    copyPathFallback: "Copy Path",
-    connectExtension: "Connect Extension",
-    retrySetup: "Retry Setup",
-    preparingAction: "Preparing...",
-    repairingAction: "Repairing...",
-    lifecycleStepPrepare: "Prepare",
-    lifecycleStepLoad: "Load in Chrome",
-    lifecyclePreparingTitle: "Preparing Chrome connection",
-    lifecyclePreparingDescription: "QwenPaw is checking the local extension files and connection setup.",
-    lifecycleRepairingTitle: "Repairing Local Setup",
-    lifecycleRepairingDescription: "QwenPaw is refreshing the unpacked extension files.",
-    lifecycleLoadUnpackedTitle: "Load the Local Extension",
-    lifecycleLoadUnpackedDescription: "Open Chrome Extensions, enable Developer mode, then load the prepared extension folder.",
-    lifecycleConnectTitle: "Connect the Extension",
-    lifecycleConnectDescription: "The extension is loaded. Ask it to reconnect to QwenPaw.",
-    lifecycleConnectedDescription: "Chrome is connected and ready for local control.",
-    lifecycleFailedTitle: "Setup Needs Attention",
-    lifecycleFailedDescription: "The automatic setup did not finish. Retry setup or inspect advanced diagnostics.",
-    runSetup: "Run setup",
-    restartQwenPaw: "Restart QwenPaw",
-    rebuildFrontend: "Rebuild frontend",
-    approvalRequired: "Review approval",
-    approvalDenied: "Approval was denied",
-    loginRequired: "Sign in to the site",
-    riskControl: "Review site risk",
-    noProgress: "No visible browser progress",
-    cleanupComplete: "Cleanup complete",
     browser_bridge_disconnected: "Reload the extension or reopen the target browser tab.",
     browser_backend_unavailable: "Refresh the status after the backend is available.",
     browser_bridge_action_runtime_missing: "Restart QwenPaw or reload the Chrome plugin.",
@@ -103,184 +55,156 @@ const U = {
     pageTitle: "Chrome",
     pageSubtitle: "将 QwenPaw 连接到此 Chrome 浏览器。",
     loading: "正在检查 Chrome 连接...",
-    ready: "就绪",
     refreshStatus: "刷新状态",
+    installedRefresh: "我已安装，刷新状态",
     versionUnknown: "未知",
+    installTitle: "安装 Chrome 扩展",
+    installDescription: "加载本地扩展后，回到这里确认连接状态。",
     readyTitle: "Chrome 已连接",
+    readyDescription: "版本 {version}。连接于 {connectedSince}。",
+    openChrome: "打开 Chrome",
+    installMethodsTitle: "安装方式",
+    localMethodTitle: "本地安装",
+    recommendedBadge: "推荐",
+    localMethodDescription: "使用 QwenPaw 自带扩展文件连接当前本地浏览器。",
+    chromeWebStoreTitle: "Chrome Web Store",
+    chromeWebStoreDescription: "官方商店版本尚未发布。当前请使用本地安装。",
+    comingSoon: "Coming soon",
+    localStepsTitle: "本地安装步骤",
+    stepOpen: "打开 chrome://extensions，并启用开发者模式。",
+    stepLoad: "选择“加载已解压的扩展程序”，并选择 QwenPaw 扩展目录。",
+    stepVerify: "回到此页面并刷新状态。",
+    directoryLabel: "QwenPaw 自带扩展目录",
+    directoryHint: "完整路径可通过复制或高级信息查看。",
+    openExtensionFolder: "打开目录",
+    copyPath: "复制路径",
+    advancedInfo: "高级信息",
+    extensionDir: "扩展目录",
+    nativeManifest: "本机连接配置",
+    nativeHost: "本机连接助手",
+    config: "本地设置文件",
+    bridgeEndpoint: "连接端点",
+    checksTitle: "连接检查",
+    extensionLoadedCheck: "Chrome 扩展",
+    localConnectionCheck: "本机连接",
+    checkReady: "就绪",
     version: "扩展版本",
     connected: "连接时间",
     justNow: "刚刚",
     minutesAgo: "{count} 分钟前",
     hoursAgo: "{count} 小时前",
-    daysAgo: "{count} 天前",
-    testSuccess: "Chrome 连接正常",
-    testFailed: "Chrome 尚未连接",
-    developerTitle: "开发者选项",
-    statusTitle: "连接状态",
-    statusConnected: "已连接",
-    statusNotConnected: "未连接",
-    statusPreparing: "准备中",
-    statusNeedsLoad: "加载扩展",
-    statusActionNeeded: "需要处理",
-    installMethodsTitle: "安装方式",
-    localMethodTitle: "加载未打包扩展",
-    recommendedBadge: "推荐",
-    localMethodDescription: "适合本地 QwenPaw。QwenPaw 会准备扩展文件，Chrome 从本地目录加载。",
-    chromeWebStoreTitle: "Chrome Web Store",
-    chromeWebStoreDescription: "官方商店版本尚未发布。当前请使用本地安装方式。",
-    comingSoon: "即将推出",
-    localStepsTitle: "本地安装步骤",
-    directoryActionsTitle: "目录操作",
-    connectedChecksTitle: "连接检查",
-    extensionLoadedCheck: "扩展文件就绪",
-    chromeConnectedCheck: "Chrome 已连接",
-    backendReadyCheck: "QwenPaw 就绪",
-    checkReady: "就绪",
-    checkNeedsAction: "需要处理",
-    installMode: "安装模式",
-    extensionDir: "扩展目录",
-    nativeManifest: "Native Manifest",
-    nativeHost: "Native Host",
-    config: "桥接配置",
-    bridgeEndpoint: "连接端点",
-    regenerate: "重新生成文件",
-    reset: "重置配置",
-    unpackedTitle: "本地未打包扩展",
-    stepOpen: "打开 chrome://extensions 并启用开发者模式。",
-    stepLoad: "选择“加载已解压的扩展程序”，并选择扩展目录。",
-    stepVerify: "回到此页面，确认 Chrome 已连接到 QwenPaw。",
     installSuccess: "扩展文件已准备好",
     installFailed: "扩展设置失败",
-    copy: "复制",
     copied: "已复制",
-    diagnosticsTitle: "SDK 诊断",
-    advancedDiagnosticsTitle: "高级诊断",
-    diagnosticBackend: "后端",
-    diagnosticAvailable: "可用",
-    diagnosticDegraded: "降级",
-    diagnosticUnavailable: "不可用",
-    selectedBackend: "选中的后端",
-    nativeHostStatus: "Native Host",
-    buildFreshness: "构建新鲜度",
-    reloadExtension: "重载扩展",
-    openChromeExtensions: "打开 Chrome 扩展管理",
-    openExtensionFolder: "打开扩展文件夹",
-    copyPathFallback: "复制路径",
-    connectExtension: "连接扩展",
-    retrySetup: "重试设置",
-    preparingAction: "准备中...",
-    repairingAction: "修复中...",
-    lifecycleStepPrepare: "准备",
-    lifecycleStepLoad: "在 Chrome 中加载",
-    lifecyclePreparingTitle: "正在准备 Chrome 连接",
-    lifecyclePreparingDescription: "QwenPaw 正在检查本地扩展文件和连接设置。",
-    lifecycleRepairingTitle: "正在修复本地设置",
-    lifecycleRepairingDescription: "QwenPaw 正在刷新未打包扩展文件。",
-    lifecycleLoadUnpackedTitle: "加载本地扩展",
-    lifecycleLoadUnpackedDescription: "打开 Chrome 扩展管理，启用开发者模式，然后加载已准备好的扩展文件夹。",
-    lifecycleConnectTitle: "连接扩展",
-    lifecycleConnectDescription: "扩展已经加载。请让扩展重新连接到 QwenPaw。",
-    lifecycleConnectedDescription: "Chrome 已连接，可以进行本地控制。",
-    lifecycleFailedTitle: "设置需要处理",
-    lifecycleFailedDescription: "自动设置未完成。请重试设置，或查看高级诊断。",
-    runSetup: "运行设置",
-    restartQwenPaw: "重启 QwenPaw",
-    rebuildFrontend: "重新构建前端",
-    approvalRequired: "查看审批",
-    approvalDenied: "审批已拒绝",
-    loginRequired: "先登录目标网站",
-    riskControl: "检查网站风险控制",
-    noProgress: "浏览器没有可见进展",
-    cleanupComplete: "清理已完成",
     browser_bridge_disconnected: "重载扩展，或重新打开目标浏览器标签页。",
     browser_backend_unavailable: "后端可用后刷新状态。",
     browser_bridge_action_runtime_missing: "重启 QwenPaw，或重新加载 Chrome 插件。",
     isolated_backend_unavailable: "安装或重启隔离浏览器运行时。"
   }
 };
-function X() {
-  var e;
+function O() {
+  var t;
   try {
-    return ((e = window.localStorage) == null ? void 0 : e.getItem("language")) ?? null;
+    return ((t = window.localStorage) == null ? void 0 : t.getItem("language")) ?? null;
   } catch {
     return null;
   }
 }
-function K(e = X()) {
-  return String(e || "").trim().split("-")[0].toLowerCase() === "zh" ? "zh" : "en";
+function L(t = O()) {
+  return String(t || "").trim().split("-")[0].toLowerCase() === "zh" ? "zh" : "en";
 }
-function t(e, r, i) {
-  let o = U[e][r] ?? U.en[r];
+function n(t, o, i) {
+  let l = k[t][o] ?? k.en[o];
   if (i)
-    for (const [s, a] of Object.entries(i))
-      o = o.split(`{${s}}`).join(String(a));
-  return o;
+    for (const [c, d] of Object.entries(i))
+      l = l.split(`{${c}}`).join(String(d));
+  return l;
 }
-const L = window.QwenPaw.host, n = L.React, ee = L.antd, ne = L.getApiUrl, B = L.getApiToken, {
-  Alert: $,
-  Button: g,
-  Card: A,
-  Collapse: te,
-  Space: E,
-  Spin: G,
-  Steps: De,
-  Typography: ie,
-  message: x
-} = ee, { Paragraph: Le, Text: p, Title: re } = ie, l = {
+const w = window.QwenPaw.host, e = w.React, j = w.antd, A = w.getApiUrl, v = w.getApiToken, { Alert: Q, Button: m, Collapse: N, Space: U, Spin: V, Typography: z, message: g } = j, { Text: s, Title: S } = z, a = {
   page: {
-    display: "flex",
-    flexDirection: "column",
-    height: "100%",
-    minHeight: 0,
-    overflow: "hidden"
-  },
-  header: {
-    padding: "16px 20px 12px",
-    borderBottom: "1px solid rgba(0,0,0,0.06)"
-  },
-  headerTitleRow: {
-    display: "flex",
-    alignItems: "center",
-    gap: 12
-  },
-  headerIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    flexShrink: 0,
-    background: "#fff",
-    border: "1px solid rgba(0,0,0,0.12)",
-    color: "rgba(0,0,0,0.78)"
-  },
-  headerText: {
-    minWidth: 0
-  },
-  content: {
-    flex: 1,
-    minHeight: 0,
+    minHeight: "100%",
     overflowY: "auto",
-    padding: 16,
+    padding: 24,
+    background: "transparent"
+  },
+  shell: {
+    width: "min(100%, 900px)",
+    margin: "0 auto",
     display: "flex",
     flexDirection: "column",
     gap: 16
   },
-  centeredCard: {
-    width: "min(100%, 720px)",
-    margin: "0 auto",
-    borderRadius: 8
+  header: {
+    display: "flex",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 16,
+    flexWrap: "wrap"
   },
-  setupGrid: {
-    width: "min(100%, 920px)",
-    margin: "0 auto",
+  titleRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+    minWidth: 0
+  },
+  chromeIcon: {
+    position: "relative",
+    width: 42,
+    height: 42,
+    flex: "0 0 42px",
+    borderRadius: "50%",
+    background: "radial-gradient(circle at center, #fff 0 18%, transparent 19%), radial-gradient(circle at center, #1a73e8 0 36%, transparent 37%), conic-gradient(#ea4335 0 34%, #fbbc04 0 67%, #34a853 0 100%)",
+    boxShadow: "inset 0 0 0 1px rgba(0,0,0,0.10)"
+  },
+  panel: {
+    border: "1px solid rgba(0,0,0,0.08)",
+    borderRadius: 8,
+    background: "#fff",
+    padding: 24,
+    boxShadow: "0 1px 2px rgba(0,0,0,0.03)"
+  },
+  statusBlock: {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+    gridTemplateColumns: "minmax(0, 1fr) auto",
+    gap: 20,
+    alignItems: "start"
+  },
+  statusTitleRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    marginBottom: 8
+  },
+  statusDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 999,
+    flexShrink: 0
+  },
+  statusCopy: {
+    maxWidth: 610,
+    color: "rgba(0,0,0,0.58)",
+    lineHeight: 1.55
+  },
+  actions: {
+    display: "flex",
+    justifyContent: "flex-end",
+    gap: 8,
+    flexWrap: "wrap"
+  },
+  section: {
+    marginTop: 22,
+    display: "flex",
+    flexDirection: "column",
+    gap: 12
+  },
+  methodGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
     gap: 12
   },
   methodTile: {
-    minHeight: 148,
+    minHeight: 128,
     padding: 14,
     border: "1px solid rgba(0,0,0,0.08)",
     borderRadius: 8,
@@ -289,8 +213,8 @@ const L = window.QwenPaw.host, n = L.React, ee = L.antd, ne = L.getApiUrl, B = L
     flexDirection: "column",
     gap: 10
   },
-  disabledMethodTile: {
-    minHeight: 148,
+  disabledTile: {
+    minHeight: 128,
     padding: 14,
     border: "1px dashed rgba(0,0,0,0.16)",
     borderRadius: 8,
@@ -298,80 +222,78 @@ const L = window.QwenPaw.host, n = L.React, ee = L.antd, ne = L.getApiUrl, B = L
     display: "flex",
     flexDirection: "column",
     gap: 10,
-    opacity: 0.74
+    opacity: 0.72
   },
   methodHeader: {
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 10
+    gap: 8
   },
   badge: {
-    display: "inline-flex",
-    alignItems: "center",
     minHeight: 22,
     padding: "1px 8px",
     borderRadius: 999,
-    border: "1px solid rgba(22, 119, 255, 0.22)",
-    background: "rgba(22, 119, 255, 0.08)",
+    border: "1px solid rgba(22,119,255,0.22)",
     color: "#0958d9",
+    background: "rgba(22,119,255,0.08)",
     fontSize: 12,
     whiteSpace: "nowrap"
   },
-  statusPill: {
-    display: "inline-flex",
+  steps: {
+    margin: 0,
+    paddingLeft: 20,
+    color: "rgba(0,0,0,0.72)",
+    lineHeight: 1.65
+  },
+  directoryBox: {
+    display: "flex",
     alignItems: "center",
-    gap: 6,
-    minHeight: 28,
-    padding: "2px 10px",
-    borderRadius: 999,
+    justifyContent: "space-between",
+    gap: 12,
+    flexWrap: "wrap",
+    padding: 12,
     border: "1px solid rgba(0,0,0,0.08)",
-    background: "rgba(0,0,0,0.03)"
-  },
-  localPanel: {
-    width: "min(100%, 920px)",
-    margin: "0 auto",
-    borderRadius: 8
-  },
-  localBody: {
-    display: "grid",
-    gridTemplateColumns: "minmax(0, 1.2fr) minmax(240px, 0.8fr)",
-    gap: 16
-  },
-  connectedChecks: {
-    width: "min(100%, 920px)",
-    margin: "0 auto",
-    borderRadius: 8
-  },
-  developerPanel: {
-    width: "min(100%, 920px)",
-    margin: "0 auto",
     borderRadius: 8,
-    overflow: "hidden"
+    background: "rgba(0,0,0,0.02)"
   },
-  developerContent: {
+  checkGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+    gap: 12
+  },
+  checkTile: {
+    minHeight: 86,
+    padding: 14,
+    border: "1px solid rgba(0,0,0,0.08)",
+    borderRadius: 8,
+    background: "rgba(31,122,63,0.05)",
     display: "flex",
     flexDirection: "column",
-    gap: 16
+    gap: 8
   },
-  modeRow: {
-    display: "grid",
-    gridTemplateColumns: "minmax(128px, 180px) minmax(0, 1fr)",
+  checkTitle: {
+    display: "flex",
     alignItems: "center",
     gap: 8
   },
-  pathList: {
+  advanced: {
+    marginTop: 18,
+    borderRadius: 8,
+    background: "#fff"
+  },
+  advancedRows: {
     display: "flex",
     flexDirection: "column",
     gap: 10
   },
-  pathRow: {
+  advancedRow: {
     display: "grid",
     gridTemplateColumns: "minmax(128px, 180px) minmax(0, 1fr) auto",
-    alignItems: "center",
-    gap: 8
+    gap: 8,
+    alignItems: "center"
   },
-  pathValue: {
+  advancedValue: {
     minWidth: 0,
     overflowWrap: "anywhere",
     wordBreak: "break-word",
@@ -382,608 +304,213 @@ const L = window.QwenPaw.host, n = L.React, ee = L.antd, ne = L.getApiUrl, B = L
     border: "1px solid rgba(0,0,0,0.06)",
     borderRadius: 4,
     padding: "4px 8px"
-  },
-  developerActions: {
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
-    flexWrap: "wrap"
-  },
-  unpackedSteps: {
-    display: "flex",
-    flexDirection: "column",
-    gap: 8,
-    padding: 12,
-    border: "1px solid rgba(0,0,0,0.06)",
-    borderRadius: 8,
-    background: "rgba(0,0,0,0.02)"
-  },
-  diagnosticsPanel: {
-    width: "min(100%, 720px)",
-    margin: "0 auto",
-    borderRadius: 8
-  },
-  diagnosticsList: {
-    display: "flex",
-    flexDirection: "column",
-    gap: 10
-  },
-  diagnosticRow: {
-    display: "grid",
-    gridTemplateColumns: "minmax(140px, 1fr) minmax(0, 2fr)",
-    gap: 10,
-    padding: 10,
-    border: "1px solid rgba(0,0,0,0.06)",
-    borderRadius: 8,
-    background: "rgba(0,0,0,0.02)"
-  },
-  diagnosticCode: {
-    display: "inline-block",
-    maxWidth: "100%",
-    overflowWrap: "anywhere",
-    fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
-    fontSize: 12,
-    borderRadius: 4,
-    padding: "2px 6px",
-    background: "rgba(0,0,0,0.05)",
-    color: "rgba(0,0,0,0.76)"
-  },
-  diagnosticMessage: {
-    display: "flex",
-    minWidth: 0,
-    flexDirection: "column",
-    gap: 4
   }
 };
-function oe() {
-  const e = {}, r = B == null ? void 0 : B();
-  return r && (e.Authorization = `Bearer ${r}`), e;
+function G() {
+  const t = {}, o = v == null ? void 0 : v();
+  return o && (t.Authorization = `Bearer ${o}`), t;
 }
-async function F(e, r) {
-  const i = await fetch(ne(e), {
-    ...r,
+async function x(t, o) {
+  const i = await fetch(A(t), {
+    ...o,
     headers: {
-      ...(r == null ? void 0 : r.headers) || {},
-      ...oe()
+      ...(o == null ? void 0 : o.headers) || {},
+      ...G()
     }
-  }), o = await i.text(), s = o ? JSON.parse(o) : null;
+  }), l = await i.text(), c = l ? JSON.parse(l) : null;
   if (!i.ok)
     throw new Error(
-      typeof (s == null ? void 0 : s.detail) == "string" ? s.detail : i.statusText
+      typeof (c == null ? void 0 : c.detail) == "string" ? c.detail : i.statusText
     );
-  return s;
+  return c;
 }
-function z() {
-  return F("/browser-bridge/status");
+function $() {
+  return x("/chrome/status");
 }
-function j(e) {
-  return F("/browser-bridge/setup", {
+function J(t) {
+  return x("/chrome/setup", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(e)
+    body: JSON.stringify(t)
   });
 }
-function ae() {
-  return F(
-    "/browser-bridge/open-chrome-extensions",
+function q() {
+  return x(
+    "/chrome/open-chrome-extensions",
     {
       method: "POST"
     }
   );
 }
-function le() {
-  return F(
-    "/browser-bridge/open-extension-folder",
+function Y() {
+  return x(
+    "/chrome/open-extension-folder",
     {
       method: "POST"
     }
   );
 }
-function Q() {
-  return `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}/ws/browser-bridge`;
+function D() {
+  return `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}/ws/chrome`;
 }
-function ce(e) {
-  return e ? !e.installed || e.recommended_action === "setup_extension" || e.setup_phase === "setup_missing" || e.setup_phase === "native_host_repair_required" || e.setup_phase === "stale_build" : !1;
+function K(t, o) {
+  if (!t)
+    return n(o, "justNow");
+  const i = new Date(t).getTime();
+  if (Number.isNaN(i))
+    return n(o, "justNow");
+  const l = Math.max(0, Math.floor((Date.now() - i) / 6e4));
+  return l < 1 ? n(o, "justNow") : l < 60 ? n(o, "minutesAgo", { count: l }) : n(o, "hoursAgo", { count: Math.floor(l / 60) });
 }
-function de(e) {
-  var r;
-  return e ? e.setup_phase === "native_host_repair_required" || ((r = e.native_host_status) == null ? void 0 : r.status) === "repair_required" : !1;
-}
-function se(e, r, i, o) {
-  return e != null && e.connected ? "connected" : r != null && r.ok ? "extension_loaded_bridge_disconnected" : e != null && e.installed ? "needs_load_unpacked" : i ? "preparing" : "failed_actionable";
-}
-function S(e, r) {
-  if (!e || typeof chrome > "u" || !chrome.runtime || !chrome.runtime.sendMessage)
-    return Promise.resolve(null);
-  const i = chrome.runtime.sendMessage;
-  return new Promise((o) => {
-    i(e, { method: r }, (s) => {
-      var u, m;
-      const a = (m = (u = chrome.runtime) == null ? void 0 : u.lastError) == null ? void 0 : m.message;
-      if (a) {
-        o({ ok: !1, error: a });
-        return;
-      }
-      o(s || null);
-    });
-  });
-}
-const pe = /* @__PURE__ */ new Set([
-  "browser_bridge_disconnected",
-  "browser_backend_unavailable",
-  "browser_bridge_action_runtime_missing",
-  "isolated_backend_unavailable"
-]);
-function ue(e) {
-  var r;
-  return (((r = e == null ? void 0 : e.sdk_diagnostics) == null ? void 0 : r.backends) ?? []).filter(
-    (i) => i.code || i.status !== "available"
-  );
-}
-function me(e, r) {
-  const i = e.hint_key || e.code;
-  return i && pe.has(i) ? t(r, i) : e.message_fallback || e.message || e.reason || e.code || e.backend_id;
-}
-function ge(e, r) {
-  return e === "available" ? t(r, "diagnosticAvailable") : e === "degraded" ? t(r, "diagnosticDegraded") : t(r, "diagnosticUnavailable");
-}
-function he(e) {
-  return Array.isArray(e) ? e : e ? [String(e)] : [];
-}
-function fe({ size: e = 38 }) {
-  return /* @__PURE__ */ n.createElement(
-    "svg",
-    {
-      "aria-hidden": "true",
-      fill: "none",
-      focusable: "false",
-      height: e,
-      style: { display: "block" },
-      viewBox: "0 0 38 38",
-      width: e
-    },
-    /* @__PURE__ */ n.createElement(
-      "rect",
-      {
-        fill: "none",
-        height: "25",
-        rx: "6",
-        stroke: "currentColor",
-        strokeWidth: "2",
-        width: "30",
-        x: "4",
-        y: "6"
-      }
-    ),
-    /* @__PURE__ */ n.createElement("path", { d: "M4 13H34", stroke: "currentColor", strokeWidth: "2" }),
-    /* @__PURE__ */ n.createElement("circle", { cx: "9", cy: "9.5", fill: "currentColor", r: "1.2" }),
-    /* @__PURE__ */ n.createElement("circle", { cx: "13", cy: "9.5", fill: "currentColor", opacity: "0.62", r: "1.2" }),
-    /* @__PURE__ */ n.createElement(
-      "path",
-      {
-        d: "M18.5 17.5L29.5 22.1L24.8 24L28 30.1L25.3 31.5L22.1 25.5L18.5 29.2V17.5Z",
-        fill: "currentColor"
-      }
-    )
-  );
-}
-function ye({
-  locale: e,
-  status: r
-}) {
-  const i = ue(r);
-  return i.length ? /* @__PURE__ */ n.createElement(A, { style: l.diagnosticsPanel }, /* @__PURE__ */ n.createElement(E, { direction: "vertical", size: 12, style: { width: "100%" } }, /* @__PURE__ */ n.createElement(p, { strong: !0 }, t(e, "diagnosticsTitle")), /* @__PURE__ */ n.createElement("div", { style: l.diagnosticsList }, i.map((o) => /* @__PURE__ */ n.createElement(
-    "div",
-    {
-      key: `${o.backend_id}:${o.code || o.status}`,
-      style: l.diagnosticRow
-    },
-    /* @__PURE__ */ n.createElement("div", null, /* @__PURE__ */ n.createElement(p, { strong: !0 }, o.backend_id), /* @__PURE__ */ n.createElement("br", null), /* @__PURE__ */ n.createElement(p, { type: "secondary" }, ge(o.status, e))),
-    /* @__PURE__ */ n.createElement("div", { style: l.diagnosticMessage }, o.code ? /* @__PURE__ */ n.createElement("code", { style: l.diagnosticCode }, o.code) : null, /* @__PURE__ */ n.createElement(p, null, me(o, e)))
-  ))))) : null;
-}
-function be() {
-  return /* @__PURE__ */ n.createElement(
+function T({ ready: t }) {
+  return /* @__PURE__ */ e.createElement(
     "span",
     {
+      "aria-hidden": "true",
       style: {
-        display: "inline-block",
-        filter: "grayscale(1) contrast(1.08)",
-        lineHeight: 1,
-        WebkitFilter: "grayscale(1) contrast(1.08)"
+        ...a.statusDot,
+        background: t ? "#1f7a3f" : "#9a6700"
       }
-    },
-    "🌐"
+    }
   );
 }
-function Ee(e, r) {
-  if (!e)
-    return t(r, "justNow");
-  const i = new Date(e).getTime();
-  if (Number.isNaN(i))
-    return t(r, "justNow");
-  const o = Math.max(0, Math.floor((Date.now() - i) / 1e3));
-  if (o < 60)
-    return t(r, "justNow");
-  const s = Math.floor(o / 60);
-  if (s < 60)
-    return t(r, "minutesAgo", { count: s });
-  const a = Math.floor(s / 60);
-  return a < 24 ? t(r, "hoursAgo", { count: a }) : t(r, "daysAgo", { count: Math.floor(a / 24) });
-}
-function we(e) {
-  return e === "preparing" ? "lifecyclePreparingDescription" : e === "repairing" ? "lifecycleRepairingDescription" : e === "needs_load_unpacked" ? "lifecycleLoadUnpackedDescription" : e === "extension_loaded_bridge_disconnected" ? "lifecycleConnectDescription" : e === "connected" ? "lifecycleConnectedDescription" : "lifecycleFailedDescription";
-}
-function xe({
-  locale: e,
-  activeKey: r,
-  loading: i,
-  pathRows: o,
-  setupLoading: s,
-  status: a,
-  onChange: u,
-  onCopy: m,
-  onOpenChromeExtensions: y,
-  onOpenExtensionFolder: C,
-  onRegenerate: _,
-  onReloadExtension: v,
-  onReset: M
+function X({
+  locale: t,
+  onCopy: o,
+  status: i
 }) {
-  const R = (a == null ? void 0 : a.ws_url) || Q();
-  return /* @__PURE__ */ n.createElement(
-    te,
+  const l = [
+    { key: "extension_dir", label: "extensionDir" },
+    { key: "native_manifest_path", label: "nativeManifest" },
+    { key: "native_host_path", label: "nativeHost" },
+    { key: "config_path", label: "config" }
+  ], c = (i == null ? void 0 : i.ws_url) || D();
+  return /* @__PURE__ */ e.createElement(
+    N,
     {
-      activeKey: r,
-      style: l.developerPanel,
-      onChange: u,
+      style: a.advanced,
       items: [
         {
-          key: "developer",
-          label: /* @__PURE__ */ n.createElement(E, { size: 8 }, t(e, "advancedDiagnosticsTitle")),
-          children: /* @__PURE__ */ n.createElement(G, { spinning: i && !a }, /* @__PURE__ */ n.createElement("div", { style: l.developerContent }, /* @__PURE__ */ n.createElement("div", { style: l.modeRow }, /* @__PURE__ */ n.createElement(p, { type: "secondary" }, t(e, "installMode")), /* @__PURE__ */ n.createElement(p, null, (a == null ? void 0 : a.install_mode) || "-")), /* @__PURE__ */ n.createElement("div", { style: l.pathList }, o.map(({ key: h, label: w }) => {
-            const P = (a == null ? void 0 : a[h]) || "-";
-            return /* @__PURE__ */ n.createElement("div", { style: l.pathRow, key: h }, /* @__PURE__ */ n.createElement(p, { type: "secondary" }, w), /* @__PURE__ */ n.createElement("code", { style: l.pathValue }, P), /* @__PURE__ */ n.createElement(
-              g,
+          key: "advanced",
+          label: n(t, "advancedInfo"),
+          children: /* @__PURE__ */ e.createElement("div", { style: a.advancedRows }, l.map((d) => {
+            const h = (i == null ? void 0 : i[d.key]) || "-";
+            return /* @__PURE__ */ e.createElement("div", { key: d.key, style: a.advancedRow }, /* @__PURE__ */ e.createElement(s, { type: "secondary" }, n(t, d.label)), /* @__PURE__ */ e.createElement("code", { style: a.advancedValue }, h), /* @__PURE__ */ e.createElement(
+              m,
               {
-                disabled: !(a != null && a[h]),
-                onClick: () => m(P),
-                "aria-label": t(e, "copyPathFallback")
+                disabled: !(i != null && i[d.key]),
+                onClick: () => o(h)
               },
-              t(e, "copyPathFallback")
+              n(t, "copyPath")
             ));
-          }), /* @__PURE__ */ n.createElement("div", { style: l.pathRow }, /* @__PURE__ */ n.createElement(p, { type: "secondary" }, t(e, "bridgeEndpoint")), /* @__PURE__ */ n.createElement("code", { style: l.pathValue }, R), /* @__PURE__ */ n.createElement(
-            g,
-            {
-              onClick: () => m(R),
-              "aria-label": t(e, "copyPathFallback")
-            },
-            t(e, "copyPathFallback")
-          ))), /* @__PURE__ */ n.createElement("div", { style: l.developerActions }, /* @__PURE__ */ n.createElement(g, { onClick: y }, t(e, "openChromeExtensions")), /* @__PURE__ */ n.createElement(g, { onClick: C }, t(e, "openExtensionFolder")), /* @__PURE__ */ n.createElement(g, { onClick: v }, t(e, "reloadExtension")), /* @__PURE__ */ n.createElement(g, { loading: s, onClick: _ }, t(e, "regenerate")), /* @__PURE__ */ n.createElement(g, { loading: s, onClick: M }, t(e, "reset"))), /* @__PURE__ */ n.createElement("div", { style: l.unpackedSteps }, /* @__PURE__ */ n.createElement(p, { strong: !0 }, t(e, "unpackedTitle")), /* @__PURE__ */ n.createElement("ol", null, /* @__PURE__ */ n.createElement("li", null, t(e, "stepOpen")), /* @__PURE__ */ n.createElement("li", null, t(e, "stepLoad")), /* @__PURE__ */ n.createElement("li", null, t(e, "stepVerify"))))))
+          }), /* @__PURE__ */ e.createElement("div", { style: a.advancedRow }, /* @__PURE__ */ e.createElement(s, { type: "secondary" }, n(t, "bridgeEndpoint")), /* @__PURE__ */ e.createElement("code", { style: a.advancedValue }, c), /* @__PURE__ */ e.createElement(m, { onClick: () => o(c) }, n(t, "copyPath"))))
         }
       ]
     }
   );
 }
-function Ce(e) {
-  return e === "connected" ? "statusConnected" : e === "preparing" || e === "repairing" ? "statusPreparing" : e === "needs_load_unpacked" ? "statusNeedsLoad" : e === "extension_loaded_bridge_disconnected" ? "statusNotConnected" : "statusActionNeeded";
-}
-function ve(e) {
-  return e === "connected" ? "#389e0d" : e === "failed_actionable" ? "#cf1322" : e === "needs_load_unpacked" ? "#d46b08" : "#0958d9";
-}
-function J({ color: e }) {
-  return /* @__PURE__ */ n.createElement(
-    "span",
-    {
-      "aria-hidden": "true",
-      style: {
-        width: 8,
-        height: 8,
-        borderRadius: 999,
-        background: e,
-        display: "inline-block",
-        flexShrink: 0
-      }
+function Z() {
+  const t = L(), [o, i] = e.useState(null), [l, c] = e.useState(!0), [d, h] = e.useState(!1), [C, y] = e.useState(null), f = e.useCallback(async () => {
+    c(!0), y(null);
+    try {
+      const r = await $();
+      return i(r), r;
+    } catch (r) {
+      const u = r instanceof Error ? r.message : String(r);
+      return y(u), null;
+    } finally {
+      c(!1);
     }
-  );
-}
-function ke({
-  error: e,
-  locale: r,
-  loading: i,
-  primaryAction: o,
-  state: s,
-  status: a
-}) {
-  const u = ve(s), m = (a == null ? void 0 : a.version) || t(r, "versionUnknown"), y = Ee(a == null ? void 0 : a.connected_since, r);
-  return /* @__PURE__ */ n.createElement(A, { style: l.centeredCard }, /* @__PURE__ */ n.createElement(E, { direction: "vertical", size: 14, style: { width: "100%" } }, /* @__PURE__ */ n.createElement("div", null, /* @__PURE__ */ n.createElement(p, { strong: !0 }, t(r, "statusTitle")), /* @__PURE__ */ n.createElement("br", null), /* @__PURE__ */ n.createElement(p, { type: "secondary" }, t(r, we(s)))), /* @__PURE__ */ n.createElement("div", { style: l.statusPill }, /* @__PURE__ */ n.createElement(J, { color: u }), /* @__PURE__ */ n.createElement(p, null, t(r, Ce(s)))), s === "connected" ? /* @__PURE__ */ n.createElement(E, { size: 16, wrap: !0 }, /* @__PURE__ */ n.createElement(p, null, t(r, "version"), ": ", m), /* @__PURE__ */ n.createElement(p, null, t(r, "connected"), ": ", y)) : null, a != null && a.recovery_copy && s !== "connected" ? /* @__PURE__ */ n.createElement(
-    $,
-    {
-      showIcon: !0,
-      type: s === "failed_actionable" ? "error" : "info",
-      message: a.recovery_copy
+  }, []);
+  e.useEffect(() => {
+    f();
+  }, [f]);
+  const b = e.useCallback(async () => {
+    if (o != null && o.extension_dir)
+      return o;
+    h(!0), y(null);
+    try {
+      const r = await J({
+        install_mode: "unpacked",
+        ws_url: D()
+      });
+      return i(r), g.success(n(t, "installSuccess")), r;
+    } catch (r) {
+      const u = r instanceof Error ? r.message : String(r);
+      return y(u), g.error(n(t, "installFailed")), null;
+    } finally {
+      h(!1);
     }
-  ) : null, e ? /* @__PURE__ */ n.createElement(p, { type: "danger" }, e) : null, /* @__PURE__ */ n.createElement(
-    g,
+  }, [t, o]), E = e.useCallback(
+    async (r) => {
+      var u;
+      await ((u = navigator.clipboard) == null ? void 0 : u.writeText(r)), g.success(n(t, "copied"));
+    },
+    [t]
+  ), P = e.useCallback(async () => {
+    const r = await b();
+    r != null && r.extension_dir && await E(r.extension_dir);
+  }, [E, b]), I = e.useCallback(async () => {
+    await b();
+    const r = await Y();
+    !r.opened && r.error && g.warning(r.error);
+  }, [b]), H = e.useCallback(async () => {
+    const r = await q();
+    !r.opened && r.error && g.warning(r.error);
+  }, []), p = !!(o != null && o.connected), M = !p, W = (o == null ? void 0 : o.version) || n(t, "versionUnknown"), B = K(o == null ? void 0 : o.connected_since, t), F = [
+    n(t, "extensionLoadedCheck"),
+    n(t, "localConnectionCheck")
+  ];
+  return /* @__PURE__ */ e.createElement("div", { style: a.page }, /* @__PURE__ */ e.createElement("div", { style: a.shell }, /* @__PURE__ */ e.createElement("div", { style: a.panel }, /* @__PURE__ */ e.createElement("div", { style: a.statusBlock }, /* @__PURE__ */ e.createElement("div", null, /* @__PURE__ */ e.createElement("div", { style: a.header }, /* @__PURE__ */ e.createElement("div", { style: a.titleRow }, /* @__PURE__ */ e.createElement("span", { style: a.chromeIcon }), /* @__PURE__ */ e.createElement("div", null, /* @__PURE__ */ e.createElement(S, { level: 3, style: { margin: 0 } }, n(t, "pageTitle")), /* @__PURE__ */ e.createElement(s, { type: "secondary" }, n(t, "pageSubtitle"))))), /* @__PURE__ */ e.createElement("div", { style: { marginTop: 22 } }, /* @__PURE__ */ e.createElement("div", { style: a.statusTitleRow }, /* @__PURE__ */ e.createElement(T, { ready: p }), /* @__PURE__ */ e.createElement(S, { level: 4, style: { margin: 0 } }, p ? n(t, "readyTitle") : n(t, "installTitle"))), /* @__PURE__ */ e.createElement("div", { style: a.statusCopy }, p ? n(t, "readyDescription", {
+    version: W,
+    connectedSince: B
+  }) : (o == null ? void 0 : o.recovery_copy) || n(t, "installDescription")))), /* @__PURE__ */ e.createElement("div", { style: a.actions }, p ? /* @__PURE__ */ e.createElement(e.Fragment, null, /* @__PURE__ */ e.createElement(m, { loading: l, onClick: () => void f() }, n(t, "refreshStatus")), /* @__PURE__ */ e.createElement(m, { type: "primary", onClick: () => void H() }, n(t, "openChrome"))) : /* @__PURE__ */ e.createElement(
+    m,
     {
       type: "primary",
-      disabled: o.disabled,
-      loading: o.loading || i,
-      onClick: o.onClick
-    },
-    t(r, o.label)
-  )));
-}
-function _e({
-  locale: e,
-  setupLoading: r,
-  onRunSetup: i
-}) {
-  return /* @__PURE__ */ n.createElement("div", { style: l.setupGrid }, /* @__PURE__ */ n.createElement("div", { style: l.methodTile }, /* @__PURE__ */ n.createElement("div", { style: l.methodHeader }, /* @__PURE__ */ n.createElement(p, { strong: !0 }, t(e, "localMethodTitle")), /* @__PURE__ */ n.createElement("span", { style: l.badge }, t(e, "recommendedBadge"))), /* @__PURE__ */ n.createElement(p, { type: "secondary" }, t(e, "localMethodDescription")), /* @__PURE__ */ n.createElement(g, { type: "primary", loading: r, onClick: i }, t(e, "runSetup"))), /* @__PURE__ */ n.createElement("div", { style: l.disabledMethodTile, "aria-disabled": "true" }, /* @__PURE__ */ n.createElement("div", { style: l.methodHeader }, /* @__PURE__ */ n.createElement(p, { strong: !0 }, t(e, "chromeWebStoreTitle")), /* @__PURE__ */ n.createElement("span", { style: l.badge }, t(e, "comingSoon"))), /* @__PURE__ */ n.createElement(p, { type: "secondary" }, t(e, "chromeWebStoreDescription")), /* @__PURE__ */ n.createElement(g, { disabled: !0 }, t(e, "comingSoon"))));
-}
-function Se({
-  locale: e,
-  loading: r,
-  setupLoading: i,
-  status: o,
-  onCopy: s,
-  onOpenChromeExtensions: a,
-  onOpenExtensionFolder: u,
-  onRunSetup: m
-}) {
-  const y = (o == null ? void 0 : o.extension_dir) || "-";
-  return /* @__PURE__ */ n.createElement(A, { style: l.localPanel }, /* @__PURE__ */ n.createElement(G, { spinning: r && !o }, /* @__PURE__ */ n.createElement("div", { style: l.localBody }, /* @__PURE__ */ n.createElement(E, { direction: "vertical", size: 10 }, /* @__PURE__ */ n.createElement(p, { strong: !0 }, t(e, "localStepsTitle")), /* @__PURE__ */ n.createElement("ol", { style: { margin: 0, paddingLeft: 20 } }, /* @__PURE__ */ n.createElement("li", null, t(e, "stepOpen")), /* @__PURE__ */ n.createElement("li", null, t(e, "stepLoad")), /* @__PURE__ */ n.createElement("li", null, t(e, "stepVerify")))), /* @__PURE__ */ n.createElement(E, { direction: "vertical", size: 10 }, /* @__PURE__ */ n.createElement(p, { strong: !0 }, t(e, "directoryActionsTitle")), /* @__PURE__ */ n.createElement("code", { style: l.pathValue }, y), /* @__PURE__ */ n.createElement(E, { wrap: !0 }, /* @__PURE__ */ n.createElement(g, { onClick: a }, t(e, "openChromeExtensions")), /* @__PURE__ */ n.createElement(g, { onClick: u }, t(e, "openExtensionFolder")), /* @__PURE__ */ n.createElement(
-    g,
-    {
-      disabled: !(o != null && o.extension_dir),
-      onClick: () => s(y)
-    },
-    t(e, "copyPathFallback")
-  ), /* @__PURE__ */ n.createElement(g, { loading: i, onClick: m }, t(e, "retrySetup")))))));
-}
-function Re({
-  locale: e,
-  loading: r,
-  status: i,
-  onConnectExtension: o,
-  onRefresh: s,
-  onReloadExtension: a
-}) {
-  const u = [
-    {
-      label: t(e, "extensionLoadedCheck"),
-      ready: !!(i != null && i.installed)
-    },
-    {
-      label: t(e, "chromeConnectedCheck"),
-      ready: !!(i != null && i.connected)
-    },
-    {
-      label: t(e, "backendReadyCheck"),
-      ready: (i == null ? void 0 : i.setup_phase) === "connected"
-    }
-  ];
-  return /* @__PURE__ */ n.createElement(A, { style: l.connectedChecks }, /* @__PURE__ */ n.createElement(E, { direction: "vertical", size: 12, style: { width: "100%" } }, /* @__PURE__ */ n.createElement(p, { strong: !0 }, t(e, "connectedChecksTitle")), /* @__PURE__ */ n.createElement("div", { style: l.setupGrid }, u.map((m) => /* @__PURE__ */ n.createElement("div", { key: m.label, style: l.methodTile }, /* @__PURE__ */ n.createElement("div", { style: l.statusPill }, /* @__PURE__ */ n.createElement(J, { color: m.ready ? "#389e0d" : "#d46b08" }), /* @__PURE__ */ n.createElement(p, null, m.label)), /* @__PURE__ */ n.createElement(p, { type: "secondary" }, m.ready ? t(e, "checkReady") : t(e, "checkNeedsAction"))))), /* @__PURE__ */ n.createElement(E, { wrap: !0 }, /* @__PURE__ */ n.createElement(g, { loading: r, onClick: s }, t(e, "refreshStatus")), /* @__PURE__ */ n.createElement(g, { onClick: o }, t(e, "connectExtension")), /* @__PURE__ */ n.createElement(g, { onClick: a }, t(e, "reloadExtension")))));
-}
-function Pe() {
-  const e = K(), r = n.useRef(null), [i, o] = n.useState(null), [s, a] = n.useState(null), [u, m] = n.useState(!0), [y, C] = n.useState(!1), [_, v] = n.useState(null), [M, R] = n.useState(
-    []
-  ), [h, w] = n.useState("preparing"), P = n.useMemo(
-    () => [
-      {
-        key: "extension_dir",
-        label: t(e, "extensionDir")
-      },
-      {
-        key: "native_manifest_path",
-        label: t(e, "nativeManifest")
-      },
-      {
-        key: "native_host_path",
-        label: t(e, "nativeHost")
-      },
-      {
-        key: "config_path",
-        label: t(e, "config")
-      }
-    ],
-    [e]
-  ), H = n.useCallback(
-    async (c) => {
-      var k;
-      const d = await S(
-        c.extension_id,
-        "status.get"
-      );
-      if (a(d), !(d != null && d.ok) || c.connected)
-        return d;
-      if (c.setup_phase === "stale_build" || ((k = c.build_freshness) == null ? void 0 : k.status) === "stale") {
-        const b = await S(
-          c.extension_id,
-          "extension.reload"
-        );
-        return a(b || d), b || d;
-      }
-      if (!c.connected) {
-        const b = await S(
-          c.extension_id,
-          "bridge.connect"
-        );
-        return a(b || d), b || d;
-      }
-      return d;
-    },
-    []
-  ), f = n.useCallback(
-    async (c = {}) => {
-      m(!0), v(null), w(
-        (d) => d === "connected" ? d : "preparing"
-      );
-      try {
-        let d = await z();
-        o(d), c.autoPrepare && ce(d) && (w("repairing"), C(!0), d = await j({
-          install_mode: "unpacked",
-          reset: de(d),
-          ws_url: Q()
-        }), o(d), x.success(t(e, "installSuccess")));
-        const k = await H(d), b = await z();
-        return o(b), w(se(b, k, !1, null)), b;
-      } catch (d) {
-        const k = d instanceof Error ? d.message : String(d);
-        return v(k), w("failed_actionable"), x.error(t(e, "installFailed")), null;
-      } finally {
-        C(!1), m(!1);
-      }
-    },
-    [e, H]
-  );
-  n.useEffect(() => {
-    f({ autoPrepare: !0 });
-  }, [f]), n.useEffect(() => {
-    if (h !== "needs_load_unpacked" && h !== "extension_loaded_bridge_disconnected")
-      return;
-    const c = window.setInterval(() => {
-      f();
-    }, 3e3);
-    return () => {
-      window.clearInterval(c);
-    };
-  }, [h, f]);
-  const I = async (c) => {
-    var d;
-    await ((d = navigator.clipboard) == null ? void 0 : d.writeText(c)), x.success(t(e, "copied"));
-  }, Y = (c) => {
-    R(he(c));
-  }, T = n.useCallback(async () => {
-    const c = await ae();
-    !c.opened && c.error && x.warning(c.error);
-  }, []), O = n.useCallback(async () => {
-    const c = await le();
-    !c.opened && c.error && x.warning(c.error);
-  }, []), N = n.useCallback(async () => {
-    const c = await S(i == null ? void 0 : i.extension_id, "bridge.connect");
-    a(c), await f();
-  }, [f, i == null ? void 0 : i.extension_id]), W = n.useCallback(async () => {
-    const c = await S(
-      i == null ? void 0 : i.extension_id,
-      "extension.reload"
-    );
-    a(c), await f();
-  }, [f, i == null ? void 0 : i.extension_id]), D = n.useCallback(
-    async (c) => {
-      C(!0), v(null);
-      try {
-        const d = await j({
-          install_mode: "unpacked",
-          reset: c,
-          ws_url: Q()
-        });
-        o(d), x.success(t(e, "installSuccess")), await f();
-      } catch (d) {
-        v(d instanceof Error ? d.message : String(d)), w("failed_actionable"), x.error(t(e, "installFailed"));
-      } finally {
-        C(!1);
-      }
-    },
-    [e, f]
-  ), Z = n.useMemo(() => {
-    const c = u || y;
-    return h === "needs_load_unpacked" ? {
-      label: "openChromeExtensions",
-      loading: !1,
-      onClick: () => void T()
-    } : h === "extension_loaded_bridge_disconnected" ? {
-      label: "connectExtension",
-      loading: c,
-      onClick: () => void N()
-    } : h === "connected" ? {
-      label: "refreshStatus",
-      loading: u,
+      loading: l,
       onClick: () => void f()
-    } : h === "failed_actionable" ? {
-      label: "retrySetup",
-      loading: c,
-      onClick: () => void f({ autoPrepare: !0 })
-    } : {
-      disabled: !0,
-      label: h === "repairing" ? "repairingAction" : "preparingAction",
-      loading: !0,
-      onClick: () => {
-      }
-    };
-  }, [
-    N,
-    T,
-    h,
-    u,
-    f,
-    y
-  ]);
-  return /* @__PURE__ */ n.createElement("div", { style: l.page }, /* @__PURE__ */ n.createElement("div", { style: l.header }, /* @__PURE__ */ n.createElement("div", { style: l.headerTitleRow }, /* @__PURE__ */ n.createElement("div", { style: l.headerIcon }, /* @__PURE__ */ n.createElement(fe, null)), /* @__PURE__ */ n.createElement("div", { style: l.headerText }, /* @__PURE__ */ n.createElement(re, { level: 3, style: { margin: 0 } }, t(e, "pageTitle")), /* @__PURE__ */ n.createElement(p, { type: "secondary" }, t(e, "pageSubtitle"))))), /* @__PURE__ */ n.createElement("div", { style: l.content }, _ ? /* @__PURE__ */ n.createElement($, { type: "error", showIcon: !0, message: _ }) : null, /* @__PURE__ */ n.createElement(
-    ke,
+    },
+    n(t, "installedRefresh")
+  ))), C ? /* @__PURE__ */ e.createElement(
+    Q,
     {
-      error: _,
-      loading: u,
-      locale: e,
-      primaryAction: Z,
-      state: h,
-      status: i
+      showIcon: !0,
+      type: "error",
+      message: C,
+      style: { marginTop: 16 }
     }
-  ), /* @__PURE__ */ n.createElement(
-    _e,
+  ) : null, p ? /* @__PURE__ */ e.createElement("div", { style: a.section }, /* @__PURE__ */ e.createElement(s, { strong: !0 }, n(t, "checksTitle")), /* @__PURE__ */ e.createElement("div", { style: a.checkGrid }, F.map((r) => /* @__PURE__ */ e.createElement("div", { key: r, style: a.checkTile }, /* @__PURE__ */ e.createElement("div", { style: a.checkTitle }, /* @__PURE__ */ e.createElement(T, { ready: !0 }), /* @__PURE__ */ e.createElement(s, { strong: !0 }, r)), /* @__PURE__ */ e.createElement(s, { type: "secondary" }, n(t, "checkReady")))))) : M ? /* @__PURE__ */ e.createElement(e.Fragment, null, /* @__PURE__ */ e.createElement("div", { style: a.section }, /* @__PURE__ */ e.createElement(s, { strong: !0 }, n(t, "installMethodsTitle")), /* @__PURE__ */ e.createElement("div", { style: a.methodGrid }, /* @__PURE__ */ e.createElement("div", { style: a.methodTile }, /* @__PURE__ */ e.createElement("div", { style: a.methodHeader }, /* @__PURE__ */ e.createElement(s, { strong: !0 }, n(t, "localMethodTitle")), /* @__PURE__ */ e.createElement("span", { style: a.badge }, n(t, "recommendedBadge"))), /* @__PURE__ */ e.createElement(s, { type: "secondary" }, n(t, "localMethodDescription"))), /* @__PURE__ */ e.createElement("div", { style: a.disabledTile, "aria-disabled": "true" }, /* @__PURE__ */ e.createElement("div", { style: a.methodHeader }, /* @__PURE__ */ e.createElement(s, { strong: !0 }, n(t, "chromeWebStoreTitle")), /* @__PURE__ */ e.createElement("span", { style: a.badge }, n(t, "comingSoon"))), /* @__PURE__ */ e.createElement(s, { type: "secondary" }, n(t, "chromeWebStoreDescription")), /* @__PURE__ */ e.createElement(m, { disabled: !0 }, n(t, "comingSoon"))))), /* @__PURE__ */ e.createElement("div", { style: a.section }, /* @__PURE__ */ e.createElement(s, { strong: !0 }, n(t, "localStepsTitle")), /* @__PURE__ */ e.createElement("ol", { style: a.steps }, /* @__PURE__ */ e.createElement("li", null, n(t, "stepOpen")), /* @__PURE__ */ e.createElement("li", null, n(t, "stepLoad")), /* @__PURE__ */ e.createElement("li", null, n(t, "stepVerify"))), /* @__PURE__ */ e.createElement("div", { style: a.directoryBox }, /* @__PURE__ */ e.createElement("div", null, /* @__PURE__ */ e.createElement(s, { strong: !0 }, n(t, "directoryLabel")), /* @__PURE__ */ e.createElement("br", null), /* @__PURE__ */ e.createElement(s, { type: "secondary" }, n(t, "directoryHint"))), /* @__PURE__ */ e.createElement(U, { wrap: !0 }, /* @__PURE__ */ e.createElement(
+    m,
     {
-      locale: e,
-      onRunSetup: () => void D(!1),
-      setupLoading: y
-    }
-  ), /* @__PURE__ */ n.createElement(
-    Se,
+      loading: d,
+      onClick: () => void I()
+    },
+    n(t, "openExtensionFolder")
+  ), /* @__PURE__ */ e.createElement(
+    m,
     {
-      loading: u,
-      locale: e,
-      onCopy: (c) => void I(c),
-      onOpenChromeExtensions: () => void T(),
-      onOpenExtensionFolder: () => void O(),
-      onRunSetup: () => void D(!1),
-      setupLoading: y,
-      status: i
-    }
-  ), /* @__PURE__ */ n.createElement(
-    Re,
+      loading: d,
+      onClick: () => void P()
+    },
+    n(t, "copyPath")
+  ))))) : null, /* @__PURE__ */ e.createElement(
+    X,
     {
-      loading: u,
-      locale: e,
-      onConnectExtension: () => void N(),
-      onRefresh: () => void f(),
-      onReloadExtension: () => void W(),
-      status: i
+      locale: t,
+      onCopy: (r) => void E(r),
+      status: o
     }
-  ), /* @__PURE__ */ n.createElement(ye, { locale: e, status: i }), /* @__PURE__ */ n.createElement("div", { ref: r }, /* @__PURE__ */ n.createElement(
-    xe,
-    {
-      activeKey: M,
-      loading: u,
-      locale: e,
-      onChange: Y,
-      onCopy: (c) => void I(c),
-      onOpenChromeExtensions: () => void T(),
-      onOpenExtensionFolder: () => void O(),
-      onRegenerate: () => void D(!1),
-      onReloadExtension: () => void W(),
-      onReset: () => void D(!0),
-      pathRows: P,
-      setupLoading: y,
-      status: i
-    }
-  ))));
+  )), l && !o ? /* @__PURE__ */ e.createElement(V, null) : null));
 }
-const Te = K();
-var V, q;
-(q = (V = window.QwenPaw).registerRoutes) == null || q.call(V, "browser-bridge", [
+const ee = L();
+var R, _;
+(_ = (R = window.QwenPaw).registerRoutes) == null || _.call(R, "chrome", [
   {
-    path: "/plugin/browser-bridge",
-    component: Pe,
-    label: t(Te, "routeLabel"),
-    icon: /* @__PURE__ */ n.createElement(be, null),
+    path: "/plugin/chrome",
+    component: Z,
+    label: n(ee, "routeLabel"),
+    icon: /* @__PURE__ */ e.createElement("span", { style: a.chromeIcon }),
     priority: 40
   }
 ]);

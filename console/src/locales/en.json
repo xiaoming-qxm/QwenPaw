@@ -34,7 +34,7 @@
     "no": "No"
   },
   "browserBridge": {
-    "name": "Browser Bridge",
+    "name": "Chrome",
     "description": "Let QwenPaw inspect and operate your active Chrome tab through a local extension.",
     "status": {
       "connected": "Chrome connected",
@@ -44,21 +44,21 @@
     },
     "actions": {
       "openChrome": "Open Chrome",
-      "prepareBridge": "Prepare bridge",
+      "prepareBridge": "Prepare connection",
       "runSelfTest": "Run Self-Test",
       "copyDiagnostics": "Copy Diagnostics"
     },
     "setup": {
-      "prepare": "Prepare bridge files",
+      "prepare": "Prepare connection files",
       "install": "Install Chrome extension",
       "connect": "Chrome connection"
     },
     "diagnostics": {
-      "title": "SDK diagnostics",
-      "backend": "Backend",
+      "title": "Advanced information",
+      "backend": "Connection backend",
       "browser_bridge_disconnected": "Reload the extension or reopen the target browser tab.",
       "browser_backend_unavailable": "Refresh the status after the backend is available.",
-      "browser_bridge_action_runtime_missing": "Restart QwenPaw or reload the Browser Bridge plugin.",
+      "browser_bridge_action_runtime_missing": "Restart QwenPaw or reload the Chrome plugin.",
       "isolated_backend_unavailable": "Install or restart the isolated browser runtime.",
       "status": {
         "available": "Available",
@@ -68,11 +68,11 @@
     },
     "readiness": {
       "extensionVersion": "Extension version",
-      "selectedBackend": "Selected backend",
+      "selectedBackend": "Selected connection",
       "currentTab": "Current tab",
       "connection": "Connection",
       "progress": "Progress",
-      "nativeHost": "Native host",
+      "nativeHost": "Local connection config",
       "backendCommit": "Backend commit",
       "traceEvents": "Trace events",
       "buildFreshness": "Build freshness",
@@ -81,9 +81,9 @@
       "buildClean": "Clean",
       "lastSelfTest": "Last self-test",
       "cleanupResult": "Cleanup result",
-      "connected": "Chrome bridge is connected.",
-      "connectedSince": "Chrome bridge is connected since {{time}}.",
-      "setupRequired": "Install or prepare the Chrome extension bridge."
+      "connected": "Chrome is connected.",
+      "connectedSince": "Chrome is connected since {{time}}.",
+      "setupRequired": "Install or prepare the Chrome extension."
     },
     "repair": {
       "reloadExtension": "Reload extension",
@@ -98,7 +98,7 @@
       "retry": "Try again"
     },
     "explain": {
-      "connected": "Browser Bridge is ready and using the selected backend.",
+      "connected": "Chrome is connected and ready.",
       "disconnected": "Chrome is not connected; reload the extension or reopen Chrome.",
       "setupRequired": "Setup is incomplete; run setup and install the Chrome extension.",
       "staleBuild": "The frontend or backend build is stale; rebuild before validation.",
@@ -107,7 +107,7 @@
       "loginRequired": "The page needs your signed-in browser state before continuing.",
       "riskControl": "The website blocked progress; review the page and retry safely.",
       "noProgress": "The last browser action made no visible progress; observe again and choose a safer next step.",
-      "cleanupComplete": "Browser Bridge cleanup finished and released request-owned browser resources."
+      "cleanupComplete": "Chrome cleanup finished and released request-owned browser resources."
     }
   },
   "pluginDetail": {
@@ -140,10 +140,10 @@
       "installMode": "Install mode",
       "extensionId": "Extension ID",
       "extensionDir": "Extension folder",
-      "nativeManifest": "Native manifest",
-      "nativeHost": "Native host",
+      "nativeManifest": "Local connection config",
+      "nativeHost": "Local connection helper",
       "config": "Config",
-      "wsUrl": "Bridge endpoint",
+      "wsUrl": "Connection endpoint",
       "chromeUrl": "Chrome extensions URL"
     },
     "footer": {

@@ -174,28 +174,25 @@ export interface OpenExtensionFolderResult {
 
 export const extensionApi = {
   getStatus(): Promise<ExtensionStatus> {
-    return request<ExtensionStatus>("/browser-bridge/status");
+    return request<ExtensionStatus>("/chrome/status");
   },
 
   setup(payload: ExtensionSetupRequest): Promise<ExtensionStatus> {
-    return request<ExtensionStatus>("/browser-bridge/setup", {
+    return request<ExtensionStatus>("/chrome/setup", {
       method: "POST",
       body: JSON.stringify(payload),
     });
   },
 
   selfTest(): Promise<BrowserBridgeSelfTestResult> {
-    return request<BrowserBridgeSelfTestResult>(
-      "/browser-bridge/self-test",
-      {
-        method: "POST",
-      },
-    );
+    return request<BrowserBridgeSelfTestResult>("/chrome/self-test", {
+      method: "POST",
+    });
   },
 
   openChromeExtensionsPage(): Promise<OpenChromeExtensionsResult> {
     return request<OpenChromeExtensionsResult>(
-      "/browser-bridge/open-chrome-extensions",
+      "/chrome/open-chrome-extensions",
       {
         method: "POST",
       },
@@ -204,7 +201,7 @@ export const extensionApi = {
 
   openExtensionFolder(): Promise<OpenExtensionFolderResult> {
     return request<OpenExtensionFolderResult>(
-      "/browser-bridge/open-extension-folder",
+      "/chrome/open-extension-folder",
       {
         method: "POST",
       },
