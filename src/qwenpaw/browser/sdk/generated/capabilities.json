@@ -2,6 +2,7 @@
   "actions": {
     "browser.actions.search_web": {
       "api_id": "browser.actions.search_web",
+      "callable_path": "qwenpaw.browser.sdk.actions.tab_actions:BrowserActions.search_web",
       "invalidates_observation": true,
       "kind": "action",
       "mutates": true,
@@ -9,7 +10,7 @@
         "engine": {
           "annotation": "str",
           "default": "'google'",
-          "kind": "positional_or_keyword",
+          "kind": "keyword_only",
           "required": false
         },
         "query": {
@@ -21,12 +22,12 @@
       "requires_observation": false,
       "return_type": "BrowserActionResult",
       "satisfies_observation": false,
-      "signature": "(query: str, engine: str = 'google') -> BrowserActionResult",
-      "summary": "Search the public web using a supported engine."
+      "signature": "(query: str, *, engine: str = 'google') -> BrowserActionResult",
+      "summary": "Search the public web using the selected backend."
     },
     "tab.actions.back": {
       "api_id": "tab.actions.back",
-      "backend_op": "back",
+      "callable_path": "qwenpaw.browser.sdk.actions.tab_actions:TabActions.back",
       "invalidates_observation": true,
       "kind": "action",
       "mutates": true,
@@ -35,11 +36,11 @@
       "return_type": "BrowserActionResult",
       "satisfies_observation": false,
       "signature": "() -> BrowserActionResult",
-      "summary": "Navigate the tab backward in history."
+      "summary": ""
     },
     "tab.actions.click": {
       "api_id": "tab.actions.click",
-      "backend_op": "click",
+      "callable_path": "qwenpaw.browser.sdk.actions.tab_actions:TabActions.click",
       "invalidates_observation": true,
       "kind": "action",
       "mutates": true,
@@ -47,7 +48,7 @@
         "allow_new_context": {
           "annotation": "bool",
           "default": "False",
-          "kind": "positional_or_keyword",
+          "kind": "keyword_only",
           "required": false
         },
         "target": {
@@ -59,8 +60,8 @@
       "requires_observation": true,
       "return_type": "BrowserActionResult",
       "satisfies_observation": false,
-      "signature": "(target: dict[str, Any], allow_new_context: bool = False) -> BrowserActionResult",
-      "summary": "Click one target from the latest observation.",
+      "signature": "(target: dict[str, Any], *, allow_new_context: bool = False) -> BrowserActionResult",
+      "summary": "",
       "target": {
         "methods": [
           "ref",
@@ -74,13 +75,13 @@
     },
     "tab.actions.download_file": {
       "api_id": "tab.actions.download_file",
-      "backend_op": "download_file",
-      "invalidates_observation": true,
+      "callable_path": "qwenpaw.browser.sdk.actions.tab_actions:TabActions.download_file",
+      "invalidates_observation": false,
       "kind": "action",
-      "mutates": true,
+      "mutates": false,
       "parameters": {
         "target": {
-          "annotation": "dict[str, Any] | NoneType",
+          "annotation": "dict[str, Any] | None",
           "default": "None",
           "kind": "positional_or_keyword",
           "required": false
@@ -92,11 +93,11 @@
           "required": false
         }
       },
-      "requires_observation": false,
+      "requires_observation": true,
       "return_type": "BrowserActionResult",
       "satisfies_observation": false,
-      "signature": "(target: dict[str, Any] | NoneType = None, timeout_ms: int = 30000) -> BrowserActionResult",
-      "summary": "Download a file from the page.",
+      "signature": "(target: dict[str, Any] | None = None, timeout_ms: int = 30000) -> BrowserActionResult",
+      "summary": "",
       "target": {
         "methods": [
           "ref",
@@ -110,7 +111,7 @@
     },
     "tab.actions.fill": {
       "api_id": "tab.actions.fill",
-      "backend_op": "fill",
+      "callable_path": "qwenpaw.browser.sdk.actions.tab_actions:TabActions.fill",
       "invalidates_observation": true,
       "kind": "action",
       "mutates": true,
@@ -130,7 +131,7 @@
       "return_type": "BrowserActionResult",
       "satisfies_observation": false,
       "signature": "(target: dict[str, Any], text: str) -> BrowserActionResult",
-      "summary": "Fill an editable target with text.",
+      "summary": "",
       "target": {
         "methods": [
           "ref",
@@ -144,7 +145,7 @@
     },
     "tab.actions.forward": {
       "api_id": "tab.actions.forward",
-      "backend_op": "forward",
+      "callable_path": "qwenpaw.browser.sdk.actions.tab_actions:TabActions.forward",
       "invalidates_observation": true,
       "kind": "action",
       "mutates": true,
@@ -153,14 +154,14 @@
       "return_type": "BrowserActionResult",
       "satisfies_observation": false,
       "signature": "() -> BrowserActionResult",
-      "summary": "Navigate the tab forward in history."
+      "summary": ""
     },
     "tab.actions.handle_dialog": {
       "api_id": "tab.actions.handle_dialog",
-      "backend_op": "handle_dialog",
-      "invalidates_observation": true,
+      "callable_path": "qwenpaw.browser.sdk.actions.tab_actions:TabActions.handle_dialog",
+      "invalidates_observation": false,
       "kind": "action",
-      "mutates": true,
+      "mutates": false,
       "parameters": {
         "accept": {
           "annotation": "bool",
@@ -169,7 +170,7 @@
           "required": false
         },
         "prompt_text": {
-          "annotation": "str | NoneType",
+          "annotation": "str | None",
           "default": "None",
           "kind": "positional_or_keyword",
           "required": false
@@ -178,12 +179,12 @@
       "requires_observation": false,
       "return_type": "BrowserActionResult",
       "satisfies_observation": false,
-      "signature": "(accept: bool = True, prompt_text: str | NoneType = None) -> BrowserActionResult",
-      "summary": "Handle a browser dialog."
+      "signature": "(accept: bool = True, prompt_text: str | None = None) -> BrowserActionResult",
+      "summary": ""
     },
     "tab.actions.hover": {
       "api_id": "tab.actions.hover",
-      "backend_op": "hover",
+      "callable_path": "qwenpaw.browser.sdk.actions.tab_actions:TabActions.hover",
       "invalidates_observation": true,
       "kind": "action",
       "mutates": true,
@@ -198,7 +199,7 @@
       "return_type": "BrowserActionResult",
       "satisfies_observation": false,
       "signature": "(target: dict[str, Any]) -> BrowserActionResult",
-      "summary": "Hover over one target from the latest observation.",
+      "summary": "",
       "target": {
         "methods": [
           "ref",
@@ -212,7 +213,7 @@
     },
     "tab.actions.navigate": {
       "api_id": "tab.actions.navigate",
-      "backend_op": "navigate",
+      "callable_path": "qwenpaw.browser.sdk.actions.tab_actions:TabActions.navigate",
       "invalidates_observation": true,
       "kind": "action",
       "mutates": true,
@@ -227,11 +228,11 @@
       "return_type": "BrowserActionResult",
       "satisfies_observation": false,
       "signature": "(url: str) -> BrowserActionResult",
-      "summary": "Navigate the tab to a URL."
+      "summary": ""
     },
     "tab.actions.press_key": {
       "api_id": "tab.actions.press_key",
-      "backend_op": "press_key",
+      "callable_path": "qwenpaw.browser.sdk.actions.tab_actions:TabActions.press_key",
       "invalidates_observation": true,
       "kind": "action",
       "mutates": true,
@@ -242,15 +243,15 @@
           "required": true
         }
       },
-      "requires_observation": false,
+      "requires_observation": true,
       "return_type": "BrowserActionResult",
       "satisfies_observation": false,
       "signature": "(key: str) -> BrowserActionResult",
-      "summary": "Press a page-level keyboard key."
+      "summary": ""
     },
     "tab.actions.reload": {
       "api_id": "tab.actions.reload",
-      "backend_op": "reload",
+      "callable_path": "qwenpaw.browser.sdk.actions.tab_actions:TabActions.reload",
       "invalidates_observation": true,
       "kind": "action",
       "mutates": true,
@@ -259,17 +260,17 @@
       "return_type": "BrowserActionResult",
       "satisfies_observation": false,
       "signature": "() -> BrowserActionResult",
-      "summary": "Reload the current tab."
+      "summary": ""
     },
     "tab.actions.scroll": {
       "api_id": "tab.actions.scroll",
-      "backend_op": "scroll",
+      "callable_path": "qwenpaw.browser.sdk.actions.tab_actions:TabActions.scroll",
       "invalidates_observation": true,
       "kind": "action",
       "mutates": true,
       "parameters": {
         "amount": {
-          "annotation": "str | int | NoneType",
+          "annotation": "Any",
           "default": "None",
           "kind": "positional_or_keyword",
           "required": false
@@ -279,33 +280,17 @@
           "default": "'down'",
           "kind": "positional_or_keyword",
           "required": false
-        },
-        "target": {
-          "annotation": "dict[str, Any] | NoneType",
-          "default": "None",
-          "kind": "positional_or_keyword",
-          "required": false
         }
       },
-      "requires_observation": false,
+      "requires_observation": true,
       "return_type": "BrowserActionResult",
       "satisfies_observation": false,
-      "signature": "(direction: str = 'down', amount: str | int | NoneType = None, target: dict[str, Any] | NoneType = None) -> BrowserActionResult",
-      "summary": "Scroll the page or a target region.",
-      "target": {
-        "methods": [
-          "ref",
-          "role_name",
-          "text_exact",
-          "coords"
-        ],
-        "required": false,
-        "snapshot_bound": true
-      }
+      "signature": "(direction: str = 'down', amount: Any = None) -> BrowserActionResult",
+      "summary": ""
     },
     "tab.actions.select_option": {
       "api_id": "tab.actions.select_option",
-      "backend_op": "select_option",
+      "callable_path": "qwenpaw.browser.sdk.actions.tab_actions:TabActions.select_option",
       "invalidates_observation": true,
       "kind": "action",
       "mutates": true,
@@ -316,7 +301,7 @@
           "required": true
         },
         "value": {
-          "annotation": "str",
+          "annotation": "Any",
           "kind": "positional_or_keyword",
           "required": true
         }
@@ -324,8 +309,8 @@
       "requires_observation": true,
       "return_type": "BrowserActionResult",
       "satisfies_observation": false,
-      "signature": "(target: dict[str, Any], value: str) -> BrowserActionResult",
-      "summary": "Select an option on a target control.",
+      "signature": "(target: dict[str, Any], value: Any) -> BrowserActionResult",
+      "summary": "",
       "target": {
         "methods": [
           "ref",
@@ -339,7 +324,7 @@
     },
     "tab.actions.upload_file": {
       "api_id": "tab.actions.upload_file",
-      "backend_op": "upload_file",
+      "callable_path": "qwenpaw.browser.sdk.actions.tab_actions:TabActions.upload_file",
       "invalidates_observation": true,
       "kind": "action",
       "mutates": true,
@@ -359,7 +344,7 @@
       "return_type": "BrowserActionResult",
       "satisfies_observation": false,
       "signature": "(target: dict[str, Any], file_path: str | list[str]) -> BrowserActionResult",
-      "summary": "Upload one or more files through a target control.",
+      "summary": "",
       "target": {
         "methods": [
           "ref",
@@ -375,6 +360,7 @@
   "apis": {
     "browser.actions.search_web": {
       "api_id": "browser.actions.search_web",
+      "callable_path": "qwenpaw.browser.sdk.actions.tab_actions:BrowserActions.search_web",
       "invalidates_observation": true,
       "kind": "action",
       "mutates": true,
@@ -382,7 +368,7 @@
         "engine": {
           "annotation": "str",
           "default": "'google'",
-          "kind": "positional_or_keyword",
+          "kind": "keyword_only",
           "required": false
         },
         "query": {
@@ -394,11 +380,12 @@
       "requires_observation": false,
       "return_type": "BrowserActionResult",
       "satisfies_observation": false,
-      "signature": "(query: str, engine: str = 'google') -> BrowserActionResult",
-      "summary": "Search the public web using a supported engine."
+      "signature": "(query: str, *, engine: str = 'google') -> BrowserActionResult",
+      "summary": "Search the public web using the selected backend."
     },
     "browser.capabilities": {
       "api_id": "browser.capabilities",
+      "callable_path": "qwenpaw.browser.sdk.facade.browser:Browser.capabilities",
       "invalidates_observation": false,
       "kind": "diagnostic",
       "mutates": false,
@@ -414,65 +401,68 @@
       "return_type": "dict[str, Any]",
       "satisfies_observation": false,
       "signature": "(scope: str = 'all') -> dict[str, Any]",
-      "summary": "Return generated Browser SDK capabilities."
+      "summary": "Return public Browser SDK contexts, primitives, actions, limits."
     },
     "browser.close": {
       "api_id": "browser.close",
+      "callable_path": "qwenpaw.browser.sdk.facade.browser:Browser.close",
       "invalidates_observation": false,
       "kind": "lifecycle",
       "mutates": true,
       "parameters": {},
       "requires_observation": false,
-      "return_type": "NoneType",
+      "return_type": "None",
       "satisfies_observation": false,
-      "signature": "() -> NoneType",
+      "signature": "() -> None",
       "summary": "Release browser session resources through the selected backend."
     },
     "browser.connect": {
       "api_id": "browser.connect",
+      "callable_path": "qwenpaw.browser.sdk.facade.browser:Browser.connect",
       "invalidates_observation": false,
       "kind": "lifecycle",
       "mutates": false,
       "parameters": {
         "context": {
-          "annotation": "str",
+          "annotation": "Literal['auto', 'user', 'isolated']",
           "default": "'auto'",
           "kind": "positional_or_keyword",
           "required": false
         },
         "requires_user_state": {
-          "annotation": "bool | NoneType",
+          "annotation": "bool | None",
           "default": "None",
           "kind": "keyword_only",
           "required": false
         },
         "retention": {
-          "annotation": "str",
+          "annotation": "Literal['clean', 'debug', 'handoff']",
           "default": "'clean'",
           "kind": "keyword_only",
           "required": false
         },
         "session_id": {
-          "annotation": "str | NoneType",
+          "annotation": "str | None",
           "default": "None",
           "kind": "keyword_only",
           "required": false
         }
       },
       "requires_observation": false,
-      "return_type": "Any",
+      "return_type": "Browser",
       "satisfies_observation": false,
-      "signature": "(context: str = 'auto', *, requires_user_state: bool | NoneType = None, session_id: str | NoneType = None, retention: str = 'clean') -> Any",
+      "signature": "(context: Literal['auto', 'user', 'isolated'] = 'auto', *, requires_user_state: bool | None = None, session_id: str | None = None, retention: Literal['clean', 'debug', 'handoff'] = 'clean') -> Browser",
       "summary": "Connect to a browser backend using runtime context arbitration."
     },
     "browser.diagnostics": {
       "api_id": "browser.diagnostics",
+      "callable_path": "qwenpaw.browser.sdk.facade.browser:Browser.diagnostics",
       "invalidates_observation": false,
       "kind": "diagnostic",
       "mutates": false,
       "parameters": {
         "context": {
-          "annotation": "str",
+          "annotation": "Literal['auto', 'user', 'isolated']",
           "default": "'auto'",
           "kind": "positional_or_keyword",
           "required": false
@@ -481,23 +471,24 @@
       "requires_observation": false,
       "return_type": "BrowserDiagnostics",
       "satisfies_observation": false,
-      "signature": "(context: str = 'auto') -> BrowserDiagnostics",
+      "signature": "(context: Literal['auto', 'user', 'isolated'] = 'auto') -> BrowserDiagnostics",
       "summary": "Return backend availability diagnostics without connecting."
     },
     "browser.help": {
       "api_id": "browser.help",
+      "callable_path": "qwenpaw.browser.sdk.facade.browser:Browser.help",
       "invalidates_observation": false,
       "kind": "diagnostic",
       "mutates": false,
       "parameters": {
         "api_id": {
-          "annotation": "str | NoneType",
+          "annotation": "str | None",
           "default": "None",
           "kind": "positional_or_keyword",
           "required": false
         },
         "scope": {
-          "annotation": "str | NoneType",
+          "annotation": "str | None",
           "default": "None",
           "kind": "positional_or_keyword",
           "required": false
@@ -506,76 +497,78 @@
       "requires_observation": false,
       "return_type": "str",
       "satisfies_observation": false,
-      "signature": "(scope: str | NoneType = None, api_id: str | NoneType = None) -> str",
+      "signature": "(scope: str | None = None, api_id: str | None = None) -> str",
       "summary": "Return generated Browser SDK help text."
     },
     "browser.tabs.active": {
       "api_id": "browser.tabs.active",
-      "backend_op": "active_tab",
+      "callable_path": "qwenpaw.browser.sdk.primitives.tabs:BrowserTabs.active",
       "invalidates_observation": false,
       "kind": "primitive",
       "mutates": false,
       "parameters": {},
       "requires_observation": false,
-      "return_type": "Any",
+      "return_type": "Tab",
       "satisfies_observation": false,
-      "signature": "() -> Any",
+      "signature": "() -> Tab",
       "summary": "Return the current request tab without creating one."
     },
     "browser.tabs.list": {
       "api_id": "browser.tabs.list",
-      "backend_op": "list_tabs",
+      "callable_path": "qwenpaw.browser.sdk.primitives.tabs:BrowserTabs.list",
       "invalidates_observation": false,
       "kind": "primitive",
       "mutates": false,
       "parameters": {},
       "requires_observation": false,
-      "return_type": "list[Any]",
+      "return_type": "list[Tab]",
       "satisfies_observation": false,
-      "signature": "() -> list[Any]",
+      "signature": "() -> list[Tab]",
       "summary": "List browser tabs."
     },
     "browser.tabs.new": {
       "api_id": "browser.tabs.new",
-      "backend_op": "create_tab",
+      "callable_path": "qwenpaw.browser.sdk.primitives.tabs:BrowserTabs.new",
       "invalidates_observation": true,
       "kind": "primitive",
       "mutates": true,
       "parameters": {
         "url": {
-          "annotation": "str",
+          "annotation": "str | None",
+          "default": "None",
           "kind": "positional_or_keyword",
-          "required": true
+          "required": false
         }
       },
       "requires_observation": false,
-      "return_type": "Any",
+      "return_type": "Tab",
       "satisfies_observation": false,
-      "signature": "(url: str) -> Any",
+      "signature": "(url: str | None = None) -> Tab",
       "summary": "Explicitly create a new browser tab for the request workspace."
     },
     "browser.tabs.open": {
       "api_id": "browser.tabs.open",
-      "backend_op": "open_workspace_tab",
+      "callable_path": "qwenpaw.browser.sdk.primitives.tabs:BrowserTabs.open",
       "invalidates_observation": true,
       "kind": "primitive",
       "mutates": true,
       "parameters": {
         "url": {
-          "annotation": "str",
+          "annotation": "str | None",
+          "default": "None",
           "kind": "positional_or_keyword",
-          "required": true
+          "required": false
         }
       },
       "requires_observation": false,
-      "return_type": "Any",
+      "return_type": "Tab",
       "satisfies_observation": false,
-      "signature": "(url: str) -> Any",
-      "summary": "Reuse the request workspace tab and navigate it to a URL."
+      "signature": "(url: str | None = None) -> Tab",
+      "summary": "Reuse the request workspace tab and navigate it to *url*."
     },
     "browser.tabs.select": {
       "api_id": "browser.tabs.select",
-      "backend_op": "select_tab",
+      "callable_path": "qwenpaw.browser.sdk.primitives.tabs:BrowserTabs.select",
       "invalidates_observation": false,
       "kind": "primitive",
       "mutates": false,
@@ -587,14 +580,14 @@
         }
       },
       "requires_observation": false,
-      "return_type": "Any",
+      "return_type": "Tab",
       "satisfies_observation": false,
-      "signature": "(tab_id: str) -> Any",
+      "signature": "(tab_id: str) -> Tab",
       "summary": "Select a tab by id."
     },
     "tab.actions.back": {
       "api_id": "tab.actions.back",
-      "backend_op": "back",
+      "callable_path": "qwenpaw.browser.sdk.actions.tab_actions:TabActions.back",
       "invalidates_observation": true,
       "kind": "action",
       "mutates": true,
@@ -603,11 +596,11 @@
       "return_type": "BrowserActionResult",
       "satisfies_observation": false,
       "signature": "() -> BrowserActionResult",
-      "summary": "Navigate the tab backward in history."
+      "summary": ""
     },
     "tab.actions.click": {
       "api_id": "tab.actions.click",
-      "backend_op": "click",
+      "callable_path": "qwenpaw.browser.sdk.actions.tab_actions:TabActions.click",
       "invalidates_observation": true,
       "kind": "action",
       "mutates": true,
@@ -615,7 +608,7 @@
         "allow_new_context": {
           "annotation": "bool",
           "default": "False",
-          "kind": "positional_or_keyword",
+          "kind": "keyword_only",
           "required": false
         },
         "target": {
@@ -627,8 +620,8 @@
       "requires_observation": true,
       "return_type": "BrowserActionResult",
       "satisfies_observation": false,
-      "signature": "(target: dict[str, Any], allow_new_context: bool = False) -> BrowserActionResult",
-      "summary": "Click one target from the latest observation.",
+      "signature": "(target: dict[str, Any], *, allow_new_context: bool = False) -> BrowserActionResult",
+      "summary": "",
       "target": {
         "methods": [
           "ref",
@@ -642,13 +635,13 @@
     },
     "tab.actions.download_file": {
       "api_id": "tab.actions.download_file",
-      "backend_op": "download_file",
-      "invalidates_observation": true,
+      "callable_path": "qwenpaw.browser.sdk.actions.tab_actions:TabActions.download_file",
+      "invalidates_observation": false,
       "kind": "action",
-      "mutates": true,
+      "mutates": false,
       "parameters": {
         "target": {
-          "annotation": "dict[str, Any] | NoneType",
+          "annotation": "dict[str, Any] | None",
           "default": "None",
           "kind": "positional_or_keyword",
           "required": false
@@ -660,11 +653,11 @@
           "required": false
         }
       },
-      "requires_observation": false,
+      "requires_observation": true,
       "return_type": "BrowserActionResult",
       "satisfies_observation": false,
-      "signature": "(target: dict[str, Any] | NoneType = None, timeout_ms: int = 30000) -> BrowserActionResult",
-      "summary": "Download a file from the page.",
+      "signature": "(target: dict[str, Any] | None = None, timeout_ms: int = 30000) -> BrowserActionResult",
+      "summary": "",
       "target": {
         "methods": [
           "ref",
@@ -678,7 +671,7 @@
     },
     "tab.actions.fill": {
       "api_id": "tab.actions.fill",
-      "backend_op": "fill",
+      "callable_path": "qwenpaw.browser.sdk.actions.tab_actions:TabActions.fill",
       "invalidates_observation": true,
       "kind": "action",
       "mutates": true,
@@ -698,7 +691,7 @@
       "return_type": "BrowserActionResult",
       "satisfies_observation": false,
       "signature": "(target: dict[str, Any], text: str) -> BrowserActionResult",
-      "summary": "Fill an editable target with text.",
+      "summary": "",
       "target": {
         "methods": [
           "ref",
@@ -712,7 +705,7 @@
     },
     "tab.actions.forward": {
       "api_id": "tab.actions.forward",
-      "backend_op": "forward",
+      "callable_path": "qwenpaw.browser.sdk.actions.tab_actions:TabActions.forward",
       "invalidates_observation": true,
       "kind": "action",
       "mutates": true,
@@ -721,14 +714,14 @@
       "return_type": "BrowserActionResult",
       "satisfies_observation": false,
       "signature": "() -> BrowserActionResult",
-      "summary": "Navigate the tab forward in history."
+      "summary": ""
     },
     "tab.actions.handle_dialog": {
       "api_id": "tab.actions.handle_dialog",
-      "backend_op": "handle_dialog",
-      "invalidates_observation": true,
+      "callable_path": "qwenpaw.browser.sdk.actions.tab_actions:TabActions.handle_dialog",
+      "invalidates_observation": false,
       "kind": "action",
-      "mutates": true,
+      "mutates": false,
       "parameters": {
         "accept": {
           "annotation": "bool",
@@ -737,7 +730,7 @@
           "required": false
         },
         "prompt_text": {
-          "annotation": "str | NoneType",
+          "annotation": "str | None",
           "default": "None",
           "kind": "positional_or_keyword",
           "required": false
@@ -746,12 +739,12 @@
       "requires_observation": false,
       "return_type": "BrowserActionResult",
       "satisfies_observation": false,
-      "signature": "(accept: bool = True, prompt_text: str | NoneType = None) -> BrowserActionResult",
-      "summary": "Handle a browser dialog."
+      "signature": "(accept: bool = True, prompt_text: str | None = None) -> BrowserActionResult",
+      "summary": ""
     },
     "tab.actions.hover": {
       "api_id": "tab.actions.hover",
-      "backend_op": "hover",
+      "callable_path": "qwenpaw.browser.sdk.actions.tab_actions:TabActions.hover",
       "invalidates_observation": true,
       "kind": "action",
       "mutates": true,
@@ -766,7 +759,7 @@
       "return_type": "BrowserActionResult",
       "satisfies_observation": false,
       "signature": "(target: dict[str, Any]) -> BrowserActionResult",
-      "summary": "Hover over one target from the latest observation.",
+      "summary": "",
       "target": {
         "methods": [
           "ref",
@@ -780,7 +773,7 @@
     },
     "tab.actions.navigate": {
       "api_id": "tab.actions.navigate",
-      "backend_op": "navigate",
+      "callable_path": "qwenpaw.browser.sdk.actions.tab_actions:TabActions.navigate",
       "invalidates_observation": true,
       "kind": "action",
       "mutates": true,
@@ -795,11 +788,11 @@
       "return_type": "BrowserActionResult",
       "satisfies_observation": false,
       "signature": "(url: str) -> BrowserActionResult",
-      "summary": "Navigate the tab to a URL."
+      "summary": ""
     },
     "tab.actions.press_key": {
       "api_id": "tab.actions.press_key",
-      "backend_op": "press_key",
+      "callable_path": "qwenpaw.browser.sdk.actions.tab_actions:TabActions.press_key",
       "invalidates_observation": true,
       "kind": "action",
       "mutates": true,
@@ -810,15 +803,15 @@
           "required": true
         }
       },
-      "requires_observation": false,
+      "requires_observation": true,
       "return_type": "BrowserActionResult",
       "satisfies_observation": false,
       "signature": "(key: str) -> BrowserActionResult",
-      "summary": "Press a page-level keyboard key."
+      "summary": ""
     },
     "tab.actions.reload": {
       "api_id": "tab.actions.reload",
-      "backend_op": "reload",
+      "callable_path": "qwenpaw.browser.sdk.actions.tab_actions:TabActions.reload",
       "invalidates_observation": true,
       "kind": "action",
       "mutates": true,
@@ -827,17 +820,17 @@
       "return_type": "BrowserActionResult",
       "satisfies_observation": false,
       "signature": "() -> BrowserActionResult",
-      "summary": "Reload the current tab."
+      "summary": ""
     },
     "tab.actions.scroll": {
       "api_id": "tab.actions.scroll",
-      "backend_op": "scroll",
+      "callable_path": "qwenpaw.browser.sdk.actions.tab_actions:TabActions.scroll",
       "invalidates_observation": true,
       "kind": "action",
       "mutates": true,
       "parameters": {
         "amount": {
-          "annotation": "str | int | NoneType",
+          "annotation": "Any",
           "default": "None",
           "kind": "positional_or_keyword",
           "required": false
@@ -847,33 +840,17 @@
           "default": "'down'",
           "kind": "positional_or_keyword",
           "required": false
-        },
-        "target": {
-          "annotation": "dict[str, Any] | NoneType",
-          "default": "None",
-          "kind": "positional_or_keyword",
-          "required": false
         }
       },
-      "requires_observation": false,
+      "requires_observation": true,
       "return_type": "BrowserActionResult",
       "satisfies_observation": false,
-      "signature": "(direction: str = 'down', amount: str | int | NoneType = None, target: dict[str, Any] | NoneType = None) -> BrowserActionResult",
-      "summary": "Scroll the page or a target region.",
-      "target": {
-        "methods": [
-          "ref",
-          "role_name",
-          "text_exact",
-          "coords"
-        ],
-        "required": false,
-        "snapshot_bound": true
-      }
+      "signature": "(direction: str = 'down', amount: Any = None) -> BrowserActionResult",
+      "summary": ""
     },
     "tab.actions.select_option": {
       "api_id": "tab.actions.select_option",
-      "backend_op": "select_option",
+      "callable_path": "qwenpaw.browser.sdk.actions.tab_actions:TabActions.select_option",
       "invalidates_observation": true,
       "kind": "action",
       "mutates": true,
@@ -884,7 +861,7 @@
           "required": true
         },
         "value": {
-          "annotation": "str",
+          "annotation": "Any",
           "kind": "positional_or_keyword",
           "required": true
         }
@@ -892,8 +869,8 @@
       "requires_observation": true,
       "return_type": "BrowserActionResult",
       "satisfies_observation": false,
-      "signature": "(target: dict[str, Any], value: str) -> BrowserActionResult",
-      "summary": "Select an option on a target control.",
+      "signature": "(target: dict[str, Any], value: Any) -> BrowserActionResult",
+      "summary": "",
       "target": {
         "methods": [
           "ref",
@@ -907,7 +884,7 @@
     },
     "tab.actions.upload_file": {
       "api_id": "tab.actions.upload_file",
-      "backend_op": "upload_file",
+      "callable_path": "qwenpaw.browser.sdk.actions.tab_actions:TabActions.upload_file",
       "invalidates_observation": true,
       "kind": "action",
       "mutates": true,
@@ -927,7 +904,7 @@
       "return_type": "BrowserActionResult",
       "satisfies_observation": false,
       "signature": "(target: dict[str, Any], file_path: str | list[str]) -> BrowserActionResult",
-      "summary": "Upload one or more files through a target control.",
+      "summary": "",
       "target": {
         "methods": [
           "ref",
@@ -941,7 +918,7 @@
     },
     "tab.close": {
       "api_id": "tab.close",
-      "backend_op": "close_tab",
+      "callable_path": "qwenpaw.browser.sdk.primitives.tab:Tab.close",
       "invalidates_observation": false,
       "kind": "primitive",
       "mutates": true,
@@ -954,7 +931,7 @@
     },
     "tab.extract": {
       "api_id": "tab.extract",
-      "backend_op": "extract",
+      "callable_path": "qwenpaw.browser.sdk.primitives.tab:Tab.extract",
       "invalidates_observation": false,
       "kind": "primitive",
       "mutates": false,
@@ -975,11 +952,11 @@
       "return_type": "BrowserExtractionResult",
       "satisfies_observation": false,
       "signature": "(instruction: str, format: Literal['text', 'json'] = 'text') -> BrowserExtractionResult",
-      "summary": "Extract page data according to an instruction."
+      "summary": "Extract lightweight text or JSON from the tab."
     },
     "tab.page_info": {
       "api_id": "tab.page_info",
-      "backend_op": "page_info",
+      "callable_path": "qwenpaw.browser.sdk.primitives.tab:Tab.page_info",
       "invalidates_observation": false,
       "kind": "primitive",
       "mutates": false,
@@ -992,7 +969,7 @@
     },
     "tab.screenshot": {
       "api_id": "tab.screenshot",
-      "backend_op": "screenshot",
+      "callable_path": "qwenpaw.browser.sdk.primitives.tab:Tab.screenshot",
       "invalidates_observation": false,
       "kind": "primitive",
       "mutates": false,
@@ -1005,7 +982,7 @@
     },
     "tab.snapshot": {
       "api_id": "tab.snapshot",
-      "backend_op": "snapshot",
+      "callable_path": "qwenpaw.browser.sdk.primitives.tab:Tab.snapshot",
       "invalidates_observation": false,
       "kind": "primitive",
       "mutates": false,
@@ -1018,17 +995,17 @@
     },
     "tab.wait_for": {
       "api_id": "tab.wait_for",
-      "backend_op": "wait_for",
+      "callable_path": "qwenpaw.browser.sdk.primitives.tab:Tab.wait_for",
       "invalidates_observation": false,
       "kind": "primitive",
       "mutates": false,
       "parameters": {
-        "condition": {
-          "annotation": "dict[str, Any] | str",
+        "instruction": {
+          "annotation": "str",
           "kind": "positional_or_keyword",
           "required": true
         },
-        "timeout_ms": {
+        "max_wait_ms": {
           "annotation": "int",
           "default": "10000",
           "kind": "positional_or_keyword",
@@ -1038,8 +1015,8 @@
       "requires_observation": false,
       "return_type": "BrowserActionResult",
       "satisfies_observation": false,
-      "signature": "(condition: dict[str, Any] | str, timeout_ms: int = 10000) -> BrowserActionResult",
-      "summary": "Wait until the page matches a structured condition."
+      "signature": "(instruction: str, max_wait_ms: int = 10000) -> BrowserActionResult",
+      "summary": "Wait until the page matches a natural-language condition."
     }
   },
   "contexts": [
@@ -1050,6 +1027,7 @@
   "diagnostics": {
     "browser.capabilities": {
       "api_id": "browser.capabilities",
+      "callable_path": "qwenpaw.browser.sdk.facade.browser:Browser.capabilities",
       "invalidates_observation": false,
       "kind": "diagnostic",
       "mutates": false,
@@ -1065,16 +1043,17 @@
       "return_type": "dict[str, Any]",
       "satisfies_observation": false,
       "signature": "(scope: str = 'all') -> dict[str, Any]",
-      "summary": "Return generated Browser SDK capabilities."
+      "summary": "Return public Browser SDK contexts, primitives, actions, limits."
     },
     "browser.diagnostics": {
       "api_id": "browser.diagnostics",
+      "callable_path": "qwenpaw.browser.sdk.facade.browser:Browser.diagnostics",
       "invalidates_observation": false,
       "kind": "diagnostic",
       "mutates": false,
       "parameters": {
         "context": {
-          "annotation": "str",
+          "annotation": "Literal['auto', 'user', 'isolated']",
           "default": "'auto'",
           "kind": "positional_or_keyword",
           "required": false
@@ -1083,23 +1062,24 @@
       "requires_observation": false,
       "return_type": "BrowserDiagnostics",
       "satisfies_observation": false,
-      "signature": "(context: str = 'auto') -> BrowserDiagnostics",
+      "signature": "(context: Literal['auto', 'user', 'isolated'] = 'auto') -> BrowserDiagnostics",
       "summary": "Return backend availability diagnostics without connecting."
     },
     "browser.help": {
       "api_id": "browser.help",
+      "callable_path": "qwenpaw.browser.sdk.facade.browser:Browser.help",
       "invalidates_observation": false,
       "kind": "diagnostic",
       "mutates": false,
       "parameters": {
         "api_id": {
-          "annotation": "str | NoneType",
+          "annotation": "str | None",
           "default": "None",
           "kind": "positional_or_keyword",
           "required": false
         },
         "scope": {
-          "annotation": "str | NoneType",
+          "annotation": "str | None",
           "default": "None",
           "kind": "positional_or_keyword",
           "required": false
@@ -1108,170 +1088,174 @@
       "requires_observation": false,
       "return_type": "str",
       "satisfies_observation": false,
-      "signature": "(scope: str | NoneType = None, api_id: str | NoneType = None) -> str",
+      "signature": "(scope: str | None = None, api_id: str | None = None) -> str",
       "summary": "Return generated Browser SDK help text."
     }
   },
   "help": {
     "apis": {
-      "browser.actions.search_web": "# `browser.actions.search_web`\n\nSearch the public web using a supported engine.\n\nKind: `action`\nSignature: `(query: str, engine: str = 'google') -> BrowserActionResult`\n\nMetadata:\n- mutates: `True`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `True`\n",
-      "browser.capabilities": "# `browser.capabilities`\n\nReturn generated Browser SDK capabilities.\n\nKind: `diagnostic`\nSignature: `(scope: str = 'all') -> dict[str, Any]`\n\nMetadata:\n- mutates: `False`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `False`\n",
-      "browser.close": "# `browser.close`\n\nRelease browser session resources through the selected backend.\n\nKind: `lifecycle`\nSignature: `() -> NoneType`\n\nMetadata:\n- mutates: `True`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `False`\n",
-      "browser.connect": "# `browser.connect`\n\nConnect to a browser backend using runtime context arbitration.\n\nKind: `lifecycle`\nSignature: `(context: str = 'auto', *, requires_user_state: bool | NoneType = None, session_id: str | NoneType = None, retention: str = 'clean') -> Any`\n\nMetadata:\n- mutates: `False`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `False`\n",
-      "browser.diagnostics": "# `browser.diagnostics`\n\nReturn backend availability diagnostics without connecting.\n\nKind: `diagnostic`\nSignature: `(context: str = 'auto') -> BrowserDiagnostics`\n\nMetadata:\n- mutates: `False`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `False`\n",
-      "browser.help": "# `browser.help`\n\nReturn generated Browser SDK help text.\n\nKind: `diagnostic`\nSignature: `(scope: str | NoneType = None, api_id: str | NoneType = None) -> str`\n\nMetadata:\n- mutates: `False`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `False`\n",
-      "browser.tabs.active": "# `browser.tabs.active`\n\nReturn the current request tab without creating one.\n\nKind: `primitive`\nSignature: `() -> Any`\n\nMetadata:\n- mutates: `False`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `False`\n- backend_op: `active_tab`\n",
-      "browser.tabs.list": "# `browser.tabs.list`\n\nList browser tabs.\n\nKind: `primitive`\nSignature: `() -> list[Any]`\n\nMetadata:\n- mutates: `False`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `False`\n- backend_op: `list_tabs`\n",
-      "browser.tabs.new": "# `browser.tabs.new`\n\nExplicitly create a new browser tab for the request workspace.\n\nKind: `primitive`\nSignature: `(url: str) -> Any`\n\nMetadata:\n- mutates: `True`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `True`\n- backend_op: `create_tab`\n",
-      "browser.tabs.open": "# `browser.tabs.open`\n\nReuse the request workspace tab and navigate it to a URL.\n\nKind: `primitive`\nSignature: `(url: str) -> Any`\n\nMetadata:\n- mutates: `True`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `True`\n- backend_op: `open_workspace_tab`\n",
-      "browser.tabs.select": "# `browser.tabs.select`\n\nSelect a tab by id.\n\nKind: `primitive`\nSignature: `(tab_id: str) -> Any`\n\nMetadata:\n- mutates: `False`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `False`\n- backend_op: `select_tab`\n",
-      "tab.actions.back": "# `tab.actions.back`\n\nNavigate the tab backward in history.\n\nKind: `action`\nSignature: `() -> BrowserActionResult`\n\nMetadata:\n- mutates: `True`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `True`\n- backend_op: `back`\n",
-      "tab.actions.click": "# `tab.actions.click`\n\nClick one target from the latest observation.\n\nKind: `action`\nSignature: `(target: dict[str, Any], allow_new_context: bool = False) -> BrowserActionResult`\n\nMetadata:\n- mutates: `True`\n- requires_observation: `True`\n- satisfies_observation: `False`\n- invalidates_observation: `True`\n- target_required: `True`\n- target_methods: `ref, role_name, text_exact, coords`\n- target_snapshot_bound: `True`\n- backend_op: `click`\n",
-      "tab.actions.download_file": "# `tab.actions.download_file`\n\nDownload a file from the page.\n\nKind: `action`\nSignature: `(target: dict[str, Any] | NoneType = None, timeout_ms: int = 30000) -> BrowserActionResult`\n\nMetadata:\n- mutates: `True`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `True`\n- target_required: `False`\n- target_methods: `ref, role_name, text_exact, coords`\n- target_snapshot_bound: `True`\n- backend_op: `download_file`\n",
-      "tab.actions.fill": "# `tab.actions.fill`\n\nFill an editable target with text.\n\nKind: `action`\nSignature: `(target: dict[str, Any], text: str) -> BrowserActionResult`\n\nMetadata:\n- mutates: `True`\n- requires_observation: `True`\n- satisfies_observation: `False`\n- invalidates_observation: `True`\n- target_required: `True`\n- target_methods: `ref, role_name, text_exact, coords`\n- target_snapshot_bound: `True`\n- backend_op: `fill`\n",
-      "tab.actions.forward": "# `tab.actions.forward`\n\nNavigate the tab forward in history.\n\nKind: `action`\nSignature: `() -> BrowserActionResult`\n\nMetadata:\n- mutates: `True`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `True`\n- backend_op: `forward`\n",
-      "tab.actions.handle_dialog": "# `tab.actions.handle_dialog`\n\nHandle a browser dialog.\n\nKind: `action`\nSignature: `(accept: bool = True, prompt_text: str | NoneType = None) -> BrowserActionResult`\n\nMetadata:\n- mutates: `True`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `True`\n- backend_op: `handle_dialog`\n",
-      "tab.actions.hover": "# `tab.actions.hover`\n\nHover over one target from the latest observation.\n\nKind: `action`\nSignature: `(target: dict[str, Any]) -> BrowserActionResult`\n\nMetadata:\n- mutates: `True`\n- requires_observation: `True`\n- satisfies_observation: `False`\n- invalidates_observation: `True`\n- target_required: `True`\n- target_methods: `ref, role_name, text_exact, coords`\n- target_snapshot_bound: `True`\n- backend_op: `hover`\n",
-      "tab.actions.navigate": "# `tab.actions.navigate`\n\nNavigate the tab to a URL.\n\nKind: `action`\nSignature: `(url: str) -> BrowserActionResult`\n\nMetadata:\n- mutates: `True`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `True`\n- backend_op: `navigate`\n",
-      "tab.actions.press_key": "# `tab.actions.press_key`\n\nPress a page-level keyboard key.\n\nKind: `action`\nSignature: `(key: str) -> BrowserActionResult`\n\nMetadata:\n- mutates: `True`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `True`\n- backend_op: `press_key`\n",
-      "tab.actions.reload": "# `tab.actions.reload`\n\nReload the current tab.\n\nKind: `action`\nSignature: `() -> BrowserActionResult`\n\nMetadata:\n- mutates: `True`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `True`\n- backend_op: `reload`\n",
-      "tab.actions.scroll": "# `tab.actions.scroll`\n\nScroll the page or a target region.\n\nKind: `action`\nSignature: `(direction: str = 'down', amount: str | int | NoneType = None, target: dict[str, Any] | NoneType = None) -> BrowserActionResult`\n\nMetadata:\n- mutates: `True`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `True`\n- target_required: `False`\n- target_methods: `ref, role_name, text_exact, coords`\n- target_snapshot_bound: `True`\n- backend_op: `scroll`\n",
-      "tab.actions.select_option": "# `tab.actions.select_option`\n\nSelect an option on a target control.\n\nKind: `action`\nSignature: `(target: dict[str, Any], value: str) -> BrowserActionResult`\n\nMetadata:\n- mutates: `True`\n- requires_observation: `True`\n- satisfies_observation: `False`\n- invalidates_observation: `True`\n- target_required: `True`\n- target_methods: `ref, role_name, text_exact, coords`\n- target_snapshot_bound: `True`\n- backend_op: `select_option`\n",
-      "tab.actions.upload_file": "# `tab.actions.upload_file`\n\nUpload one or more files through a target control.\n\nKind: `action`\nSignature: `(target: dict[str, Any], file_path: str | list[str]) -> BrowserActionResult`\n\nMetadata:\n- mutates: `True`\n- requires_observation: `True`\n- satisfies_observation: `False`\n- invalidates_observation: `True`\n- target_required: `True`\n- target_methods: `ref, role_name, text_exact, coords`\n- target_snapshot_bound: `True`\n- backend_op: `upload_file`\n",
-      "tab.close": "# `tab.close`\n\nClose or release the tab through the backend.\n\nKind: `primitive`\nSignature: `() -> BrowserActionResult`\n\nMetadata:\n- mutates: `True`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `False`\n- backend_op: `close_tab`\n",
-      "tab.extract": "# `tab.extract`\n\nExtract page data according to an instruction.\n\nKind: `primitive`\nSignature: `(instruction: str, format: Literal['text', 'json'] = 'text') -> BrowserExtractionResult`\n\nMetadata:\n- mutates: `False`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `False`\n- backend_op: `extract`\n",
-      "tab.page_info": "# `tab.page_info`\n\nRead tab metadata without satisfying the observation guard.\n\nKind: `primitive`\nSignature: `() -> BrowserPageInfo`\n\nMetadata:\n- mutates: `False`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `False`\n- backend_op: `page_info`\n",
-      "tab.screenshot": "# `tab.screenshot`\n\nCapture a visual observation and satisfy the guard.\n\nKind: `primitive`\nSignature: `() -> BrowserScreenshot`\n\nMetadata:\n- mutates: `False`\n- requires_observation: `False`\n- satisfies_observation: `True`\n- invalidates_observation: `False`\n- backend_op: `screenshot`\n",
-      "tab.snapshot": "# `tab.snapshot`\n\nObserve the tab and satisfy the fresh-observation guard.\n\nKind: `primitive`\nSignature: `() -> BrowserObservation`\n\nMetadata:\n- mutates: `False`\n- requires_observation: `False`\n- satisfies_observation: `True`\n- invalidates_observation: `False`\n- backend_op: `snapshot`\n",
-      "tab.wait_for": "# `tab.wait_for`\n\nWait until the page matches a structured condition.\n\nKind: `primitive`\nSignature: `(condition: dict[str, Any] | str, timeout_ms: int = 10000) -> BrowserActionResult`\n\nMetadata:\n- mutates: `False`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `False`\n- backend_op: `wait_for`\n"
+      "browser.actions.search_web": "# `browser.actions.search_web`\n\nSearch the public web using the selected backend.\n\nKind: `action`\nSignature: `(query: str, *, engine: str = 'google') -> BrowserActionResult`\n\nMetadata:\n- mutates: `True`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `True`\n",
+      "browser.capabilities": "# `browser.capabilities`\n\nReturn public Browser SDK contexts, primitives, actions, limits.\n\nKind: `diagnostic`\nSignature: `(scope: str = 'all') -> dict[str, Any]`\n\nMetadata:\n- mutates: `False`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `False`\n",
+      "browser.close": "# `browser.close`\n\nRelease browser session resources through the selected backend.\n\nKind: `lifecycle`\nSignature: `() -> None`\n\nMetadata:\n- mutates: `True`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `False`\n",
+      "browser.connect": "# `browser.connect`\n\nConnect to a browser backend using runtime context arbitration.\n\nKind: `lifecycle`\nSignature: `(context: Literal['auto', 'user', 'isolated'] = 'auto', *, requires_user_state: bool | None = None, session_id: str | None = None, retention: Literal['clean', 'debug', 'handoff'] = 'clean') -> Browser`\n\nMetadata:\n- mutates: `False`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `False`\n",
+      "browser.diagnostics": "# `browser.diagnostics`\n\nReturn backend availability diagnostics without connecting.\n\nKind: `diagnostic`\nSignature: `(context: Literal['auto', 'user', 'isolated'] = 'auto') -> BrowserDiagnostics`\n\nMetadata:\n- mutates: `False`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `False`\n",
+      "browser.help": "# `browser.help`\n\nReturn generated Browser SDK help text.\n\nKind: `diagnostic`\nSignature: `(scope: str | None = None, api_id: str | None = None) -> str`\n\nMetadata:\n- mutates: `False`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `False`\n",
+      "browser.tabs.active": "# `browser.tabs.active`\n\nReturn the current request tab without creating one.\n\nKind: `primitive`\nSignature: `() -> Tab`\n\nMetadata:\n- mutates: `False`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `False`\n",
+      "browser.tabs.list": "# `browser.tabs.list`\n\nList browser tabs.\n\nKind: `primitive`\nSignature: `() -> list[Tab]`\n\nMetadata:\n- mutates: `False`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `False`\n",
+      "browser.tabs.new": "# `browser.tabs.new`\n\nExplicitly create a new browser tab for the request workspace.\n\nKind: `primitive`\nSignature: `(url: str | None = None) -> Tab`\n\nMetadata:\n- mutates: `True`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `True`\n",
+      "browser.tabs.open": "# `browser.tabs.open`\n\nReuse the request workspace tab and navigate it to *url*.\n\nKind: `primitive`\nSignature: `(url: str | None = None) -> Tab`\n\nMetadata:\n- mutates: `True`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `True`\n",
+      "browser.tabs.select": "# `browser.tabs.select`\n\nSelect a tab by id.\n\nKind: `primitive`\nSignature: `(tab_id: str) -> Tab`\n\nMetadata:\n- mutates: `False`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `False`\n",
+      "tab.actions.back": "# `tab.actions.back`\n\n\n\nKind: `action`\nSignature: `() -> BrowserActionResult`\n\nMetadata:\n- mutates: `True`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `True`\n",
+      "tab.actions.click": "# `tab.actions.click`\n\n\n\nKind: `action`\nSignature: `(target: dict[str, Any], *, allow_new_context: bool = False) -> BrowserActionResult`\n\nMetadata:\n- mutates: `True`\n- requires_observation: `True`\n- satisfies_observation: `False`\n- invalidates_observation: `True`\n- target_required: `True`\n- target_methods: `ref, role_name, text_exact, coords`\n- target_snapshot_bound: `True`\n",
+      "tab.actions.download_file": "# `tab.actions.download_file`\n\n\n\nKind: `action`\nSignature: `(target: dict[str, Any] | None = None, timeout_ms: int = 30000) -> BrowserActionResult`\n\nMetadata:\n- mutates: `False`\n- requires_observation: `True`\n- satisfies_observation: `False`\n- invalidates_observation: `False`\n- target_required: `False`\n- target_methods: `ref, role_name, text_exact, coords`\n- target_snapshot_bound: `True`\n",
+      "tab.actions.fill": "# `tab.actions.fill`\n\n\n\nKind: `action`\nSignature: `(target: dict[str, Any], text: str) -> BrowserActionResult`\n\nMetadata:\n- mutates: `True`\n- requires_observation: `True`\n- satisfies_observation: `False`\n- invalidates_observation: `True`\n- target_required: `True`\n- target_methods: `ref, role_name, text_exact, coords`\n- target_snapshot_bound: `True`\n",
+      "tab.actions.forward": "# `tab.actions.forward`\n\n\n\nKind: `action`\nSignature: `() -> BrowserActionResult`\n\nMetadata:\n- mutates: `True`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `True`\n",
+      "tab.actions.handle_dialog": "# `tab.actions.handle_dialog`\n\n\n\nKind: `action`\nSignature: `(accept: bool = True, prompt_text: str | None = None) -> BrowserActionResult`\n\nMetadata:\n- mutates: `False`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `False`\n",
+      "tab.actions.hover": "# `tab.actions.hover`\n\n\n\nKind: `action`\nSignature: `(target: dict[str, Any]) -> BrowserActionResult`\n\nMetadata:\n- mutates: `True`\n- requires_observation: `True`\n- satisfies_observation: `False`\n- invalidates_observation: `True`\n- target_required: `True`\n- target_methods: `ref, role_name, text_exact, coords`\n- target_snapshot_bound: `True`\n",
+      "tab.actions.navigate": "# `tab.actions.navigate`\n\n\n\nKind: `action`\nSignature: `(url: str) -> BrowserActionResult`\n\nMetadata:\n- mutates: `True`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `True`\n",
+      "tab.actions.press_key": "# `tab.actions.press_key`\n\n\n\nKind: `action`\nSignature: `(key: str) -> BrowserActionResult`\n\nMetadata:\n- mutates: `True`\n- requires_observation: `True`\n- satisfies_observation: `False`\n- invalidates_observation: `True`\n",
+      "tab.actions.reload": "# `tab.actions.reload`\n\n\n\nKind: `action`\nSignature: `() -> BrowserActionResult`\n\nMetadata:\n- mutates: `True`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `True`\n",
+      "tab.actions.scroll": "# `tab.actions.scroll`\n\n\n\nKind: `action`\nSignature: `(direction: str = 'down', amount: Any = None) -> BrowserActionResult`\n\nMetadata:\n- mutates: `True`\n- requires_observation: `True`\n- satisfies_observation: `False`\n- invalidates_observation: `True`\n",
+      "tab.actions.select_option": "# `tab.actions.select_option`\n\n\n\nKind: `action`\nSignature: `(target: dict[str, Any], value: Any) -> BrowserActionResult`\n\nMetadata:\n- mutates: `True`\n- requires_observation: `True`\n- satisfies_observation: `False`\n- invalidates_observation: `True`\n- target_required: `True`\n- target_methods: `ref, role_name, text_exact, coords`\n- target_snapshot_bound: `True`\n",
+      "tab.actions.upload_file": "# `tab.actions.upload_file`\n\n\n\nKind: `action`\nSignature: `(target: dict[str, Any], file_path: str | list[str]) -> BrowserActionResult`\n\nMetadata:\n- mutates: `True`\n- requires_observation: `True`\n- satisfies_observation: `False`\n- invalidates_observation: `True`\n- target_required: `True`\n- target_methods: `ref, role_name, text_exact, coords`\n- target_snapshot_bound: `True`\n",
+      "tab.close": "# `tab.close`\n\nClose or release the tab through the backend.\n\nKind: `primitive`\nSignature: `() -> BrowserActionResult`\n\nMetadata:\n- mutates: `True`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `False`\n",
+      "tab.extract": "# `tab.extract`\n\nExtract lightweight text or JSON from the tab.\n\nKind: `primitive`\nSignature: `(instruction: str, format: Literal['text', 'json'] = 'text') -> BrowserExtractionResult`\n\nMetadata:\n- mutates: `False`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `False`\n",
+      "tab.page_info": "# `tab.page_info`\n\nRead tab metadata without satisfying the observation guard.\n\nKind: `primitive`\nSignature: `() -> BrowserPageInfo`\n\nMetadata:\n- mutates: `False`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `False`\n",
+      "tab.screenshot": "# `tab.screenshot`\n\nCapture a visual observation and satisfy the guard.\n\nKind: `primitive`\nSignature: `() -> BrowserScreenshot`\n\nMetadata:\n- mutates: `False`\n- requires_observation: `False`\n- satisfies_observation: `True`\n- invalidates_observation: `False`\n",
+      "tab.snapshot": "# `tab.snapshot`\n\nObserve the tab and satisfy the fresh-observation guard.\n\nKind: `primitive`\nSignature: `() -> BrowserObservation`\n\nMetadata:\n- mutates: `False`\n- requires_observation: `False`\n- satisfies_observation: `True`\n- invalidates_observation: `False`\n",
+      "tab.wait_for": "# `tab.wait_for`\n\nWait until the page matches a natural-language condition.\n\nKind: `primitive`\nSignature: `(instruction: str, max_wait_ms: int = 10000) -> BrowserActionResult`\n\nMetadata:\n- mutates: `False`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `False`\n"
     },
-    "index": "# Browser SDK Generated Help\n\nGenerated from `api_catalog.json`.\n\nUse `Browser.capabilities(scope=\"actions\")` for compact indexes.\nUse `Browser.help(api_id=\"tab.actions.click\")` for one API.\n\n## Actions\n\n- `browser.actions.search_web` - Search the public web using a supported engine.\n- `tab.actions.back` - Navigate the tab backward in history.\n- `tab.actions.click` - Click one target from the latest observation.\n- `tab.actions.download_file` - Download a file from the page.\n- `tab.actions.fill` - Fill an editable target with text.\n- `tab.actions.forward` - Navigate the tab forward in history.\n- `tab.actions.handle_dialog` - Handle a browser dialog.\n- `tab.actions.hover` - Hover over one target from the latest observation.\n- `tab.actions.navigate` - Navigate the tab to a URL.\n- `tab.actions.press_key` - Press a page-level keyboard key.\n- `tab.actions.reload` - Reload the current tab.\n- `tab.actions.scroll` - Scroll the page or a target region.\n- `tab.actions.select_option` - Select an option on a target control.\n- `tab.actions.upload_file` - Upload one or more files through a target control.\n\n## Primitives\n\n- `browser.tabs.active` - Return the current request tab without creating one.\n- `browser.tabs.list` - List browser tabs.\n- `browser.tabs.new` - Explicitly create a new browser tab for the request workspace.\n- `browser.tabs.open` - Reuse the request workspace tab and navigate it to a URL.\n- `browser.tabs.select` - Select a tab by id.\n- `tab.close` - Close or release the tab through the backend.\n- `tab.extract` - Extract page data according to an instruction.\n- `tab.page_info` - Read tab metadata without satisfying the observation guard.\n- `tab.screenshot` - Capture a visual observation and satisfy the guard.\n- `tab.snapshot` - Observe the tab and satisfy the fresh-observation guard.\n- `tab.wait_for` - Wait until the page matches a structured condition.\n\n## Diagnostics\n\n- `browser.capabilities` - Return generated Browser SDK capabilities.\n- `browser.diagnostics` - Return backend availability diagnostics without connecting.\n- `browser.help` - Return generated Browser SDK help text.\n\n## Lifecycle\n\n- `browser.close` - Release browser session resources through the selected backend.\n- `browser.connect` - Connect to a browser backend using runtime context arbitration.\n",
+    "index": "# Browser SDK Generated Help\n\nGenerated from `api_catalog.json`.\n\nUse `Browser.capabilities(scope=\"actions\")` for compact indexes.\nUse `Browser.help(api_id=\"tab.actions.click\")` for one API.\n\n## Actions\n\n- `browser.actions.search_web` - Search the public web using the selected backend.\n- `tab.actions.back`\n- `tab.actions.click`\n- `tab.actions.download_file`\n- `tab.actions.fill`\n- `tab.actions.forward`\n- `tab.actions.handle_dialog`\n- `tab.actions.hover`\n- `tab.actions.navigate`\n- `tab.actions.press_key`\n- `tab.actions.reload`\n- `tab.actions.scroll`\n- `tab.actions.select_option`\n- `tab.actions.upload_file`\n\n## Primitives\n\n- `browser.tabs.active` - Return the current request tab without creating one.\n- `browser.tabs.list` - List browser tabs.\n- `browser.tabs.new` - Explicitly create a new browser tab for the request workspace.\n- `browser.tabs.open` - Reuse the request workspace tab and navigate it to *url*.\n- `browser.tabs.select` - Select a tab by id.\n- `tab.close` - Close or release the tab through the backend.\n- `tab.extract` - Extract lightweight text or JSON from the tab.\n- `tab.page_info` - Read tab metadata without satisfying the observation guard.\n- `tab.screenshot` - Capture a visual observation and satisfy the guard.\n- `tab.snapshot` - Observe the tab and satisfy the fresh-observation guard.\n- `tab.wait_for` - Wait until the page matches a natural-language condition.\n\n## Diagnostics\n\n- `browser.capabilities` - Return public Browser SDK contexts, primitives, actions, limits.\n- `browser.diagnostics` - Return backend availability diagnostics without connecting.\n- `browser.help` - Return generated Browser SDK help text.\n\n## Lifecycle\n\n- `browser.close` - Release browser session resources through the selected backend.\n- `browser.connect` - Connect to a browser backend using runtime context arbitration.\n",
     "scopes": {
-      "actions": "# Browser SDK Actions\n\nGenerated from `api_catalog.json`.\n\n## `browser.actions.search_web`\n\nSearch the public web using a supported engine.\n\nSignature: `(query: str, engine: str = 'google') -> BrowserActionResult`\n\n## `tab.actions.back`\n\nNavigate the tab backward in history.\n\nSignature: `() -> BrowserActionResult`\n\n## `tab.actions.click`\n\nClick one target from the latest observation.\n\nSignature: `(target: dict[str, Any], allow_new_context: bool = False) -> BrowserActionResult`\n\n## `tab.actions.download_file`\n\nDownload a file from the page.\n\nSignature: `(target: dict[str, Any] | NoneType = None, timeout_ms: int = 30000) -> BrowserActionResult`\n\n## `tab.actions.fill`\n\nFill an editable target with text.\n\nSignature: `(target: dict[str, Any], text: str) -> BrowserActionResult`\n\n## `tab.actions.forward`\n\nNavigate the tab forward in history.\n\nSignature: `() -> BrowserActionResult`\n\n## `tab.actions.handle_dialog`\n\nHandle a browser dialog.\n\nSignature: `(accept: bool = True, prompt_text: str | NoneType = None) -> BrowserActionResult`\n\n## `tab.actions.hover`\n\nHover over one target from the latest observation.\n\nSignature: `(target: dict[str, Any]) -> BrowserActionResult`\n\n## `tab.actions.navigate`\n\nNavigate the tab to a URL.\n\nSignature: `(url: str) -> BrowserActionResult`\n\n## `tab.actions.press_key`\n\nPress a page-level keyboard key.\n\nSignature: `(key: str) -> BrowserActionResult`\n\n## `tab.actions.reload`\n\nReload the current tab.\n\nSignature: `() -> BrowserActionResult`\n\n## `tab.actions.scroll`\n\nScroll the page or a target region.\n\nSignature: `(direction: str = 'down', amount: str | int | NoneType = None, target: dict[str, Any] | NoneType = None) -> BrowserActionResult`\n\n## `tab.actions.select_option`\n\nSelect an option on a target control.\n\nSignature: `(target: dict[str, Any], value: str) -> BrowserActionResult`\n\n## `tab.actions.upload_file`\n\nUpload one or more files through a target control.\n\nSignature: `(target: dict[str, Any], file_path: str | list[str]) -> BrowserActionResult`\n",
-      "diagnostics": "# Browser SDK Diagnostics\n\nGenerated from `api_catalog.json`.\n\n## `browser.capabilities`\n\nReturn generated Browser SDK capabilities.\n\nSignature: `(scope: str = 'all') -> dict[str, Any]`\n\n## `browser.diagnostics`\n\nReturn backend availability diagnostics without connecting.\n\nSignature: `(context: str = 'auto') -> BrowserDiagnostics`\n\n## `browser.help`\n\nReturn generated Browser SDK help text.\n\nSignature: `(scope: str | NoneType = None, api_id: str | NoneType = None) -> str`\n",
-      "lifecycle": "# Browser SDK Lifecycle\n\nGenerated from `api_catalog.json`.\n\n## `browser.close`\n\nRelease browser session resources through the selected backend.\n\nSignature: `() -> NoneType`\n\n## `browser.connect`\n\nConnect to a browser backend using runtime context arbitration.\n\nSignature: `(context: str = 'auto', *, requires_user_state: bool | NoneType = None, session_id: str | NoneType = None, retention: str = 'clean') -> Any`\n",
-      "primitives": "# Browser SDK Primitives\n\nGenerated from `api_catalog.json`.\n\n## `browser.tabs.active`\n\nReturn the current request tab without creating one.\n\nSignature: `() -> Any`\n\n## `browser.tabs.list`\n\nList browser tabs.\n\nSignature: `() -> list[Any]`\n\n## `browser.tabs.new`\n\nExplicitly create a new browser tab for the request workspace.\n\nSignature: `(url: str) -> Any`\n\n## `browser.tabs.open`\n\nReuse the request workspace tab and navigate it to a URL.\n\nSignature: `(url: str) -> Any`\n\n## `browser.tabs.select`\n\nSelect a tab by id.\n\nSignature: `(tab_id: str) -> Any`\n\n## `tab.close`\n\nClose or release the tab through the backend.\n\nSignature: `() -> BrowserActionResult`\n\n## `tab.extract`\n\nExtract page data according to an instruction.\n\nSignature: `(instruction: str, format: Literal['text', 'json'] = 'text') -> BrowserExtractionResult`\n\n## `tab.page_info`\n\nRead tab metadata without satisfying the observation guard.\n\nSignature: `() -> BrowserPageInfo`\n\n## `tab.screenshot`\n\nCapture a visual observation and satisfy the guard.\n\nSignature: `() -> BrowserScreenshot`\n\n## `tab.snapshot`\n\nObserve the tab and satisfy the fresh-observation guard.\n\nSignature: `() -> BrowserObservation`\n\n## `tab.wait_for`\n\nWait until the page matches a structured condition.\n\nSignature: `(condition: dict[str, Any] | str, timeout_ms: int = 10000) -> BrowserActionResult`\n"
+      "actions": "# Browser SDK Actions\n\nGenerated from `api_catalog.json`.\n\n## `browser.actions.search_web`\n\nSearch the public web using the selected backend.\n\nSignature: `(query: str, *, engine: str = 'google') -> BrowserActionResult`\n\n## `tab.actions.back`\n\n\n\nSignature: `() -> BrowserActionResult`\n\n## `tab.actions.click`\n\n\n\nSignature: `(target: dict[str, Any], *, allow_new_context: bool = False) -> BrowserActionResult`\n\n## `tab.actions.download_file`\n\n\n\nSignature: `(target: dict[str, Any] | None = None, timeout_ms: int = 30000) -> BrowserActionResult`\n\n## `tab.actions.fill`\n\n\n\nSignature: `(target: dict[str, Any], text: str) -> BrowserActionResult`\n\n## `tab.actions.forward`\n\n\n\nSignature: `() -> BrowserActionResult`\n\n## `tab.actions.handle_dialog`\n\n\n\nSignature: `(accept: bool = True, prompt_text: str | None = None) -> BrowserActionResult`\n\n## `tab.actions.hover`\n\n\n\nSignature: `(target: dict[str, Any]) -> BrowserActionResult`\n\n## `tab.actions.navigate`\n\n\n\nSignature: `(url: str) -> BrowserActionResult`\n\n## `tab.actions.press_key`\n\n\n\nSignature: `(key: str) -> BrowserActionResult`\n\n## `tab.actions.reload`\n\n\n\nSignature: `() -> BrowserActionResult`\n\n## `tab.actions.scroll`\n\n\n\nSignature: `(direction: str = 'down', amount: Any = None) -> BrowserActionResult`\n\n## `tab.actions.select_option`\n\n\n\nSignature: `(target: dict[str, Any], value: Any) -> BrowserActionResult`\n\n## `tab.actions.upload_file`\n\n\n\nSignature: `(target: dict[str, Any], file_path: str | list[str]) -> BrowserActionResult`\n",
+      "diagnostics": "# Browser SDK Diagnostics\n\nGenerated from `api_catalog.json`.\n\n## `browser.capabilities`\n\nReturn public Browser SDK contexts, primitives, actions, limits.\n\nSignature: `(scope: str = 'all') -> dict[str, Any]`\n\n## `browser.diagnostics`\n\nReturn backend availability diagnostics without connecting.\n\nSignature: `(context: Literal['auto', 'user', 'isolated'] = 'auto') -> BrowserDiagnostics`\n\n## `browser.help`\n\nReturn generated Browser SDK help text.\n\nSignature: `(scope: str | None = None, api_id: str | None = None) -> str`\n",
+      "lifecycle": "# Browser SDK Lifecycle\n\nGenerated from `api_catalog.json`.\n\n## `browser.close`\n\nRelease browser session resources through the selected backend.\n\nSignature: `() -> None`\n\n## `browser.connect`\n\nConnect to a browser backend using runtime context arbitration.\n\nSignature: `(context: Literal['auto', 'user', 'isolated'] = 'auto', *, requires_user_state: bool | None = None, session_id: str | None = None, retention: Literal['clean', 'debug', 'handoff'] = 'clean') -> Browser`\n",
+      "primitives": "# Browser SDK Primitives\n\nGenerated from `api_catalog.json`.\n\n## `browser.tabs.active`\n\nReturn the current request tab without creating one.\n\nSignature: `() -> Tab`\n\n## `browser.tabs.list`\n\nList browser tabs.\n\nSignature: `() -> list[Tab]`\n\n## `browser.tabs.new`\n\nExplicitly create a new browser tab for the request workspace.\n\nSignature: `(url: str | None = None) -> Tab`\n\n## `browser.tabs.open`\n\nReuse the request workspace tab and navigate it to *url*.\n\nSignature: `(url: str | None = None) -> Tab`\n\n## `browser.tabs.select`\n\nSelect a tab by id.\n\nSignature: `(tab_id: str) -> Tab`\n\n## `tab.close`\n\nClose or release the tab through the backend.\n\nSignature: `() -> BrowserActionResult`\n\n## `tab.extract`\n\nExtract lightweight text or JSON from the tab.\n\nSignature: `(instruction: str, format: Literal['text', 'json'] = 'text') -> BrowserExtractionResult`\n\n## `tab.page_info`\n\nRead tab metadata without satisfying the observation guard.\n\nSignature: `() -> BrowserPageInfo`\n\n## `tab.screenshot`\n\nCapture a visual observation and satisfy the guard.\n\nSignature: `() -> BrowserScreenshot`\n\n## `tab.snapshot`\n\nObserve the tab and satisfy the fresh-observation guard.\n\nSignature: `() -> BrowserObservation`\n\n## `tab.wait_for`\n\nWait until the page matches a natural-language condition.\n\nSignature: `(instruction: str, max_wait_ms: int = 10000) -> BrowserActionResult`\n"
     }
   },
   "lifecycle": {
     "browser.close": {
       "api_id": "browser.close",
+      "callable_path": "qwenpaw.browser.sdk.facade.browser:Browser.close",
       "invalidates_observation": false,
       "kind": "lifecycle",
       "mutates": true,
       "parameters": {},
       "requires_observation": false,
-      "return_type": "NoneType",
+      "return_type": "None",
       "satisfies_observation": false,
-      "signature": "() -> NoneType",
+      "signature": "() -> None",
       "summary": "Release browser session resources through the selected backend."
     },
     "browser.connect": {
       "api_id": "browser.connect",
+      "callable_path": "qwenpaw.browser.sdk.facade.browser:Browser.connect",
       "invalidates_observation": false,
       "kind": "lifecycle",
       "mutates": false,
       "parameters": {
         "context": {
-          "annotation": "str",
+          "annotation": "Literal['auto', 'user', 'isolated']",
           "default": "'auto'",
           "kind": "positional_or_keyword",
           "required": false
         },
         "requires_user_state": {
-          "annotation": "bool | NoneType",
+          "annotation": "bool | None",
           "default": "None",
           "kind": "keyword_only",
           "required": false
         },
         "retention": {
-          "annotation": "str",
+          "annotation": "Literal['clean', 'debug', 'handoff']",
           "default": "'clean'",
           "kind": "keyword_only",
           "required": false
         },
         "session_id": {
-          "annotation": "str | NoneType",
+          "annotation": "str | None",
           "default": "None",
           "kind": "keyword_only",
           "required": false
         }
       },
       "requires_observation": false,
-      "return_type": "Any",
+      "return_type": "Browser",
       "satisfies_observation": false,
-      "signature": "(context: str = 'auto', *, requires_user_state: bool | NoneType = None, session_id: str | NoneType = None, retention: str = 'clean') -> Any",
+      "signature": "(context: Literal['auto', 'user', 'isolated'] = 'auto', *, requires_user_state: bool | None = None, session_id: str | None = None, retention: Literal['clean', 'debug', 'handoff'] = 'clean') -> Browser",
       "summary": "Connect to a browser backend using runtime context arbitration."
     }
   },
   "primitives": {
     "browser.tabs.active": {
       "api_id": "browser.tabs.active",
-      "backend_op": "active_tab",
+      "callable_path": "qwenpaw.browser.sdk.primitives.tabs:BrowserTabs.active",
       "invalidates_observation": false,
       "kind": "primitive",
       "mutates": false,
       "parameters": {},
       "requires_observation": false,
-      "return_type": "Any",
+      "return_type": "Tab",
       "satisfies_observation": false,
-      "signature": "() -> Any",
+      "signature": "() -> Tab",
       "summary": "Return the current request tab without creating one."
     },
     "browser.tabs.list": {
       "api_id": "browser.tabs.list",
-      "backend_op": "list_tabs",
+      "callable_path": "qwenpaw.browser.sdk.primitives.tabs:BrowserTabs.list",
       "invalidates_observation": false,
       "kind": "primitive",
       "mutates": false,
       "parameters": {},
       "requires_observation": false,
-      "return_type": "list[Any]",
+      "return_type": "list[Tab]",
       "satisfies_observation": false,
-      "signature": "() -> list[Any]",
+      "signature": "() -> list[Tab]",
       "summary": "List browser tabs."
     },
     "browser.tabs.new": {
       "api_id": "browser.tabs.new",
-      "backend_op": "create_tab",
+      "callable_path": "qwenpaw.browser.sdk.primitives.tabs:BrowserTabs.new",
       "invalidates_observation": true,
       "kind": "primitive",
       "mutates": true,
       "parameters": {
         "url": {
-          "annotation": "str",
+          "annotation": "str | None",
+          "default": "None",
           "kind": "positional_or_keyword",
-          "required": true
+          "required": false
         }
       },
       "requires_observation": false,
-      "return_type": "Any",
+      "return_type": "Tab",
       "satisfies_observation": false,
-      "signature": "(url: str) -> Any",
+      "signature": "(url: str | None = None) -> Tab",
       "summary": "Explicitly create a new browser tab for the request workspace."
     },
     "browser.tabs.open": {
       "api_id": "browser.tabs.open",
-      "backend_op": "open_workspace_tab",
+      "callable_path": "qwenpaw.browser.sdk.primitives.tabs:BrowserTabs.open",
       "invalidates_observation": true,
       "kind": "primitive",
       "mutates": true,
       "parameters": {
         "url": {
-          "annotation": "str",
+          "annotation": "str | None",
+          "default": "None",
           "kind": "positional_or_keyword",
-          "required": true
+          "required": false
         }
       },
       "requires_observation": false,
-      "return_type": "Any",
+      "return_type": "Tab",
       "satisfies_observation": false,
-      "signature": "(url: str) -> Any",
-      "summary": "Reuse the request workspace tab and navigate it to a URL."
+      "signature": "(url: str | None = None) -> Tab",
+      "summary": "Reuse the request workspace tab and navigate it to *url*."
     },
     "browser.tabs.select": {
       "api_id": "browser.tabs.select",
-      "backend_op": "select_tab",
+      "callable_path": "qwenpaw.browser.sdk.primitives.tabs:BrowserTabs.select",
       "invalidates_observation": false,
       "kind": "primitive",
       "mutates": false,
@@ -1283,14 +1267,14 @@
         }
       },
       "requires_observation": false,
-      "return_type": "Any",
+      "return_type": "Tab",
       "satisfies_observation": false,
-      "signature": "(tab_id: str) -> Any",
+      "signature": "(tab_id: str) -> Tab",
       "summary": "Select a tab by id."
     },
     "tab.close": {
       "api_id": "tab.close",
-      "backend_op": "close_tab",
+      "callable_path": "qwenpaw.browser.sdk.primitives.tab:Tab.close",
       "invalidates_observation": false,
       "kind": "primitive",
       "mutates": true,
@@ -1303,7 +1287,7 @@
     },
     "tab.extract": {
       "api_id": "tab.extract",
-      "backend_op": "extract",
+      "callable_path": "qwenpaw.browser.sdk.primitives.tab:Tab.extract",
       "invalidates_observation": false,
       "kind": "primitive",
       "mutates": false,
@@ -1324,11 +1308,11 @@
       "return_type": "BrowserExtractionResult",
       "satisfies_observation": false,
       "signature": "(instruction: str, format: Literal['text', 'json'] = 'text') -> BrowserExtractionResult",
-      "summary": "Extract page data according to an instruction."
+      "summary": "Extract lightweight text or JSON from the tab."
     },
     "tab.page_info": {
       "api_id": "tab.page_info",
-      "backend_op": "page_info",
+      "callable_path": "qwenpaw.browser.sdk.primitives.tab:Tab.page_info",
       "invalidates_observation": false,
       "kind": "primitive",
       "mutates": false,
@@ -1341,7 +1325,7 @@
     },
     "tab.screenshot": {
       "api_id": "tab.screenshot",
-      "backend_op": "screenshot",
+      "callable_path": "qwenpaw.browser.sdk.primitives.tab:Tab.screenshot",
       "invalidates_observation": false,
       "kind": "primitive",
       "mutates": false,
@@ -1354,7 +1338,7 @@
     },
     "tab.snapshot": {
       "api_id": "tab.snapshot",
-      "backend_op": "snapshot",
+      "callable_path": "qwenpaw.browser.sdk.primitives.tab:Tab.snapshot",
       "invalidates_observation": false,
       "kind": "primitive",
       "mutates": false,
@@ -1367,17 +1351,17 @@
     },
     "tab.wait_for": {
       "api_id": "tab.wait_for",
-      "backend_op": "wait_for",
+      "callable_path": "qwenpaw.browser.sdk.primitives.tab:Tab.wait_for",
       "invalidates_observation": false,
       "kind": "primitive",
       "mutates": false,
       "parameters": {
-        "condition": {
-          "annotation": "dict[str, Any] | str",
+        "instruction": {
+          "annotation": "str",
           "kind": "positional_or_keyword",
           "required": true
         },
-        "timeout_ms": {
+        "max_wait_ms": {
           "annotation": "int",
           "default": "10000",
           "kind": "positional_or_keyword",
@@ -1387,8 +1371,8 @@
       "requires_observation": false,
       "return_type": "BrowserActionResult",
       "satisfies_observation": false,
-      "signature": "(condition: dict[str, Any] | str, timeout_ms: int = 10000) -> BrowserActionResult",
-      "summary": "Wait until the page matches a structured condition."
+      "signature": "(instruction: str, max_wait_ms: int = 10000) -> BrowserActionResult",
+      "summary": "Wait until the page matches a natural-language condition."
     }
   },
   "scopes": {

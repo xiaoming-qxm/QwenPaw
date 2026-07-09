@@ -577,14 +577,14 @@ _SEED_APIS: tuple[Callable[..., Any], ...] = (
 
 
 def build_api_catalog() -> dict[str, Any]:
-    """Build the public API catalog payload from decorated seed APIs."""
+    """Build the public API catalog payload from real public methods."""
     return {
         "version": 1,
         "source": "browser_api",
         "apis": [
             _api_catalog_entry(func)
             for func in sorted(
-                _SEED_APIS,
+                _real_public_api_callables(),
                 key=lambda item: _contract_for(item).api_id,
             )
         ],
@@ -710,17 +710,18 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 def _api_catalog_entry(func: Callable[..., Any]) -> dict[str, Any]:
     contract = _contract_for(func)
-    hints = get_type_hints(func)
+    hints = _type_hints_for(func)
     parameters = _parameters_for(func, hints)
     return_type = _format_annotation(hints.get("return", Any))
     entry = {
         **contract.as_dict(),
+        "callable_path": _callable_path_for(func),
         "signature": _format_signature(func, parameters, return_type),
         "parameters": parameters,
         "return_type": return_type,
         "summary": _summary_for(func),
     }
-    entry.pop("callable_path", None)
+    entry.pop("backend_op", None)
     return entry
 
 
@@ -736,6 +737,7 @@ def _compact_api_entry(api: dict[str, Any]) -> dict[str, Any]:
         "api_id": api["api_id"],
         "kind": api["kind"],
         "summary": api["summary"],
+        "callable_path": api["callable_path"],
         "signature": api["signature"],
         "parameters": api["parameters"],
         "return_type": api["return_type"],
@@ -783,7 +785,11 @@ def _index_help(
         lines.append("")
         for api_id in scopes[scope]:
             entry = compact[api_id]
-            lines.append(f"- `{api_id}` - {entry['summary']}")
+            summary = entry["summary"]
+            if summary:
+                lines.append(f"- `{api_id}` - {summary}")
+            else:
+                lines.append(f"- `{api_id}`")
         lines.append("")
     return "\n".join(lines).rstrip() + "\n"
 
@@ -842,6 +848,8 @@ def _parameters_for(
     signature = inspect.signature(func)
     parameters: dict[str, dict[str, Any]] = {}
     for name, parameter in signature.parameters.items():
+        if name in {"self", "cls"}:
+            continue
         payload = {
             "kind": parameter.kind.name.lower(),
             "annotation": _format_annotation(hints.get(name, Any)),
@@ -862,6 +870,8 @@ def _format_signature(
     formatted: list[str] = []
     inserted_kw_separator = False
     for name, parameter in signature.parameters.items():
+        if name in {"self", "cls"}:
+            continue
         if (
             parameter.kind is inspect.Parameter.KEYWORD_ONLY
             and not inserted_kw_separator
@@ -878,6 +888,8 @@ def _format_signature(
 def _format_annotation(annotation: Any) -> str:
     if annotation is Any:
         return "Any"
+    if annotation is type(None):
+        return "None"
     origin = get_origin(annotation)
     if origin is None:
         name = getattr(annotation, "__name__", None)
@@ -890,8 +902,6 @@ def _format_annotation(annotation: Any) -> str:
             + ", ".join(repr(arg) for arg in get_args(annotation))
             + "]"
         )
-    if origin is type(None):
-        return "None"
     args = get_args(annotation)
     if origin is list:
         return f"list[{_format_annotation(args[0])}]"
@@ -917,6 +927,60 @@ def _summary_for(func: Callable[..., Any]) -> str:
     if "." not in first_line:
         return first_line
     return first_line.split(".", 1)[0].strip() + "."
+
+
+def _real_public_api_callables() -> tuple[Callable[..., Any], ...]:
+    from ..actions.tab_actions import BrowserActions
+    from ..actions.tab_actions import TabActions
+    from ..facade.browser import Browser
+    from ..primitives.tab import Tab
+    from ..primitives.tabs import BrowserTabs
+
+    return (
+        Browser.connect,
+        Browser.capabilities,
+        Browser.help,
+        Browser.diagnostics,
+        Browser.close,
+        BrowserTabs.open,
+        BrowserTabs.new,
+        BrowserTabs.active,
+        BrowserTabs.list,
+        BrowserTabs.select,
+        Tab.snapshot,
+        Tab.screenshot,
+        Tab.page_info,
+        Tab.extract,
+        Tab.wait_for,
+        Tab.close,
+        BrowserActions.search_web,
+        TabActions.navigate,
+        TabActions.back,
+        TabActions.forward,
+        TabActions.reload,
+        TabActions.click,
+        TabActions.fill,
+        TabActions.press_key,
+        TabActions.scroll,
+        TabActions.select_option,
+        TabActions.upload_file,
+        TabActions.download_file,
+        TabActions.handle_dialog,
+        TabActions.hover,
+    )
+
+
+def _callable_path_for(func: Callable[..., Any]) -> str:
+    raw_func = _introspection_callable(func)
+    return f"{raw_func.__module__}:{raw_func.__qualname__}"
+
+
+def _type_hints_for(func: Callable[..., Any]) -> dict[str, Any]:
+    return get_type_hints(_introspection_callable(func))
+
+
+def _introspection_callable(func: Callable[..., Any]) -> Callable[..., Any]:
+    return getattr(func, "__func__", func)
 
 
 def _catalog_text() -> str:
