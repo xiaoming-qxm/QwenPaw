@@ -611,7 +611,7 @@ def _setup_lifecycle(
             "open_extension_folder",
         ]
         recovery_copy = (
-            "Open the Browser Bridge setup page and let QwenPaw prepare the "
+            "Open the Chrome setup page and let QwenPaw prepare the "
             "local unpacked extension files."
         )
     elif install_status.get("native_host_repair_required"):
@@ -623,7 +623,7 @@ def _setup_lifecycle(
             "open_setup_page",
         ]
         recovery_copy = (
-            "Open the Browser Bridge setup page to repair the Native "
+            "Open the Chrome setup page to repair the Native "
             "Messaging files, then reload the Chrome extension."
         )
     elif build_freshness.get("status") == "stale":
@@ -635,7 +635,7 @@ def _setup_lifecycle(
             "open_setup_page",
         ]
         recovery_copy = (
-            "Open the Browser Bridge setup page so QwenPaw can refresh the "
+            "Open the Chrome setup page so QwenPaw can refresh the "
             "local extension files."
         )
     elif not connected:
@@ -648,14 +648,14 @@ def _setup_lifecycle(
             "open_extension_folder",
         ]
         recovery_copy = (
-            "Open the Browser Bridge setup page at /plugin/browser-bridge, "
+            "Open the Chrome setup page at /plugin/browser-bridge, "
             "then reload or reconnect the Chrome extension."
         )
     else:
         setup_phase = "connected"
         recommended_action = "none"
         repair_actions = []
-        recovery_copy = "Browser Bridge is connected."
+        recovery_copy = "Chrome is connected."
 
     return {
         "canonical_setup_url": CANONICAL_SETUP_URL,
