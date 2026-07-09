@@ -83,7 +83,8 @@ class BrowserApprovalCache:
         self._now = now or time.time
         self._ttl_seconds = float(ttl_seconds)
         self._items: dict[
-            BrowserApprovalCacheKey, BrowserApprovalCacheEntry
+            BrowserApprovalCacheKey,
+            BrowserApprovalCacheEntry,
         ] = {}
 
     def get(
@@ -411,6 +412,8 @@ def _current_approval_level_resolution() -> BrowserApprovalLevelResolution:
     )
 
 
+# Strategy matrices stay flatter and auditable with explicit exits.
+# pylint: disable-next=too-many-return-statements
 def _browser_boundary_matrix_decision(
     request: BrowserActionRequest,
     approval_level: BrowserApprovalLevelResolution,
@@ -744,16 +747,18 @@ async def resolve_cdp_browser_approval(
     if cache_entry is not None:
         return _resolution_from_cache(cache_entry)
 
-    matrix_decision = _browser_boundary_matrix_decision(
-        _cdp_browser_action_request(request_context, request),
-        approval_level,
-    )
-    if matrix_decision is not None:
-        return BrowserApprovalResolution(
-            allowed=matrix_decision.allowed,
-            reason=matrix_decision.reason,
-            metadata=matrix_decision.metadata,
+    action_request = _cdp_browser_action_request(request_context, request)
+    if not _cdp_request_requires_explicit_approval(request):
+        matrix_decision = _browser_boundary_matrix_decision(
+            action_request,
+            approval_level,
         )
+        if matrix_decision is not None:
+            return BrowserApprovalResolution(
+                allowed=matrix_decision.allowed,
+                reason=matrix_decision.reason,
+                metadata=matrix_decision.metadata,
+            )
 
     if not session_id:
         return BrowserApprovalResolution(
@@ -876,12 +881,22 @@ def _cdp_browser_action_request(
         ),
         metadata={
             "method": str(request.get("method") or ""),
+            "policy": str(request.get("policy") or ""),
             "url": str(request.get("url") or ""),
             "domain": _cdp_domain_scope(request),
             "tab_id": str(request.get("tab_id") or ""),
             "holder_id": str(request.get("holder_id") or ""),
         },
     )
+
+
+def _cdp_request_requires_explicit_approval(
+    request: dict[str, Any],
+) -> bool:
+    return str(request.get("policy") or "").strip().casefold() in {
+        "ask",
+        "ask_new_domain",
+    }
 
 
 def _cdp_approval_cache_key(
