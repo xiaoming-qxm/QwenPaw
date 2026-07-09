@@ -102,7 +102,7 @@ const k = {
     isolated_backend_unavailable: "安装或重启隔离浏览器运行时。"
   }
 };
-function O() {
+function F() {
   var t;
   try {
     return ((t = window.localStorage) == null ? void 0 : t.getItem("language")) ?? null;
@@ -110,17 +110,17 @@ function O() {
     return null;
   }
 }
-function L(t = O()) {
+function j(t = F()) {
   return String(t || "").trim().split("-")[0].toLowerCase() === "zh" ? "zh" : "en";
 }
 function n(t, o, i) {
   let l = k[t][o] ?? k.en[o];
   if (i)
-    for (const [c, d] of Object.entries(i))
-      l = l.split(`{${c}}`).join(String(d));
+    for (const [s, d] of Object.entries(i))
+      l = l.split(`{${s}}`).join(String(d));
   return l;
 }
-const w = window.QwenPaw.host, e = w.React, j = w.antd, A = w.getApiUrl, v = w.getApiToken, { Alert: Q, Button: m, Collapse: N, Space: U, Spin: V, Typography: z, message: g } = j, { Text: s, Title: S } = z, a = {
+const w = window.QwenPaw.host, e = w.React, O = w.antd, A = w.getApiUrl, v = w.getApiToken, { Alert: Q, Button: m, Collapse: N, Space: U, Spin: V, Typography: z, message: g } = O, { Text: c, Title: S } = z, a = {
   page: {
     minHeight: "100%",
     overflowY: "auto",
@@ -307,6 +307,28 @@ const w = window.QwenPaw.host, e = w.React, j = w.antd, A = w.getApiUrl, v = w.g
   }
 };
 function G() {
+  return /* @__PURE__ */ e.createElement(
+    "svg",
+    {
+      "aria-hidden": "true",
+      focusable: "false",
+      viewBox: "0 0 24 24",
+      width: "1em",
+      height: "1em",
+      fill: "none",
+      stroke: "currentColor",
+      strokeWidth: 1.8,
+      strokeLinecap: "round",
+      strokeLinejoin: "round"
+    },
+    /* @__PURE__ */ e.createElement("circle", { cx: 12, cy: 12, r: 9 }),
+    /* @__PURE__ */ e.createElement("circle", { cx: 12, cy: 12, r: 3.2 }),
+    /* @__PURE__ */ e.createElement("path", { d: "M12 12h8.5" }),
+    /* @__PURE__ */ e.createElement("path", { d: "M12 12 7.5 19.8" }),
+    /* @__PURE__ */ e.createElement("path", { d: "M12 12 7.5 4.2" })
+  );
+}
+function $() {
   const t = {}, o = v == null ? void 0 : v();
   return o && (t.Authorization = `Bearer ${o}`), t;
 }
@@ -315,26 +337,26 @@ async function x(t, o) {
     ...o,
     headers: {
       ...(o == null ? void 0 : o.headers) || {},
-      ...G()
+      ...$()
     }
-  }), l = await i.text(), c = l ? JSON.parse(l) : null;
+  }), l = await i.text(), s = l ? JSON.parse(l) : null;
   if (!i.ok)
     throw new Error(
-      typeof (c == null ? void 0 : c.detail) == "string" ? c.detail : i.statusText
+      typeof (s == null ? void 0 : s.detail) == "string" ? s.detail : i.statusText
     );
-  return c;
+  return s;
 }
-function $() {
+function J() {
   return x("/chrome/status");
 }
-function J(t) {
+function q(t) {
   return x("/chrome/setup", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(t)
   });
 }
-function q() {
+function Y() {
   return x(
     "/chrome/open-chrome-extensions",
     {
@@ -342,7 +364,7 @@ function q() {
     }
   );
 }
-function Y() {
+function K() {
   return x(
     "/chrome/open-extension-folder",
     {
@@ -350,10 +372,10 @@ function Y() {
     }
   );
 }
-function D() {
+function L() {
   return `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}/ws/chrome`;
 }
-function K(t, o) {
+function X(t, o) {
   if (!t)
     return n(o, "justNow");
   const i = new Date(t).getTime();
@@ -374,7 +396,7 @@ function T({ ready: t }) {
     }
   );
 }
-function X({
+function Z({
   locale: t,
   onCopy: o,
   status: i
@@ -384,7 +406,7 @@ function X({
     { key: "native_manifest_path", label: "nativeManifest" },
     { key: "native_host_path", label: "nativeHost" },
     { key: "config_path", label: "config" }
-  ], c = (i == null ? void 0 : i.ws_url) || D();
+  ], s = (i == null ? void 0 : i.ws_url) || L();
   return /* @__PURE__ */ e.createElement(
     N,
     {
@@ -395,7 +417,7 @@ function X({
           label: n(t, "advancedInfo"),
           children: /* @__PURE__ */ e.createElement("div", { style: a.advancedRows }, l.map((d) => {
             const h = (i == null ? void 0 : i[d.key]) || "-";
-            return /* @__PURE__ */ e.createElement("div", { key: d.key, style: a.advancedRow }, /* @__PURE__ */ e.createElement(s, { type: "secondary" }, n(t, d.label)), /* @__PURE__ */ e.createElement("code", { style: a.advancedValue }, h), /* @__PURE__ */ e.createElement(
+            return /* @__PURE__ */ e.createElement("div", { key: d.key, style: a.advancedRow }, /* @__PURE__ */ e.createElement(c, { type: "secondary" }, n(t, d.label)), /* @__PURE__ */ e.createElement("code", { style: a.advancedValue }, h), /* @__PURE__ */ e.createElement(
               m,
               {
                 disabled: !(i != null && i[d.key]),
@@ -403,23 +425,23 @@ function X({
               },
               n(t, "copyPath")
             ));
-          }), /* @__PURE__ */ e.createElement("div", { style: a.advancedRow }, /* @__PURE__ */ e.createElement(s, { type: "secondary" }, n(t, "bridgeEndpoint")), /* @__PURE__ */ e.createElement("code", { style: a.advancedValue }, c), /* @__PURE__ */ e.createElement(m, { onClick: () => o(c) }, n(t, "copyPath"))))
+          }), /* @__PURE__ */ e.createElement("div", { style: a.advancedRow }, /* @__PURE__ */ e.createElement(c, { type: "secondary" }, n(t, "bridgeEndpoint")), /* @__PURE__ */ e.createElement("code", { style: a.advancedValue }, s), /* @__PURE__ */ e.createElement(m, { onClick: () => o(s) }, n(t, "copyPath"))))
         }
       ]
     }
   );
 }
-function Z() {
-  const t = L(), [o, i] = e.useState(null), [l, c] = e.useState(!0), [d, h] = e.useState(!1), [C, y] = e.useState(null), f = e.useCallback(async () => {
-    c(!0), y(null);
+function ee() {
+  const t = j(), [o, i] = e.useState(null), [l, s] = e.useState(!0), [d, h] = e.useState(!1), [C, y] = e.useState(null), f = e.useCallback(async () => {
+    s(!0), y(null);
     try {
-      const r = await $();
+      const r = await J();
       return i(r), r;
     } catch (r) {
       const u = r instanceof Error ? r.message : String(r);
       return y(u), null;
     } finally {
-      c(!1);
+      s(!1);
     }
   }, []);
   e.useEffect(() => {
@@ -430,9 +452,9 @@ function Z() {
       return o;
     h(!0), y(null);
     try {
-      const r = await J({
+      const r = await q({
         install_mode: "unpacked",
-        ws_url: D()
+        ws_url: L()
       });
       return i(r), g.success(n(t, "installSuccess")), r;
     } catch (r) {
@@ -447,24 +469,24 @@ function Z() {
       await ((u = navigator.clipboard) == null ? void 0 : u.writeText(r)), g.success(n(t, "copied"));
     },
     [t]
-  ), P = e.useCallback(async () => {
+  ), D = e.useCallback(async () => {
     const r = await b();
     r != null && r.extension_dir && await E(r.extension_dir);
-  }, [E, b]), I = e.useCallback(async () => {
+  }, [E, b]), P = e.useCallback(async () => {
     await b();
+    const r = await K();
+    !r.opened && r.error && g.warning(r.error);
+  }, [b]), I = e.useCallback(async () => {
     const r = await Y();
     !r.opened && r.error && g.warning(r.error);
-  }, [b]), H = e.useCallback(async () => {
-    const r = await q();
-    !r.opened && r.error && g.warning(r.error);
-  }, []), p = !!(o != null && o.connected), M = !p, W = (o == null ? void 0 : o.version) || n(t, "versionUnknown"), B = K(o == null ? void 0 : o.connected_since, t), F = [
+  }, []), p = !!(o != null && o.connected), M = !p, H = (o == null ? void 0 : o.version) || n(t, "versionUnknown"), W = X(o == null ? void 0 : o.connected_since, t), B = [
     n(t, "extensionLoadedCheck"),
     n(t, "localConnectionCheck")
   ];
-  return /* @__PURE__ */ e.createElement("div", { style: a.page }, /* @__PURE__ */ e.createElement("div", { style: a.shell }, /* @__PURE__ */ e.createElement("div", { style: a.panel }, /* @__PURE__ */ e.createElement("div", { style: a.statusBlock }, /* @__PURE__ */ e.createElement("div", null, /* @__PURE__ */ e.createElement("div", { style: a.header }, /* @__PURE__ */ e.createElement("div", { style: a.titleRow }, /* @__PURE__ */ e.createElement("span", { style: a.chromeIcon }), /* @__PURE__ */ e.createElement("div", null, /* @__PURE__ */ e.createElement(S, { level: 3, style: { margin: 0 } }, n(t, "pageTitle")), /* @__PURE__ */ e.createElement(s, { type: "secondary" }, n(t, "pageSubtitle"))))), /* @__PURE__ */ e.createElement("div", { style: { marginTop: 22 } }, /* @__PURE__ */ e.createElement("div", { style: a.statusTitleRow }, /* @__PURE__ */ e.createElement(T, { ready: p }), /* @__PURE__ */ e.createElement(S, { level: 4, style: { margin: 0 } }, p ? n(t, "readyTitle") : n(t, "installTitle"))), /* @__PURE__ */ e.createElement("div", { style: a.statusCopy }, p ? n(t, "readyDescription", {
-    version: W,
-    connectedSince: B
-  }) : (o == null ? void 0 : o.recovery_copy) || n(t, "installDescription")))), /* @__PURE__ */ e.createElement("div", { style: a.actions }, p ? /* @__PURE__ */ e.createElement(e.Fragment, null, /* @__PURE__ */ e.createElement(m, { loading: l, onClick: () => void f() }, n(t, "refreshStatus")), /* @__PURE__ */ e.createElement(m, { type: "primary", onClick: () => void H() }, n(t, "openChrome"))) : /* @__PURE__ */ e.createElement(
+  return /* @__PURE__ */ e.createElement("div", { style: a.page }, /* @__PURE__ */ e.createElement("div", { style: a.shell }, /* @__PURE__ */ e.createElement("div", { style: a.panel }, /* @__PURE__ */ e.createElement("div", { style: a.statusBlock }, /* @__PURE__ */ e.createElement("div", null, /* @__PURE__ */ e.createElement("div", { style: a.header }, /* @__PURE__ */ e.createElement("div", { style: a.titleRow }, /* @__PURE__ */ e.createElement("span", { style: a.chromeIcon }), /* @__PURE__ */ e.createElement("div", null, /* @__PURE__ */ e.createElement(S, { level: 3, style: { margin: 0 } }, n(t, "pageTitle")), /* @__PURE__ */ e.createElement(c, { type: "secondary" }, n(t, "pageSubtitle"))))), /* @__PURE__ */ e.createElement("div", { style: { marginTop: 22 } }, /* @__PURE__ */ e.createElement("div", { style: a.statusTitleRow }, /* @__PURE__ */ e.createElement(T, { ready: p }), /* @__PURE__ */ e.createElement(S, { level: 4, style: { margin: 0 } }, p ? n(t, "readyTitle") : n(t, "installTitle"))), /* @__PURE__ */ e.createElement("div", { style: a.statusCopy }, p ? n(t, "readyDescription", {
+    version: H,
+    connectedSince: W
+  }) : (o == null ? void 0 : o.recovery_copy) || n(t, "installDescription")))), /* @__PURE__ */ e.createElement("div", { style: a.actions }, p ? /* @__PURE__ */ e.createElement(e.Fragment, null, /* @__PURE__ */ e.createElement(m, { loading: l, onClick: () => void f() }, n(t, "refreshStatus")), /* @__PURE__ */ e.createElement(m, { type: "primary", onClick: () => void I() }, n(t, "openChrome"))) : /* @__PURE__ */ e.createElement(
     m,
     {
       type: "primary",
@@ -480,22 +502,22 @@ function Z() {
       message: C,
       style: { marginTop: 16 }
     }
-  ) : null, p ? /* @__PURE__ */ e.createElement("div", { style: a.section }, /* @__PURE__ */ e.createElement(s, { strong: !0 }, n(t, "checksTitle")), /* @__PURE__ */ e.createElement("div", { style: a.checkGrid }, F.map((r) => /* @__PURE__ */ e.createElement("div", { key: r, style: a.checkTile }, /* @__PURE__ */ e.createElement("div", { style: a.checkTitle }, /* @__PURE__ */ e.createElement(T, { ready: !0 }), /* @__PURE__ */ e.createElement(s, { strong: !0 }, r)), /* @__PURE__ */ e.createElement(s, { type: "secondary" }, n(t, "checkReady")))))) : M ? /* @__PURE__ */ e.createElement(e.Fragment, null, /* @__PURE__ */ e.createElement("div", { style: a.section }, /* @__PURE__ */ e.createElement(s, { strong: !0 }, n(t, "installMethodsTitle")), /* @__PURE__ */ e.createElement("div", { style: a.methodGrid }, /* @__PURE__ */ e.createElement("div", { style: a.methodTile }, /* @__PURE__ */ e.createElement("div", { style: a.methodHeader }, /* @__PURE__ */ e.createElement(s, { strong: !0 }, n(t, "localMethodTitle")), /* @__PURE__ */ e.createElement("span", { style: a.badge }, n(t, "recommendedBadge"))), /* @__PURE__ */ e.createElement(s, { type: "secondary" }, n(t, "localMethodDescription"))), /* @__PURE__ */ e.createElement("div", { style: a.disabledTile, "aria-disabled": "true" }, /* @__PURE__ */ e.createElement("div", { style: a.methodHeader }, /* @__PURE__ */ e.createElement(s, { strong: !0 }, n(t, "chromeWebStoreTitle")), /* @__PURE__ */ e.createElement("span", { style: a.badge }, n(t, "comingSoon"))), /* @__PURE__ */ e.createElement(s, { type: "secondary" }, n(t, "chromeWebStoreDescription")), /* @__PURE__ */ e.createElement(m, { disabled: !0 }, n(t, "comingSoon"))))), /* @__PURE__ */ e.createElement("div", { style: a.section }, /* @__PURE__ */ e.createElement(s, { strong: !0 }, n(t, "localStepsTitle")), /* @__PURE__ */ e.createElement("ol", { style: a.steps }, /* @__PURE__ */ e.createElement("li", null, n(t, "stepOpen")), /* @__PURE__ */ e.createElement("li", null, n(t, "stepLoad")), /* @__PURE__ */ e.createElement("li", null, n(t, "stepVerify"))), /* @__PURE__ */ e.createElement("div", { style: a.directoryBox }, /* @__PURE__ */ e.createElement("div", null, /* @__PURE__ */ e.createElement(s, { strong: !0 }, n(t, "directoryLabel")), /* @__PURE__ */ e.createElement("br", null), /* @__PURE__ */ e.createElement(s, { type: "secondary" }, n(t, "directoryHint"))), /* @__PURE__ */ e.createElement(U, { wrap: !0 }, /* @__PURE__ */ e.createElement(
+  ) : null, p ? /* @__PURE__ */ e.createElement("div", { style: a.section }, /* @__PURE__ */ e.createElement(c, { strong: !0 }, n(t, "checksTitle")), /* @__PURE__ */ e.createElement("div", { style: a.checkGrid }, B.map((r) => /* @__PURE__ */ e.createElement("div", { key: r, style: a.checkTile }, /* @__PURE__ */ e.createElement("div", { style: a.checkTitle }, /* @__PURE__ */ e.createElement(T, { ready: !0 }), /* @__PURE__ */ e.createElement(c, { strong: !0 }, r)), /* @__PURE__ */ e.createElement(c, { type: "secondary" }, n(t, "checkReady")))))) : M ? /* @__PURE__ */ e.createElement(e.Fragment, null, /* @__PURE__ */ e.createElement("div", { style: a.section }, /* @__PURE__ */ e.createElement(c, { strong: !0 }, n(t, "installMethodsTitle")), /* @__PURE__ */ e.createElement("div", { style: a.methodGrid }, /* @__PURE__ */ e.createElement("div", { style: a.methodTile }, /* @__PURE__ */ e.createElement("div", { style: a.methodHeader }, /* @__PURE__ */ e.createElement(c, { strong: !0 }, n(t, "localMethodTitle")), /* @__PURE__ */ e.createElement("span", { style: a.badge }, n(t, "recommendedBadge"))), /* @__PURE__ */ e.createElement(c, { type: "secondary" }, n(t, "localMethodDescription"))), /* @__PURE__ */ e.createElement("div", { style: a.disabledTile, "aria-disabled": "true" }, /* @__PURE__ */ e.createElement("div", { style: a.methodHeader }, /* @__PURE__ */ e.createElement(c, { strong: !0 }, n(t, "chromeWebStoreTitle")), /* @__PURE__ */ e.createElement("span", { style: a.badge }, n(t, "comingSoon"))), /* @__PURE__ */ e.createElement(c, { type: "secondary" }, n(t, "chromeWebStoreDescription")), /* @__PURE__ */ e.createElement(m, { disabled: !0 }, n(t, "comingSoon"))))), /* @__PURE__ */ e.createElement("div", { style: a.section }, /* @__PURE__ */ e.createElement(c, { strong: !0 }, n(t, "localStepsTitle")), /* @__PURE__ */ e.createElement("ol", { style: a.steps }, /* @__PURE__ */ e.createElement("li", null, n(t, "stepOpen")), /* @__PURE__ */ e.createElement("li", null, n(t, "stepLoad")), /* @__PURE__ */ e.createElement("li", null, n(t, "stepVerify"))), /* @__PURE__ */ e.createElement("div", { style: a.directoryBox }, /* @__PURE__ */ e.createElement("div", null, /* @__PURE__ */ e.createElement(c, { strong: !0 }, n(t, "directoryLabel")), /* @__PURE__ */ e.createElement("br", null), /* @__PURE__ */ e.createElement(c, { type: "secondary" }, n(t, "directoryHint"))), /* @__PURE__ */ e.createElement(U, { wrap: !0 }, /* @__PURE__ */ e.createElement(
     m,
     {
       loading: d,
-      onClick: () => void I()
+      onClick: () => void P()
     },
     n(t, "openExtensionFolder")
   ), /* @__PURE__ */ e.createElement(
     m,
     {
       loading: d,
-      onClick: () => void P()
+      onClick: () => void D()
     },
     n(t, "copyPath")
   ))))) : null, /* @__PURE__ */ e.createElement(
-    X,
+    Z,
     {
       locale: t,
       onCopy: (r) => void E(r),
@@ -503,14 +525,13 @@ function Z() {
     }
   )), l && !o ? /* @__PURE__ */ e.createElement(V, null) : null));
 }
-const ee = L();
 var R, _;
 (_ = (R = window.QwenPaw).registerRoutes) == null || _.call(R, "chrome", [
   {
     path: "/plugin/chrome",
-    component: Z,
-    label: n(ee, "routeLabel"),
-    icon: /* @__PURE__ */ e.createElement("span", { style: a.chromeIcon }),
+    component: ee,
+    label: "Chrome浏览器",
+    icon: /* @__PURE__ */ e.createElement(G, null),
     priority: 40
   }
 ]);

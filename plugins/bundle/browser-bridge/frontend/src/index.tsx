@@ -257,6 +257,29 @@ const styles: Record<string, ReactNS.CSSProperties> = {
   },
 };
 
+function ChromeSidebarIcon(): ReactNS.ReactElement {
+  return (
+    <svg
+      aria-hidden="true"
+      focusable="false"
+      viewBox="0 0 24 24"
+      width="1em"
+      height="1em"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.8}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <circle cx={12} cy={12} r={9} />
+      <circle cx={12} cy={12} r={3.2} />
+      <path d="M12 12h8.5" />
+      <path d="M12 12 7.5 19.8" />
+      <path d="M12 12 7.5 4.2" />
+    </svg>
+  );
+}
+
 function authHeaders(): Record<string, string> {
   const headers: Record<string, string> = {};
   const token = getApiToken?.();
@@ -670,14 +693,12 @@ function ChromeSetupPage() {
   );
 }
 
-const routeLocale = resolveBrowserBridgeLocale();
-
 window.QwenPaw.registerRoutes?.("chrome", [
   {
     path: "/plugin/chrome",
     component: ChromeSetupPage,
-    label: translate(routeLocale, "routeLabel"),
-    icon: <span style={styles.chromeIcon} />,
+    label: "Chrome浏览器",
+    icon: <ChromeSidebarIcon />,
     priority: 40,
   },
 ]);
