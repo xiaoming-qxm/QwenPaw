@@ -18,6 +18,8 @@ const { Alert, Button, Collapse, Space, Spin, Typography, message } = antd;
 const { Text, Title } = Typography;
 
 type InstallMode = "unpacked" | "cws";
+type ShortcutPlatform = "mac" | "windows" | "linux";
+type InlineIconName = "chromeExtensions" | "copy" | "folderPlus" | "sliders";
 type StatusKey =
   | "extension_dir"
   | "native_manifest_path"
@@ -189,22 +191,188 @@ const styles: Record<string, ReactNS.CSSProperties> = {
     fontSize: 12,
     whiteSpace: "nowrap",
   },
+  installSupportGrid: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: 16,
+    alignItems: "stretch",
+  },
+  installBox: {
+    flex: "1.55 1 520px",
+    minWidth: 0,
+    padding: 16,
+    border: "1px solid rgba(0,0,0,0.08)",
+    borderRadius: 8,
+    background: "rgba(0,0,0,0.015)",
+  },
+  installTipsBox: {
+    flex: "0.85 1 280px",
+    minWidth: 0,
+    padding: 16,
+    border: "1px solid rgba(31,122,63,0.18)",
+    borderRadius: 8,
+    background: "rgba(31,122,63,0.035)",
+  },
+  installBoxHead: {
+    display: "flex",
+    alignItems: "baseline",
+    justifyContent: "space-between",
+    gap: 12,
+    marginBottom: 14,
+    flexWrap: "wrap",
+  },
+  installBoxNote: {
+    color: "rgba(0,0,0,0.45)",
+    fontSize: 12,
+    lineHeight: "18px",
+    whiteSpace: "nowrap",
+  },
   steps: {
     margin: 0,
-    paddingLeft: 20,
-    color: "rgba(0,0,0,0.72)",
-    lineHeight: 1.65,
+    padding: 0,
+    listStyle: "none",
+    display: "flex",
+    flexDirection: "column",
+    gap: 13,
   },
-  directoryBox: {
+  stepItem: {
+    display: "grid",
+    gridTemplateColumns: "28px minmax(0, 1fr)",
+    gap: 10,
+    alignItems: "start",
+  },
+  stepIndex: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    display: "grid",
+    placeItems: "center",
+    color: "#246a52",
+    background: "#e9f4ef",
+    fontSize: 13,
+    fontWeight: 700,
+  },
+  stepBody: {
+    minWidth: 0,
+  },
+  stepLine: {
+    marginTop: 5,
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    flexWrap: "wrap",
+    color: "rgba(0,0,0,0.58)",
+    fontSize: 13,
+    lineHeight: "26px",
+  },
+  stepControl: {
+    height: 26,
+    borderRadius: 7,
+    border: "1px solid rgba(31,122,63,0.22)",
+    background: "rgba(31,122,63,0.035)",
+    color: "#1f5e48",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
+    padding: "0 9px",
+    cursor: "pointer",
+    fontSize: 13,
+    fontWeight: 700,
+    boxShadow: "0 1px 0 rgba(0,0,0,0.03)",
+    whiteSpace: "nowrap",
+  },
+  stepControlPrimary: {
+    borderColor: "#155fc2",
+    background: "#1677ff",
+    color: "#fff",
+  },
+  stepControlBlue: {
+    borderColor: "rgba(22,119,255,0.22)",
+    background: "rgba(22,119,255,0.08)",
+    color: "#0958d9",
+  },
+  stepControlPlaceholder: {
+    cursor: "default",
+    color: "#315f4e",
+    background: "rgba(31,122,63,0.025)",
+  },
+  inlineIcon: {
+    width: 14,
+    height: 14,
+    flex: "0 0 14px",
+  },
+  shortcutBox: {
+    width: "100%",
+    minWidth: 0,
+  },
+  shortcutHead: {
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 12,
+    gap: 10,
     flexWrap: "wrap",
-    padding: 12,
-    border: "1px solid rgba(0,0,0,0.08)",
+    marginBottom: 14,
+  },
+  osTabs: {
+    display: "grid",
+    gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+    width: "min(100%, 210px)",
+    padding: 2,
     borderRadius: 8,
-    background: "rgba(0,0,0,0.02)",
+    border: "1px solid rgba(0,0,0,0.08)",
+    background: "#fff",
+    overflow: "hidden",
+  },
+  osTab: {
+    height: 26,
+    border: 0,
+    borderRadius: 6,
+    background: "transparent",
+    color: "rgba(0,0,0,0.58)",
+    padding: "0 8px",
+    cursor: "pointer",
+    fontSize: 12,
+    lineHeight: "26px",
+    whiteSpace: "nowrap",
+    minWidth: 0,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+  },
+  osTabActive: {
+    background: "#e9f4ef",
+    color: "#134f3c",
+    fontWeight: 700,
+  },
+  shortcutSteps: {
+    margin: 0,
+    padding: "11px 12px",
+    listStyle: "none",
+    display: "grid",
+    gap: 8,
+    border: "1px solid rgba(31,122,63,0.16)",
+    borderRadius: 8,
+    background: "#fff",
+    color: "rgba(0,0,0,0.58)",
+    fontSize: 13,
+    lineHeight: "18px",
+  },
+  shortcutStep: {
+    display: "grid",
+    gridTemplateColumns: "18px minmax(0, 1fr)",
+    gap: 8,
+    alignItems: "start",
+  },
+  tipDot: {
+    width: 18,
+    height: 18,
+    borderRadius: 999,
+    display: "inline-grid",
+    placeItems: "center",
+    background: "#e9f4ef",
+    color: "#246a52",
+    fontSize: 11,
+    fontWeight: 700,
+    lineHeight: "18px",
   },
   checkGrid: {
     display: "grid",
@@ -377,6 +545,101 @@ function StatusDot({ ready }: { ready: boolean }) {
   );
 }
 
+function InlineIcon({ name }: { name: InlineIconName }) {
+  const common = {
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 2,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+  };
+  const paths: Record<InlineIconName, ReactNS.ReactNode> = {
+    chromeExtensions: (
+      <>
+        <path d="M8 6h12v12H8z" />
+        <path d="M4 10h4M4 14h4" />
+      </>
+    ),
+    copy: (
+      <>
+        <rect x="9" y="9" width="11" height="11" rx="2" />
+        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+      </>
+    ),
+    folderPlus: (
+      <>
+        <path d="M12 5v14" />
+        <path d="M5 12h14" />
+        <path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" />
+      </>
+    ),
+    sliders: (
+      <>
+        <path d="M4 7h10" />
+        <path d="M20 7h-2" />
+        <circle cx="16" cy="7" r="2" />
+        <path d="M20 17H10" />
+        <path d="M4 17h2" />
+        <circle cx="8" cy="17" r="2" />
+      </>
+    ),
+  };
+
+  return (
+    <svg viewBox="0 0 24 24" style={styles.inlineIcon} {...common}>
+      {paths[name]}
+    </svg>
+  );
+}
+
+function StepControl({
+  icon,
+  label,
+  loading,
+  onClick,
+  tone = "default",
+}: {
+  icon: InlineIconName;
+  label: string;
+  loading?: boolean;
+  onClick?: () => void;
+  tone?: "blue" | "default" | "placeholder" | "primary";
+}) {
+  const toneStyle =
+    tone === "primary"
+      ? styles.stepControlPrimary
+      : tone === "blue"
+      ? styles.stepControlBlue
+      : tone === "placeholder"
+      ? styles.stepControlPlaceholder
+      : null;
+
+  return (
+    <Button
+      loading={loading}
+      onClick={onClick}
+      style={{ ...styles.stepControl, ...toneStyle }}
+      type="text"
+    >
+      <InlineIcon name={icon} />
+      {label}
+    </Button>
+  );
+}
+
+function detectShortcutPlatform(): ShortcutPlatform {
+  const platform = window.navigator?.platform || "";
+  const userAgent = window.navigator?.userAgent || "";
+  const value = `${platform} ${userAgent}`.toLowerCase();
+  if (value.includes("mac")) {
+    return "mac";
+  }
+  if (value.includes("win")) {
+    return "windows";
+  }
+  return "linux";
+}
+
 function AdvancedInfo({
   locale,
   onCopy,
@@ -407,9 +670,7 @@ function AdvancedInfo({
                 const value = status?.[row.key] || "-";
                 return (
                   <div key={row.key} style={styles.advancedRow}>
-                    <Text type="secondary">
-                      {translate(locale, row.label)}
-                    </Text>
+                    <Text type="secondary">{translate(locale, row.label)}</Text>
                     <code style={styles.advancedValue}>{value}</code>
                     <Button
                       disabled={!status?.[row.key]}
@@ -443,6 +704,9 @@ function ChromeSetupPage() {
   const [loading, setLoading] = React.useState(true);
   const [setupLoading, setSetupLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const [silentPrepareStarted, setSilentPrepareStarted] = React.useState(false);
+  const [shortcutPlatform, setShortcutPlatform] =
+    React.useState<ShortcutPlatform>(() => detectShortcutPlatform());
 
   const refreshStatus = React.useCallback(async () => {
     setLoading(true);
@@ -464,29 +728,36 @@ function ChromeSetupPage() {
     void refreshStatus();
   }, [refreshStatus]);
 
-  const prepareLocalFiles = React.useCallback(async () => {
-    if (status?.extension_dir) {
-      return status;
-    }
-    setSetupLoading(true);
-    setError(null);
-    try {
-      const next = await setupExtension({
-        install_mode: "unpacked",
-        ws_url: currentBridgeWsUrl(),
-      });
-      setStatus(next);
-      message.success(translate(locale, "installSuccess"));
-      return next;
-    } catch (err) {
-      const messageText = err instanceof Error ? err.message : String(err);
-      setError(messageText);
-      message.error(translate(locale, "installFailed"));
-      return null;
-    } finally {
-      setSetupLoading(false);
-    }
-  }, [locale, status]);
+  const prepareLocalFiles = React.useCallback(
+    async (options?: { silent?: boolean }) => {
+      if (status?.extension_dir) {
+        return status;
+      }
+      setSetupLoading(true);
+      setError(null);
+      try {
+        const next = await setupExtension({
+          install_mode: "unpacked",
+          ws_url: currentBridgeWsUrl(),
+        });
+        setStatus(next);
+        if (!options?.silent) {
+          message.success(translate(locale, "installSuccess"));
+        }
+        return next;
+      } catch (err) {
+        const messageText = err instanceof Error ? err.message : String(err);
+        setError(messageText);
+        if (!options?.silent) {
+          message.error(translate(locale, "installFailed"));
+        }
+        return null;
+      } finally {
+        setSetupLoading(false);
+      }
+    },
+    [locale, status],
+  );
 
   const copyValue = React.useCallback(
     async (value: string) => {
@@ -503,14 +774,6 @@ function ChromeSetupPage() {
     }
   }, [copyValue, prepareLocalFiles]);
 
-  const handleOpenFolder = React.useCallback(async () => {
-    await prepareLocalFiles();
-    const result = await openExtensionFolder();
-    if (!result.opened && result.error) {
-      message.warning(result.error);
-    }
-  }, [prepareLocalFiles]);
-
   const handleOpenChrome = React.useCallback(async () => {
     const result = await openChromeExtensionsPage();
     if (!result.opened && result.error) {
@@ -526,6 +789,31 @@ function ChromeSetupPage() {
     translate(locale, "extensionLoadedCheck"),
     translate(locale, "localConnectionCheck"),
   ];
+  const shortcutTipsSteps: Record<ShortcutPlatform, [MessageKey, MessageKey]> =
+    {
+      mac: ["shortcutMacStep1", "shortcutMacStep2"],
+      windows: ["shortcutWindowsStep1", "shortcutWindowsStep2"],
+      linux: ["shortcutLinuxStep1", "shortcutLinuxStep2"],
+    };
+
+  React.useEffect(() => {
+    if (
+      loading ||
+      isConnected ||
+      silentPrepareStarted ||
+      status?.extension_dir
+    ) {
+      return;
+    }
+    setSilentPrepareStarted(true);
+    void prepareLocalFiles({ silent: true });
+  }, [
+    isConnected,
+    loading,
+    prepareLocalFiles,
+    silentPrepareStarted,
+    status?.extension_dir,
+  ]);
 
   return (
     <div style={styles.page}>
@@ -569,10 +857,16 @@ function ChromeSetupPage() {
             <div style={styles.actions}>
               {isConnected ? (
                 <>
-                  <Button loading={loading} onClick={() => void refreshStatus()}>
+                  <Button
+                    loading={loading}
+                    onClick={() => void refreshStatus()}
+                  >
                     {translate(locale, "refreshStatus")}
                   </Button>
-                  <Button type="primary" onClick={() => void handleOpenChrome()}>
+                  <Button
+                    type="primary"
+                    onClick={() => void handleOpenChrome()}
+                  >
                     {translate(locale, "openChrome")}
                   </Button>
                 </>
@@ -621,7 +915,9 @@ function ChromeSetupPage() {
                 <div style={styles.methodGrid}>
                   <div style={styles.methodTile}>
                     <div style={styles.methodHeader}>
-                      <Text strong>{translate(locale, "localMethodTitle")}</Text>
+                      <Text strong>
+                        {translate(locale, "localMethodTitle")}
+                      </Text>
                       <span style={styles.badge}>
                         {translate(locale, "recommendedBadge")}
                       </span>
@@ -629,6 +925,13 @@ function ChromeSetupPage() {
                     <Text type="secondary">
                       {translate(locale, "localMethodDescription")}
                     </Text>
+                    <Button
+                      type="primary"
+                      onClick={() => void handleOpenChrome()}
+                    >
+                      <InlineIcon name="chromeExtensions" />
+                      {translate(locale, "openChromeExtensionsPage")}
+                    </Button>
                   </div>
                   <div style={styles.disabledTile} aria-disabled="true">
                     <div style={styles.methodHeader}>
@@ -648,34 +951,140 @@ function ChromeSetupPage() {
               </div>
 
               <div style={styles.section}>
-                <Text strong>{translate(locale, "localStepsTitle")}</Text>
-                <ol style={styles.steps}>
-                  <li>{translate(locale, "stepOpen")}</li>
-                  <li>{translate(locale, "stepLoad")}</li>
-                  <li>{translate(locale, "stepVerify")}</li>
-                </ol>
-                <div style={styles.directoryBox}>
-                  <div>
-                    <Text strong>{translate(locale, "directoryLabel")}</Text>
-                    <br />
-                    <Text type="secondary">
-                      {translate(locale, "directoryHint")}
-                    </Text>
+                <div style={styles.installSupportGrid}>
+                  <div style={styles.installBox}>
+                    <div style={styles.installBoxHead}>
+                      <Text strong>{translate(locale, "localStepsTitle")}</Text>
+                      <span style={styles.installBoxNote}>
+                        {translate(locale, "localStepsOnce")}
+                      </span>
+                    </div>
+                    <ol style={styles.steps}>
+                      <li style={styles.stepItem}>
+                        <span style={styles.stepIndex}>1</span>
+                        <div style={styles.stepBody}>
+                          <Text strong>
+                            {translate(locale, "openExtensionsStepTitle")}
+                          </Text>
+                          <div style={styles.stepLine}>
+                            {translate(locale, "openExtensionsPrefix")}
+                            <StepControl
+                              icon="chromeExtensions"
+                              label={translate(locale, "openExtensionsAction")}
+                              onClick={() => void handleOpenChrome()}
+                              tone="blue"
+                            />
+                            {translate(locale, "openExtensionsSuffix")}
+                          </div>
+                        </div>
+                      </li>
+                      <li style={styles.stepItem}>
+                        <span style={styles.stepIndex}>2</span>
+                        <div style={styles.stepBody}>
+                          <Text strong>
+                            {translate(locale, "developerModeStepTitle")}
+                          </Text>
+                          <div style={styles.stepLine}>
+                            {translate(locale, "developerModePrefix")}
+                            <StepControl
+                              icon="sliders"
+                              label={translate(locale, "developerModeAction")}
+                              tone="placeholder"
+                            />
+                            {translate(locale, "developerModeSuffix")}
+                          </div>
+                        </div>
+                      </li>
+                      <li style={styles.stepItem}>
+                        <span style={styles.stepIndex}>3</span>
+                        <div style={styles.stepBody}>
+                          <Text strong>
+                            {translate(locale, "loadUnpackedStepTitle")}
+                          </Text>
+                          <div style={styles.stepLine}>
+                            {translate(locale, "loadUnpackedPrefix")}
+                            <StepControl
+                              icon="folderPlus"
+                              label={translate(locale, "loadUnpackedAction")}
+                              tone="placeholder"
+                            />
+                            {translate(locale, "loadUnpackedSuffix")}
+                          </div>
+                        </div>
+                      </li>
+                      <li style={styles.stepItem}>
+                        <span style={styles.stepIndex}>4</span>
+                        <div style={styles.stepBody}>
+                          <Text strong>
+                            {translate(locale, "pastePathStepTitle")}
+                          </Text>
+                          <div style={styles.stepLine}>
+                            {translate(locale, "pastePathPrefix")}
+                            <StepControl
+                              icon="copy"
+                              label={translate(locale, "qwenpawExtensionPath")}
+                              loading={setupLoading}
+                              onClick={() => void handleCopyPath()}
+                              tone="primary"
+                            />
+                            {translate(locale, "pastePathSuffix")}
+                          </div>
+                        </div>
+                      </li>
+                    </ol>
                   </div>
-                  <Space wrap>
-                    <Button
-                      loading={setupLoading}
-                      onClick={() => void handleOpenFolder()}
-                    >
-                      {translate(locale, "openExtensionFolder")}
-                    </Button>
-                    <Button
-                      loading={setupLoading}
-                      onClick={() => void handleCopyPath()}
-                    >
-                      {translate(locale, "copyPath")}
-                    </Button>
-                  </Space>
+
+                  <aside
+                    aria-label={translate(locale, "shortcutTipsTitle")}
+                    style={styles.installTipsBox}
+                  >
+                    <div style={styles.installBoxHead}>
+                      <Text strong>
+                        {translate(locale, "shortcutTipsTitle")}
+                      </Text>
+                      <span style={styles.installBoxNote}>
+                        {translate(locale, "shortcutTipsScope")}
+                      </span>
+                    </div>
+                    <div style={styles.shortcutBox}>
+                      <div style={styles.shortcutHead}>
+                        <Text strong>{translate(locale, "currentSystem")}</Text>
+                        <div style={styles.osTabs} role="tablist">
+                          {(
+                            [
+                              ["mac", "macOS"],
+                              ["windows", "Windows"],
+                              ["linux", "Linux"],
+                            ] as const
+                          ).map(([platform, label]) => (
+                            <button
+                              key={platform}
+                              onClick={() => setShortcutPlatform(platform)}
+                              style={{
+                                ...styles.osTab,
+                                ...(shortcutPlatform === platform
+                                  ? styles.osTabActive
+                                  : null),
+                              }}
+                              type="button"
+                            >
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <ol style={styles.shortcutSteps}>
+                        {shortcutTipsSteps[shortcutPlatform].map(
+                          (key, index) => (
+                            <li key={key} style={styles.shortcutStep}>
+                              <span style={styles.tipDot}>{index + 1}</span>
+                              <span>{translate(locale, key)}</span>
+                            </li>
+                          ),
+                        )}
+                      </ol>
+                    </div>
+                  </aside>
                 </div>
               </div>
             </>
