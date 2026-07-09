@@ -416,8 +416,7 @@
     return {
       ok: false,
       error_code: "capability_missing",
-      message:
-        "File upload is handled through Browser Bridge CDP setFileInputFiles.",
+      message: "File upload is handled by QwenPaw's Chrome connection.",
     };
   }
 

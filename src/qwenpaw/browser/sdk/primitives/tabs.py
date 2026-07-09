@@ -68,6 +68,7 @@ class BrowserTabs:
     async def open(self, url: str | None = None) -> Tab:
         """Reuse the request workspace tab and navigate it to *url*."""
         target_url = _require_target_url(url, action="tabs.open")
+        api_id = _browser_api_id(type(self).open, "browser.tabs.open")
         started = perf_counter()
         try:
             open_workspace_tab = getattr(
@@ -90,6 +91,7 @@ class BrowserTabs:
         except Exception as exc:
             self._trace(
                 action="open",
+                api_id=api_id,
                 status="error",
                 duration_ms=_duration_ms(started),
                 url=target_url,
@@ -99,6 +101,7 @@ class BrowserTabs:
             raise
         self._trace(
             action="open",
+            api_id=api_id,
             status="ok",
             duration_ms=_duration_ms(started),
             tab_id=tab.id,
@@ -255,6 +258,7 @@ class BrowserTabs:
         action: str,
         status: str,
         duration_ms: float,
+        api_id: str = "",
         tab_id: str = "",
         url: str = "",
         error_code: str = "",
@@ -266,6 +270,7 @@ class BrowserTabs:
             backend_id=self._context.backend_id,
             requested_context=self._context.requested,
             selected_context=self._context.selected,
+            api_id=api_id,
             action=action,
             tab_id=tab_id,
             url=url,
@@ -283,6 +288,12 @@ def _duration_ms(started: float) -> float:
 
 def _error_code(exc: Exception) -> str:
     return classify_browser_error(exc).code.value
+
+
+def _browser_api_id(func: Any, fallback: str) -> str:
+    source = getattr(func, "__func__", func)
+    contract = getattr(source, "__browser_api_contract__", None)
+    return str(getattr(contract, "api_id", "") or fallback)
 
 
 def _domain_from_url(url: str) -> str:

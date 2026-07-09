@@ -1,9 +1,9 @@
 {
   "id": "browser-bridge",
-  "name": "Browser Bridge",
+  "name": "Chrome",
   "version": "0.1.0",
   "type": "general",
-  "description": "Connect QwenPaw to Chrome through the local browser bridge for live browser control.",
+  "description": "Connect QwenPaw to this Chrome browser.",
   "author": "QwenPaw",
   "icon": "Chrome",
   "qwenpaw_version": {
@@ -12,8 +12,8 @@
   "capabilities": [
     {
       "id": "browser-bridge",
-      "name": "Browser bridge",
-      "description": "Control Chrome through the QwenPaw browser bridge."
+      "name": "Chrome",
+      "description": "Use QwenPaw with this Chrome browser."
     }
   ],
   "setup": {

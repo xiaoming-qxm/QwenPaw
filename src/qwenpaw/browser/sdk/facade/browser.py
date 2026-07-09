@@ -209,6 +209,7 @@ class Browser:
             or effective_session_id
         )
         effective_retention = _normalize_retention(retention)
+        api_id = _browser_api_id(cls.connect, "browser.connect")
         ownership_context = build_browser_ownership_context(
             session_id=effective_session_id,
             root_session_id=effective_root_session_id,
@@ -245,6 +246,7 @@ class Browser:
             record_browser_trace_event(
                 session_id=effective_session_id,
                 phase="connect",
+                api_id=api_id,
                 backend_id=str(getattr(exc, "backend_id", "") or ""),
                 requested_context=str(effective_context or ""),
                 status="error",
@@ -262,6 +264,7 @@ class Browser:
         )
         browser._trace(
             phase="connect",
+            api_id=api_id,
             status="ok",
             duration_ms=_duration_ms(started),
             metadata={
@@ -399,6 +402,7 @@ class Browser:
         status: str,
         duration_ms: float,
         action: str = "",
+        api_id: str = "",
         tab_id: str = "",
         url: str = "",
         error_code: str = "",
@@ -411,6 +415,7 @@ class Browser:
             backend_id=self.context.backend_id,
             requested_context=self.context.requested,
             selected_context=self.context.selected,
+            api_id=api_id,
             action=action,
             tab_id=tab_id,
             url=url,
@@ -507,6 +512,12 @@ def _normalize_retention(retention: str) -> BrowserRetention:
     raise ValueError(
         "Browser retention must be one of: clean, debug, handoff.",
     )
+
+
+def _browser_api_id(func: Any, fallback: str) -> str:
+    source = getattr(func, "__func__", func)
+    contract = getattr(source, "__browser_api_contract__", None)
+    return str(getattr(contract, "api_id", "") or fallback)
 
 
 def _duration_ms(started: float) -> float:

@@ -10,13 +10,12 @@ function setText(id, text) {
 chrome.runtime.sendMessage(
   { source: SOURCE, method: "status.get" },
   (response) => {
-    const status = response && response.connected ? "Connected" : "Disconnected";
+    const status = response && response.connected ? "Connected" : "Not connected";
     const dot = document.getElementById("dot");
     if (dot) {
       dot.dataset.connected = response && response.connected ? "true" : "false";
     }
     setText("status", status);
-    setText("nativeHost", response && response.nativeHost ? response.nativeHost : "-");
     setText(
       "tabs",
       String(response && Number.isFinite(response.managedTabsCount) ? response.managedTabsCount : 0),

@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import json
 import hashlib
-import os
 import secrets
 import contextlib
 import subprocess
@@ -49,12 +48,6 @@ from ..extension_setup import (  # type: ignore[misc]
     setup_extension_files,
 )
 from ..transport.state import get_nm_bridge_route_state  # type: ignore[misc]
-from .acceptance_runs import (
-    AcceptanceReportMissing,
-    AcceptanceRunNotFound,
-    AcceptanceRunRegistry,
-    AcceptanceRunRequest,
-)
 
 ws_router = APIRouter(tags=["browser-bridge"])
 api_router = APIRouter(tags=["browser-bridge"])
@@ -77,12 +70,6 @@ if not _bridge_state.ws_url:
     _bridge_state.ws_url = resolve_default_ws_url()
 if _bridge_state.config_path is None:
     _bridge_state.config_path = DEFAULT_CONFIG_PATH
-acceptance_run_registry = AcceptanceRunRegistry()
-
-
-def _verifier_mode_enabled() -> bool:
-    value = os.environ.get("QWENPAW_BROWSER_BRIDGE_VERIFIER_MODE", "")
-    return value.strip().casefold() in {"1", "true", "yes", "on"}
 
 
 def _read_existing_token(config_path: Path) -> str | None:
@@ -965,66 +952,6 @@ async def get_extension_status() -> dict[str, Any]:
 @api_router.get("/status")
 async def extension_status() -> dict[str, Any]:
     return await get_extension_status()
-
-
-@api_router.post("/acceptance-runs")
-async def start_acceptance_run(
-    request: AcceptanceRunRequest | None = None,
-) -> dict[str, Any]:
-    return acceptance_run_registry.start_run(request)
-
-
-@api_router.get("/acceptance-runs/{run_id}")
-async def acceptance_run_status(run_id: str) -> dict[str, Any]:
-    try:
-        return acceptance_run_registry.get_run(run_id)
-    except AcceptanceRunNotFound as exc:
-        raise HTTPException(status_code=404, detail="run not found") from exc
-
-
-@api_router.post("/acceptance-runs/{run_id}/cancel")
-async def cancel_acceptance_run(run_id: str) -> dict[str, Any]:
-    try:
-        return acceptance_run_registry.cancel_run(run_id)
-    except AcceptanceRunNotFound as exc:
-        raise HTTPException(status_code=404, detail="run not found") from exc
-
-
-@api_router.get("/acceptance-runs/{run_id}/report")
-async def acceptance_run_report(run_id: str) -> dict[str, Any]:
-    try:
-        return acceptance_run_registry.get_report(run_id)
-    except AcceptanceRunNotFound as exc:
-        raise HTTPException(status_code=404, detail="run not found") from exc
-    except AcceptanceReportMissing as exc:
-        raise HTTPException(
-            status_code=404,
-            detail="report not ready",
-        ) from exc
-
-
-@api_router.post("/test/bridge/disconnect")
-async def disconnect_bridge_for_verifier(
-    confirm: bool = Query(False),
-) -> dict[str, Any]:
-    """Force-disconnect the current bridge for verifier lifecycle tests."""
-    if not _verifier_mode_enabled():
-        raise HTTPException(status_code=404, detail="not found")
-    if not confirm:
-        raise HTTPException(
-            status_code=400,
-            detail="confirm=true is required for bridge disconnect tests",
-        )
-    bridge = _default_bridge()
-    before_connected = _bridge_connected()
-    await _drop_connected_websocket(bridge, reason="v9_verifier")
-    after_connected = _bridge_connected()
-    return {
-        "ok": before_connected and not after_connected,
-        "before_connected": before_connected,
-        "after_connected": after_connected,
-        "bridge_lifecycle": _bridge_lifecycle(after_connected),
-    }
 
 
 @api_router.post("/self-test")

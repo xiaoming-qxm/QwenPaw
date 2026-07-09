@@ -82,6 +82,7 @@ class Tab:
 
     async def _snapshot_impl(self) -> BrowserObservation:
         """Call the backend snapshot primitive."""
+        api_id = _browser_api_contract(type(self).snapshot).api_id
         started = perf_counter()
         try:
             result = coerce_observation(
@@ -94,6 +95,7 @@ class Tab:
             self._trace(
                 phase="observe",
                 action="snapshot",
+                api_id=api_id,
                 status="error",
                 duration_ms=_duration_ms(started),
                 error_code=_error_code(exc),
@@ -103,6 +105,7 @@ class Tab:
         self._trace(
             phase="observe",
             action="snapshot",
+            api_id=api_id,
             status="ok",
             duration_ms=_duration_ms(started),
             url=result.url,
@@ -324,7 +327,13 @@ class Tab:
         )
         return result
 
-    async def _call_action(self, name: str, **kwargs: Any) -> Any:
+    async def _call_action(
+        self,
+        name: str,
+        *,
+        api_id: str = "",
+        **kwargs: Any,
+    ) -> Any:
         started = perf_counter()
         try:
             result = await self._session.action(self.id, name, **kwargs)
@@ -332,6 +341,7 @@ class Tab:
             self._trace(
                 phase="action",
                 action=name,
+                api_id=api_id,
                 status="error",
                 duration_ms=_duration_ms(started),
                 error_code=_error_code(exc),
@@ -359,6 +369,7 @@ class Tab:
         self._trace(
             phase="action",
             action=name,
+            api_id=api_id,
             status=_result_status(result),
             duration_ms=_duration_ms(started),
             metadata=trace_metadata,
@@ -372,6 +383,7 @@ class Tab:
         action: str,
         status: str,
         duration_ms: float,
+        api_id: str = "",
         url: str = "",
         error_code: str = "",
         metadata: dict[str, Any] | None = None,
@@ -383,6 +395,7 @@ class Tab:
             backend_id=self.context.backend_id,
             requested_context=self.context.requested,
             selected_context=self.context.selected,
+            api_id=api_id,
             action=action,
             tab_id=self.id,
             url=effective_url,

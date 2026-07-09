@@ -16,6 +16,7 @@ export interface BrowserEvidenceArtifact {
 
 export interface BrowserTraceEventPreview {
   phase?: string;
+  api_id?: string;
   action?: string;
   status?: string;
   backend_id?: string;
@@ -25,6 +26,7 @@ export interface BrowserTraceEventPreview {
   url?: string;
   domain?: string;
   title?: string;
+  selector?: string;
   duration_ms?: number;
   error_code?: string;
   approval_state?: string;

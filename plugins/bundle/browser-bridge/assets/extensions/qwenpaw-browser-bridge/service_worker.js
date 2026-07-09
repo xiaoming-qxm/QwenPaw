@@ -914,8 +914,7 @@ async function handleMessage(message) {
         return jsonRpcResult(id, {
           ok: false,
           error_code: "capability_missing",
-          message:
-            "Download artifacts are collected through Browser Bridge CDP events.",
+          message: "Downloads are handled by QwenPaw's Chrome connection.",
         });
       case "dialog.set":
         return jsonRpcResult(id, {

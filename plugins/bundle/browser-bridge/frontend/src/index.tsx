@@ -19,7 +19,6 @@ const {
   Alert,
   Button,
   Card,
-  Checkbox,
   Collapse,
   Space,
   Spin,
@@ -117,53 +116,6 @@ interface OpenExtensionFolderResult {
   error?: string | null;
 }
 
-type AcceptanceRunStatus =
-  | "queued"
-  | "running"
-  | "passed"
-  | "failed"
-  | "blocked"
-  | "cancelled";
-
-interface AcceptanceScenarioProgress {
-  scenario: string;
-  status: AcceptanceRunStatus | string;
-  failure_category?: string;
-  recovery_hint?: string;
-  repair_action?: string;
-}
-
-interface AcceptanceRun {
-  run_id: string;
-  status: AcceptanceRunStatus | string;
-  started_at: string;
-  completed_at?: string | null;
-  scenario_progress: AcceptanceScenarioProgress[];
-  live_taobao: boolean;
-  cancel_requested?: boolean;
-  report_json_path?: string;
-  report_markdown_path?: string;
-  error?: string;
-}
-
-interface AcceptanceReportResponse {
-  run_id: string;
-  json: {
-    status?: string;
-    scenario_reports?: AcceptanceScenarioProgress[];
-    [key: string]: unknown;
-  };
-  markdown: string;
-  report_json_path?: string;
-  report_markdown_path?: string;
-}
-
-interface AcceptanceRunPayload {
-  base_url?: string;
-  port?: number;
-  live_taobao: boolean;
-}
-
 interface ExtensionProbeStatus {
   ok?: boolean;
   connected?: boolean;
@@ -194,6 +146,13 @@ declare const chrome:
 interface PathRow {
   key: StatusKey;
   label: string;
+}
+
+interface PrimaryAction {
+  disabled?: boolean;
+  label: MessageKey;
+  loading?: boolean;
+  onClick: () => void;
 }
 
 const styles: Record<string, ReactNS.CSSProperties> = {
@@ -315,44 +274,76 @@ const styles: Record<string, ReactNS.CSSProperties> = {
     background: "rgba(0,0,0,0.02)",
     overflowWrap: "anywhere",
   },
-  acceptancePanel: {
-    width: "min(100%, 720px)",
+  setupGrid: {
+    width: "min(100%, 920px)",
     margin: "0 auto",
-    borderRadius: 8,
-  },
-  acceptanceActions: {
-    display: "flex",
-    flexWrap: "wrap",
-    alignItems: "center",
-    gap: 8,
-  },
-  acceptanceScenarioList: {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-    gap: 10,
+    gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+    gap: 12,
   },
-  acceptanceScenarioCard: {
-    minHeight: 124,
-    padding: 12,
-    borderRadius: 8,
+  methodTile: {
+    minHeight: 148,
+    padding: 14,
     border: "1px solid rgba(0,0,0,0.08)",
+    borderRadius: 8,
     background: "#fff",
     display: "flex",
     flexDirection: "column",
-    gap: 6,
+    gap: 10,
   },
-  acceptanceScenarioHeader: {
+  disabledMethodTile: {
+    minHeight: 148,
+    padding: 14,
+    border: "1px dashed rgba(0,0,0,0.16)",
+    borderRadius: 8,
+    background: "rgba(0,0,0,0.025)",
     display: "flex",
-    justifyContent: "space-between",
-    gap: 8,
+    flexDirection: "column",
+    gap: 10,
+    opacity: 0.74,
   },
-  acceptanceReportPreview: {
-    maxHeight: 180,
-    overflow: "auto",
-    padding: 12,
-    borderRadius: 6,
-    background: "rgba(0,0,0,0.04)",
-    whiteSpace: "pre-wrap",
+  methodHeader: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  badge: {
+    display: "inline-flex",
+    alignItems: "center",
+    minHeight: 22,
+    padding: "1px 8px",
+    borderRadius: 999,
+    border: "1px solid rgba(22, 119, 255, 0.22)",
+    background: "rgba(22, 119, 255, 0.08)",
+    color: "#0958d9",
+    fontSize: 12,
+    whiteSpace: "nowrap",
+  },
+  statusPill: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
+    minHeight: 28,
+    padding: "2px 10px",
+    borderRadius: 999,
+    border: "1px solid rgba(0,0,0,0.08)",
+    background: "rgba(0,0,0,0.03)",
+  },
+  localPanel: {
+    width: "min(100%, 920px)",
+    margin: "0 auto",
+    borderRadius: 8,
+  },
+  localBody: {
+    display: "grid",
+    gridTemplateColumns: "minmax(0, 1.2fr) minmax(240px, 0.8fr)",
+    gap: 16,
+  },
+  connectedChecks: {
+    width: "min(100%, 920px)",
+    margin: "0 auto",
+    borderRadius: 8,
   },
   developerPanel: {
     width: "min(100%, 920px)",
@@ -508,51 +499,6 @@ function openExtensionFolder(): Promise<OpenExtensionFolderResult> {
   );
 }
 
-function startAcceptanceRun(
-  payload: AcceptanceRunPayload,
-): Promise<AcceptanceRun> {
-  const defaultAcceptancePayload = { live_taobao: false };
-  return apiRequest<AcceptanceRun>("/browser-bridge/acceptance-runs", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      ...currentBackendTarget(),
-      ...defaultAcceptancePayload,
-      ...payload,
-    }),
-  });
-}
-
-function loadAcceptanceRun(runId: string): Promise<AcceptanceRun> {
-  return apiRequest<AcceptanceRun>(`/browser-bridge/acceptance-runs/${runId}`);
-}
-
-function cancelAcceptanceRun(runId: string): Promise<AcceptanceRun> {
-  return apiRequest<AcceptanceRun>(
-    `/browser-bridge/acceptance-runs/${runId}/cancel`,
-    {
-      method: "POST",
-    },
-  );
-}
-
-function loadAcceptanceReport(
-  runId: string,
-): Promise<AcceptanceReportResponse> {
-  return apiRequest<AcceptanceReportResponse>(
-    `/browser-bridge/acceptance-runs/${runId}/report`,
-  );
-}
-
-function currentBackendTarget(): Omit<AcceptanceRunPayload, "live_taobao"> {
-  const baseUrl = `${window.location.protocol}//${window.location.host}`;
-  const port = Number(window.location.port);
-  return {
-    base_url: baseUrl,
-    ...(Number.isFinite(port) && port > 0 ? { port } : {}),
-  };
-}
-
 function currentBridgeWsUrl() {
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   return `${protocol}//${window.location.host}/ws/browser-bridge`;
@@ -620,8 +566,9 @@ function probeExtension(
   ) {
     return Promise.resolve(null);
   }
+  const sendMessage = chrome.runtime.sendMessage;
   return new Promise((resolve) => {
-    chrome.runtime.sendMessage(extensionId, { method }, (response) => {
+    sendMessage(extensionId, { method }, (response) => {
       const error = chrome.runtime?.lastError?.message;
       if (error) {
         resolve({ ok: false, error });
@@ -1219,261 +1166,274 @@ function DeveloperOptions({
   );
 }
 
-const acceptanceTerminalStatuses = new Set<string>([
-  "passed",
-  "failed",
-  "blocked",
-  "cancelled",
-]);
-
-function isAcceptanceTerminal(status: string | undefined): boolean {
-  return acceptanceTerminalStatuses.has(status || "");
+function statusLabelForState(state: LifecycleState): MessageKey {
+  if (state === "connected") {
+    return "statusConnected";
+  }
+  if (state === "preparing" || state === "repairing") {
+    return "statusPreparing";
+  }
+  if (state === "needs_load_unpacked") {
+    return "statusNeedsLoad";
+  }
+  if (state === "extension_loaded_bridge_disconnected") {
+    return "statusNotConnected";
+  }
+  return "statusActionNeeded";
 }
 
-function acceptanceRepairActionLabel(
-  locale: BrowserBridgeLocale,
-  action: string,
-): string {
-  if (action === "open_setup_page" || action === "run_setup") {
-    return translate(locale, "acceptanceRepairOpenSetup");
+function statusColorForState(state: LifecycleState): string {
+  if (state === "connected") {
+    return "#389e0d";
   }
-  if (action === "open_chrome_extensions") {
-    return translate(locale, "openChromeExtensions");
+  if (state === "failed_actionable") {
+    return "#cf1322";
   }
-  if (action === "open_extension_folder") {
-    return translate(locale, "openExtensionFolder");
+  if (state === "needs_load_unpacked") {
+    return "#d46b08";
   }
-  if (action === "connect_extension") {
-    return translate(locale, "connectExtension");
-  }
-  if (action === "reload_extension") {
-    return translate(locale, "reloadExtension");
-  }
-  if (action === "rerun_after_fix" || action === "rerun_acceptance") {
-    return translate(locale, "acceptanceRerun");
-  }
-  return `${translate(locale, "acceptanceRepairAction")}: ${action}`;
+  return "#0958d9";
 }
 
-function ProductAcceptancePanel({
+function StatusDot({ color }: { color: string }) {
+  return (
+    <span
+      aria-hidden="true"
+      style={{
+        width: 8,
+        height: 8,
+        borderRadius: 999,
+        background: color,
+        display: "inline-block",
+        flexShrink: 0,
+      }}
+    />
+  );
+}
+
+function ConnectionStatusCard({
+  error,
   locale,
-  onRepairAction,
+  loading,
+  primaryAction,
+  state,
+  status,
 }: {
+  error: string | null;
   locale: BrowserBridgeLocale;
-  onRepairAction: (repairAction: string) => void;
+  loading: boolean;
+  primaryAction: PrimaryAction;
+  state: LifecycleState;
+  status: ExtensionStatus | null;
 }) {
-  const [acceptanceRun, setAcceptanceRun] =
-    React.useState<AcceptanceRun | null>(null);
-  const [acceptanceReport, setAcceptanceReport] =
-    React.useState<AcceptanceReportResponse | null>(null);
-  const [acceptanceLoading, setAcceptanceLoading] = React.useState(false);
-  const [taobaoLiveEnabled, setTaobaoLiveEnabled] = React.useState(false);
-  const [taobaoLiveConfirmed, setTaobaoLiveConfirmed] = React.useState(false);
-
-  const loadReport = React.useCallback(async (runId: string) => {
-    const report = await loadAcceptanceReport(runId);
-    setAcceptanceReport(report);
-  }, []);
-
-  const loadRun = React.useCallback(
-    async (runId: string) => {
-      const next = await loadAcceptanceRun(runId);
-      setAcceptanceRun(next);
-      if (isAcceptanceTerminal(next.status)) {
-        await loadReport(runId);
-      }
-      return next;
-    },
-    [loadReport],
-  );
-
-  const runAcceptance = React.useCallback(async () => {
-    setAcceptanceLoading(true);
-    setAcceptanceReport(null);
-    try {
-      const liveTaobao = taobaoLiveEnabled && taobaoLiveConfirmed;
-      const next = await startAcceptanceRun(
-        liveTaobao ? { live_taobao: true } : { live_taobao: false },
-      );
-      setAcceptanceRun(next);
-      if (isAcceptanceTerminal(next.status)) {
-        await loadReport(next.run_id);
-      }
-      message.success(translate(locale, "acceptanceStarted"));
-    } catch (err) {
-      message.error(err instanceof Error ? err.message : String(err));
-    } finally {
-      setAcceptanceLoading(false);
-    }
-  }, [loadReport, locale, taobaoLiveConfirmed, taobaoLiveEnabled]);
-
-  const cancelRun = React.useCallback(async () => {
-    if (!acceptanceRun) {
-      return;
-    }
-    setAcceptanceLoading(true);
-    try {
-      const next = await cancelAcceptanceRun(acceptanceRun.run_id);
-      setAcceptanceRun(next);
-      message.success(translate(locale, "acceptanceCancelled"));
-    } catch (err) {
-      message.error(err instanceof Error ? err.message : String(err));
-    } finally {
-      setAcceptanceLoading(false);
-    }
-  }, [acceptanceRun, locale]);
-
-  React.useEffect(() => {
-    if (!acceptanceRun?.run_id || isAcceptanceTerminal(acceptanceRun.status)) {
-      return undefined;
-    }
-    const pollId = window.setInterval(() => {
-      void loadRun(acceptanceRun.run_id);
-    }, 2000);
-    return () => {
-      window.clearInterval(pollId);
-    };
-  }, [acceptanceRun?.run_id, acceptanceRun?.status, loadRun]);
-
-  const scenarioProgress = acceptanceRun?.scenario_progress?.length
-    ? acceptanceRun.scenario_progress
-    : acceptanceReport?.json.scenario_reports || [];
-  const runActive = Boolean(
-    acceptanceRun && !isAcceptanceTerminal(acceptanceRun.status),
-  );
-  const taobaoRequiresConfirmation = taobaoLiveEnabled && !taobaoLiveConfirmed;
-
-  const handleScenarioRepairAction = (repairAction: string | undefined) => {
-    if (!repairAction) {
-      return;
-    }
-    if (
-      repairAction === "rerun_after_fix" ||
-      repairAction === "rerun_acceptance"
-    ) {
-      void runAcceptance();
-      return;
-    }
-    onRepairAction(repairAction);
-  };
+  const color = statusColorForState(state);
+  const version = status?.version || translate(locale, "versionUnknown");
+  const connectedSince = formatConnectedSince(status?.connected_since, locale);
 
   return (
-    <Card style={styles.acceptancePanel}>
+    <Card style={styles.centeredCard}>
       <Space direction="vertical" size={14} style={{ width: "100%" }}>
         <div>
-          <Text strong>{translate(locale, "acceptanceTitle")}</Text>
+          <Text strong>{translate(locale, "statusTitle")}</Text>
           <br />
           <Text type="secondary">
-            {translate(locale, "acceptanceSubtitle")}
+            {translate(locale, lifecycleDescription(state))}
           </Text>
         </div>
-
-        <div style={styles.acceptanceActions}>
-          <Button
-            type="primary"
-            loading={acceptanceLoading}
-            disabled={taobaoRequiresConfirmation || runActive}
-            onClick={() => void runAcceptance()}
-          >
-            {translate(locale, "acceptanceRun")}
-          </Button>
-          <Button
-            disabled={!runActive}
-            loading={acceptanceLoading && runActive}
-            onClick={() => void cancelRun()}
-          >
-            {translate(locale, "acceptanceCancel")}
-          </Button>
-          {acceptanceRun ? (
-            <Button
-              type="link"
-              onClick={() => void loadReport(acceptanceRun.run_id)}
-            >
-              {translate(locale, "acceptanceReportLink")}
-            </Button>
-          ) : null}
+        <div style={styles.statusPill}>
+          <StatusDot color={color} />
+          <Text>{translate(locale, statusLabelForState(state))}</Text>
         </div>
-
-        <Space direction="vertical" size={8} style={{ width: "100%" }}>
-          <Checkbox
-            checked={taobaoLiveEnabled}
-            onChange={(event: { target: { checked: boolean } }) => {
-              setTaobaoLiveEnabled(event.target.checked);
-              if (!event.target.checked) {
-                setTaobaoLiveConfirmed(false);
-              }
-            }}
-          >
-            {translate(locale, "acceptanceTaobaoOptIn")}
-          </Checkbox>
-          {taobaoLiveEnabled ? (
-            <Alert
-              showIcon
-              type="warning"
-              message={translate(locale, "acceptanceTaobaoConfirm")}
-              action={
-                <Checkbox
-                  checked={taobaoLiveConfirmed}
-                  onChange={(event: { target: { checked: boolean } }) =>
-                    setTaobaoLiveConfirmed(event.target.checked)
-                  }
-                >
-                  {translate(locale, "acceptanceTaobaoConfirmCheckbox")}
-                </Checkbox>
-              }
-            />
-          ) : null}
-        </Space>
-
-        {acceptanceRun ? (
-          <Text>
-            {translate(locale, "acceptanceStatus")}: {acceptanceRun.status}
-          </Text>
+        {state === "connected" ? (
+          <Space size={16} wrap>
+            <Text>
+              {translate(locale, "version")}: {version}
+            </Text>
+            <Text>
+              {translate(locale, "connected")}: {connectedSince}
+            </Text>
+          </Space>
         ) : null}
+        {status?.recovery_copy && state !== "connected" ? (
+          <Alert
+            showIcon
+            type={state === "failed_actionable" ? "error" : "info"}
+            message={status.recovery_copy}
+          />
+        ) : null}
+        {error ? <Text type="danger">{error}</Text> : null}
+        <Button
+          type="primary"
+          disabled={primaryAction.disabled}
+          loading={primaryAction.loading || loading}
+          onClick={primaryAction.onClick}
+        >
+          {translate(locale, primaryAction.label)}
+        </Button>
+      </Space>
+    </Card>
+  );
+}
 
-        {scenarioProgress.length ? (
-          <div style={styles.acceptanceScenarioList}>
-            {scenarioProgress.map((scenario) => (
-              <div
-                key={scenario.scenario}
-                style={styles.acceptanceScenarioCard}
+function InstallMethods({
+  locale,
+  setupLoading,
+  onRunSetup,
+}: {
+  locale: BrowserBridgeLocale;
+  setupLoading: boolean;
+  onRunSetup: () => void;
+}) {
+  return (
+    <div style={styles.setupGrid}>
+      <div style={styles.methodTile}>
+        <div style={styles.methodHeader}>
+          <Text strong>{translate(locale, "localMethodTitle")}</Text>
+          <span style={styles.badge}>
+            {translate(locale, "recommendedBadge")}
+          </span>
+        </div>
+        <Text type="secondary">
+          {translate(locale, "localMethodDescription")}
+        </Text>
+        <Button type="primary" loading={setupLoading} onClick={onRunSetup}>
+          {translate(locale, "runSetup")}
+        </Button>
+      </div>
+      <div style={styles.disabledMethodTile} aria-disabled="true">
+        <div style={styles.methodHeader}>
+          <Text strong>{translate(locale, "chromeWebStoreTitle")}</Text>
+          <span style={styles.badge}>{translate(locale, "comingSoon")}</span>
+        </div>
+        <Text type="secondary">
+          {translate(locale, "chromeWebStoreDescription")}
+        </Text>
+        <Button disabled>{translate(locale, "comingSoon")}</Button>
+      </div>
+    </div>
+  );
+}
+
+function LocalInstallSteps({
+  locale,
+  loading,
+  setupLoading,
+  status,
+  onCopy,
+  onOpenChromeExtensions,
+  onOpenExtensionFolder,
+  onRunSetup,
+}: {
+  locale: BrowserBridgeLocale;
+  loading: boolean;
+  setupLoading: boolean;
+  status: ExtensionStatus | null;
+  onCopy: (value: string) => void;
+  onOpenChromeExtensions: () => void;
+  onOpenExtensionFolder: () => void;
+  onRunSetup: () => void;
+}) {
+  const extensionDir = status?.extension_dir || "-";
+
+  return (
+    <Card style={styles.localPanel}>
+      <Spin spinning={loading && !status}>
+        <div style={styles.localBody}>
+          <Space direction="vertical" size={10}>
+            <Text strong>{translate(locale, "localStepsTitle")}</Text>
+            <ol style={{ margin: 0, paddingLeft: 20 }}>
+              <li>{translate(locale, "stepOpen")}</li>
+              <li>{translate(locale, "stepLoad")}</li>
+              <li>{translate(locale, "stepVerify")}</li>
+            </ol>
+          </Space>
+          <Space direction="vertical" size={10}>
+            <Text strong>{translate(locale, "directoryActionsTitle")}</Text>
+            <code style={styles.pathValue}>{extensionDir}</code>
+            <Space wrap>
+              <Button onClick={onOpenChromeExtensions}>
+                {translate(locale, "openChromeExtensions")}
+              </Button>
+              <Button onClick={onOpenExtensionFolder}>
+                {translate(locale, "openExtensionFolder")}
+              </Button>
+              <Button
+                disabled={!status?.extension_dir}
+                onClick={() => onCopy(extensionDir)}
               >
-                <div style={styles.acceptanceScenarioHeader}>
-                  <Text strong>{scenario.scenario}</Text>
-                  <Text>{scenario.status}</Text>
-                </div>
-                {scenario.failure_category ? (
-                  <Text type="secondary">
-                    {translate(locale, "acceptanceFailureCategory")}:{" "}
-                    {scenario.failure_category}
-                  </Text>
-                ) : null}
-                {scenario.recovery_hint ? (
-                  <Text>{scenario.recovery_hint}</Text>
-                ) : null}
-                {scenario.repair_action ? (
-                  <Button
-                    size="small"
-                    onClick={() =>
-                      handleScenarioRepairAction(scenario.repair_action)
-                    }
-                  >
-                    {acceptanceRepairActionLabel(
-                      locale,
-                      scenario.repair_action,
-                    )}
-                  </Button>
-                ) : null}
-              </div>
-            ))}
-          </div>
-        ) : null}
+                {translate(locale, "copyPathFallback")}
+              </Button>
+              <Button loading={setupLoading} onClick={onRunSetup}>
+                {translate(locale, "retrySetup")}
+              </Button>
+            </Space>
+          </Space>
+        </div>
+      </Spin>
+    </Card>
+  );
+}
 
-        {acceptanceReport?.markdown ? (
-          <pre style={styles.acceptanceReportPreview}>
-            {acceptanceReport.markdown}
-          </pre>
-        ) : null}
+function ConnectedChecks({
+  locale,
+  loading,
+  status,
+  onConnectExtension,
+  onRefresh,
+  onReloadExtension,
+}: {
+  locale: BrowserBridgeLocale;
+  loading: boolean;
+  status: ExtensionStatus | null;
+  onConnectExtension: () => void;
+  onRefresh: () => void;
+  onReloadExtension: () => void;
+}) {
+  const checks = [
+    {
+      label: translate(locale, "extensionLoadedCheck"),
+      ready: Boolean(status?.installed),
+    },
+    {
+      label: translate(locale, "chromeConnectedCheck"),
+      ready: Boolean(status?.connected),
+    },
+    {
+      label: translate(locale, "backendReadyCheck"),
+      ready: status?.setup_phase === "connected",
+    },
+  ];
+
+  return (
+    <Card style={styles.connectedChecks}>
+      <Space direction="vertical" size={12} style={{ width: "100%" }}>
+        <Text strong>{translate(locale, "connectedChecksTitle")}</Text>
+        <div style={styles.setupGrid}>
+          {checks.map((check) => (
+            <div key={check.label} style={styles.methodTile}>
+              <div style={styles.statusPill}>
+                <StatusDot color={check.ready ? "#389e0d" : "#d46b08"} />
+                <Text>{check.label}</Text>
+              </div>
+              <Text type="secondary">
+                {check.ready
+                  ? translate(locale, "checkReady")
+                  : translate(locale, "checkNeedsAction")}
+              </Text>
+            </div>
+          ))}
+        </div>
+        <Space wrap>
+          <Button loading={loading} onClick={onRefresh}>
+            {translate(locale, "refreshStatus")}
+          </Button>
+          <Button onClick={onConnectExtension}>
+            {translate(locale, "connectExtension")}
+          </Button>
+          <Button onClick={onReloadExtension}>
+            {translate(locale, "reloadExtension")}
+          </Button>
+        </Space>
       </Space>
     </Card>
   );
@@ -1630,16 +1590,6 @@ function BrowserBridgeSetupPage() {
     message.success(translate(locale, "copied"));
   };
 
-  const openDeveloperOptions = () => {
-    setDeveloperActiveKey(["developer"]);
-    window.setTimeout(() => {
-      developerRef.current?.scrollIntoView({
-        behavior: "smooth",
-        block: "start",
-      });
-    }, 0);
-  };
-
   const handleDeveloperChange = (keys: unknown) => {
     setDeveloperActiveKey(normalizeCollapseKeys(keys));
   };
@@ -1697,45 +1647,7 @@ function BrowserBridgeSetupPage() {
     [locale, refreshLifecycle],
   );
 
-  const handleAcceptanceRepairAction = React.useCallback(
-    (repairAction: string) => {
-      if (
-        repairAction === "open_setup_page" ||
-        repairAction === "setup_extension" ||
-        repairAction === "run_setup"
-      ) {
-        openDeveloperOptions();
-        void refreshLifecycle({ autoPrepare: true });
-        return;
-      }
-      if (repairAction === "open_chrome_extensions") {
-        void handleOpenChromeExtensions();
-        return;
-      }
-      if (repairAction === "open_extension_folder") {
-        void handleOpenExtensionFolder();
-        return;
-      }
-      if (repairAction === "connect_extension") {
-        void handleConnectExtension();
-        return;
-      }
-      if (repairAction === "reload_extension") {
-        void handleReloadExtension();
-        return;
-      }
-      message.info(repairAction);
-    },
-    [
-      handleConnectExtension,
-      handleOpenChromeExtensions,
-      handleOpenExtensionFolder,
-      handleReloadExtension,
-      refreshLifecycle,
-    ],
-  );
-
-  const primaryAction = React.useMemo(() => {
+  const primaryAction = React.useMemo<PrimaryAction>(() => {
     const busy = loading || setupLoading;
     if (lifecycleState === "needs_load_unpacked") {
       return {
@@ -1783,17 +1695,6 @@ function BrowserBridgeSetupPage() {
     setupLoading,
   ]);
 
-  const currentView = (
-    <LifecycleWizardView
-      error={error}
-      locale={locale}
-      primaryAction={primaryAction}
-      state={lifecycleState}
-      status={status}
-    />
-  );
-  const isAcceptanceAvailable = status?.connected === true;
-
   return (
     <div style={styles.page}>
       <div style={styles.header}>
@@ -1811,13 +1712,37 @@ function BrowserBridgeSetupPage() {
       </div>
       <div style={styles.content}>
         {error ? <Alert type="error" showIcon message={error} /> : null}
-        {currentView}
-        {isAcceptanceAvailable ? (
-          <ProductAcceptancePanel
-            locale={locale}
-            onRepairAction={handleAcceptanceRepairAction}
-          />
-        ) : null}
+        <ConnectionStatusCard
+          error={error}
+          loading={loading}
+          locale={locale}
+          primaryAction={primaryAction}
+          state={lifecycleState}
+          status={status}
+        />
+        <InstallMethods
+          locale={locale}
+          onRunSetup={() => void handleManualRegenerate(false)}
+          setupLoading={setupLoading}
+        />
+        <LocalInstallSteps
+          loading={loading}
+          locale={locale}
+          onCopy={(value) => void copyValue(value)}
+          onOpenChromeExtensions={() => void handleOpenChromeExtensions()}
+          onOpenExtensionFolder={() => void handleOpenExtensionFolder()}
+          onRunSetup={() => void handleManualRegenerate(false)}
+          setupLoading={setupLoading}
+          status={status}
+        />
+        <ConnectedChecks
+          loading={loading}
+          locale={locale}
+          onConnectExtension={() => void handleConnectExtension()}
+          onRefresh={() => void refreshLifecycle()}
+          onReloadExtension={() => void handleReloadExtension()}
+          status={status}
+        />
         <DiagnosticsPanel locale={locale} status={status} />
         <div ref={developerRef}>
           <DeveloperOptions

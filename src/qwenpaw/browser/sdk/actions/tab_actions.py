@@ -327,6 +327,7 @@ class TabActions:
                 self._tab._ensure_can_mutate(backend_name)
             return await self._tab._call_action(
                 backend_name,
+                api_id=contract.api_id,
                 **_backend_action_kwargs(call_kwargs),
             )
 

@@ -53,6 +53,13 @@ _OWNERSHIP_INVARIANT_ERROR_CODES = {
     "browser_tab_occupied",
 }
 _STALE_LEASE_ERROR_CODES = {"browser_stale_lease"}
+_LEGACY_ACTION_API_IDS = {
+    "click": "tab.actions.click",
+    "type": "tab.actions.fill",
+    "press": "tab.actions.press_key",
+    "select": "tab.actions.select_option",
+    "dialog": "tab.actions.handle_dialog",
+}
 
 
 @dataclass(frozen=True)
@@ -66,6 +73,7 @@ class BrowserTraceEvent:
     requested_context: str = ""
     selected_context: str = ""
     phase: str = ""
+    api_id: str = ""
     action: str = ""
     tab_id: str = ""
     url: str = ""
@@ -87,6 +95,7 @@ class BrowserTraceEvent:
             "requested_context": self.requested_context,
             "selected_context": self.selected_context,
             "phase": self.phase,
+            "api_id": self.api_id,
             "action": self.action,
             "tab_id": self.tab_id,
             "url": self.url,
@@ -168,6 +177,7 @@ def record_browser_trace_event(
     backend_id: str = "",
     requested_context: str = "",
     selected_context: str = "",
+    api_id: str = "",
     action: str = "",
     tab_id: str = "",
     url: str = "",
@@ -181,6 +191,12 @@ def record_browser_trace_event(
 ) -> BrowserTraceEvent:
     """Record one Browser SDK trace event in the default store."""
     safe_metadata = dict(metadata or {})
+    effective_action = str(action or phase or "browser")
+    effective_api_id = _normalize_api_id(
+        api_id=api_id,
+        metadata=safe_metadata,
+        action=effective_action,
+    )
     if not str(safe_metadata.get("request_scope_key") or "").strip():
         request_scope_key = _current_request_scope_key()
         if request_scope_key:
@@ -199,7 +215,8 @@ def record_browser_trace_event(
         requested_context=str(requested_context or ""),
         selected_context=str(selected_context or ""),
         phase=str(phase or ""),
-        action=str(action or phase or "browser"),
+        api_id=effective_api_id,
+        action=effective_action,
         tab_id=str(tab_id or "__browser__"),
         url=effective_url,
         domain=str(
@@ -345,6 +362,39 @@ def _trace_ownership_state(metadata: dict[str, Any]) -> str:
         if value in TAB_OWNERSHIP_STATES:
             return value
     return ""
+
+
+def _normalize_api_id(
+    *,
+    api_id: str = "",
+    metadata: dict[str, Any] | None = None,
+    action: str = "",
+) -> str:
+    candidates = (
+        api_id,
+        (metadata or {}).get("api_id", ""),
+        action,
+        _LEGACY_ACTION_API_IDS.get(str(action or "").strip(), ""),
+    )
+    public_ids = _public_browser_api_ids()
+    for candidate in candidates:
+        normalized = str(candidate or "").strip()
+        if normalized and normalized in public_ids:
+            return normalized
+    return ""
+
+
+@lru_cache(maxsize=1)
+def _public_browser_api_ids() -> frozenset[str]:
+    try:
+        from ..contracts import iter_browser_api_contracts
+    except Exception:  # pragma: no cover - import-cycle fallback
+        return frozenset()
+    return frozenset(
+        str(contract.api_id)
+        for contract in iter_browser_api_contracts()
+        if str(contract.api_id or "").strip()
+    )
 
 
 def _current_tool_call_id() -> str:
