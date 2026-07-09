@@ -46,6 +46,11 @@ class Tab:
     url: str = ""
     title: str = ""
     _observation_required: bool = False
+    _last_observation: BrowserObservation | None = field(
+        default=None,
+        init=False,
+        repr=False,
+    )
     actions: TabActions = field(init=False)
 
     def __post_init__(self) -> None:
@@ -83,6 +88,7 @@ class Tab:
                 self.id,
                 await self._session.snapshot(self.id),
             )
+            self._last_observation = result
             self._sync_metadata(result.url, result.title)
         except Exception as exc:
             self._trace(

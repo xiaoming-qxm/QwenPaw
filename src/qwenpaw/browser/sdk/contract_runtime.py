@@ -145,10 +145,19 @@ def _validate_target_resolution(
 ) -> None:
     observation = _latest_observation(owner)
     if observation is None:
+        if contract.target and contract.target.snapshot_bound:
+            raise BrowserObservationRequired(
+                "A fresh Browser observation is required before resolving "
+                "this target.",
+                action=contract.api_id,
+                metadata={
+                    "api_id": contract.api_id,
+                    "target": target,
+                    "fallback": "none",
+                },
+            )
         return
     targets = tuple(getattr(observation, "targets", ()) or ())
-    if not targets:
-        return
     methods = _target_methods(target)
     method = next(iter(methods))
     if method == "ref":
