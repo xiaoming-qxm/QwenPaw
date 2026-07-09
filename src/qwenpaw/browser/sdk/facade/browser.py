@@ -11,6 +11,7 @@ from typing import Any
 
 from ..actions.tab_actions import BrowserActions
 from ..backends.registry import get_default_backend_registry
+from ..contracts import browser_api
 from ..docs.capabilities import browser_capabilities
 from ..docs.capabilities import browser_sdk_help
 from ..governance.error_codes import classify_browser_error
@@ -62,6 +63,14 @@ class Browser:
         """Return the selected backend id."""
         return self.context.backend_id
 
+    @browser_api(
+        public_name="browser.close",
+        kind="lifecycle",
+        mutates=True,
+        requires_observation=False,
+        satisfies_observation=False,
+        invalidates_observation=False,
+    )
     async def close(self) -> None:
         """Release browser session resources through the selected backend."""
         started = perf_counter()
@@ -141,6 +150,14 @@ class Browser:
         await self.close()
 
     @classmethod
+    @browser_api(
+        public_name="browser.connect",
+        kind="lifecycle",
+        mutates=False,
+        requires_observation=False,
+        satisfies_observation=False,
+        invalidates_observation=False,
+    )
     async def connect(
         cls,
         context: BrowserContext = "auto",
@@ -260,6 +277,14 @@ class Browser:
         return browser
 
     @classmethod
+    @browser_api(
+        public_name="browser.diagnostics",
+        kind="diagnostic",
+        mutates=False,
+        requires_observation=False,
+        satisfies_observation=False,
+        invalidates_observation=False,
+    )
     async def diagnostics(
         cls,
         context: BrowserContext = "auto",
@@ -285,12 +310,28 @@ class Browser:
         )
 
     @classmethod
+    @browser_api(
+        public_name="browser.capabilities",
+        kind="diagnostic",
+        mutates=False,
+        requires_observation=False,
+        satisfies_observation=False,
+        invalidates_observation=False,
+    )
     def capabilities(cls, scope: str = "all") -> dict[str, Any]:
         """Return public Browser SDK contexts, primitives, actions, limits."""
         del cls
         return browser_capabilities(scope=scope)
 
     @classmethod
+    @browser_api(
+        public_name="browser.help",
+        kind="diagnostic",
+        mutates=False,
+        requires_observation=False,
+        satisfies_observation=False,
+        invalidates_observation=False,
+    )
     def help(
         cls,
         scope: str | None = None,

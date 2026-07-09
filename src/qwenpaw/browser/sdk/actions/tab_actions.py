@@ -29,6 +29,14 @@ class BrowserActions:
     def __init__(self, browser: Any) -> None:
         self._browser = browser
 
+    @browser_api(
+        public_name="browser.actions.search_web",
+        kind="action",
+        mutates=True,
+        requires_observation=False,
+        satisfies_observation=False,
+        invalidates_observation=True,
+    )
     async def search_web(
         self,
         query: str,

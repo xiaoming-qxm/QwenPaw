@@ -170,6 +170,15 @@ class Tab:
         )
         return result
 
+    @browser_api(
+        public_name="tab.page_info",
+        kind="primitive",
+        mutates=False,
+        requires_observation=False,
+        satisfies_observation=False,
+        invalidates_observation=False,
+        backend_op="page_info",
+    )
     async def page_info(self) -> BrowserPageInfo:
         """Read tab metadata without satisfying the observation guard."""
         page_info = getattr(self._session, "page_info", None)
@@ -236,6 +245,15 @@ class Tab:
         )
         return result
 
+    @browser_api(
+        public_name="tab.wait_for",
+        kind="primitive",
+        mutates=False,
+        requires_observation=False,
+        satisfies_observation=False,
+        invalidates_observation=False,
+        backend_op="wait_for",
+    )
     async def wait_for(
         self,
         instruction: str,
@@ -247,6 +265,15 @@ class Tab:
             max_wait_ms=max_wait_ms,
         )
 
+    @browser_api(
+        public_name="tab.close",
+        kind="primitive",
+        mutates=True,
+        requires_observation=False,
+        satisfies_observation=False,
+        invalidates_observation=False,
+        backend_op="close_tab",
+    )
     async def close(self) -> BrowserActionResult:
         """Close or release the tab through the backend."""
         close_tab = getattr(self._session, "close_tab", None)
@@ -256,6 +283,15 @@ class Tab:
             result = {"ok": True, "message": "closed"}
         return _coerce_action_result(result)
 
+    @browser_api(
+        public_name="tab.extract",
+        kind="primitive",
+        mutates=False,
+        requires_observation=False,
+        satisfies_observation=False,
+        invalidates_observation=False,
+        backend_op="extract",
+    )
     async def extract(
         self,
         instruction: str,

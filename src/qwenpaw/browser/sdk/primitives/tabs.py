@@ -7,6 +7,7 @@ from time import perf_counter
 from typing import Any
 from urllib.parse import urlparse
 
+from ..contracts import browser_api
 from ..governance.error_codes import classify_browser_error
 from ..governance.errors import BrowserSDKError
 from ..telemetry.trace import record_browser_trace_event
@@ -22,13 +23,22 @@ class BrowserTabs:
         self._context = browser.context
         self._cache: dict[str, Tab] = {}
 
+    @browser_api(
+        public_name="browser.tabs.active",
+        kind="primitive",
+        mutates=False,
+        requires_observation=False,
+        satisfies_observation=False,
+        invalidates_observation=False,
+        backend_op="active_tab",
+    )
     async def active(self) -> Tab:
         """Return the current request tab without creating one."""
         active_tab = getattr(self._session, "active_tab", None)
         if callable(active_tab):
             raw = await active_tab()
         else:
-            tabs = await self.list()
+            tabs: Any = await self.list()
             raw = tabs[0] if tabs else None
         if not raw:
             raise BrowserSDKError(
@@ -46,6 +56,15 @@ class BrowserTabs:
             ),
         )
 
+    @browser_api(
+        public_name="browser.tabs.open",
+        kind="primitive",
+        mutates=True,
+        requires_observation=False,
+        satisfies_observation=False,
+        invalidates_observation=True,
+        backend_op="open_workspace_tab",
+    )
     async def open(self, url: str | None = None) -> Tab:
         """Reuse the request workspace tab and navigate it to *url*."""
         target_url = _require_target_url(url, action="tabs.open")
@@ -88,6 +107,15 @@ class BrowserTabs:
         )
         return self._remember(tab)
 
+    @browser_api(
+        public_name="browser.tabs.new",
+        kind="primitive",
+        mutates=True,
+        requires_observation=False,
+        satisfies_observation=False,
+        invalidates_observation=True,
+        backend_op="create_tab",
+    )
     async def new(self, url: str | None = None) -> Tab:
         """Explicitly create a new browser tab for the request workspace."""
         return await self._open_new_tab(
@@ -126,7 +154,16 @@ class BrowserTabs:
         )
         return self._remember(tab)
 
-    async def list(self) -> list[Tab]:
+    @browser_api(
+        public_name="browser.tabs.list",
+        kind="primitive",
+        mutates=False,
+        requires_observation=False,
+        satisfies_observation=False,
+        invalidates_observation=False,
+        backend_op="list_tabs",
+    )
+    async def list(self) -> list[Tab]:  # type: ignore[valid-type]
         """List browser tabs."""
         started = perf_counter()
         try:
@@ -159,6 +196,15 @@ class BrowserTabs:
         )
         return tabs
 
+    @browser_api(
+        public_name="browser.tabs.select",
+        kind="primitive",
+        mutates=False,
+        requires_observation=False,
+        satisfies_observation=False,
+        invalidates_observation=False,
+        backend_op="select_tab",
+    )
     async def select(self, tab_id: str) -> Tab:
         """Select a tab by id."""
         started = perf_counter()
