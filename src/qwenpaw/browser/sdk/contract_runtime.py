@@ -64,6 +64,8 @@ class BrowserContractRuntime:
         signature = inspect.signature(func)
         bound = signature.bind_partial(*args, **kwargs)
         target = bound.arguments.get("target")
+        if target is None and _accepts_var_keyword(signature):
+            target = kwargs.get("target")
         if target is None:
             if contract.target.required:
                 _raise_target_invalid(contract, target)
@@ -101,6 +103,13 @@ class BrowserContractRuntime:
             mark_mutated = getattr(owner, "_mark_mutated", None)
             if callable(mark_mutated):
                 mark_mutated()
+
+
+def _accepts_var_keyword(signature: inspect.Signature) -> bool:
+    return any(
+        parameter.kind is inspect.Parameter.VAR_KEYWORD
+        for parameter in signature.parameters.values()
+    )
 
 
 def _validate_target_shape(
