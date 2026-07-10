@@ -1,59 +1,10 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
-import { ChromeOutlined } from "@ant-design/icons";
+import { GlobalOutlined } from "@ant-design/icons";
 import type { ToolCallContent } from "../shared/types";
-import type { BrowserTraceEventPreview } from "../shared/utils";
 import { ToolCardShell } from "../shared";
+import { buildBrowserOperation } from "../shared/browserOperation";
 import styles from "../shared/toolCards.module.less";
-
-interface BrowserStep {
-  apiId: string;
-  action: string;
-  status: string;
-  detail: string;
-}
-
-const DEFAULT_HIDDEN_API_IDS = new Set([
-  "browser.connect",
-  "browser.close",
-  "browser.capabilities",
-  "browser.diagnostics",
-  "browser.help",
-]);
-
-function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
-}
-
-function parseRecord(value: unknown): Record<string, unknown> {
-  if (typeof value !== "string") return asRecord(value);
-  try {
-    return asRecord(JSON.parse(value));
-  } catch {
-    return {};
-  }
-}
-
-function toText(value: unknown): string {
-  return typeof value === "string" ? value : "";
-}
-
-function browserTrace(value: unknown): BrowserTraceEventPreview[] {
-  if (!Array.isArray(value)) return [];
-  return value.map((item) => asRecord(item) as BrowserTraceEventPreview);
-}
-
-function compactUrl(value: string): string {
-  if (!value) return "";
-  try {
-    const url = new URL(value);
-    return `${url.host}${url.pathname === "/" ? "" : url.pathname}`;
-  } catch {
-    return value;
-  }
-}
 
 function actionLabel(action: string): string {
   const labels: Record<string, string> = {
@@ -73,53 +24,6 @@ function actionLabel(action: string): string {
   return labels[action] || action.replace(/_/g, " ");
 }
 
-function isVisibleApiId(apiId: string): boolean {
-  return Boolean(apiId) && !DEFAULT_HIDDEN_API_IDS.has(apiId);
-}
-
-function eventDetail(event: BrowserTraceEventPreview): string {
-  const metadata = asRecord(event.metadata);
-  return (
-    compactUrl(toText(event.url)) ||
-    toText(metadata.target_text) ||
-    toText(metadata.accessible_name) ||
-    toText(metadata.text) ||
-    toText(event.title) ||
-    toText(event.domain) ||
-    toText(event.selector) ||
-    ""
-  );
-}
-
-function stepsFromContent(content: ToolCallContent): BrowserStep[] {
-  const result = parseRecord(content.result);
-  const params = asRecord(content.params);
-  const rawTrace = result.browser_trace || params.browser_trace;
-  const events = browserTrace(rawTrace);
-  if (events.length > 0) {
-    return events
-      .map((event) => ({
-        apiId: toText(event.api_id),
-        action: toText(event.action) || toText(event.phase) || "browser",
-        status: toText(event.status) || "done",
-        detail: eventDetail(event),
-      }))
-      .filter((step) => isVisibleApiId(step.apiId));
-  }
-
-  return [
-    {
-      apiId: "",
-      action: toText(params.action) || content.name,
-      status: content.status,
-      detail:
-        compactUrl(toText(params.url)) ||
-        toText(params.text) ||
-        toText(params.selector),
-    },
-  ];
-}
-
 export interface BrowserCompactCardProps {
   content: ToolCallContent;
   isStreaming?: boolean;
@@ -130,43 +34,102 @@ const BrowserCompactCard: React.FC<BrowserCompactCardProps> = ({
   isStreaming,
 }) => {
   const { t } = useTranslation();
-  const steps = stepsFromContent(content);
-  const chromeTitle = t("tool.browserCompact.chromeTitle", "Chrome");
-  const title = steps[0]?.apiId
-    ? `${chromeTitle}: ${steps[0].apiId}`
-    : chromeTitle;
-  const stepCountLabel = `${steps.length} steps`;
+  const operation = buildBrowserOperation(content);
+  const hasOperationEvidence = Boolean(
+    operation.stepCount || operation.rawTrace,
+  );
+  const stepCountLabel = `${operation.stepCount} steps`;
+  const badges = (
+    <>
+      {operation.stepCount > 0 && (
+        <span className={styles.lineReadBadge}>{stepCountLabel}</span>
+      )}
+      {operation.title !== "Browser" && (
+        <span
+          className={styles.browserCompactContextBadge}
+          title={
+            operation.backendLabel
+              ? `Browser · ${operation.backendLabel}`
+              : "Browser"
+          }
+        >
+          Browser
+        </span>
+      )}
+      {operation.backendLabel && (
+        <span
+          className={styles.browserCompactBackendBadge}
+          title={operation.backendLabel}
+        >
+          {operation.backendLabel}
+        </span>
+      )}
+    </>
+  );
 
   return (
     <ToolCardShell
       content={content}
       isStreaming={isStreaming}
-      icon={<ChromeOutlined />}
-      title={title}
-      badges={<span className={styles.lineReadBadge}>{stepCountLabel}</span>}
+      icon={<GlobalOutlined />}
+      title={operation.title}
+      badges={badges}
     >
-      <ol
-        aria-label={t("tool.browserCompact.stepsLabel", "Browser steps")}
-        className={styles.browserCompactSteps}
-      >
-        {steps.map((step, index) => (
-          <li key={`${step.action}-${index}`}>
-            <span className={styles.browserCompactAction}>
-              {step.apiId || actionLabel(step.action)}
-            </span>
-            {step.detail && (
-              <span className={styles.browserCompactDetail}>
-                {step.detail}
+      {operation.steps.length > 0 && (
+        <ol
+          aria-label={t("tool.browserCompact.stepsLabel", "Browser steps")}
+          className={styles.browserCompactSteps}
+        >
+          {operation.steps.map((step, index) => (
+            <li key={`${step.apiId || step.action}-${index}`}>
+              <span className={styles.browserCompactAction}>
+                {step.apiId || actionLabel(step.action)}
               </span>
-            )}
-            {step.status && step.status !== "ok" && (
-              <span className={styles.browserCompactStatus}>
-                {step.status}
-              </span>
-            )}
-          </li>
-        ))}
-      </ol>
+              {step.detail && (
+                <span className={styles.browserCompactDetail}>
+                  {step.detail}
+                </span>
+              )}
+              {step.status && step.status !== "ok" && (
+                <span className={styles.browserCompactStatus}>
+                  {step.status}
+                </span>
+              )}
+            </li>
+          ))}
+        </ol>
+      )}
+      {hasOperationEvidence && operation.summaryRows.length > 0 && (
+        <dl aria-label="Browser summary" className={styles.browserCompactRows}>
+          {operation.summaryRows.map((item) => (
+            <div key={item.label} className={styles.browserCompactRow}>
+              <dt>{item.label}</dt>
+              <dd>{item.value}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+      {hasOperationEvidence && operation.paramsRows.length > 0 && (
+        <dl aria-label="Browser params" className={styles.browserCompactRows}>
+          {operation.paramsRows.map((item) => (
+            <div key={item.label} className={styles.browserCompactRow}>
+              <dt>{item.label}</dt>
+              <dd>{item.value}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+      {operation.rawTrace && (
+        <details className={styles.browserCompactRawTrace}>
+          <summary>Raw trace</summary>
+          <pre>{operation.rawTrace}</pre>
+        </details>
+      )}
+      {!hasOperationEvidence && operation.fallbackDetail && (
+        <div className={styles.browserCompactFallback}>
+          {operation.fallbackDetail}
+        </div>
+      )}
     </ToolCardShell>
   );
 };

@@ -13,9 +13,16 @@ function browserContent(): ToolCallContent {
     status: "done",
     params: {
       action: "batch",
+      selector: "button.details",
+      text: "Details",
+      code: "return document.cookie",
+      authToken: "secret-token",
     },
-    result: {
-      ok: true,
+    metadata: {
+      selected_context: "active-tab",
+      backend_id: "browser-sdk",
+      duration_ms: 42,
+      approval_state: "approved",
       browser_trace: [
         {
           phase: "connect",
@@ -24,7 +31,7 @@ function browserContent(): ToolCallContent {
           status: "ok",
         },
         {
-          phase: "tab_lifecycle",
+          phase: "navigation",
           api_id: "browser.tabs.open",
           action: "open",
           status: "ok",
@@ -38,6 +45,8 @@ function browserContent(): ToolCallContent {
           status: "ok",
           metadata: {
             target_text: "Details",
+            code: "return document.cookie",
+            token: "secret-token",
           },
         },
         {
@@ -64,6 +73,18 @@ function browserContent(): ToolCallContent {
         },
       ],
     },
+    result: {
+      ok: true,
+      output: "browser done",
+      browser_trace: [
+        {
+          phase: "action",
+          api_id: "browser.done",
+          action: "done",
+          status: "ok",
+        },
+      ],
+    },
   };
 }
 
@@ -73,23 +94,11 @@ function lifecycleOnlyBrowserContent(): ToolCallContent {
     id: "tool-browser-2",
     name: "browser",
     status: "done",
-    params: {},
-    result: {
-      ok: true,
-      browser_trace: [
-        {
-          phase: "connect",
-          api_id: "browser.connect",
-          action: "connect",
-          status: "ok",
-        },
-        {
-          phase: "action",
-          action: "cleanup",
-          status: "ok",
-        },
-      ],
+    params: {
+      action: "click",
+      selector: "button.details",
     },
+    result: "browser done",
   };
 }
 
@@ -98,16 +107,14 @@ describe("BrowserCompactCard", () => {
     expect(BUILTIN_CARD_REGISTRY.browser).toBe(BrowserCompactCard);
   });
 
-  it("renders only default-visible Browser public api_id trace events", () => {
+  it("renders neutral Browser SDK operation details from metadata trace", () => {
     renderWithProviders(<BrowserCompactCard content={browserContent()} />);
 
-    expect(screen.getByText("Chrome: browser.tabs.open")).toBeInTheDocument();
+    expect(screen.getByTitle("tab.actions.click")).toBeInTheDocument();
+    expect(screen.queryByText(/^Chrome/)).not.toBeInTheDocument();
+    expect(screen.getByText("Browser")).toBeInTheDocument();
+    expect(screen.getByTitle("browser-sdk")).toBeInTheDocument();
     expect(screen.getByText("3 steps")).toBeInTheDocument();
-    expect(screen.queryByText("Browser evidence")).not.toBeInTheDocument();
-    expect(screen.queryByText("Copy diagnostics")).not.toBeInTheDocument();
-    expect(screen.queryByText("browser.connect")).not.toBeInTheDocument();
-    expect(screen.queryByText("browser.diagnostics")).not.toBeInTheDocument();
-    expect(screen.queryByText("Internal cleanup")).not.toBeInTheDocument();
 
     const list = screen.getByRole("list", { name: "Browser steps" });
     const items = within(list).getAllByRole("listitem");
@@ -118,18 +125,53 @@ describe("BrowserCompactCard", () => {
     expect(items[1]).toHaveTextContent("Details");
     expect(items[2]).toHaveTextContent("tab.snapshot");
     expect(items[2]).toHaveTextContent("example.com/products/details");
+
+    const summary = screen.getByLabelText("Browser summary");
+    expect(summary).toHaveTextContent("Operation");
+    expect(summary).toHaveTextContent("tab.actions.click");
+    expect(summary).toHaveTextContent("Target");
+    expect(summary).toHaveTextContent("Details");
+    expect(summary).toHaveTextContent("Context");
+    expect(summary).toHaveTextContent("active-tab");
+    expect(summary).toHaveTextContent("Backend");
+    expect(summary).toHaveTextContent("browser-sdk");
+    expect(summary).toHaveTextContent("Status");
+    expect(summary).toHaveTextContent("ok");
+    expect(summary).toHaveTextContent("Duration");
+    expect(summary).toHaveTextContent("42 ms");
+    expect(summary).toHaveTextContent("Approval");
+    expect(summary).toHaveTextContent("approved");
+
+    const params = screen.getByLabelText("Browser params");
+    expect(params).toHaveTextContent("action");
+    expect(params).toHaveTextContent("batch");
+    expect(params).toHaveTextContent("selector");
+    expect(params).toHaveTextContent("button.details");
+    expect(params).toHaveTextContent("code");
+    expect(params).toHaveTextContent("[hidden]");
+    expect(params).toHaveTextContent("authToken");
+    expect(params).toHaveTextContent("[masked]");
+
+    const rawTrace = screen.getByText("Raw trace").closest("details");
+    expect(rawTrace).not.toHaveAttribute("open");
+    expect(rawTrace).toHaveTextContent("tab.actions.click");
+    expect(rawTrace).toHaveTextContent("[hidden]");
+    expect(rawTrace).toHaveTextContent("[masked]");
+    expect(rawTrace).not.toHaveTextContent("return document.cookie");
+    expect(rawTrace).not.toHaveTextContent("secret-token");
+    expect(rawTrace).not.toHaveTextContent("browser.done");
   });
 
-  it("falls back to a quiet Chrome title when no public steps are visible", () => {
+  it("falls back to a quiet Browser title when no trace exists", () => {
     renderWithProviders(
       <BrowserCompactCard content={lifecycleOnlyBrowserContent()} />,
     );
 
-    expect(screen.getByText("Chrome")).toBeInTheDocument();
-    expect(screen.getByText("0 steps")).toBeInTheDocument();
+    expect(screen.getByText("Browser")).toBeInTheDocument();
+    expect(screen.queryByText("0 steps")).not.toBeInTheDocument();
     expect(screen.queryByText("Browser actions")).not.toBeInTheDocument();
-
-    const list = screen.getByRole("list", { name: "Browser steps" });
-    expect(within(list).queryAllByRole("listitem")).toHaveLength(0);
+    expect(screen.queryByRole("list", { name: "Browser steps" })).toBeNull();
+    expect(screen.getByText("browser done")).toBeInTheDocument();
+    expect(screen.queryByText("button.details")).not.toBeInTheDocument();
   });
 });
