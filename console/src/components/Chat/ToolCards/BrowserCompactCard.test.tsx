@@ -45,6 +45,12 @@ function browserContent(): ToolCallContent {
           status: "ok",
           metadata: {
             target_text: "Details",
+            kwargs: {
+              selector: "button.details",
+              text: "Details",
+              code: "return document.cookie",
+              authToken: "secret-token",
+            },
             code: "return document.cookie",
             token: "secret-token",
           },
@@ -143,10 +149,10 @@ describe("BrowserCompactCard", () => {
     expect(summary).toHaveTextContent("approved");
 
     const params = screen.getByLabelText("Browser params");
-    expect(params).toHaveTextContent("action");
-    expect(params).toHaveTextContent("batch");
     expect(params).toHaveTextContent("selector");
     expect(params).toHaveTextContent("button.details");
+    expect(params).toHaveTextContent("text");
+    expect(params).toHaveTextContent("Details");
     expect(params).toHaveTextContent("code");
     expect(params).toHaveTextContent("[hidden]");
     expect(params).toHaveTextContent("authToken");
@@ -160,6 +166,34 @@ describe("BrowserCompactCard", () => {
     expect(rawTrace).not.toHaveTextContent("return document.cookie");
     expect(rawTrace).not.toHaveTextContent("secret-token");
     expect(rawTrace).not.toHaveTextContent("browser.done");
+  });
+
+  it("renders singular step badge for one browser step", () => {
+    renderWithProviders(
+      <BrowserCompactCard
+        content={{
+          type: "tool_call",
+          id: "tool-browser-single",
+          name: "browser",
+          status: "done",
+          params: {},
+          metadata: {
+            browser_trace: [
+              {
+                phase: "observe",
+                api_id: "tab.page_info",
+                action: "page_info",
+                status: "ok",
+                url: "https://example.com/details",
+              },
+            ],
+          },
+        }}
+      />,
+    );
+
+    expect(screen.getByText("1 step")).toBeInTheDocument();
+    expect(screen.queryByText("1 steps")).not.toBeInTheDocument();
   });
 
   it("falls back to a quiet Browser title when no trace exists", () => {

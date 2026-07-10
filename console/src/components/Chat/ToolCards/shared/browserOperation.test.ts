@@ -120,6 +120,49 @@ describe("buildBrowserOperation", () => {
     ]);
   });
 
+  it("uses the exact failed duplicate api_id event as primary evidence", () => {
+    const operation = buildBrowserOperation(
+      browserContent({
+        metadata: {
+          browser_trace: [
+            {
+              phase: "action",
+              api_id: "tab.actions.click",
+              action: "click",
+              status: "ok",
+              metadata: {
+                kwargs: {
+                  target: { ref: "first" },
+                },
+              },
+            },
+            {
+              phase: "action",
+              api_id: "tab.actions.click",
+              action: "click",
+              status: "error",
+              error_code: "browser_click_failed",
+              url: "https://example.com/second",
+              metadata: {
+                kwargs: {
+                  target: { ref: "second" },
+                },
+              },
+            },
+          ],
+        },
+      }),
+    );
+
+    expect(operation.title).toBe("tab.actions.click");
+    expect(rowValue(operation.summaryRows, "Target")).toBe("ref=second");
+    expect(rowValue(operation.summaryRows, "Page")).toBe("example.com/second");
+    expect(rowValue(operation.summaryRows, "Error")).toBe(
+      "browser_click_failed",
+    );
+    expect(rowValue(operation.paramsRows, "target")).toContain("second");
+  });
+
   it("keeps visible steps in execution order while hiding lifecycle events", () => {
     const operation = buildBrowserOperation(
       browserContent({
@@ -189,7 +232,14 @@ describe("buildBrowserOperation", () => {
               status: "ok",
               url: "https://example.com/products",
               title: "Products",
-              metadata: { target_text: "Details" },
+              metadata: {
+                target_text: "Details",
+                kwargs: {
+                  action: "click",
+                  selector: "button.details",
+                  text: "Details",
+                },
+              },
             },
           ],
         },
@@ -215,6 +265,219 @@ describe("buildBrowserOperation", () => {
     expect(rowValue(operation.paramsRows, "browser_trace")).toBeUndefined();
   });
 
+  it("reads summary and params from sdk action kwargs", () => {
+    const operation = buildBrowserOperation(
+      browserContent({
+        params: {
+          code: "Browser...",
+          context: "auto",
+        },
+        metadata: {
+          browser_trace: [
+            {
+              phase: "action",
+              api_id: "tab.actions.click",
+              action: "click",
+              status: "ok",
+              url: "https://example.com/details?token=secret",
+              domain: "example.com",
+              backend_id: "browser-sdk",
+              selected_context: "active-tab",
+              duration_ms: 55,
+              approval_state: "not_required",
+              metadata: {
+                kwargs: {
+                  target: { ref: "r1_e3", role: "button", name: "Details" },
+                  text: "Details",
+                  url: "https://example.com/details?token=secret",
+                  allow_new_context: true,
+                },
+              },
+            },
+          ],
+        },
+      }),
+    );
+
+    expect(rowValue(operation.summaryRows, "Target")).toBe("ref=r1_e3");
+    expect(rowValue(operation.summaryRows, "Page")).toBe("example.com/details");
+    expect(rowValue(operation.summaryRows, "Approval")).toBeUndefined();
+    expect(rowValue(operation.paramsRows, "target")).toContain("r1_e3");
+    expect(rowValue(operation.paramsRows, "text")).toBe("Details");
+    expect(rowValue(operation.paramsRows, "url")).toContain(
+      "example.com/details",
+    );
+    expect(rowValue(operation.paramsRows, "allow_new_context")).toBe("true");
+    expect(rowValue(operation.paramsRows, "code")).toBeUndefined();
+    expect(rowValue(operation.paramsRows, "context")).toBeUndefined();
+  });
+
+  it("extracts sdk error page and approval fields", () => {
+    const operation = buildBrowserOperation(
+      browserContent({
+        metadata: {
+          browser_trace: [
+            {
+              phase: "observe",
+              api_id: "tab.snapshot",
+              action: "snapshot",
+              status: "error",
+              error_code: "browser_stale_lease",
+              approval_state: "approved",
+              metadata: {
+                url: "https://example.org/fallback",
+                title: "Fallback",
+              },
+            },
+          ],
+        },
+      }),
+    );
+
+    expect(rowValue(operation.summaryRows, "Error")).toBe(
+      "browser_stale_lease",
+    );
+    expect(rowValue(operation.summaryRows, "Page")).toBe(
+      "example.org/fallback",
+    );
+    expect(rowValue(operation.summaryRows, "Approval")).toBe("approved");
+  });
+
+  it("truncates long non-sensitive strings and preserves sensitive markers", () => {
+    const longSelector = "s".repeat(200);
+    const longText = "T".repeat(200);
+    const operation = buildBrowserOperation(
+      browserContent({
+        metadata: {
+          browser_trace: [
+            {
+              phase: "action",
+              api_id: "tab.actions.fill",
+              action: "fill",
+              status: "ok",
+              metadata: {
+                kwargs: {
+                  selector: longSelector,
+                  text: longText,
+                  token: "super-secret-token",
+                  code: "return document.cookie",
+                  nested: {
+                    script: "window.localStorage.token",
+                  },
+                },
+              },
+            },
+          ],
+        },
+      }),
+    );
+
+    const selectorValue = rowValue(operation.paramsRows, "selector");
+    const textValue = rowValue(operation.paramsRows, "text");
+    expect(selectorValue).toBeDefined();
+    expect(textValue).toBeDefined();
+    expect(selectorValue?.length).toBeLessThanOrEqual(163);
+    expect(textValue?.length).toBeLessThanOrEqual(163);
+    expect(selectorValue).toContain("...");
+    expect(textValue).toContain("...");
+    expect(rowValue(operation.paramsRows, "token")).toBe(MASKED_BROWSER_VALUE);
+    expect(rowValue(operation.paramsRows, "code")).toBe(HIDDEN_BROWSER_VALUE);
+    expect(rowValue(operation.paramsRows, "nested")).toContain(
+      HIDDEN_BROWSER_VALUE,
+    );
+    expect(operation.rawTrace).toContain("...");
+    expect(operation.rawTrace).toContain(HIDDEN_BROWSER_VALUE);
+    expect(operation.rawTrace).toContain(MASKED_BROWSER_VALUE);
+    expect(operation.rawTrace).not.toContain(longSelector);
+    expect(operation.rawTrace).not.toContain(longText);
+    expect(operation.rawTrace).not.toContain("super-secret-token");
+    expect(operation.rawTrace).not.toContain("return document.cookie");
+    expect(operation.rawTrace).not.toContain("window.localStorage.token");
+  });
+
+  it("classifies navigation and observe read operations by design category", () => {
+    const titleFor = (browser_trace: unknown[]) =>
+      buildBrowserOperation(
+        browserContent({
+          metadata: {
+            browser_trace,
+          },
+        }),
+      ).title;
+
+    expect(
+      titleFor([
+        {
+          phase: "navigation",
+          api_id: "tab.actions.back",
+          action: "back",
+          status: "ok",
+        },
+        {
+          phase: "action",
+          api_id: "tab.actions.fill",
+          action: "fill",
+          status: "ok",
+        },
+      ]),
+    ).toBe("tab.actions.fill");
+    expect(
+      titleFor([
+        {
+          phase: "observe",
+          api_id: "tab.wait_for",
+          action: "wait_for",
+          status: "ok",
+        },
+        {
+          phase: "navigation",
+          api_id: "tab.actions.forward",
+          action: "forward",
+          status: "ok",
+        },
+      ]),
+    ).toBe("tab.actions.forward");
+    expect(
+      titleFor([
+        {
+          phase: "misc",
+          api_id: "browser.misc",
+          action: "noop",
+          status: "ok",
+        },
+        {
+          phase: "observe",
+          api_id: "tab.extract",
+          action: "extract",
+          status: "ok",
+        },
+        {
+          phase: "observe",
+          api_id: "tab.page_info",
+          action: "page_info",
+          status: "ok",
+        },
+      ]),
+    ).toBe("tab.extract");
+    expect(
+      titleFor([
+        {
+          phase: "action",
+          api_id: "tab.actions.fill",
+          action: "fill",
+          status: "ok",
+        },
+        {
+          phase: "navigation",
+          api_id: "tab.actions.reload",
+          action: "reload",
+          status: "error",
+          error_code: "browser_reload_failed",
+        },
+      ]),
+    ).toBe("tab.actions.reload");
+  });
+
   it("sanitizes params rows and raw trace before display", () => {
     const operation = buildBrowserOperation(
       browserContent({
@@ -235,7 +498,14 @@ describe("buildBrowserOperation", () => {
               action: "evaluate",
               status: "ok",
               metadata: {
-                code: "return document.cookie",
+                kwargs: {
+                  code: "return document.cookie",
+                  authToken: "secret-token",
+                  nested: {
+                    script: "window.localStorage.token",
+                    cookie: "session=abc",
+                  },
+                },
                 token: "secret-token",
                 authorization: "Bearer secret-token",
                 nested: { eval: "alert(document.cookie)" },

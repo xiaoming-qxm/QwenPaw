@@ -5,6 +5,8 @@ type BrowserRecord = Record<string, unknown>;
 export const HIDDEN_BROWSER_VALUE = "[hidden]";
 export const MASKED_BROWSER_VALUE = "[masked]";
 
+const MAX_BROWSER_DISPLAY_STRING_LENGTH = 160;
+
 export interface BrowserOperationRow {
   label: string;
   value: string;
@@ -16,6 +18,7 @@ export interface BrowserOperationStep {
   status: string;
   detail: string;
   phase: string;
+  traceIndex: number;
   error?: string;
 }
 
@@ -28,6 +31,12 @@ export interface BrowserOperation {
   paramsRows: BrowserOperationRow[];
   rawTrace: string;
   fallbackDetail: string;
+}
+
+interface BrowserPrimarySelection {
+  step: BrowserOperationStep;
+  event: BrowserRecord;
+  traceIndex: number;
 }
 
 const DEFAULT_HIDDEN_API_IDS = new Set([
@@ -46,6 +55,72 @@ const INTERNAL_PARAM_KEYS = new Set([
   "recovery_decision",
   "runtime_outcome",
   "cleanup_summary",
+  "request_scope_key",
+  "tool_call_id",
+  "session_id",
+  "freshness_marker",
+  "trace_event_id",
+  "backend_id",
+  "selected_context",
+  "requested_context",
+  "event_id",
+]);
+
+const MUTATING_ACTION_API_IDS = new Set([
+  "tab.actions.click",
+  "tab.actions.fill",
+  "tab.actions.press_key",
+  "tab.actions.select_option",
+  "tab.actions.upload_file",
+  "tab.actions.download_file",
+  "tab.actions.handle_dialog",
+  "tab.actions.scroll",
+  "tab.actions.hover",
+]);
+
+const MUTATING_ACTIONS = new Set([
+  "click",
+  "fill",
+  "press_key",
+  "select_option",
+  "upload_file",
+  "download_file",
+  "handle_dialog",
+  "scroll",
+  "hover",
+]);
+
+const NAVIGATION_API_IDS = new Set([
+  "browser.tabs.open",
+  "tab.actions.navigate",
+  "tab.actions.back",
+  "tab.actions.forward",
+  "tab.actions.reload",
+]);
+
+const NAVIGATION_ACTIONS = new Set([
+  "open",
+  "navigate",
+  "back",
+  "forward",
+  "reload",
+]);
+
+const OBSERVE_API_IDS = new Set([
+  "tab.snapshot",
+  "tab.screenshot",
+  "tab.extract",
+  "tab.page_info",
+  "tab.wait_for",
+]);
+
+const OBSERVE_ACTIONS = new Set([
+  "snapshot",
+  "screenshot",
+  "observe",
+  "extract",
+  "page_info",
+  "wait_for",
 ]);
 
 function asRecord(value: unknown): BrowserRecord {
@@ -112,26 +187,71 @@ function compactUrl(value: string): string {
   }
 }
 
+function truncateDisplayString(value: string): string {
+  if (value.length <= MAX_BROWSER_DISPLAY_STRING_LENGTH) return value;
+  return `${value.slice(0, MAX_BROWSER_DISPLAY_STRING_LENGTH - 3)}...`;
+}
+
 function eventMetadata(event: BrowserRecord): BrowserRecord {
   return asRecord(event.metadata);
 }
 
+function targetRecordDisplay(value: BrowserRecord): string {
+  const ref = stringValue(value.ref);
+  if (ref) return `ref=${ref}`;
+
+  const role = stringValue(value.role);
+  const name = stringValue(value.name);
+  if (role && name) return `${role} "${name}"`;
+
+  const text = stringValue(value.text);
+  if (text) return `"${text}"`;
+
+  const x = numberValue(value.x);
+  const y = numberValue(value.y);
+  if (x !== undefined && y !== undefined) return `(${x}, ${y})`;
+
+  return displayValue(sanitizeValue(value));
+}
+
+function targetValueDisplay(value: unknown): string {
+  const display = stringValue(value);
+  if (display) return display;
+
+  const record = asRecord(value);
+  return Object.keys(record).length ? targetRecordDisplay(record) : "";
+}
+
 function eventTarget(event: BrowserRecord): string {
   const metadata = eventMetadata(event);
+  const kwargs = asRecord(metadata.kwargs);
+  const x = numberValue(kwargs.x);
+  const y = numberValue(kwargs.y);
   return (
+    targetValueDisplay(kwargs.target) ||
+    targetValueDisplay(metadata.target) ||
+    (stringValue(kwargs.ref) ? `ref=${stringValue(kwargs.ref)}` : "") ||
+    (stringValue(metadata.ref) ? `ref=${stringValue(metadata.ref)}` : "") ||
     stringValue(metadata.target_text) ||
     stringValue(metadata.accessible_name) ||
+    stringValue(kwargs.text) ||
     stringValue(metadata.text) ||
     stringValue(event.selector) ||
-    stringValue(metadata.selector)
+    stringValue(metadata.selector) ||
+    compactUrl(stringValue(kwargs.url)) ||
+    (x !== undefined && y !== undefined ? `(${x}, ${y})` : "")
   );
 }
 
 function eventPage(event: BrowserRecord): string {
+  const metadata = eventMetadata(event);
   return (
     compactUrl(stringValue(event.url)) ||
+    compactUrl(stringValue(metadata.url)) ||
+    stringValue(event.domain) ||
+    stringValue(metadata.domain) ||
     stringValue(event.title) ||
-    stringValue(event.domain)
+    stringValue(metadata.title)
   );
 }
 
@@ -146,6 +266,8 @@ function eventDetail(event: BrowserRecord): string {
 
 function eventError(event: BrowserRecord): string {
   return (
+    stringValue(event.error_code) ||
+    stringValue(eventMetadata(event).error_code) ||
     stringValue(event.error) ||
     stringValue(event.error_message) ||
     stringValue(event.message)
@@ -160,61 +282,55 @@ function isVisibleEvent(event: BrowserRecord): boolean {
   return !["connect", "cleanup", "diagnostic", "diagnostics"].includes(phase);
 }
 
-function toStep(event: BrowserRecord): BrowserOperationStep {
+function toStep(
+  event: BrowserRecord,
+  traceIndex: number,
+): BrowserOperationStep {
   return {
     apiId: stringValue(event.api_id),
     action: stringValue(event.action) || stringValue(event.phase) || "browser",
     status: stringValue(event.status) || "done",
     detail: eventDetail(event),
     phase: stringValue(event.phase),
+    traceIndex,
     error: eventError(event) || undefined,
   };
 }
 
 function isActionStep(step: BrowserOperationStep): boolean {
   return (
-    step.phase === "action" ||
-    step.apiId.startsWith("tab.actions.") ||
-    [
-      "click",
-      "fill",
-      "hover",
-      "press_key",
-      "scroll",
-      "type",
-      "wait_for",
-      "evaluate",
-    ].includes(step.action)
+    MUTATING_ACTION_API_IDS.has(step.apiId) || MUTATING_ACTIONS.has(step.action)
   );
 }
 
 function isNavigationStep(step: BrowserOperationStep): boolean {
   return (
     step.phase === "navigation" ||
-    step.apiId.includes("navigate") ||
-    step.apiId.includes("tabs.open") ||
-    ["navigate", "open", "reload"].includes(step.action)
+    NAVIGATION_API_IDS.has(step.apiId) ||
+    NAVIGATION_ACTIONS.has(step.action)
   );
 }
 
 function isObserveStep(step: BrowserOperationStep): boolean {
   return (
     step.phase === "observe" ||
-    step.apiId.includes("snapshot") ||
-    step.apiId.includes("screenshot") ||
-    ["snapshot", "screenshot", "observe"].includes(step.action)
+    OBSERVE_API_IDS.has(step.apiId) ||
+    OBSERVE_ACTIONS.has(step.action)
   );
 }
 
 function selectPrimaryStep(
-  steps: BrowserOperationStep[],
-): BrowserOperationStep | undefined {
+  candidates: BrowserPrimarySelection[],
+): BrowserPrimarySelection | undefined {
   return (
-    steps.find((step) => step.error || isErrorStatus(step.status)) ||
-    steps.find(isActionStep) ||
-    steps.find(isNavigationStep) ||
-    steps.find(isObserveStep) ||
-    steps[0]
+    candidates.find(
+      (candidate) =>
+        candidate.step.error || isErrorStatus(candidate.step.status),
+    ) ||
+    candidates.find((candidate) => isActionStep(candidate.step)) ||
+    candidates.find((candidate) => isNavigationStep(candidate.step)) ||
+    candidates.find((candidate) => isObserveStep(candidate.step)) ||
+    candidates[0]
   );
 }
 
@@ -237,15 +353,15 @@ function addRow(rows: BrowserOperationRow[], label: string, value: unknown) {
 }
 
 function displayValue(value: unknown): string {
-  if (typeof value === "string") return value;
+  if (typeof value === "string") return truncateDisplayString(value);
   if (typeof value === "number" || typeof value === "boolean") {
     return String(value);
   }
   if (value === null || value === undefined) return "";
   try {
-    return JSON.stringify(value);
+    return truncateDisplayString(JSON.stringify(value));
   } catch {
-    return String(value);
+    return truncateDisplayString(String(value));
   }
 }
 
@@ -270,6 +386,12 @@ function credentialLikeKey(key: string): boolean {
 function sanitizeValue(value: unknown, key = ""): unknown {
   if (key && codeLikeKey(key)) return HIDDEN_BROWSER_VALUE;
   if (key && credentialLikeKey(key)) return MASKED_BROWSER_VALUE;
+
+  if (typeof value === "string") {
+    return truncateDisplayString(
+      key.toLowerCase() === "url" ? compactUrl(value) : value,
+    );
+  }
 
   if (Array.isArray(value)) {
     return value.map((item) => sanitizeValue(item));
@@ -297,10 +419,43 @@ function paramsRows(params: BrowserRecord): BrowserOperationRow[] {
     .filter((item) => item.value !== "");
 }
 
+function eventParamsRows(
+  event: BrowserRecord | undefined,
+  fallbackParams: BrowserRecord,
+): BrowserOperationRow[] {
+  if (!event) return paramsRows(fallbackParams);
+
+  const metadata = eventMetadata(event);
+  const kwargs = asRecord(metadata.kwargs);
+  const source: BrowserRecord = { ...kwargs };
+  const metadataTarget = asRecord(metadata.target);
+
+  if (source.target === undefined && Object.keys(metadataTarget).length > 0) {
+    source.target = metadata.target;
+  }
+
+  for (const key of ["selector", "url", "domain", "action"]) {
+    if (source[key] === undefined && event[key] !== undefined) {
+      source[key] = event[key];
+    }
+  }
+
+  return paramsRows(source);
+}
+
 function firstString(...values: unknown[]): string {
   for (const value of values) {
     const display = stringValue(value);
     if (display) return display;
+  }
+  return "";
+}
+
+function firstMeaningfulApproval(...values: unknown[]): string {
+  for (const value of values) {
+    const display = stringValue(value);
+    const normalized = display.toLowerCase().replace(/_/g, " ").trim();
+    if (display && normalized !== "not required") return display;
   }
   return "";
 }
@@ -322,11 +477,7 @@ function traceDuration(trace: BrowserRecord[]): number | undefined {
 }
 
 function latestPageEvent(trace: BrowserRecord[]): BrowserRecord {
-  return (
-    [...trace]
-      .reverse()
-      .find((event) => event.url || event.title || event.domain) || {}
-  );
+  return [...trace].reverse().find((event) => eventPage(event)) || {};
 }
 
 function resultText(value: unknown): string {
@@ -349,13 +500,13 @@ function buildSummaryRows(
   result: BrowserRecord,
   params: BrowserRecord,
   trace: BrowserRecord[],
-  primary: BrowserOperationStep | undefined,
+  primary: BrowserPrimarySelection | undefined,
 ): BrowserOperationRow[] {
   const rows: BrowserOperationRow[] = [];
   if (!primary) return rows;
 
-  const primaryEvent =
-    trace.find((event) => stringValue(event.api_id) === primary.apiId) || {};
+  const primaryEvent = primary.event;
+  const primaryStep = primary.step;
   const pageEvent = eventPage(primaryEvent)
     ? primaryEvent
     : latestPageEvent(trace);
@@ -365,8 +516,14 @@ function buildSummaryRows(
     primaryEvent.duration_ms,
     traceDuration(trace),
   );
+  const approval = firstMeaningfulApproval(
+    metadata.approval_state,
+    result.approval_state,
+    primaryEvent.approval_state,
+    params.approval_state,
+  );
 
-  addRow(rows, "Operation", primary.apiId);
+  addRow(rows, "Operation", primaryStep.apiId);
   addRow(rows, "Target", eventTarget(primaryEvent));
   addRow(rows, "Page", eventPage(pageEvent));
   addRow(
@@ -394,19 +551,10 @@ function buildSummaryRows(
       primaryEvent.backend,
     ),
   );
-  addRow(rows, "Status", primary.status || content.status);
+  addRow(rows, "Status", primaryStep.status || content.status);
   if (duration !== undefined) addRow(rows, "Duration", `${duration} ms`);
-  addRow(rows, "Error", primary.error || eventError(primaryEvent));
-  addRow(
-    rows,
-    "Approval",
-    firstString(
-      metadata.approval_state,
-      result.approval_state,
-      primaryEvent.approval_state,
-      params.approval_state,
-    ),
-  );
+  addRow(rows, "Error", primaryStep.error || eventError(primaryEvent));
+  addRow(rows, "Approval", approval);
 
   return rows;
 }
@@ -418,9 +566,17 @@ export function buildBrowserOperation(
   const result = parseRecord(content.result);
   const params = asRecord(content.params);
   const trace = pickTraceSource(metadata, result, params);
-  const steps = trace.filter(isVisibleEvent).map(toStep);
-  const primary = selectPrimaryStep(steps);
-  const title = primary?.apiId || "Browser";
+  const primaryCandidates = trace
+    .map((event, traceIndex) => ({ event, traceIndex }))
+    .filter(({ event }) => isVisibleEvent(event))
+    .map(({ event, traceIndex }) => ({
+      step: toStep(event, traceIndex),
+      event,
+      traceIndex,
+    }));
+  const steps = primaryCandidates.map((candidate) => candidate.step);
+  const primary = selectPrimaryStep(primaryCandidates);
+  const title = primary?.step.apiId || "Browser";
   const backendLabel = firstString(
     metadata.backend_id,
     metadata.backend,
@@ -441,7 +597,7 @@ export function buildBrowserOperation(
       trace,
       primary,
     ),
-    paramsRows: paramsRows(params),
+    paramsRows: eventParamsRows(primary?.event, params),
     rawTrace: trace.length ? JSON.stringify(sanitizeValue(trace), null, 2) : "",
     fallbackDetail: trace.length ? "" : resultText(content.result),
   };

@@ -38,7 +38,8 @@ const BrowserCompactCard: React.FC<BrowserCompactCardProps> = ({
   const hasOperationEvidence = Boolean(
     operation.stepCount || operation.rawTrace,
   );
-  const stepCountLabel = `${operation.stepCount} steps`;
+  const stepCountLabel =
+    operation.stepCount === 1 ? "1 step" : `${operation.stepCount} steps`;
   const badges = (
     <>
       {operation.stepCount > 0 && (
