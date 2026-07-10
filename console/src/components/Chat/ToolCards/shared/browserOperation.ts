@@ -343,7 +343,7 @@ function isErrorStatus(status: string): boolean {
 }
 
 function row(label: string, value: unknown): BrowserOperationRow | null {
-  const display = stringValue(value);
+  const display = truncateDisplayString(stringValue(value));
   return display ? { label, value: display } : null;
 }
 
@@ -460,6 +460,61 @@ function firstMeaningfulApproval(...values: unknown[]): string {
   return "";
 }
 
+function contextLabel(
+  primaryEvent: BrowserRecord,
+  metadata: BrowserRecord,
+  result: BrowserRecord,
+  params: BrowserRecord,
+): string {
+  const requested = firstString(
+    primaryEvent.requested_context,
+    metadata.context,
+    result.context,
+    params.context,
+    primaryEvent.context,
+  );
+  const selected = firstString(
+    primaryEvent.selected_context,
+    metadata.selected_context,
+    result.selected_context,
+  );
+
+  if (requested && selected && requested !== selected) {
+    return `${requested} -> ${selected}`;
+  }
+
+  return selected || requested;
+}
+
+function eventBackendLabel(event: BrowserRecord | undefined): string {
+  if (!event) return "";
+  return firstString(event.backend_id, event.backend);
+}
+
+function traceBackendLabel(trace: BrowserRecord[]): string {
+  for (const event of trace) {
+    const backend = eventBackendLabel(event);
+    if (backend) return backend;
+  }
+  return "";
+}
+
+function backendLabelFor(
+  primary: BrowserPrimarySelection | undefined,
+  trace: BrowserRecord[],
+  metadata: BrowserRecord,
+  result: BrowserRecord,
+): string {
+  return firstString(
+    metadata.backend_id,
+    metadata.backend,
+    result.backend_id,
+    result.backend,
+    eventBackendLabel(primary?.event),
+    traceBackendLabel(trace),
+  );
+}
+
 function firstNumber(...values: unknown[]): number | undefined {
   for (const value of values) {
     const parsed = numberValue(value);
@@ -526,19 +581,7 @@ function buildSummaryRows(
   addRow(rows, "Operation", primaryStep.apiId);
   addRow(rows, "Target", eventTarget(primaryEvent));
   addRow(rows, "Page", eventPage(pageEvent));
-  addRow(
-    rows,
-    "Context",
-    firstString(
-      metadata.selected_context,
-      metadata.context,
-      result.selected_context,
-      result.context,
-      primaryEvent.selected_context,
-      primaryEvent.context,
-      params.context,
-    ),
-  );
+  addRow(rows, "Context", contextLabel(primaryEvent, metadata, result, params));
   addRow(
     rows,
     "Backend",
@@ -577,12 +620,7 @@ export function buildBrowserOperation(
   const steps = primaryCandidates.map((candidate) => candidate.step);
   const primary = selectPrimaryStep(primaryCandidates);
   const title = primary?.step.apiId || "Browser";
-  const backendLabel = firstString(
-    metadata.backend_id,
-    metadata.backend,
-    result.backend_id,
-    result.backend,
-  );
+  const backendLabel = backendLabelFor(primary, trace, metadata, result);
 
   return {
     title,
