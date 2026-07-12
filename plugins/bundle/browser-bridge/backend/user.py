@@ -1460,6 +1460,7 @@ async def _cleanup_action_runtime_for_request(
     result = cleanup(
         session_id=str(kwargs.get("session_id") or ""),
         root_session_id=str(kwargs.get("root_session_id") or ""),
+        holder_id=str(kwargs.get("holder_id") or ""),
         workspace_id=str(kwargs.get("workspace_id") or ""),
         cleanup_reason=str(kwargs.get("cleanup_reason") or ""),
     )

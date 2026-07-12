@@ -10,6 +10,7 @@ from types import CodeType
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from ..governance.errors import BrowserPolicyDenied
+from .session_owner import ContractMode
 from .guard import CapabilityGuard
 
 if TYPE_CHECKING:
@@ -68,7 +69,14 @@ class InProcessBrowserCodeExecutor:
 
     def __init__(self, *, guard: CapabilityGuard | None = None) -> None:
         self._guard = guard or CapabilityGuard()
-        self._namespaces: dict[str, dict[str, Any]] = {}
+        self._namespaces: dict[
+            tuple[str, str, ContractMode],
+            dict[str, Any],
+        ] = {}
+        self._session_keys: dict[
+            str,
+            set[tuple[str, str, ContractMode]],
+        ] = {}
 
     async def execute(
         self,
@@ -77,12 +85,21 @@ class InProcessBrowserCodeExecutor:
         execution_context: "BrowserExecutionContext",
     ) -> Any:
         """Execute code in the durable namespace for one session."""
+        namespace_key = (
+            execution_context.root_task_id,
+            execution_context.browser_owner_id,
+            execution_context.contract_mode,
+        )
+        guard = _guard_for_mode(execution_context.contract_mode, self._guard)
         namespace = self._namespaces.setdefault(
-            execution_context.session_id,
-            _new_namespace(self._guard),
+            namespace_key,
+            _new_namespace(guard, execution_context.contract_mode),
+        )
+        self._session_keys.setdefault(execution_context.session_id, set()).add(
+            namespace_key,
         )
         namespace.pop(_RETURN_NAME, None)
-        compiled = _compile_code(code, self._guard)
+        compiled = _compile_code(code, guard)
         maybe_awaitable = eval(compiled, namespace)  # noqa: S307
         if inspect.isawaitable(maybe_awaitable):
             await maybe_awaitable
@@ -90,11 +107,13 @@ class InProcessBrowserCodeExecutor:
 
     async def reset(self, session_id: str) -> None:
         """Reset one session namespace."""
-        self._namespaces.pop(session_id, None)
+        for namespace_key in self._session_keys.pop(session_id, set()):
+            self._namespaces.pop(namespace_key, None)
 
     async def reset_all(self) -> None:
         """Reset all session namespaces."""
         self._namespaces.clear()
+        self._session_keys.clear()
 
     async def sweep_idle(
         self,
@@ -136,7 +155,21 @@ def _compile_code(code: str, guard: CapabilityGuard) -> CodeType:
     )
 
 
-def _new_namespace(guard: CapabilityGuard) -> dict[str, Any]:
+def _guard_for_mode(
+    mode: ContractMode,
+    legacy_guard: CapabilityGuard,
+) -> CapabilityGuard:
+    if mode is ContractMode.LEGACY:
+        return legacy_guard
+    from ..canonical.guard import CanonicalCapabilityGuard
+
+    return CanonicalCapabilityGuard()
+
+
+def _new_namespace(
+    guard: CapabilityGuard,
+    mode: ContractMode,
+) -> dict[str, Any]:
     from ..governance.errors import (
         BrowserContextConflict,
         BrowserContextUnavailable,
@@ -144,13 +177,24 @@ def _new_namespace(guard: CapabilityGuard) -> dict[str, Any]:
         BrowserSDKError,
         BrowserSDKGap,
     )
-    from .proxy import BrowserProxyClass
-    from .proxy import connect_browser
+
+    if mode is ContractMode.CANONICAL:
+        from ..canonical.proxy import (
+            BrowserProxyClass as canonical_browser_proxy,
+        )
+
+        browser_proxy: Any = canonical_browser_proxy
+        connect_browser = canonical_browser_proxy.connect
+    else:
+        from .proxy import BrowserProxyClass as legacy_browser_proxy
+        from .proxy import connect_browser
+
+        browser_proxy = legacy_browser_proxy
 
     namespace: dict[str, Any] = {"__builtins__": _safe_builtins(guard)}
     namespace.update(
         {
-            "Browser": BrowserProxyClass,
+            "Browser": browser_proxy,
             "BrowserSDKError": BrowserSDKError,
             "BrowserContextUnavailable": BrowserContextUnavailable,
             "BrowserContextConflict": BrowserContextConflict,

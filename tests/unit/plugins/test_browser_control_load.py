@@ -19,7 +19,7 @@ def _repo_root() -> Path:
 
 
 @pytest.mark.asyncio
-async def test_browser_bridge_bundle_plugin_loads() -> None:
+async def test_browser_bridge_bundle_plugin_loads(tmp_path: Path) -> None:
     bundle_root = _repo_root() / "plugins" / "bundle"
     plugin_dir = bundle_root / "browser-bridge"
     loader = PluginLoader([bundle_root])
@@ -27,16 +27,16 @@ async def test_browser_bridge_bundle_plugin_loads() -> None:
 
     record = await loader.load_plugin_from_path(
         source_path=plugin_dir,
-        install_dir=bundle_root,
+        install_dir=tmp_path,
     )
 
-    assert record.manifest.id == "browser-bridge"
+    assert record.manifest.id == "chrome"
     assert record.manifest.plugin_type is PluginType.GENERAL
     assert record.manifest.meta["builtin"] is True
     assert record.manifest.icon
     assert record.manifest.capabilities
     assert record.manifest.setup
-    assert loader.get_loaded_plugin("browser-bridge") is record
+    assert loader.get_loaded_plugin("chrome") is record
 
 
 def test_browser_bridge_manifest_is_discoverable() -> None:
@@ -45,7 +45,7 @@ def test_browser_bridge_manifest_is_discoverable() -> None:
 
     discovered = {manifest.id for manifest, _path in loader.discover_plugins()}
 
-    assert "browser-bridge" in discovered
+    assert "chrome" in discovered
 
 
 def test_browser_bridge_listed_before_loader_ready() -> None:
@@ -56,4 +56,4 @@ def test_browser_bridge_listed_before_loader_ready() -> None:
     response = client.get("/api/plugins")
 
     assert response.status_code == 200
-    assert "browser-bridge" in {plugin["id"] for plugin in response.json()}
+    assert "chrome" in {plugin["id"] for plugin in response.json()}

@@ -539,6 +539,7 @@ async def cleanup_control_sessions_for_request(
     *,
     session_id: str,
     root_session_id: str = "",
+    holder_id: str = "",
     workspace_id: str = "",
     bridge_manager: Any | None = None,
     cleanup_reason: str = "",
@@ -578,10 +579,14 @@ async def cleanup_control_sessions_for_request(
         cleanup_result = await _control_cleanup_matching_tabs(
             state,
             bridge=bridge,
-            predicate=lambda tab: _control_tab_matches_request(
-                tab,
-                session_id=session_id,
-                root_session_id=root_session_id,
+            predicate=(
+                lambda tab: str(tab.get("holder_id") or "") == holder_id
+                if holder_id
+                else _control_tab_matches_request(
+                    tab,
+                    session_id=session_id,
+                    root_session_id=root_session_id,
+                )
             ),
         )
         result["matched_tabs"] += cleanup_result["matched_tabs"]

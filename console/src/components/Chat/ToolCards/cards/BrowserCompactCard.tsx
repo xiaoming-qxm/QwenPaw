@@ -65,6 +65,14 @@ const BrowserCompactCard: React.FC<BrowserCompactCardProps> = ({
           {operation.backendLabel}
         </span>
       )}
+      {operation.contractMode && (
+        <span
+          className={styles.browserCompactContextBadge}
+          title={`Browser contract · ${operation.contractMode}`}
+        >
+          {operation.contractMode === "CANONICAL" ? "CANONICAL" : "LEGACY"}
+        </span>
+      )}
     </>
   );
 
@@ -118,6 +126,25 @@ const BrowserCompactCard: React.FC<BrowserCompactCardProps> = ({
               <dd>{item.value}</dd>
             </div>
           ))}
+        </dl>
+      )}
+      {(operation.lifecycleLabel || operation.cleanupNotice) && (
+        <dl
+          aria-label="Browser lifecycle"
+          className={styles.browserCompactRows}
+        >
+          {operation.lifecycleLabel && (
+            <div className={styles.browserCompactRow}>
+              <dt>Lifecycle</dt>
+              <dd>{operation.lifecycleLabel}</dd>
+            </div>
+          )}
+          {operation.cleanupNotice && (
+            <div className={styles.browserCompactRow}>
+              <dt>Cleanup</dt>
+              <dd>{operation.cleanupNotice}</dd>
+            </div>
+          )}
         </dl>
       )}
       {operation.rawTrace && (

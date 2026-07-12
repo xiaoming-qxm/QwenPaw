@@ -273,17 +273,11 @@ export function BrowserBridgeReadiness({
           value={traceSummary(trace)}
         />
         <Metric
-          label={t(
-            "browserBridge.readiness.buildFreshness",
-            "Build freshness",
-          )}
+          label={t("browserBridge.readiness.buildFreshness", "Build freshness")}
           value={buildFreshnessLabel(t, status?.build_freshness, build)}
         />
         <Metric
-          label={t(
-            "browserBridge.readiness.controlledTabs",
-            "Controlled tabs",
-          )}
+          label={t("browserBridge.readiness.controlledTabs", "Controlled tabs")}
           value={String(lifecycleSummary.controlled_tab_count ?? 0)}
         />
         <Metric
@@ -552,10 +546,7 @@ function buildFreshnessLabel(
 ): string {
   if (freshness?.status) {
     if (freshness.status === "stale") {
-      return t(
-        "browserBridge.readiness.buildDirty",
-        "Build has local changes",
-      );
+      return t("browserBridge.readiness.buildDirty", "Build has local changes");
     }
     if (freshness.status === "fresh") {
       return t("browserBridge.readiness.buildClean", "Clean");

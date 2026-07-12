@@ -98,6 +98,7 @@ class ControlEngineImpl:
         *,
         session_id: str,
         root_session_id: str = "",
+        holder_id: str = "",
         workspace_id: str = "",
         cleanup_reason: str = "",
     ) -> dict[str, int]:
@@ -105,6 +106,7 @@ class ControlEngineImpl:
         return await control_tab_manager.cleanup_control_sessions_for_request(
             session_id=session_id,
             root_session_id=root_session_id,
+            holder_id=holder_id,
             workspace_id=workspace_id,
             bridge_manager=self._bridge_manager,
             cleanup_reason=cleanup_reason,

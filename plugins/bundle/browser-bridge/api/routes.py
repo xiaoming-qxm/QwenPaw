@@ -17,7 +17,6 @@ from pydantic import BaseModel, Field
 
 from fastapi import (
     APIRouter,
-    HTTPException,
     Query,
     WebSocket,
     WebSocketDisconnect,

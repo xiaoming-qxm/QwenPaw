@@ -1,0 +1,45 @@
+{
+  "apis": [
+    {
+      "api_id": "browser.close",
+      "callable_path": "qwenpaw.browser.sdk.canonical.facade:Browser.close",
+      "invalidates_observation": false,
+      "kind": "lifecycle",
+      "mutates": true,
+      "parameters": [],
+      "public_name": "browser.close",
+      "requires_observation": false,
+      "return_type": "None",
+      "satisfies_observation": false,
+      "signature": "async close() -> None",
+      "summary": "Release the current SDK lease only.",
+      "visibility": "default"
+    },
+    {
+      "api_id": "browser.connect",
+      "callable_path": "qwenpaw.browser.sdk.canonical.facade:Browser.connect",
+      "invalidates_observation": false,
+      "kind": "lifecycle",
+      "mutates": false,
+      "parameters": [
+        {
+          "annotation": "Literal['auto', 'user', 'isolated']",
+          "default": "auto",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "context",
+          "required": false
+        }
+      ],
+      "public_name": "browser.connect",
+      "requires_observation": false,
+      "return_type": "Browser",
+      "satisfies_observation": false,
+      "signature": "async connect(context: Literal['auto', 'user', 'isolated'] = 'auto') -> Browser",
+      "summary": "Connect with the trusted root-task binding.",
+      "visibility": "default"
+    }
+  ],
+  "mode": "CANONICAL",
+  "source": "canonical_browser_api",
+  "version": 1
+}

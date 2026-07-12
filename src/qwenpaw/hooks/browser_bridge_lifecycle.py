@@ -15,6 +15,7 @@ from ..browser.sdk.backends.registry import (
 from ..browser.sdk.primitives.types import build_browser_ownership_context
 from ..browser.sdk.governance.errors import BrowserPolicyDenied
 from ..browser.sdk.runtime.kernel import cleanup_browser_kernels_for_lifecycle
+from ..browser.sdk.runtime.session_owner import ContractMode
 from ..browser.sdk.telemetry.trace import record_browser_trace_event
 from ..runtime.hooks import HookContext, HookResult
 from ..runtime.phases import Phase
@@ -34,6 +35,9 @@ class BrowserBridgeLifecycleCleanupHook(LifecycleHook):
     priority = 50
 
     async def run(self, ctx: HookContext) -> HookResult:
+        if getattr(ctx, "contract_mode", None) is ContractMode.CANONICAL:
+            ctx.extras["browser_bridge_request_released"] = True
+            return HookResult()
         session_id = str(ctx.session_id or "")
         root_session_id = str(ctx.root_session_id or session_id or "")
         if not session_id and not root_session_id:
@@ -182,7 +186,9 @@ def _request_scope_key(ctx: HookContext) -> str:
     request = ctx.request
     root = str(ctx.root_session_id or ctx.session_id or "default")
     request_context = (
-        getattr(request, "request_context", None) if request is not None else None
+        getattr(request, "request_context", None)
+        if request is not None
+        else None
     )
     if isinstance(request_context, dict):
         for key in ("browser_request_scope_key", "request_scope_key"):

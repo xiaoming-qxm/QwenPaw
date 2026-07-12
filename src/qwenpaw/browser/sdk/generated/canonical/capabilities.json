@@ -1,0 +1,111 @@
+{
+  "actions": {},
+  "apis": {
+    "browser.close": {
+      "api_id": "browser.close",
+      "callable_path": "qwenpaw.browser.sdk.canonical.facade:Browser.close",
+      "invalidates_observation": false,
+      "kind": "lifecycle",
+      "mutates": true,
+      "parameters": [],
+      "requires_observation": false,
+      "return_type": "None",
+      "satisfies_observation": false,
+      "signature": "async close() -> None",
+      "summary": "Release the current SDK lease only."
+    },
+    "browser.connect": {
+      "api_id": "browser.connect",
+      "callable_path": "qwenpaw.browser.sdk.canonical.facade:Browser.connect",
+      "invalidates_observation": false,
+      "kind": "lifecycle",
+      "mutates": false,
+      "parameters": [
+        {
+          "annotation": "Literal['auto', 'user', 'isolated']",
+          "default": "auto",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "context",
+          "required": false
+        }
+      ],
+      "requires_observation": false,
+      "return_type": "Browser",
+      "satisfies_observation": false,
+      "signature": "async connect(context: Literal['auto', 'user', 'isolated'] = 'auto') -> Browser",
+      "summary": "Connect with the trusted root-task binding."
+    }
+  },
+  "contexts": [
+    "auto",
+    "user",
+    "isolated"
+  ],
+  "diagnostics": {},
+  "help": {
+    "apis": {
+      "browser.close": "# `browser.close`\n\nRelease the current SDK lease only.\n\nKind: `lifecycle`\nSignature: `async close() -> None`\n\nMetadata:\n- mutates: `True`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `False`\n",
+      "browser.connect": "# `browser.connect`\n\nConnect with the trusted root-task binding.\n\nKind: `lifecycle`\nSignature: `async connect(context: Literal['auto', 'user', 'isolated'] = 'auto') -> Browser`\n\nMetadata:\n- mutates: `False`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `False`\n"
+    },
+    "index": "# Browser SDK Generated Help\n\nGenerated from `api_catalog.json`.\n\nUse `Browser.capabilities(scope=\"actions\")` for compact indexes.\nUse `Browser.help(api_id=\"tab.actions.click\")` for one API.\n\n## Actions\n\n\n## Primitives\n\n\n## Diagnostics\n\n\n## Lifecycle\n\n- `browser.close` - Release the current SDK lease only.\n- `browser.connect` - Connect with the trusted root-task binding.\n",
+    "scopes": {
+      "actions": "# Browser SDK Actions\n\nGenerated from `api_catalog.json`.\n",
+      "diagnostics": "# Browser SDK Diagnostics\n\nGenerated from `api_catalog.json`.\n",
+      "lifecycle": "# Browser SDK Lifecycle\n\nGenerated from `api_catalog.json`.\n\n## `browser.close`\n\nRelease the current SDK lease only.\n\nSignature: `async close() -> None`\n\n## `browser.connect`\n\nConnect with the trusted root-task binding.\n\nSignature: `async connect(context: Literal['auto', 'user', 'isolated'] = 'auto') -> Browser`\n",
+      "primitives": "# Browser SDK Primitives\n\nGenerated from `api_catalog.json`.\n"
+    }
+  },
+  "lifecycle": {
+    "browser.close": {
+      "api_id": "browser.close",
+      "callable_path": "qwenpaw.browser.sdk.canonical.facade:Browser.close",
+      "invalidates_observation": false,
+      "kind": "lifecycle",
+      "mutates": true,
+      "parameters": [],
+      "requires_observation": false,
+      "return_type": "None",
+      "satisfies_observation": false,
+      "signature": "async close() -> None",
+      "summary": "Release the current SDK lease only."
+    },
+    "browser.connect": {
+      "api_id": "browser.connect",
+      "callable_path": "qwenpaw.browser.sdk.canonical.facade:Browser.connect",
+      "invalidates_observation": false,
+      "kind": "lifecycle",
+      "mutates": false,
+      "parameters": [
+        {
+          "annotation": "Literal['auto', 'user', 'isolated']",
+          "default": "auto",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "context",
+          "required": false
+        }
+      ],
+      "requires_observation": false,
+      "return_type": "Browser",
+      "satisfies_observation": false,
+      "signature": "async connect(context: Literal['auto', 'user', 'isolated'] = 'auto') -> Browser",
+      "summary": "Connect with the trusted root-task binding."
+    }
+  },
+  "mode": "CANONICAL",
+  "primitives": {},
+  "scopes": {
+    "actions": [],
+    "all": [
+      "browser.close",
+      "browser.connect"
+    ],
+    "diagnostics": [],
+    "lifecycle": [
+      "browser.close",
+      "browser.connect"
+    ],
+    "primitives": []
+  },
+  "source": "api_catalog.json",
+  "version": 1
+}

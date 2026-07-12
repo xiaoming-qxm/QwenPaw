@@ -200,11 +200,8 @@ export const extensionApi = {
   },
 
   openExtensionFolder(): Promise<OpenExtensionFolderResult> {
-    return request<OpenExtensionFolderResult>(
-      "/chrome/open-extension-folder",
-      {
-        method: "POST",
-      },
-    );
+    return request<OpenExtensionFolderResult>("/chrome/open-extension-folder", {
+      method: "POST",
+    });
   },
 };

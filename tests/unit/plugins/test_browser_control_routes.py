@@ -16,7 +16,9 @@ def _repo_root() -> Path:
 
 
 @pytest.mark.asyncio
-async def test_browser_bridge_plugin_registers_bridge_routes() -> None:
+async def test_browser_bridge_plugin_registers_bridge_routes(
+    tmp_path: Path,
+) -> None:
     app = FastAPI()
     plugin_dir = _repo_root() / "plugins" / "bundle" / "browser-bridge"
     loader = PluginLoader([plugin_dir.parent])
@@ -24,11 +26,11 @@ async def test_browser_bridge_plugin_registers_bridge_routes() -> None:
 
     await loader.load_plugin_from_path(
         source_path=plugin_dir,
-        install_dir=plugin_dir.parent,
+        install_dir=tmp_path,
     )
 
     paths = {getattr(route, "path", "") for route in app.router.routes}
 
-    assert "/api/browser-bridge/status" in paths
-    assert "/api/browser-bridge/setup" in paths
-    assert "/ws/browser-bridge" in paths
+    assert "/api/chrome/status" in paths
+    assert "/api/chrome/setup" in paths
+    assert "/ws/chrome" in paths

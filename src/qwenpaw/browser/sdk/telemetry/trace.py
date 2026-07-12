@@ -344,14 +344,13 @@ def summarize_browser_reliability_counters(
             counters["stale_lease_count"] += 1
         if error_code in _OWNERSHIP_INVARIANT_ERROR_CODES:
             counters["ownership_invariant_error_count"] += 1
-        if (
-            error_code == "browser_workspace_metadata_missing"
-            or metadata.get("workspace_metadata_missing")
+        if error_code == "browser_workspace_metadata_missing" or metadata.get(
+            "workspace_metadata_missing",
         ):
             counters["workspace_metadata_missing_count"] += 1
     counters["fail_fast_triggered"] = bool(
         counters["stale_lease_count"]
-        or counters["ownership_invariant_error_count"]
+        or counters["ownership_invariant_error_count"],
     )
     return counters
 

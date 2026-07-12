@@ -25,6 +25,9 @@ export interface BrowserOperationStep {
 export interface BrowserOperation {
   title: string;
   backendLabel: string;
+  contractMode: "LEGACY" | "CANONICAL" | "";
+  lifecycleLabel: string;
+  cleanupNotice: string;
   stepCount: number;
   steps: BrowserOperationStep[];
   summaryRows: BrowserOperationRow[];
@@ -61,9 +64,27 @@ const INTERNAL_PARAM_KEYS = new Set([
   "freshness_marker",
   "trace_event_id",
   "backend_id",
+  "contract_mode",
+  "lifecycle_label",
+  "terminal_lifecycle",
+  "cleanup_notice",
+  "cleanup_incomplete",
+  "resume_token",
+  "browser_owner_id",
+  "root_task_id",
+  "native_tab_id",
+  "internal_binding",
   "selected_context",
   "requested_context",
   "event_id",
+]);
+
+const OPAQUE_BROWSER_KEYS = new Set([
+  "resume_token",
+  "browser_owner_id",
+  "root_task_id",
+  "native_tab_id",
+  "internal_binding",
 ]);
 
 const MUTATING_ACTION_API_IDS = new Set([
@@ -399,10 +420,12 @@ function sanitizeValue(value: unknown, key = ""): unknown {
 
   if (value && typeof value === "object") {
     return Object.fromEntries(
-      Object.entries(value as BrowserRecord).map(([childKey, childValue]) => [
-        childKey,
-        sanitizeValue(childValue, childKey),
-      ]),
+      Object.entries(value as BrowserRecord)
+        .filter(([childKey]) => !OPAQUE_BROWSER_KEYS.has(childKey))
+        .map(([childKey, childValue]) => [
+          childKey,
+          sanitizeValue(childValue, childKey),
+        ]),
     );
   }
 
@@ -549,6 +572,61 @@ function resultText(value: unknown): string {
   return stringValue(record.output) || stringValue(record.text);
 }
 
+function latestTraceValue(trace: BrowserRecord[], key: string): unknown {
+  for (const event of [...trace].reverse()) {
+    const metadata = eventMetadata(event);
+    if (metadata[key] !== undefined) return metadata[key];
+    if (event[key] !== undefined) return event[key];
+  }
+  return undefined;
+}
+
+function safeContractMode(
+  metadata: BrowserRecord,
+  result: BrowserRecord,
+  trace: BrowserRecord[],
+): "LEGACY" | "CANONICAL" | "" {
+  const value = firstString(
+    metadata.contract_mode,
+    result.contract_mode,
+    latestTraceValue(trace, "contract_mode"),
+  ).toUpperCase();
+  return value === "LEGACY" || value === "CANONICAL" ? value : "";
+}
+
+function safeLifecycleLabel(
+  metadata: BrowserRecord,
+  result: BrowserRecord,
+  trace: BrowserRecord[],
+): string {
+  return firstString(
+    metadata.lifecycle_label,
+    metadata.terminal_lifecycle,
+    result.lifecycle_label,
+    result.terminal_lifecycle,
+    latestTraceValue(trace, "lifecycle_label"),
+    latestTraceValue(trace, "terminal_lifecycle"),
+  );
+}
+
+function safeCleanupNotice(
+  metadata: BrowserRecord,
+  result: BrowserRecord,
+  trace: BrowserRecord[],
+): string {
+  const notice = firstString(
+    metadata.cleanup_notice,
+    result.cleanup_notice,
+    latestTraceValue(trace, "cleanup_notice"),
+  );
+  if (notice) return notice;
+  const incomplete =
+    metadata.cleanup_incomplete === true ||
+    result.cleanup_incomplete === true ||
+    latestTraceValue(trace, "cleanup_incomplete") === true;
+  return incomplete ? "Cleanup incomplete" : "";
+}
+
 function buildSummaryRows(
   content: ToolCallContent,
   metadata: BrowserRecord,
@@ -625,6 +703,9 @@ export function buildBrowserOperation(
   return {
     title,
     backendLabel,
+    contractMode: safeContractMode(metadata, result, trace),
+    lifecycleLabel: safeLifecycleLabel(metadata, result, trace),
+    cleanupNotice: safeCleanupNotice(metadata, result, trace),
     stepCount: steps.length,
     steps,
     summaryRows: buildSummaryRows(

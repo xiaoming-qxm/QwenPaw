@@ -20,10 +20,17 @@ CATALOG_PATH = (
 GENERATED_DIR = Path(__file__).resolve().parents[1] / "generated"
 CAPABILITIES_PATH = GENERATED_DIR / "capabilities.json"
 HELP_INDEX_PATH = GENERATED_DIR / "help" / "index.md"
+CANONICAL_GENERATED_DIR = GENERATED_DIR / "canonical"
 
 
-def build_api_catalog() -> dict[str, Any]:
+def build_api_catalog(
+    mode: Literal["legacy", "canonical"] = "legacy",
+) -> dict[str, Any]:
     """Build the public API catalog payload from real public methods."""
+    if mode == "canonical":
+        from ..canonical.contracts import canonical_api_catalog
+
+        return canonical_api_catalog()
     return {
         "version": 1,
         "source": "browser_api",
@@ -50,9 +57,11 @@ def check_api_catalog(path: Path = CATALOG_PATH) -> bool:
     return path.read_text(encoding="utf-8") == _catalog_text()
 
 
-def build_capabilities() -> dict[str, Any]:
+def build_capabilities(
+    mode: Literal["legacy", "canonical"] = "legacy",
+) -> dict[str, Any]:
     """Build compact machine-readable capabilities from the API catalog."""
-    apis = build_api_catalog()["apis"]
+    apis = build_api_catalog(mode)["apis"]
     compact = {api["api_id"]: _compact_api_entry(api) for api in apis}
     scopes = {
         "all": sorted(compact),
@@ -61,7 +70,7 @@ def build_capabilities() -> dict[str, Any]:
         "diagnostics": _ids_for_kind(apis, "diagnostic"),
         "lifecycle": _ids_for_kind(apis, "lifecycle"),
     }
-    return {
+    payload = {
         "version": 1,
         "source": "api_catalog.json",
         "contexts": ["auto", "user", "isolated"],
@@ -71,18 +80,26 @@ def build_capabilities() -> dict[str, Any]:
         "primitives": _entries_for_ids(compact, scopes["primitives"]),
         "diagnostics": _entries_for_ids(compact, scopes["diagnostics"]),
         "lifecycle": _entries_for_ids(compact, scopes["lifecycle"]),
-        "help": build_help_payload(compact=compact, scopes=scopes),
+        "help": build_help_payload(
+            compact=compact,
+            scopes=scopes,
+            mode=mode,
+        ),
     }
+    if mode == "canonical":
+        payload["mode"] = "CANONICAL"
+    return payload
 
 
 def build_help_payload(
     *,
     compact: dict[str, Any] | None = None,
     scopes: dict[str, list[str]] | None = None,
+    mode: Literal["legacy", "canonical"] = "legacy",
 ) -> dict[str, Any]:
     """Build generated help text from compact capabilities."""
     if compact is None or scopes is None:
-        capabilities = build_capabilities()
+        capabilities = build_capabilities(mode)
         if compact is None:
             compact = capabilities["apis"]
         if scopes is None:
@@ -103,31 +120,41 @@ def build_help_payload(
     }
 
 
-def write_generated_artifacts(output_dir: Path = GENERATED_DIR) -> None:
+def write_generated_artifacts(
+    output_dir: Path = GENERATED_DIR,
+    *,
+    mode: Literal["legacy", "canonical"] = "legacy",
+) -> None:
     """Write the generated catalog, capabilities, and help artifacts."""
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "api_catalog.json").write_text(
-        _json_text(build_api_catalog()),
+        _json_text(build_api_catalog(mode)),
         encoding="utf-8",
     )
     (output_dir / "capabilities.json").write_text(
-        _json_text(build_capabilities()),
+        _json_text(build_capabilities(mode)),
         encoding="utf-8",
     )
     help_dir = output_dir / "help"
     help_dir.mkdir(parents=True, exist_ok=True)
     (help_dir / "index.md").write_text(
-        build_help_payload()["index"],
+        build_help_payload(mode=mode)["index"],
         encoding="utf-8",
     )
 
 
-def check_generated_artifacts(output_dir: Path = GENERATED_DIR) -> bool:
+def check_generated_artifacts(
+    output_dir: Path = GENERATED_DIR,
+    *,
+    mode: Literal["legacy", "canonical"] = "legacy",
+) -> bool:
     """Return whether all generated artifacts match regenerated content."""
     expected = {
-        output_dir / "api_catalog.json": _json_text(build_api_catalog()),
-        output_dir / "capabilities.json": _json_text(build_capabilities()),
-        output_dir / "help" / "index.md": build_help_payload()["index"],
+        output_dir / "api_catalog.json": _json_text(build_api_catalog(mode)),
+        output_dir / "capabilities.json": _json_text(build_capabilities(mode)),
+        output_dir
+        / "help"
+        / "index.md": build_help_payload(mode=mode)["index"],
     }
     for path, content in expected.items():
         if not path.exists():
@@ -147,10 +174,21 @@ def main(argv: Sequence[str] | None = None) -> int:
         action="store_true",
         help="fail if generated artifacts differ from committed files",
     )
+    parser.add_argument(
+        "--mode",
+        choices=("legacy", "canonical"),
+        default="legacy",
+        help="select the physically separate public contract surface",
+    )
     args = parser.parse_args(argv)
+    output_dir = (
+        CANONICAL_GENERATED_DIR if args.mode == "canonical" else GENERATED_DIR
+    )
     if args.check:
-        return 0 if check_generated_artifacts() else 1
-    write_generated_artifacts()
+        return (
+            0 if check_generated_artifacts(output_dir, mode=args.mode) else 1
+        )
+    write_generated_artifacts(output_dir, mode=args.mode)
     return 0
 
 

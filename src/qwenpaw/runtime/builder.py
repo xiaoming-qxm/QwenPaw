@@ -478,6 +478,17 @@ class AgentBuilder:
         )
         if isinstance(_payload_ctx, dict):
             rc.update(_payload_ctx)
+        rc.update(
+            {
+                "root_session_id": getattr(ctx, "root_session_id", "") or "",
+                "root_task_id": getattr(ctx, "root_task_id", "") or "",
+                "browser_owner_id": (
+                    getattr(ctx, "browser_owner_id", "") or ""
+                ),
+                "contract_mode": getattr(ctx, "contract_mode", None),
+                "lease_generation": getattr(ctx, "lease_generation", 0),
+            },
+        )
         rc.setdefault(
             "browser_request_scope_key",
             AgentBuilder._browser_request_scope_key(ctx, rc),

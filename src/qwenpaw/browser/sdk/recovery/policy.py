@@ -430,7 +430,7 @@ class BrowserRecoveryPolicy:
 
     # The policy is a priority-ordered decision table; early returns keep the
     # safety branches explicit and easy to audit.
-    # pylint: disable=too-many-return-statements
+    # pylint: disable=too-many-return-statements,too-many-branches
     def decide(
         self,
         evidence: BrowserRequestEvidence,
@@ -554,7 +554,8 @@ class BrowserRecoveryPolicy:
         if low_information is not None:
             action = (
                 BrowserRecoveryAction.BLOCKED
-                if low_information["count"] >= self.product_policy.low_information_threshold
+                if low_information["count"]
+                >= self.product_policy.low_information_threshold
                 else BrowserRecoveryAction.CONTINUE
             )
             return self._decision(

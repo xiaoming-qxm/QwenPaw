@@ -255,15 +255,35 @@ class Workspace:
     async def stream_query(
         self,
         request: Any,
+        *,
+        trusted_root_session_id: str | None = None,
+        inherited_binding: Any | None = None,
+        resume_token: str | None = None,
     ) -> AsyncGenerator[Any, None]:
         """Process a request through the Runtime pipeline.
 
         Drop-in replacement for the old ``Runner.stream_query()``.
         """
         from ...runtime import Runtime
+        from ...runtime.root_request_coordinator import run_root_request
 
         rt = Runtime(workspace=self, app_services=self._app_services)
-        async for item in rt.run(request):
+        session_id = str(
+            trusted_root_session_id
+            or getattr(request, "session_id", "")
+            or (
+                request.get("session_id", "")
+                if isinstance(request, dict)
+                else ""
+            ),
+        )
+        async for item in run_root_request(
+            rt,
+            request,
+            trusted_root_session_id=session_id,
+            inherited_binding=inherited_binding,
+            resume_token=resume_token,
+        ):
             yield item
 
     def _register_services(  # pylint: disable=too-many-statements

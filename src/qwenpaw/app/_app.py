@@ -173,12 +173,28 @@ class DynamicMultiAgentRunner:
             )
 
             from ..runtime.runtime import Runtime
+            from ..runtime.root_request_coordinator import run_root_request
 
             rt = Runtime(
                 workspace=workspace,
                 app_services=self._app_services,
             )
-            async for item in rt.run(request):
+            trusted_root_session_id = str(
+                getattr(request, "session_id", "")
+                or (
+                    request.get("session_id", "")
+                    if isinstance(request, dict)
+                    else ""
+                )
+                or run_key,
+            )
+            async for item in run_root_request(
+                rt,
+                request,
+                trusted_root_session_id=trusted_root_session_id,
+                inherited_binding=kwargs.get("inherited_binding"),
+                resume_token=kwargs.get("resume_token"),
+            ):
                 yield item
         except Exception as e:
             logger.error(

@@ -30,6 +30,7 @@ from ..telemetry.trace import (
 )
 from ..telemetry.trace import validate_browser_trace_events
 from .kernel import BrowserKernelResult, get_default_kernel_manager
+from .session_owner import ContractMode
 
 register_isolated_backend_once()
 register_browser_loop_gate_provider_once()
@@ -107,7 +108,12 @@ async def browser(
 ) -> ToolChunk:
     """Execute Browser SDK Python code in a session-scoped kernel."""
     session_id = _current_session_id()
-    root_session_id = _current_root_session_id(session_id)
+    trusted_binding = _current_browser_binding()
+    root_session_id = (
+        trusted_binding[0]
+        if trusted_binding is not None
+        else _current_root_session_id(session_id)
+    )
     request_scope_key = _current_request_scope_key(session_id)
     trace_store = get_browser_trace_store()
     trace_start_index = len(trace_store.list(session_id))
@@ -115,7 +121,18 @@ async def browser(
         trace_store.list(session_id),
         request_scope_key=request_scope_key,
     )
-    if fail_fast_code:
+    if trusted_binding is None:
+        result = BrowserKernelResult(
+            output="",
+            return_value=None,
+            error={
+                "type": "BrowserOwnershipInvariantError",
+                "message": "Trusted Browser ownership context is missing.",
+                "code": "browser_ownership_context_missing",
+                "action": "browser_context_validation",
+            },
+        )
+    elif fail_fast_code:
         record_browser_trace_event(
             session_id=session_id,
             phase="tool",
@@ -145,6 +162,10 @@ async def browser(
         result = await get_default_kernel_manager().execute(
             session_id=session_id,
             root_session_id=root_session_id,
+            root_task_id=trusted_binding[1],
+            browser_owner_id=trusted_binding[2],
+            contract_mode=trusted_binding[3],
+            lease_generation=trusted_binding[4],
             code=code,
             context=context,  # type: ignore[arg-type]
             request_scope_key=request_scope_key,
@@ -217,6 +238,48 @@ def _current_root_session_id(session_id: str) -> str:
         return get_current_root_session_id() or session_id or "default"
     except Exception:  # pragma: no cover - defensive runtime fallback
         return session_id or "default"
+
+
+def _current_browser_binding() -> (
+    tuple[str, str, str, ContractMode, int] | None
+):
+    """Read only registry-issued identity copied into ToolCallContext."""
+    try:
+        from qwenpaw.tool_calls import get_call_context
+
+        call_context = get_call_context()
+    except Exception:  # pragma: no cover - defensive import boundary
+        return None
+    if call_context is None:
+        return None
+    root_session_id = str(
+        getattr(call_context, "root_session_id", "") or "",
+    ).strip()
+    root_task_id = str(
+        getattr(call_context, "root_task_id", "") or "",
+    ).strip()
+    browser_owner_id = str(
+        getattr(call_context, "browser_owner_id", "") or "",
+    ).strip()
+    mode = getattr(call_context, "contract_mode", None)
+    generation = getattr(call_context, "lease_generation", 0)
+    identities_valid = all(
+        (root_session_id, root_task_id, browser_owner_id),
+    )
+    if (
+        not identities_valid
+        or not isinstance(mode, ContractMode)
+        or not isinstance(generation, int)
+        or generation <= 0
+    ):
+        return None
+    return (
+        root_session_id,
+        root_task_id,
+        browser_owner_id,
+        mode,
+        generation,
+    )
 
 
 def _current_request_scope_key(session_id: str) -> str:

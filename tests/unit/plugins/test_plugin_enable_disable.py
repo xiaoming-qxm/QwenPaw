@@ -30,7 +30,7 @@ async def _load_browser_bridge(
     loader.registry.set_plugin_http_app(app)
     await loader.load_plugin_from_path(
         source_path=plugin_dir,
-        install_dir=plugin_dir.parent,
+        install_dir=tmp_path,
     )
     app.state.plugin_loader = loader
     return loader
@@ -49,22 +49,21 @@ async def test_patch_plugin_disable_persists_and_unloads(
     client = TestClient(app)
 
     response = client.patch(
-        "/api/plugins/browser-bridge",
+        "/api/plugins/chrome",
         json={"enabled": False},
     )
 
     assert response.status_code == 200
     assert response.json()["enabled"] is False
-    record = loader.get_loaded_plugin("browser-bridge")
+    record = loader.get_loaded_plugin("chrome")
     assert record is not None
     assert record.enabled is False
     assert record.instance is None
-    assert PluginStateStore().is_enabled("browser-bridge") is False
+    assert PluginStateStore().is_enabled("chrome") is False
     listed = {
         plugin["id"]: plugin for plugin in client.get("/api/plugins").json()
     }
-    assert listed["browser-bridge"]["enabled"] is False
-    assert listed["browser-bridge"]["loaded"] is False
+    assert "chrome" not in listed
 
     second_app = FastAPI()
     second_loader = await _load_browser_bridge(
@@ -72,7 +71,7 @@ async def test_patch_plugin_disable_persists_and_unloads(
         tmp_path,
         monkeypatch,
     )
-    restarted = second_loader.get_loaded_plugin("browser-bridge")
+    restarted = second_loader.get_loaded_plugin("chrome")
 
     assert restarted is not None
     assert restarted.enabled is False
@@ -90,18 +89,18 @@ async def test_patch_plugin_reenable_loads_plugin_again(
     client = TestClient(app)
 
     disabled = client.patch(
-        "/api/plugins/browser-bridge",
+        "/api/plugins/chrome",
         json={"enabled": False},
     )
     enabled = client.patch(
-        "/api/plugins/browser-bridge",
+        "/api/plugins/chrome",
         json={"enabled": True},
     )
 
     assert disabled.status_code == 200
     assert enabled.status_code == 200
     assert enabled.json()["enabled"] is True
-    record = loader.get_loaded_plugin("browser-bridge")
+    record = loader.get_loaded_plugin("chrome")
     assert record is not None
     assert record.enabled is True
     assert record.instance is not None

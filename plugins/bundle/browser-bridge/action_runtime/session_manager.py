@@ -17,6 +17,14 @@ def _control_holder_id(
 ) -> str:
     workspace_id = state.get("workspace_id") or "default"
     request_context = request_context or {}
+    root_task_id = str(request_context.get("root_task_id") or "").strip()
+    browser_owner_id = str(
+        request_context.get("browser_owner_id") or "",
+    ).strip()
+    if root_task_id and browser_owner_id:
+        return (
+            f"browser_sdk:{workspace_id}:" f"{root_task_id}:{browser_owner_id}"
+        )
     session_scope = str(
         request_context.get("root_session_id")
         or request_context.get("session_id")

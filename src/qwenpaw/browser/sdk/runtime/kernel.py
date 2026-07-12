@@ -13,6 +13,7 @@ from time import monotonic
 from typing import Any, Callable
 
 from ..primitives.types import BrowserArtifact, BrowserContext, BrowserIntent
+from .session_owner import ContractMode
 from .executor import BrowserCodeExecutor, InProcessBrowserCodeExecutor
 
 _DEFAULT_IDLE_TTL_SECONDS = 300.0
@@ -24,7 +25,11 @@ class BrowserExecutionContext:
 
     session_id: str
     context: BrowserContext
-    root_session_id: str = ""
+    root_session_id: str
+    root_task_id: str
+    browser_owner_id: str
+    contract_mode: ContractMode
+    lease_generation: int
     requires_user_state: bool | None = None
     browser_intent: BrowserIntent | None = None
     request_scope_key: str = ""
@@ -106,16 +111,24 @@ class BrowserKernelRuntime:
         session_id: str,
         code: str,
         context: BrowserContext,
+        root_session_id: str,
+        root_task_id: str,
+        browser_owner_id: str,
+        contract_mode: ContractMode,
+        lease_generation: int,
         requires_user_state: bool | None = None,
         browser_intent: BrowserIntent | None = None,
         request_scope_key: str = "",
-        root_session_id: str = "",
     ) -> BrowserKernelResult:
         """Execute code in a session-scoped browser kernel."""
         execution_context = BrowserExecutionContext(
             session_id=session_id,
             context=context,
-            root_session_id=root_session_id or session_id,
+            root_session_id=root_session_id,
+            root_task_id=root_task_id,
+            browser_owner_id=browser_owner_id,
+            contract_mode=contract_mode,
+            lease_generation=lease_generation,
             requires_user_state=requires_user_state,
             browser_intent=browser_intent,
             request_scope_key=request_scope_key,
@@ -211,6 +224,10 @@ class BrowserKernel:
             session_id=execution_context.session_id,
             code=code,
             context=execution_context.context,
+            root_task_id=execution_context.root_task_id,
+            browser_owner_id=execution_context.browser_owner_id,
+            contract_mode=execution_context.contract_mode,
+            lease_generation=execution_context.lease_generation,
             requires_user_state=execution_context.requires_user_state,
             browser_intent=execution_context.browser_intent,
             request_scope_key=execution_context.request_scope_key,

@@ -9,6 +9,7 @@ import pytest
 from agentscope.message import DataBlock, TextBlock, ToolResultState, URLSource
 from agentscope.tool import ToolResponse
 
+from qwenpaw.browser.sdk.runtime.session_owner import ContractMode
 from qwenpaw.constant import TRUNCATION_NOTICE_MARKER
 from qwenpaw.tool_calls._context import ToolCallContext
 from qwenpaw.tool_calls._result_limiter import (
@@ -24,6 +25,10 @@ def _ctx() -> ToolCallContext:
         session_id="session-1",
         agent_id="agent-1",
         root_session_id="root-1",
+        root_task_id="root-task-1",
+        browser_owner_id="browser-owner-1",
+        contract_mode=ContractMode.LEGACY,
+        lease_generation=1,
         started_at=0.0,
         deadline=None,
         cancel_event=asyncio.Event(),

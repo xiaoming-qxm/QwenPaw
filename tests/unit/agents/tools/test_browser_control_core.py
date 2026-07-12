@@ -210,12 +210,12 @@ async def test_cdp_relay_sends_jsonrpc_and_returns_result() -> None:
     assert bridge.requests == [
         (
             "cdp.send",
-                {
-                    "tabId": 3,
-                    "ownerId": "holder",
-                    "holderId": "holder",
-                    "method": "Accessibility.getFullAXTree",
-                    "params": {},
+            {
+                "tabId": 3,
+                "ownerId": "holder",
+                "holderId": "holder",
+                "method": "Accessibility.getFullAXTree",
+                "params": {},
             },
         ),
     ]

@@ -98,14 +98,14 @@ def test_ws_accepts_valid_bearer_token_and_rejects_invalid(tmp_path) -> None:
     client = TestClient(_app_with_router(bridge))
 
     with client.websocket_connect(
-        "/ws/browser-bridge",
+        "/ws/chrome",
         headers={"Authorization": "Bearer secret"},
     ):
         assert bridge.attached is True
 
     with pytest.raises(Exception) as exc_info:
         with client.websocket_connect(
-            "/ws/browser-bridge",
+            "/ws/chrome",
             headers={"Authorization": "Bearer wrong"},
         ):
             pass

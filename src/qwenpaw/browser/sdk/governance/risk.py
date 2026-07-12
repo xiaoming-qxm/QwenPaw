@@ -70,7 +70,7 @@ _SENSITIVE_KEYWORDS = set().union(
 )
 
 
-# pylint: disable-next=too-many-return-statements
+# pylint: disable-next=too-many-return-statements,too-many-branches
 def classify_browser_action(
     action: str,
     kwargs: Mapping[str, Any],
@@ -215,7 +215,9 @@ def classify_browser_action(
                 boundary_severity="operational",
                 confidence=_best_confidence(evidence, 0.9),
                 evidence=evidence,
-                decision_reason="target evidence identifies ordinary navigation",
+                decision_reason=(
+                    "target evidence identifies ordinary navigation"
+                ),
                 consequence_summary=_consequence_summary(
                     "navigate",
                     evidence,
@@ -515,7 +517,9 @@ def _is_reversible_account_state(kwargs: Mapping[str, Any]) -> bool:
     values = [kwargs.get("consequence")]
     if isinstance(target, Mapping):
         values.append(target.get("consequence"))
-    return any(_normalize(value) == "account_state_reversible" for value in values)
+    return any(
+        _normalize(value) == "account_state_reversible" for value in values
+    )
 
 
 def _best_confidence(

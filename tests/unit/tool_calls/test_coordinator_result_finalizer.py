@@ -11,6 +11,7 @@ import pytest
 from agentscope.message import TextBlock, ToolResultBlock
 from agentscope.tool import ToolResponse
 
+from qwenpaw.browser.sdk.runtime.session_owner import ContractMode
 from qwenpaw.tool_calls import ToolCoordinator, ToolCoordinatorMiddleware
 from qwenpaw.tool_calls._context import ToolCallContext
 from qwenpaw.tool_calls._entry import ToolCallEntry
@@ -114,6 +115,10 @@ async def test_foreground_finalizer_runs_after_after_hook(tmp_path):
                 session_id="session-1",
                 agent_id="agent-1",
                 root_session_id="root-1",
+                root_task_id="root-task-1",
+                browser_owner_id="browser-owner-1",
+                contract_mode=ContractMode.LEGACY,
+                lease_generation=1,
                 result_finalizer=finalizer,
             ),
         ),
@@ -152,6 +157,10 @@ async def test_middleware_caller_observes_capped_response(tmp_path):
                 "session_id": "session-1",
                 "agent_id": "agent-1",
                 "root_session_id": "root-1",
+                "root_task_id": "root-task-1",
+                "browser_owner_id": "browser-owner-1",
+                "contract_mode": ContractMode.LEGACY,
+                "lease_generation": 1,
             },
         },
     )()
@@ -197,6 +206,10 @@ async def test_async_finalizer_is_awaited():
             session_id="session-1",
             agent_id="agent-1",
             root_session_id="root-1",
+            root_task_id="root-task-1",
+            browser_owner_id="browser-owner-1",
+            contract_mode=ContractMode.LEGACY,
+            lease_generation=1,
             result_finalizer=finalizer,
         ),
     )
@@ -236,6 +249,10 @@ async def test_background_completion_hint_uses_finalized_response(tmp_path):
             session_id="session-bg",
             agent_id="agent-1",
             root_session_id="root-1",
+            root_task_id="root-task-1",
+            browser_owner_id="browser-owner-1",
+            contract_mode=ContractMode.LEGACY,
+            lease_generation=1,
             result_finalizer=finalizer,
         ),
     )
@@ -274,6 +291,10 @@ async def test_caller_cancellation_does_not_cancel_background_task():
             session_id="session-cancel",
             agent_id="agent-1",
             root_session_id="root-1",
+            root_task_id="root-task-1",
+            browser_owner_id="browser-owner-1",
+            contract_mode=ContractMode.LEGACY,
+            lease_generation=1,
             started_at=0.0,
             deadline=None,
             cancel_event=asyncio.Event(),

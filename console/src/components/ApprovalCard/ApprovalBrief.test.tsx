@@ -33,8 +33,7 @@ function approvalProps(
       risk_kind: "purchase",
       risk_level: "high",
       confidence: 0.82,
-      why_approval_required:
-        "The action may create a financial obligation.",
+      why_approval_required: "The action may create a financial obligation.",
       safe_alternative: "Review the checkout page manually.",
     },
     createdAt: Date.now() / 1000,
@@ -58,9 +57,7 @@ describe("ApprovalBrief", () => {
     expect(screen.getByText("Place order")).toBeInTheDocument();
     expect(screen.getByText("Cart total")).toBeInTheDocument();
     expect(screen.getByText("purchase / high")).toBeInTheDocument();
-    expect(
-      screen.getByText("A paid order may be placed"),
-    ).toBeInTheDocument();
+    expect(screen.getByText("A paid order may be placed")).toBeInTheDocument();
     expect(
       screen.getByText("Review the checkout page manually."),
     ).toBeInTheDocument();
