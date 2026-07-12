@@ -126,6 +126,11 @@ function sendEvent(method, params) {
   });
 }
 
+const BROWSER_BUILD_FINGERPRINT = "build-1";
+const BROWSER_CONTRACT_FINGERPRINT = "contract-v1";
+const BROWSER_PROFILE_FINGERPRINT = "profile-v1";
+const BROWSER_EXTENSION_FINGERPRINT = "extension@build-1";
+
 function hasControlInterest() {
   return managedTabs.size > 0 || createdTabs.size > 0 || tabMetadata.size > 0;
 }
@@ -146,6 +151,10 @@ async function storeTabProtocolMetadata(tabId, metadata) {
     workspaceId: String(metadata.workspaceId || ""),
     ownershipState: String(metadata.ownershipState || ""),
     createdByQwenPaw: Boolean(metadata.createdByQwenPaw),
+    buildFingerprint: BROWSER_BUILD_FINGERPRINT,
+    contractFingerprint: BROWSER_CONTRACT_FINGERPRINT,
+    profileFingerprint: BROWSER_PROFILE_FINGERPRINT,
+    extensionFingerprint: BROWSER_EXTENSION_FINGERPRINT,
   };
   if (normalized.protocolVersion === 2) {
     if (!normalized.ownerId || !normalized.workspaceId) {

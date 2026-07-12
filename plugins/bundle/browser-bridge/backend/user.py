@@ -115,6 +115,12 @@ class ChromeExtensionBrowserBackend:
             features=frozenset({"chrome_extension_bridge"}),
         )
 
+    def profile(self):
+        """Return exact reviewed variants; diagnostics may only narrow them."""
+        from ..action_runtime.handlers.capabilities import backend_profile
+
+        return backend_profile()
+
     def is_available(self) -> bool:
         bridge = self._bridge()
         if bridge is None:
@@ -2178,16 +2184,38 @@ def _chunk_payload(chunk: Any) -> dict[str, Any]:
     if isinstance(chunk, dict):
         return chunk
     try:
-        content = getattr(chunk, "content", [])
-        first = content[0] if content else None
-        text = getattr(first, "text", "")
-    except (AttributeError, IndexError, TypeError):
-        text = str(chunk)
-    try:
-        parsed = json.loads(text)
-    except (TypeError, ValueError):
-        return {"ok": False, "message": str(text or "")}
-    return parsed if isinstance(parsed, dict) else {"ok": False}
+        content = list(getattr(chunk, "content", []) or [])
+    except (AttributeError, TypeError):
+        content = []
+    payload: dict[str, Any] | None = None
+    blocks: list[dict[str, Any]] = []
+    for block in content:
+        text = getattr(block, "text", None)
+        if isinstance(text, str):
+            try:
+                parsed = json.loads(text)
+            except (TypeError, ValueError):
+                blocks.append({"kind": "text", "text": text})
+            else:
+                if payload is None and isinstance(parsed, dict):
+                    payload = parsed
+                else:
+                    blocks.append({"kind": "text", "text": text})
+            continue
+        source = getattr(block, "source", None)
+        blocks.append(
+            {
+                "kind": str(getattr(block, "type", "data")),
+                "source": source,
+                "name": str(getattr(block, "name", "") or ""),
+            },
+        )
+    if payload is None:
+        payload = {"ok": False, "message": str(chunk)}
+    if blocks:
+        payload = dict(payload)
+        payload["_ordered_blocks"] = blocks
+    return payload
 
 
 def _diagnostic_observed_at() -> str:

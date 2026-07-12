@@ -182,6 +182,7 @@ def _new_namespace(
         from ..canonical.proxy import (
             BrowserProxyClass as canonical_browser_proxy,
         )
+        from ..canonical.proxy import canonical_value_namespace
 
         browser_proxy: Any = canonical_browser_proxy
         connect_browser = canonical_browser_proxy.connect
@@ -204,6 +205,8 @@ def _new_namespace(
             "connect_browser": connect_browser,
         },
     )
+    if mode is ContractMode.CANONICAL:
+        namespace.update(canonical_value_namespace())
     namespace.update(
         {
             f"e{index}": f"e{index}"

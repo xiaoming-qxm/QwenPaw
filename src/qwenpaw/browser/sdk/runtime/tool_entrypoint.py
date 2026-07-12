@@ -30,6 +30,7 @@ from ..telemetry.trace import (
 )
 from ..telemetry.trace import validate_browser_trace_events
 from .kernel import BrowserKernelResult, get_default_kernel_manager
+from .result_delivery import BrowserResultProjector
 from .session_owner import ContractMode
 
 register_isolated_backend_once()
@@ -170,7 +171,11 @@ async def browser(
             context=context,  # type: ignore[arg-type]
             request_scope_key=request_scope_key,
         )
-    ok = result.error is None
+    ok = (
+        result.envelope.terminal_result.status in {"SUCCEEDED", "PARTIAL"}
+        if result.envelope is not None
+        else result.error is None
+    )
     trace_events = trace_store.list(session_id)[trace_start_index:]
     if result.error and not trace_events:
         record_browser_trace_event(
@@ -313,12 +318,23 @@ def _metadata(
         "session_id": session_id,
         "request_scope_key": request_scope_key,
         "context": context,
-        "output": result.output,
-        "return_value": result.return_value,
         "browser_trace": browser_trace,
         "progress_decision": progress_decision.to_dict(),
         "trace_validation": validate_browser_trace_events(browser_trace),
     }
+    if result.envelope is None:
+        metadata["output"] = result.output
+        metadata["return_value"] = result.return_value
+    else:
+        terminal = result.envelope.terminal_result
+        metadata["terminal"] = {
+            "operation_id": terminal.operation_id,
+            "status": terminal.status,
+            "problem": (
+                terminal.problem.code if terminal.problem is not None else None
+            ),
+            "retry": terminal.retry,
+        }
     if browser_trace:
         metadata["trace_event_id"] = str(browser_trace[-1].get("event_id"))
     if result.error:
@@ -431,6 +447,20 @@ def _summary_text(
     result: BrowserKernelResult,
     progress_decision: BrowserProgressDecision | None = None,
 ) -> str:
+    if result.envelope is not None:
+        projected = BrowserResultProjector().project(
+            result.envelope,
+            profile=type(
+                "CanonicalProjectionProfile",
+                (),
+                {"text": True, "data": True, "image": True, "artifact": True},
+            )(),
+        )
+        return "\n".join(
+            block.text
+            for block in projected
+            if block.kind == "text" and block.text
+        )
     if result.error:
         text = _error_summary_text(result.error)
         if progress_decision is not None and progress_decision.blocked:

@@ -147,6 +147,37 @@ const BrowserCompactCard: React.FC<BrowserCompactCardProps> = ({
           )}
         </dl>
       )}
+      {(operation.terminalStatus ||
+        operation.problemCode ||
+        operation.retryDirective ||
+        operation.requiredDeliveryFailure) && (
+        <dl aria-label="Browser result" className={styles.browserCompactRows}>
+          {operation.terminalStatus && (
+            <div className={styles.browserCompactRow}>
+              <dt>Terminal</dt>
+              <dd>{operation.terminalStatus}</dd>
+            </div>
+          )}
+          {operation.problemCode && (
+            <div className={styles.browserCompactRow}>
+              <dt>Problem</dt>
+              <dd>{operation.problemCode}</dd>
+            </div>
+          )}
+          {operation.retryDirective && (
+            <div className={styles.browserCompactRow}>
+              <dt>Retry</dt>
+              <dd>{operation.retryDirective}</dd>
+            </div>
+          )}
+          {operation.requiredDeliveryFailure && (
+            <div className={styles.browserCompactRow}>
+              <dt>Delivery</dt>
+              <dd>{operation.requiredDeliveryFailure}</dd>
+            </div>
+          )}
+        </dl>
+      )}
       {operation.rawTrace && (
         <details className={styles.browserCompactRawTrace}>
           <summary>Raw trace</summary>

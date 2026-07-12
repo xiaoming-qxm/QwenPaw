@@ -148,7 +148,11 @@ class ToolResultLimiter:
         )
         result = _copy_response_with_content(response, limited_content)
 
-        if _total_text_bytes(result.content or []) > self._max_text_bytes:
+        if _total_text_bytes(
+            result.content or [],
+        ) > self._max_text_bytes and not any(
+            _is_protected(block) for block in result.content or []
+        ):
             return self._fail_closed(response)
 
         logger.info(
@@ -280,7 +284,7 @@ class ToolResultLimiter:
         content = [
             block
             for block in list(response.content or [])
-            if not _is_text_block(block)
+            if not _is_text_block(block) or _is_protected(block)
         ]
         notice = _utf8_prefix(
             (
@@ -325,6 +329,11 @@ def _retain_text_content(
     for block in content:
         if not _is_text_block(block):
             retained_content.append(block)
+            continue
+
+        if _is_protected(block):
+            retained_content.append(block)
+            retained_bytes += _byte_len(_get_text(block))
             continue
 
         if remaining <= 0:
@@ -373,6 +382,12 @@ def _get_text(block: Any) -> str:
     if isinstance(block, dict):
         return block.get("text", "")
     return getattr(block, "text", "")
+
+
+def _is_protected(block: Any) -> bool:
+    if isinstance(block, dict):
+        return block.get("protected") is True
+    return getattr(block, "protected", False) is True
 
 
 def _copy_text_block(block: Any, text: str) -> Any:

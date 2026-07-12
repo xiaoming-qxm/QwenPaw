@@ -7,12 +7,39 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from ..backends.registry import get_default_backend_registry
-from ..governance.errors import BrowserContextUnavailable, BrowserSDKError
+from ..governance.errors import (
+    BrowserContextUnavailable,
+    BrowserSDKError,
+    BrowserSDKGap,
+)
 from ..governance.resolver import BrowserContextResolver
 from ..primitives.types import BrowserOwnershipContext, ResolvedBrowserContext
 from ..runtime.kernel import get_current_execution_context
+from ..runtime.resources import ResourceStore, get_or_create_resource_store
 from ..runtime.session_owner import ContractMode
+from .contracts import ResourceHandle
 from .tabs import BrowserTabs
+
+
+@dataclass(frozen=True, slots=True)
+class BrowserResources:
+    """Thin public view over the current task-owned ResourceStore."""
+
+    _store: ResourceStore = field(repr=False)
+
+    def list(self) -> list[ResourceHandle]:
+        return self._store.list()
+
+    def require(self, resource_id: str) -> ResourceHandle:
+        return self._store.require(resource_id)
+
+    def from_workspace(self, path: str) -> ResourceHandle:
+        del path
+        raise BrowserSDKGap(
+            "Workspace resource ingress is not available in S1.",
+            action="browser.resources.from_workspace",
+            metadata={"capability": "resource.workspace_ingress"},
+        )
 
 
 @dataclass(slots=True)
@@ -23,10 +50,17 @@ class Browser:
     context: ResolvedBrowserContext
     ownership_context: BrowserOwnershipContext
     tabs: BrowserTabs = field(init=False)
+    resources: BrowserResources = field(init=False)
     _closed: bool = field(default=False, init=False, repr=False)
 
     def __post_init__(self) -> None:
-        self.tabs = BrowserTabs(self.session)
+        owner_key = (
+            self.ownership_context.request_scope_key.split(":", 1)[0],
+            self.ownership_context.owner_id,
+        )
+        store = get_or_create_resource_store(owner_key)
+        self.tabs = BrowserTabs(self.session, store)
+        self.resources = BrowserResources(store)
 
     @classmethod
     async def connect(
@@ -99,6 +133,50 @@ class Browser:
         """Release the current SDK lease only."""
         self._closed = True
 
+    @property
+    def capabilities(self) -> dict[str, Any]:
+        """Return reviewed static build/release capability truth."""
+        from ..docs.capabilities import browser_support_manifest
+
+        return browser_support_manifest()
+
+    @property
+    def session_capabilities(self) -> dict[str, Any]:
+        """Return static truth narrowed by explicit backend session profile."""
+        from ..docs.capabilities import (
+            browser_support_manifest,
+            compute_session_capabilities,
+        )
+
+        backend = get_default_backend_registry().profile(
+            self.context.backend_id,
+        )
+        if backend is None:
+            return {"ready": (), "blocked": {"all": "backend_profile_missing"}}
+        execution = get_current_execution_context()
+        provider = getattr(execution, "provider_block_profile", None)
+        if provider is None:
+            provider = type(
+                "NoProviderBlocks",
+                (),
+                {
+                    "text": False,
+                    "data": False,
+                    "image": False,
+                    "artifact": False,
+                },
+            )()
+        session = compute_session_capabilities(
+            manifest=browser_support_manifest(),
+            backend=backend,
+            provider=provider,
+            session_ready=frozenset(backend.variants),
+        )
+        return {
+            "ready": tuple(sorted(session.ready)),
+            "blocked": session.blocked,
+        }
+
 
 def execution_binding(execution: Any):
     """Build the exact registry binding from trusted kernel context."""
@@ -113,4 +191,4 @@ def execution_binding(execution: Any):
     )
 
 
-__all__ = ["Browser"]
+__all__ = ["Browser", "BrowserResources"]

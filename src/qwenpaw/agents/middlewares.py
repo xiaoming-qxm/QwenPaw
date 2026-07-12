@@ -584,7 +584,11 @@ class ToolResultPruningMiddleware(MiddlewareBase):
             return self._truncate_tool_result(output, max_bytes, encoding)
         if isinstance(output, list):
             for block in output:
-                if isinstance(block, dict) and block.get("type") == "text":
+                if (
+                    isinstance(block, dict)
+                    and block.get("type") == "text"
+                    and block.get("protected") is not True
+                ):
                     block["text"] = self._truncate_tool_result(
                         block.get("text", ""),
                         max_bytes,

@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from qwenpaw.browser.sdk.backends.protocols import BackendProfile
 from qwenpaw.browser.sdk.runtime.responses import (
     _browser_output_dir,
     _safe_download_filename,
@@ -45,6 +46,25 @@ _FILE_CLICK_FUNCTION = (
     "return true; "
     "}"
 )
+
+
+def backend_profile() -> BackendProfile:
+    """Return reviewed exact ResultDelivery variants for this package build."""
+    return BackendProfile(
+        variants={
+            "result.terminal_delivery": "READY",
+            "result.model_image_delivery": "READY",
+            "result.artifact_delivery": "READY",
+        },
+        hard_limits={
+            "max_image_bytes": 20 * 1024 * 1024,
+            "max_artifact_bytes": 20 * 1024 * 1024,
+        },
+        contract_fingerprint="contract-v1",
+        profile_fingerprint="profile-v1",
+        build_fingerprint="build-1",
+        extension_fingerprint="extension@build-1",
+    )
 
 
 @dataclass(frozen=True)
@@ -512,4 +532,5 @@ __all__ = [
     "DownloadHandler",
     "UPLOAD_HANDLER",
     "UploadHandler",
+    "backend_profile",
 ]

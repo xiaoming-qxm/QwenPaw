@@ -221,6 +221,11 @@ class AgentBuilder:
         # Model + formatter (built before the toolkit so the scroll context
         # strategy, which needs the model for token counting, can wire in).
         model, _formatter = self.build_model(agent_config)
+        from ..agents.model_factory import build_provider_block_profile
+
+        request_context[
+            "provider_block_profile"
+        ] = build_provider_block_profile(model, _formatter)
 
         # Built once and shared: the agent's native offloader, and (when
         # ``offload_dialog`` is on) scroll's optional dialog archive.

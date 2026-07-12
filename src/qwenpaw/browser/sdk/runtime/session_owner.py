@@ -205,6 +205,7 @@ class BrowserSessionOwnerRegistry:
         outcome: RootTaskOutcome,
     ) -> None:
         """Clear terminal owners while preserving trusted retained states."""
+        terminal = False
         async with self._lock:
             state = self._require_owner(binding)
             if state.binding.lease_generation != binding.lease_generation:
@@ -217,6 +218,11 @@ class BrowserSessionOwnerRegistry:
                 state.lease_active = False
                 return
             self._drop_owner(binding.owner_key)
+            terminal = True
+        if terminal:
+            from .resources import cleanup_resource_store
+
+            await cleanup_resource_store(binding.owner_key)
 
     async def retain(
         self,

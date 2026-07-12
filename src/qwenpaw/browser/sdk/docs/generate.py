@@ -161,6 +161,26 @@ def check_generated_artifacts(
             return False
         if path.read_text(encoding="utf-8") != content:
             return False
+    if mode == "canonical" and not _check_support_manifest():
+        return False
+    return True
+
+
+def _check_support_manifest() -> bool:
+    from .capabilities import browser_support_manifest
+
+    payload = browser_support_manifest()
+    build = str(payload.get("build_fingerprint") or "")
+    if not build or not payload.get("capabilities"):
+        return False
+    for row in payload["capabilities"]:
+        if row.get("status") != "READY":
+            continue
+        evidence = row.get("validation_evidence") or ()
+        if not evidence or any(
+            not str(item).endswith(f"@{build}") for item in evidence
+        ):
+            return False
     return True
 
 

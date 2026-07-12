@@ -8,7 +8,7 @@ from collections.abc import Iterable
 from typing import Any
 
 from ..primitives.types import ConcreteBrowserContext
-from .protocols import BrowserBackend
+from .protocols import BackendProfile, BrowserBackend
 
 
 class BrowserBackendRegistry:
@@ -40,6 +40,17 @@ class BrowserBackendRegistry:
     def all(self) -> list[BrowserBackend]:
         """Return all backends in registration order."""
         return list(self._backends.values())
+
+    def profile(self, backend_id: str) -> BackendProfile | None:
+        """Return an explicit profile without inferring capabilities."""
+        backend = self.get(backend_id)
+        if backend is None:
+            return None
+        build_profile = getattr(backend, "profile", None)
+        if not callable(build_profile):
+            return None
+        profile = build_profile()
+        return profile if isinstance(profile, BackendProfile) else None
 
     def clear(self) -> None:
         """Remove all registered backends."""

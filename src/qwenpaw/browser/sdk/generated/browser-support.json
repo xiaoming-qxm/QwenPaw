@@ -1,0 +1,36 @@
+{
+  "schema_version": "browser-support-v1",
+  "build_fingerprint": "build-1",
+  "contract_fingerprint": "contract-v1",
+  "profile_fingerprint": "profile-v1",
+  "extension_fingerprint": "extension@build-1",
+  "capabilities": [
+    {
+      "capability_id": "result.terminal_delivery",
+      "family": "ResultDelivery",
+      "requirement": "REQUIRED",
+      "status": "READY",
+      "limits": {},
+      "required_blocks": [],
+      "validation_evidence": ["result.terminal-preserved@build-1"]
+    },
+    {
+      "capability_id": "result.model_image_delivery",
+      "family": "ResultDelivery",
+      "requirement": "REQUIRED",
+      "status": "READY",
+      "limits": {"max_image_bytes": 20971520},
+      "required_blocks": ["image"],
+      "validation_evidence": ["result.required-image@build-1"]
+    },
+    {
+      "capability_id": "result.artifact_delivery",
+      "family": "ResultDelivery",
+      "requirement": "REQUIRED",
+      "status": "READY",
+      "limits": {"max_artifact_bytes": 20971520},
+      "required_blocks": ["artifact"],
+      "validation_evidence": ["result.required-artifact@build-1"]
+    }
+  ]
+}

@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
 
 from ..primitives.types import (
@@ -17,6 +18,34 @@ from ..primitives.types import (
     BrowserScreenshot,
     ResolvedBrowserContext,
 )
+
+
+@dataclass(frozen=True, slots=True)
+class BackendProfile:
+    """Exact build-reviewed backend variants and immutable fingerprints."""
+
+    variants: dict[str, str]
+    hard_limits: dict[str, int]
+    contract_fingerprint: str
+    profile_fingerprint: str
+    build_fingerprint: str
+    extension_fingerprint: str
+
+    def __post_init__(self) -> None:
+        if any(
+            status not in {"READY", "BLOCKED"}
+            for status in self.variants.values()
+        ):
+            raise ValueError("backend variant status must be READY or BLOCKED")
+        if not all(
+            (
+                self.contract_fingerprint,
+                self.profile_fingerprint,
+                self.build_fingerprint,
+                self.extension_fingerprint,
+            ),
+        ):
+            raise ValueError("backend fingerprints are required")
 
 
 @runtime_checkable
@@ -185,4 +214,4 @@ class BrowserBackend(Protocol):
         """Return static backend capabilities."""
 
 
-__all__ = ["BrowserBackend", "BrowserSession"]
+__all__ = ["BackendProfile", "BrowserBackend", "BrowserSession"]

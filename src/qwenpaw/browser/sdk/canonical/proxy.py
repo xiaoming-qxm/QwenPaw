@@ -6,6 +6,7 @@ from __future__ import annotations
 from typing import Any
 
 from ..governance.errors import BrowserPolicyDenied
+from .contracts import canonical_value_namespace
 from .facade import Browser
 
 
@@ -28,4 +29,4 @@ class _BrowserFactoryProxy:
 
 BrowserProxyClass = _BrowserFactoryProxy()
 
-__all__ = ["BrowserProxyClass"]
+__all__ = ["BrowserProxyClass", "canonical_value_namespace"]

@@ -13,8 +13,14 @@ from time import monotonic
 from typing import Any, Callable
 
 from ..primitives.types import BrowserArtifact, BrowserContext, BrowserIntent
-from .session_owner import ContractMode
 from .executor import BrowserCodeExecutor, InProcessBrowserCodeExecutor
+from .result_delivery import (
+    BrowserExecutionCollector,
+    BrowserExecutionEnvelope,
+    install_result_collector,
+    reset_result_collector,
+)
+from .session_owner import ContractMode
 
 _DEFAULT_IDLE_TTL_SECONDS = 300.0
 
@@ -43,6 +49,7 @@ class BrowserKernelResult:
     return_value: str | None
     error: dict[str, Any] | None
     artifacts: tuple[BrowserArtifact, ...] = ()
+    envelope: BrowserExecutionEnvelope | None = None
 
 
 _CURRENT_EXECUTION_CONTEXT: ContextVar[
@@ -135,32 +142,55 @@ class BrowserKernelRuntime:
         )
         stdout_capture = io.StringIO()
         token = set_current_execution_context(execution_context)
-        artifacts_token = _CURRENT_ARTIFACTS.set([])
+        canonical = contract_mode is ContractMode.CANONICAL
+        collector = BrowserExecutionCollector() if canonical else None
+        collector_token = (
+            install_result_collector(collector)
+            if collector is not None
+            else None
+        )
+        artifacts_token = _CURRENT_ARTIFACTS.set(None if canonical else [])
         try:
             with contextlib.redirect_stdout(stdout_capture):
                 result = await self._executor.execute(
                     code,
                     execution_context=execution_context,
                 )
+            envelope = (
+                collector.finalize(python_value=result, error=None)
+                if collector is not None
+                else None
+            )
             return BrowserKernelResult(
-                output=stdout_capture.getvalue(),
-                return_value=repr(result) if result is not None else None,
+                output="" if canonical else stdout_capture.getvalue(),
+                return_value=(
+                    None if canonical or result is None else repr(result)
+                ),
                 error=None,
-                artifacts=drain_browser_artifacts(),
+                artifacts=() if canonical else drain_browser_artifacts(),
+                envelope=envelope,
             )
         except asyncio.CancelledError:
             _record_kernel_cancelled(execution_context)
             raise
         except Exception as exc:  # noqa: BLE001
+            envelope = (
+                collector.finalize(python_value=None, error=exc)
+                if collector is not None
+                else None
+            )
             return BrowserKernelResult(
-                output=stdout_capture.getvalue(),
+                output="" if canonical else stdout_capture.getvalue(),
                 return_value=None,
                 error=_error_payload(exc),
-                artifacts=drain_browser_artifacts(),
+                artifacts=() if canonical else drain_browser_artifacts(),
+                envelope=envelope,
             )
         finally:
             self._last_used[session_id] = self._clock()
             _CURRENT_ARTIFACTS.reset(artifacts_token)
+            if collector_token is not None:
+                reset_result_collector(collector_token)
             reset_current_execution_context(token)
 
     async def reset(self, session_id: str) -> None:

@@ -20,6 +20,11 @@ from qwenpaw.browser.sdk.telemetry.trace import record_browser_trace_event
 
 from .state import get_nm_bridge_route_state
 
+BUILD_FINGERPRINT = "build-1"
+CONTRACT_FINGERPRINT = "contract-v1"
+PROFILE_FINGERPRINT = "profile-v1"
+EXTENSION_FINGERPRINT = "extension@build-1"
+
 JSONRPC_VERSION = "2.0"
 SUPPORTED_PROTOCOL_VERSION = 2
 LEASE_TTL_SECONDS = 30.0
@@ -421,12 +426,48 @@ class NMBridge:
                 "entryId": str(message.get("entryId") or ""),
                 **self.protocol_error,
             }
+        actual_fingerprints = {
+            "buildFingerprint": str(message.get("buildFingerprint") or ""),
+            "contractFingerprint": str(
+                message.get("contractFingerprint") or "",
+            ),
+            "profileFingerprint": str(
+                message.get("profileFingerprint") or "",
+            ),
+            "extensionFingerprint": str(
+                message.get("extensionFingerprint") or "",
+            ),
+        }
+        expected_fingerprints = {
+            "buildFingerprint": BUILD_FINGERPRINT,
+            "contractFingerprint": CONTRACT_FINGERPRINT,
+            "profileFingerprint": PROFILE_FINGERPRINT,
+            "extensionFingerprint": EXTENSION_FINGERPRINT,
+        }
+        mismatched = {
+            key: {"expected": expected, "actual": actual_fingerprints[key]}
+            for key, expected in expected_fingerprints.items()
+            if actual_fingerprints[key]
+            and actual_fingerprints[key] != expected
+        }
+        if mismatched:
+            self.protocol_error = {
+                "code": "browser_capability_fingerprint_mismatch",
+                "mismatched_fingerprints": mismatched,
+            }
+            return {
+                "type": "hello_ack",
+                "status": "error",
+                "entryId": str(message.get("entryId") or ""),
+                **self.protocol_error,
+            }
         self.protocol_error = None
         return {
             "type": "hello_ack",
             "status": "ok",
             "entryId": str(message.get("entryId") or ""),
             "protocolVersion": SUPPORTED_PROTOCOL_VERSION,
+            **expected_fingerprints,
         }
 
     def add_event_listener(

@@ -24,6 +24,7 @@ def case_report(
         "transformations": list(case.transformations),
         "fault": case.fault.value if case.fault is not None else None,
         "outcome": result.outcome.value,
+        "validation_evidence": f"{case.case_id}@build-1",
         "oracle": {
             "expected": result.expected,
             "observed": result.observed,

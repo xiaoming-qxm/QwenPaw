@@ -4,11 +4,85 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from functools import lru_cache
 from importlib import resources
 from typing import Any
 
 from ..governance.errors import BrowserSDKGap
+from ..backends.protocols import BackendProfile
+
+
+@dataclass(frozen=True, slots=True)
+class SessionCapabilityTruth:
+    ready: frozenset[str]
+    blocked: dict[str, str]
+
+
+def browser_support_manifest() -> dict[str, Any]:
+    """Return the reviewed release/build support manifest."""
+    artifact = (
+        resources.files("qwenpaw.browser.sdk")
+        / "generated"
+        / "browser-support.json"
+    )
+    return json.loads(artifact.read_text(encoding="utf-8"))
+
+
+# pylint: disable-next=too-many-branches
+def compute_session_capabilities(
+    *,
+    manifest: dict[str, Any],
+    backend: BackendProfile,
+    provider: Any,
+    session_ready: frozenset[str],
+    diagnostics_ready: frozenset[str] | None = None,
+) -> SessionCapabilityTruth:
+    """Intersect contract, reviewed build, backend, provider, and session."""
+    ready: set[str] = set()
+    blocked: dict[str, str] = {}
+    build = str(manifest.get("build_fingerprint") or "")
+    contract = str(manifest.get("contract_fingerprint") or "")
+    profile = str(manifest.get("profile_fingerprint") or "")
+    core_mismatch = (
+        backend.build_fingerprint != build
+        or backend.contract_fingerprint != contract
+        or backend.profile_fingerprint != profile
+    )
+    extension_expected = str(manifest.get("extension_fingerprint") or "")
+    extension_mismatch = backend.extension_fingerprint != extension_expected
+    diagnostics = diagnostics_ready
+    for row in manifest.get("capabilities", []):
+        capability_id = str(row.get("capability_id") or "")
+        required_blocks = tuple(row.get("required_blocks") or ())
+        evidence = tuple(row.get("validation_evidence") or ())
+        reason = ""
+        if row.get("status") != "READY":
+            reason = "release_blocked"
+        elif not evidence or any(
+            not str(item).endswith(f"@{build}") for item in evidence
+        ):
+            reason = "current_build_evidence_missing"
+        elif backend.variants.get(capability_id) != "READY":
+            reason = "backend_variant_blocked"
+        elif core_mismatch:
+            reason = "fingerprint_mismatch"
+        elif extension_mismatch and required_blocks:
+            reason = "fingerprint_mismatch:extension"
+        elif capability_id not in session_ready:
+            reason = "session_unavailable"
+        elif diagnostics is not None and capability_id not in diagnostics:
+            reason = "diagnostics_unavailable"
+        else:
+            for block_kind in required_blocks:
+                if not bool(getattr(provider, str(block_kind), False)):
+                    reason = f"provider_{block_kind}_unsupported"
+                    break
+        if reason:
+            blocked[capability_id] = reason
+        else:
+            ready.add(capability_id)
+    return SessionCapabilityTruth(ready=frozenset(ready), blocked=blocked)
 
 
 def browser_capabilities(scope: str = "all") -> dict[str, Any]:
@@ -86,7 +160,10 @@ def _normalize_scope(scope: str | None) -> str:
 
 
 __all__ = [
+    "SessionCapabilityTruth",
     "browser_capabilities",
+    "browser_support_manifest",
     "browser_sdk_help",
     "capability_gap",
+    "compute_session_capabilities",
 ]

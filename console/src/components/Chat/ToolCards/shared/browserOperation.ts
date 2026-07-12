@@ -28,6 +28,10 @@ export interface BrowserOperation {
   contractMode: "LEGACY" | "CANONICAL" | "";
   lifecycleLabel: string;
   cleanupNotice: string;
+  terminalStatus: string;
+  problemCode: string;
+  retryDirective: string;
+  requiredDeliveryFailure: string;
   stepCount: number;
   steps: BrowserOperationStep[];
   summaryRows: BrowserOperationRow[];
@@ -74,6 +78,10 @@ const INTERNAL_PARAM_KEYS = new Set([
   "root_task_id",
   "native_tab_id",
   "internal_binding",
+  "host_path",
+  "path",
+  "native_handle",
+  "resource_owner",
   "selected_context",
   "requested_context",
   "event_id",
@@ -85,6 +93,10 @@ const OPAQUE_BROWSER_KEYS = new Set([
   "root_task_id",
   "native_tab_id",
   "internal_binding",
+  "host_path",
+  "path",
+  "native_handle",
+  "resource_owner",
 ]);
 
 const MUTATING_ACTION_API_IDS = new Set([
@@ -627,6 +639,27 @@ function safeCleanupNotice(
   return incomplete ? "Cleanup incomplete" : "";
 }
 
+function terminalFacts(
+  metadata: BrowserRecord,
+  result: BrowserRecord,
+): BrowserRecord {
+  const terminal = asRecord(metadata.terminal);
+  const resultTerminal = asRecord(result.terminal);
+  return Object.keys(terminal).length ? terminal : resultTerminal;
+}
+
+function safeRequiredDeliveryFailure(
+  metadata: BrowserRecord,
+  result: BrowserRecord,
+): string {
+  return firstString(
+    metadata.required_delivery_failure,
+    result.required_delivery_failure,
+    metadata.transport_failure,
+    result.transport_failure,
+  );
+}
+
 function buildSummaryRows(
   content: ToolCallContent,
   metadata: BrowserRecord,
@@ -699,6 +732,7 @@ export function buildBrowserOperation(
   const primary = selectPrimaryStep(primaryCandidates);
   const title = primary?.step.apiId || "Browser";
   const backendLabel = backendLabelFor(primary, trace, metadata, result);
+  const terminal = terminalFacts(metadata, result);
 
   return {
     title,
@@ -706,6 +740,10 @@ export function buildBrowserOperation(
     contractMode: safeContractMode(metadata, result, trace),
     lifecycleLabel: safeLifecycleLabel(metadata, result, trace),
     cleanupNotice: safeCleanupNotice(metadata, result, trace),
+    terminalStatus: firstString(terminal.status, metadata.terminal_status),
+    problemCode: firstString(terminal.problem, metadata.problem_code),
+    retryDirective: firstString(terminal.retry, metadata.retry_directive),
+    requiredDeliveryFailure: safeRequiredDeliveryFailure(metadata, result),
     stepCount: steps.length,
     steps,
     summaryRows: buildSummaryRows(
