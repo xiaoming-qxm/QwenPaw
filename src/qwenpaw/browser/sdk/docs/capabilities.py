@@ -29,6 +29,23 @@ def browser_support_manifest() -> dict[str, Any]:
     return json.loads(artifact.read_text(encoding="utf-8"))
 
 
+def reviewed_family_evidence(family: str) -> dict[str, tuple[str, ...]]:
+    """Return current-build evidence ids for READY rows in one family."""
+    manifest = browser_support_manifest()
+    build = str(manifest.get("build_fingerprint") or "")
+    evidence: dict[str, tuple[str, ...]] = {}
+    for row in manifest.get("capabilities", []):
+        if row.get("family") != family or row.get("status") != "READY":
+            continue
+        items = tuple(
+            str(item) for item in row.get("validation_evidence") or ()
+        )
+        if not items or any(not item.endswith(f"@{build}") for item in items):
+            continue
+        evidence[str(row.get("capability_id") or "")] = items
+    return evidence
+
+
 # pylint: disable-next=too-many-branches
 def compute_session_capabilities(
     *,
@@ -166,4 +183,5 @@ __all__ = [
     "browser_sdk_help",
     "capability_gap",
     "compute_session_capabilities",
+    "reviewed_family_evidence",
 ]

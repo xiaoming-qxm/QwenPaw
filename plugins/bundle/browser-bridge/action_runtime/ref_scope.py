@@ -9,6 +9,68 @@ from .state import StateMapping
 
 _REF_SCOPE_STATE_KEY = "control_ref_scope_sequences"
 _REF_PATTERN = re.compile(r"\[ref=([^\]\s]+)\]")
+_CANONICAL_REF_STATE_KEY = "canonical_ref_bindings"
+
+
+class CanonicalRefScopeError(RuntimeError):
+    """Typed fail-closed canonical surface reference error."""
+
+    def __init__(self, code: str) -> None:
+        super().__init__(code)
+        self.code = code
+
+
+def _control_bind_canonical_ref(
+    state: StateMapping,
+    *,
+    tab_id: int,
+    generation: str,
+    source_ref: str,
+    target: dict,
+    owner_chain: tuple[str, ...],
+    kind: str,
+) -> str:
+    """Bind a private target to exact tab/document/owner identity."""
+    bindings = state.get(_CANONICAL_REF_STATE_KEY)
+    if not isinstance(bindings, dict):
+        bindings = {}
+        state[_CANONICAL_REF_STATE_KEY] = bindings
+    sequence = len(bindings) + 1
+    public_ref = f"canonical-{sequence}"
+    bindings[public_ref] = {
+        "tab_id": int(tab_id),
+        "generation": str(generation),
+        "source_ref": str(source_ref),
+        "target": dict(target),
+        "owner_chain": tuple(owner_chain),
+        "kind": str(kind),
+    }
+    return public_ref
+
+
+def _control_require_canonical_ref(
+    state: StateMapping,
+    *,
+    tab_id: int,
+    generation: str,
+    ref: str,
+    kind: str,
+) -> dict:
+    """Resolve only the exact original surface; never rebind heuristically."""
+    bindings = state.get(_CANONICAL_REF_STATE_KEY)
+    binding = bindings.get(ref) if isinstance(bindings, dict) else None
+    if not isinstance(binding, dict):
+        raise CanonicalRefScopeError("canonical_ref_invalid")
+    if int(binding.get("tab_id", -1)) != int(tab_id):
+        raise CanonicalRefScopeError("canonical_ref_tab_mismatch")
+    if str(binding.get("generation") or "") != str(generation):
+        raise CanonicalRefScopeError("canonical_ref_stale")
+    if str(binding.get("kind") or "") != str(kind):
+        raise CanonicalRefScopeError("canonical_ref_type_mismatch")
+    target = binding.get("target")
+    if not isinstance(target, dict):
+        raise CanonicalRefScopeError("canonical_ref_invalid")
+    return dict(target)
 
 
 def _control_scope_snapshot_refs(
@@ -107,7 +169,10 @@ def _next_ref_scope(state: StateMapping, tab_id: int) -> str:
 
 
 __all__ = [
+    "CanonicalRefScopeError",
+    "_control_bind_canonical_ref",
     "_control_current_snapshot_ref",
+    "_control_require_canonical_ref",
     "_control_scope_snapshot_refs",
     "_control_snapshot_payload_refs",
 ]

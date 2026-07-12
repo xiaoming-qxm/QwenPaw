@@ -230,6 +230,321 @@ class VisualRegion:
         object.__setattr__(self, "height", height)
 
 
+ObservationScope: TypeAlias = (
+    CurrentSurface | FrameScope | RegionScope | VisualRegion
+)
+Coverage: TypeAlias = Literal[
+    "COMPLETE",
+    "PARTIAL",
+    "UNAVAILABLE",
+    "STALE",
+]
+GapStage: TypeAlias = Literal["CAPTURE", "SELECTION", "DELIVERY"]
+EvidenceKind: TypeAlias = Literal[
+    "SNAPSHOT",
+    "READ",
+    "SCREENSHOT",
+    "WAIT",
+    "EFFECT",
+]
+ReadSegmentKind: TypeAlias = Literal[
+    "text",
+    "heading",
+    "list",
+    "table",
+    "key_value",
+    "link",
+    "form_state",
+    "artifact_description",
+]
+CaptureSource: TypeAlias = Literal[
+    "AX",
+    "DOM",
+    "AX_DOM",
+    "DOCUMENT",
+    "FRAME",
+    "SHADOW",
+    "READ",
+    "SCREENSHOT",
+]
+CaptureGapReason: TypeAlias = Literal[
+    "BUDGET_EXHAUSTED",
+    "SOURCE_UNAVAILABLE",
+    "GENERATION_MISMATCH",
+    "CROSS_ORIGIN",
+    "CLOSED_SHADOW",
+    "DETACHED",
+    "PAGINATED_BOUNDARY",
+    "VIRTUAL_BOUNDARY",
+    "INVARIANT_CHANGED",
+]
+SelectionGapReason: TypeAlias = Literal[
+    "LIMIT_CLAMPED",
+    "OUTPUT_LIMIT",
+    "QUERY_FILTERED",
+]
+DeliveryGapReason: TypeAlias = Literal[
+    "MODEL_LIMIT",
+    "PROVIDER_OMISSION",
+    "RESOURCE_OMISSION",
+]
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class CaptureGap:
+    """Typed capture omission without arbitrary backend metadata."""
+
+    source: CaptureSource
+    reason: CaptureGapReason
+    frontier: str | None = None
+    cursor: ReadCursor | None = None
+    frame: RegionRef | None = None
+    examined: int = 0
+    omitted: int = 0
+
+    def __post_init__(self) -> None:
+        _require_choice(
+            self.source,
+            set(CaptureSource.__args__),  # type: ignore[attr-defined]
+            "capture source",
+        )
+        _require_choice(
+            self.reason,
+            set(CaptureGapReason.__args__),  # type: ignore[attr-defined]
+            "capture gap reason",
+        )
+        _require_gap_counts(self.examined, self.omitted)
+        if self.cursor is not None:
+            _require_runtime_value(self.cursor, ReadCursor, "cursor")
+        if self.frame is not None:
+            _require_runtime_value(self.frame, RegionRef, "frame")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class SelectionGap:
+    """Typed selection omission applied after source merge."""
+
+    reason: SelectionGapReason
+    frontier: str | None = None
+    cursor: ReadCursor | None = None
+    frame: RegionRef | None = None
+    examined: int = 0
+    omitted: int = 0
+    requested: int | None = None
+    effective: int | None = None
+
+    def __post_init__(self) -> None:
+        _require_choice(
+            self.reason,
+            set(SelectionGapReason.__args__),  # type: ignore[attr-defined]
+            "selection gap reason",
+        )
+        _require_gap_counts(self.examined, self.omitted)
+        if (self.requested is None) != (self.effective is None):
+            raise ValueError(
+                "requested and effective must be supplied together",
+            )
+        if self.requested is not None and (
+            self.requested < 0 or self.effective is None or self.effective < 0
+        ):
+            raise ValueError("requested and effective must be non-negative")
+        if self.cursor is not None:
+            _require_runtime_value(self.cursor, ReadCursor, "cursor")
+        if self.frame is not None:
+            _require_runtime_value(self.frame, RegionRef, "frame")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class DeliveryGap:
+    """Typed omission introduced while delivering captured evidence."""
+
+    reason: DeliveryGapReason
+    frontier: str | None = None
+    cursor: ReadCursor | None = None
+    frame: RegionRef | None = None
+    examined: int = 0
+    omitted: int = 0
+
+    def __post_init__(self) -> None:
+        _require_choice(
+            self.reason,
+            set(DeliveryGapReason.__args__),  # type: ignore[attr-defined]
+            "delivery gap reason",
+        )
+        _require_gap_counts(self.examined, self.omitted)
+        if self.cursor is not None:
+            _require_runtime_value(self.cursor, ReadCursor, "cursor")
+        if self.frame is not None:
+            _require_runtime_value(self.frame, RegionRef, "frame")
+
+
+GapDetail: TypeAlias = CaptureGap | SelectionGap | DeliveryGap
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class CoverageGap:
+    """One typed omission at its truth-changing pipeline stage."""
+
+    stage: GapStage
+    detail: GapDetail
+
+    def __post_init__(self) -> None:
+        expected = {
+            "CAPTURE": CaptureGap,
+            "SELECTION": SelectionGap,
+            "DELIVERY": DeliveryGap,
+        }
+        _require_choice(self.stage, set(expected), "gap stage")
+        if not isinstance(self.detail, expected[self.stage]):
+            raise TypeError(f"{self.stage} gap has incompatible detail")
+
+    @property
+    def notice(self) -> str:
+        """Return a safe top-line clamp notice when one is required."""
+        if isinstance(self.detail, SelectionGap) and (
+            self.detail.reason == "LIMIT_CLAMPED"
+            and self.detail.requested is not None
+            and self.detail.effective is not None
+        ):
+            return (
+                f"Requested {self.detail.requested}; "
+                f"effective {self.detail.effective}."
+            )
+        return ""
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class EvidenceMeta:
+    """Truth-bearing metadata for one runtime-issued observation."""
+
+    ref: EvidenceRef
+    kind: EvidenceKind
+    context: ContextVersion
+    scope: ObservationScope
+    captured_at: datetime
+    coverage: Coverage
+    gaps: tuple[CoverageGap, ...]
+
+    def __post_init__(self) -> None:
+        _require_runtime_value(self.ref, EvidenceRef, "ref")
+        _require_runtime_value(self.context, ContextVersion, "context")
+        _require_choice(
+            self.kind,
+            set(EvidenceKind.__args__),  # type: ignore[attr-defined]
+            "evidence kind",
+        )
+        _require_choice(
+            self.coverage,
+            set(Coverage.__args__),  # type: ignore[attr-defined]
+            "coverage",
+        )
+        if not isinstance(
+            self.scope,
+            (CurrentSurface, FrameScope, RegionScope, VisualRegion),
+        ):
+            raise TypeError("scope must be a closed ObservationScope")
+        if not all(isinstance(gap, CoverageGap) for gap in self.gaps):
+            raise TypeError("gaps must contain CoverageGap values")
+
+
+@dataclass(frozen=True, slots=True)
+class TargetSummary:
+    """Safe read-only target evidence without host-native identity."""
+
+    ref: TargetRef
+    role: str
+    name: str
+    states: tuple[str, ...] = ()
+    allowed_actions: tuple[str, ...] = ()
+    observed_url: str = ""
+
+    def __post_init__(self) -> None:
+        _require_runtime_value(self.ref, TargetRef, "ref")
+
+
+@dataclass(frozen=True, slots=True)
+class RegionSummary:
+    """Safe read-only region evidence backed by an opaque RegionRef."""
+
+    ref: RegionRef
+    kind: Literal["FRAME", "CONTENT", "OWNER"]
+    boundary: Literal[
+        "DEFAULT",
+        "SAME_ORIGIN",
+        "CROSS_ORIGIN",
+        "OPEN_SHADOW",
+        "CLOSED_SHADOW",
+    ]
+    accessible: bool
+
+    def __post_init__(self) -> None:
+        _require_runtime_value(self.ref, RegionRef, "ref")
+        _require_choice(
+            self.kind,
+            {"FRAME", "CONTENT", "OWNER"},
+            "region kind",
+        )
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ReadSegment:
+    """Immutable human-readable content with no target mutation authority."""
+
+    kind: ReadSegmentKind
+    text: str
+    observed_url: str = ""
+
+    def __post_init__(self) -> None:
+        _require_choice(
+            self.kind,
+            set(ReadSegmentKind.__args__),  # type: ignore[attr-defined]
+            "read segment kind",
+        )
+        if not self.text:
+            raise ValueError("ReadSegment text is required")
+        if self.observed_url and not self.observed_url.startswith(
+            ("https://", "http://"),
+        ):
+            raise ValueError("ReadSegment observed_url must be safe HTTP(S)")
+        if self.kind != "link" and self.observed_url:
+            raise ValueError("only link segments may carry observed_url")
+
+
+def _require_gap_counts(examined: int, omitted: int) -> None:
+    if examined < 0 or omitted < 0:
+        raise ValueError("gap counts must be non-negative")
+
+
+def coverage_from_gaps(gaps: tuple[CoverageGap, ...]) -> Coverage:
+    """Map typed omission facts to conservative coverage truth."""
+    if not gaps:
+        return "COMPLETE"
+    capture = tuple(
+        gap.detail for gap in gaps if isinstance(gap.detail, CaptureGap)
+    )
+    if any(item.reason == "GENERATION_MISMATCH" for item in capture):
+        return "STALE"
+    if any(
+        item.reason == "SOURCE_UNAVAILABLE" and item.source == "AX_DOM"
+        for item in capture
+    ):
+        return "UNAVAILABLE"
+    return "PARTIAL"
+
+
+def can_prove_negative(evidence: EvidenceMeta) -> bool:
+    """Only complete evidence can prove absence inside its bound scope."""
+    return evidence.coverage == "COMPLETE" and not evidence.gaps
+
+
+def can_prove_global_unique(evidence: EvidenceMeta) -> bool:
+    """Only a complete current-surface observation has global scope."""
+    return can_prove_negative(evidence) and isinstance(
+        evidence.scope,
+        CurrentSurface,
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class PageCondition:
     kind: str
@@ -750,9 +1065,10 @@ class _TerminalFields:
 @dataclass(frozen=True, slots=True, kw_only=True)
 class SnapshotResult(_TerminalFields):
     evidence: EvidenceRef | None = None
+    observation: EvidenceMeta | None = None
     model_text: str = ""
-    targets: tuple[TargetRef, ...] = ()
-    regions: tuple[RegionRef, ...] = ()
+    targets: tuple[TargetSummary, ...] = ()
+    regions: tuple[RegionSummary, ...] = ()
     grounding: object | None = None
     source_summary: str = ""
 
@@ -763,7 +1079,9 @@ class SnapshotResult(_TerminalFields):
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ReadResult(_TerminalFields):
     evidence: EvidenceRef | None = None
-    segments: tuple[object, ...] = ()
+    observation: EvidenceMeta | None = None
+    model_text: str = ""
+    segments: tuple[ReadSegment, ...] = ()
     next_cursor: ReadCursor | None = None
     end_of_collection: bool | None = None
 
@@ -774,10 +1092,17 @@ class ReadResult(_TerminalFields):
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ScreenshotResult(_TerminalFields):
     evidence: EvidenceRef | None = None
+    observation: EvidenceMeta | None = None
     image: ResourceHandle | None = None
     visual_context: VisualContextRef | None = None
+    scope: Literal["viewport", "full_page"] = "viewport"
 
     def __post_init__(self) -> None:
+        _require_choice(
+            self.scope,
+            {"viewport", "full_page"},
+            "screenshot scope",
+        )
         validate_result_contract(self)
 
 
@@ -873,12 +1198,19 @@ def validate_result_contract(result: RichBrowserResult) -> None:
         raise ResultContractError(
             "ReadResult requires evidence and collection state",
         )
-    if isinstance(result, ScreenshotResult) and (
-        result.image is None or result.visual_context is None
-    ):
-        raise ResultContractError(
-            "ScreenshotResult requires image and visual context",
-        )
+    if isinstance(result, ScreenshotResult):
+        if result.image is None or result.evidence is None:
+            raise ResultContractError(
+                "ScreenshotResult requires image and evidence",
+            )
+        if result.scope == "viewport" and result.visual_context is None:
+            raise ResultContractError(
+                "viewport ScreenshotResult requires visual context",
+            )
+        if result.scope == "full_page" and result.visual_context is not None:
+            raise ResultContractError(
+                "full_page ScreenshotResult cannot provide visual context",
+            )
     if isinstance(result, WaitResult) and (
         result.evidence is None or result.outcome is None
     ):
@@ -945,6 +1277,106 @@ def canonical_api_catalog() -> dict[str, Any]:
                     },
                 ],
             ),
+            _entry(
+                "tab.snapshot",
+                "qwenpaw.browser.sdk.canonical.tabs:Tab.snapshot",
+                (
+                    "async snapshot(*, scope: ObservationScope | None = None, "
+                    "query: TargetQuery | None = None, "
+                    "limit: int | None = None) "
+                    "-> SnapshotResult"
+                ),
+                mutates=False,
+                kind="primitive",
+                satisfies_observation=True,
+                return_type="SnapshotResult",
+                summary=(
+                    "Capture neutral bounded evidence for this Tab receiver."
+                ),
+                parameters=[
+                    {
+                        "name": "scope",
+                        "kind": "KEYWORD_ONLY",
+                        "required": False,
+                        "default": None,
+                        "annotation": "ObservationScope | None",
+                    },
+                    {
+                        "name": "query",
+                        "kind": "KEYWORD_ONLY",
+                        "required": False,
+                        "default": None,
+                        "annotation": "TargetQuery | None",
+                    },
+                    {
+                        "name": "limit",
+                        "kind": "KEYWORD_ONLY",
+                        "required": False,
+                        "default": None,
+                        "annotation": "int | None",
+                    },
+                ],
+            ),
+            _entry(
+                "tab.read",
+                "qwenpaw.browser.sdk.canonical.tabs:Tab.read",
+                (
+                    "async read(*, scope: ObservationScope | None = None, "
+                    "cursor: ReadCursor | None = None, "
+                    "limit: int | None = None) "
+                    "-> ReadResult"
+                ),
+                mutates=False,
+                kind="primitive",
+                satisfies_observation=True,
+                return_type="ReadResult",
+                summary="Read one page from an immutable bounded collection.",
+                parameters=[
+                    {
+                        "name": "scope",
+                        "kind": "KEYWORD_ONLY",
+                        "required": False,
+                        "default": None,
+                        "annotation": "ObservationScope | None",
+                    },
+                    {
+                        "name": "cursor",
+                        "kind": "KEYWORD_ONLY",
+                        "required": False,
+                        "default": None,
+                        "annotation": "ReadCursor | None",
+                    },
+                    {
+                        "name": "limit",
+                        "kind": "KEYWORD_ONLY",
+                        "required": False,
+                        "default": None,
+                        "annotation": "int | None",
+                    },
+                ],
+            ),
+            _entry(
+                "tab.screenshot",
+                "qwenpaw.browser.sdk.canonical.tabs:Tab.screenshot",
+                (
+                    "async screenshot(*, scope: Literal['viewport', "
+                    "'full_page'] = 'viewport') -> ScreenshotResult"
+                ),
+                mutates=False,
+                kind="primitive",
+                satisfies_observation=True,
+                return_type="ScreenshotResult",
+                summary="Capture a non-mutating exact screenshot variant.",
+                parameters=[
+                    {
+                        "name": "scope",
+                        "kind": "KEYWORD_ONLY",
+                        "required": False,
+                        "default": "viewport",
+                        "annotation": "Literal['viewport', 'full_page']",
+                    },
+                ],
+            ),
         ],
     }
 
@@ -957,20 +1389,24 @@ def _entry(
     mutates: bool,
     summary: str,
     parameters: list[dict[str, Any]] | None = None,
+    kind: str = "lifecycle",
+    satisfies_observation: bool = False,
+    return_type: str | None = None,
 ) -> dict[str, Any]:
     return {
         "api_id": api_id,
         "public_name": api_id,
-        "kind": "lifecycle",
+        "kind": kind,
         "visibility": "default",
         "mutates": mutates,
         "requires_observation": False,
-        "satisfies_observation": False,
+        "satisfies_observation": satisfies_observation,
         "invalidates_observation": False,
         "callable_path": callable_path,
         "signature": signature,
         "parameters": parameters or [],
-        "return_type": "None" if api_id == "browser.close" else "Browser",
+        "return_type": return_type
+        or ("None" if api_id == "browser.close" else "Browser"),
         "summary": summary,
     }
 
@@ -1001,6 +1437,8 @@ OPAQUE_VALUE_NAMES = (
     "TargetRef",
     "RegionRef",
     "ReadCursor",
+    "ReadSegment",
+    "ReadSegmentKind",
     "ResourceHandle",
     "TabSummary",
     "BrowserPrompt",
@@ -1018,14 +1456,26 @@ __all__ = [
     "ActionResult",
     "BrowserCondition",
     "BrowserPrompt",
+    "CaptureGap",
+    "CaptureGapReason",
+    "CaptureSource",
     "CapabilityBlocked",
     "CapabilityProblemDetails",
     "CleanupInfo",
     "ContextVersion",
+    "Coverage",
+    "CoverageGap",
     "CurrentSurface",
+    "DeliveryGap",
+    "DeliveryGapReason",
+    "EvidenceKind",
+    "EvidenceMeta",
     "EvidenceRef",
     "FrameScope",
+    "GapDetail",
+    "GapStage",
     "Notice",
+    "ObservationScope",
     "OPAQUE_VALUE_NAMES",
     "OptionChoice",
     "PUBLIC_CONSTRUCTOR_NAMES",
@@ -1038,12 +1488,15 @@ __all__ = [
     "RegionCondition",
     "RegionRef",
     "RegionScope",
+    "RegionSummary",
     "ResourceCondition",
     "ResourceHandle",
     "ResultContractError",
     "RetryDirective",
     "RichBrowserResult",
     "ScreenshotResult",
+    "SelectionGap",
+    "SelectionGapReason",
     "SnapshotResult",
     "StateRequirement",
     "SurfaceCondition",
@@ -1051,6 +1504,7 @@ __all__ = [
     "TargetCondition",
     "TargetQuery",
     "TargetRef",
+    "TargetSummary",
     "TerminalStatus",
     "TransportProblemDetails",
     "ValidationProblemDetails",
@@ -1058,8 +1512,11 @@ __all__ = [
     "VisualRegion",
     "WaitResult",
     "WorkflowRequirement",
+    "can_prove_global_unique",
+    "can_prove_negative",
     "canonical_api_catalog",
     "canonical_value_namespace",
+    "coverage_from_gaps",
     "issue_operation_id",
     "validate_result_contract",
 ]

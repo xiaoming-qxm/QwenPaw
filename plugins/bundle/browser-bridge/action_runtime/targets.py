@@ -12,6 +12,13 @@ from qwenpaw.browser.sdk.runtime.responses import (
     _CONTROL_BANNER_TIMEOUT_SECONDS,
     logger,
 )
+from qwenpaw.browser.sdk.canonical.contracts import CaptureGap, CoverageGap
+from qwenpaw.browser.sdk.runtime.snapshot import (
+    ProbeBatch,
+    ProbeNode,
+    ProbeRegion,
+    SurfaceBoundary,
+)
 from .cdp_relay import CDPRelayError
 from .errors import RECOVERABLE_CONTROL_EXCEPTIONS, TargetResolutionFailed
 from .navigation import _control_same_site, _control_url_key
@@ -19,6 +26,245 @@ from .navigation import _control_same_site, _control_url_key
 _CONTROL_POINT_SNAP_EXCEPTIONS = RECOVERABLE_CONTROL_EXCEPTIONS + (
     CDPRelayError,
 )
+
+_CANONICAL_ACTIONABLE_ROLES = {
+    "button",
+    "checkbox",
+    "combobox",
+    "link",
+    "listbox",
+    "menuitem",
+    "option",
+    "radio",
+    "searchbox",
+    "slider",
+    "spinbutton",
+    "switch",
+    "tab",
+    "textbox",
+    "treeitem",
+}
+
+
+def canonical_probe_nodes_from_ax(
+    payload: dict[str, Any],
+) -> tuple[ProbeNode, ...]:
+    """Normalize AX nodes using only explicit backend identity relations."""
+    raw_nodes = payload.get("nodes")
+    if not isinstance(raw_nodes, list):
+        return ()
+    nodes: list[ProbeNode] = []
+    for raw in raw_nodes:
+        if not isinstance(raw, dict) or raw.get("ignored"):
+            continue
+        backend_id = raw.get("backendDOMNodeId") or raw.get("backendNodeId")
+        if not isinstance(backend_id, int) or backend_id <= 0:
+            continue
+        role = _canonical_ax_value(raw.get("role")).lower()
+        if not role:
+            continue
+        nodes.append(
+            ProbeNode(
+                source="AX",
+                native_identity=f"backend:{backend_id}",
+                owner=str(raw.get("frameId") or "main"),
+                role=role,
+                name=_canonical_ax_value(raw.get("name")),
+                actionable=role in _CANONICAL_ACTIONABLE_ROLES,
+                states=_canonical_ax_states(raw),
+            ),
+        )
+    return tuple(nodes)
+
+
+def canonical_probe_nodes_from_dom(
+    payload: dict[str, Any],
+) -> tuple[ProbeNode, ...]:
+    """Normalize bounded DOM without label-, class-, or scenario-ranking."""
+    return canonical_probe_surface_from_dom(payload).nodes
+
+
+# pylint: disable-next=too-many-branches
+def canonical_probe_surface_from_dom(payload: dict[str, Any]) -> ProbeBatch:
+    """Traverse accessible surfaces and expose blocked boundaries."""
+    root = payload.get("root")
+    if not isinstance(root, dict):
+        return ProbeBatch()
+    nodes: list[ProbeNode] = []
+    regions: list[ProbeRegion] = []
+    gaps: list[CoverageGap] = []
+    pending: list[tuple[dict[str, Any], tuple[str, ...]]] = [
+        (root, ("main",)),
+    ]
+    while pending:
+        raw, owner_chain = pending.pop()
+        frame_id = str(raw.get("frameId") or "").strip()
+        if frame_id and owner_chain[-1] == "main":
+            owner_chain = (*owner_chain, f"frame:{frame_id}")
+        owner = owner_chain[-1]
+        attributes = _canonical_dom_attributes(raw.get("attributes"))
+        tag = str(raw.get("nodeName") or "").strip().lower()
+        role = str(attributes.get("role") or _canonical_native_role(tag))
+        backend_id = raw.get("backendNodeId") or raw.get("backendDOMNodeId")
+        if isinstance(backend_id, int) and backend_id > 0 and role:
+            name = next(
+                (
+                    attributes[key]
+                    for key in ("aria-label", "title", "alt", "placeholder")
+                    if attributes.get(key)
+                ),
+                str(raw.get("nodeValue") or "").strip(),
+            )
+            nodes.append(
+                ProbeNode(
+                    source="DOM",
+                    native_identity=f"backend:{backend_id}",
+                    owner=owner,
+                    owner_chain=owner_chain,
+                    role=role,
+                    name=name,
+                    actionable=(
+                        role in _CANONICAL_ACTIONABLE_ROLES
+                        and "disabled" not in attributes
+                    ),
+                    states=tuple(
+                        key
+                        for key in (
+                            "disabled",
+                            "checked",
+                            "selected",
+                            "expanded",
+                        )
+                        if key in attributes
+                    ),
+                ),
+            )
+        if tag == "iframe" and isinstance(backend_id, int):
+            content_document = raw.get("contentDocument")
+            accessible = isinstance(content_document, dict) and not bool(
+                raw.get("crossOrigin"),
+            )
+            frame_owner = ""
+            if isinstance(content_document, dict):
+                frame_owner = str(
+                    content_document.get("frameId") or "",
+                ).strip()
+            frame_owner = frame_owner or f"backend-{backend_id}"
+            frame_chain = (*owner_chain, f"frame:{frame_owner}")
+            boundary: SurfaceBoundary = (
+                "SAME_ORIGIN" if accessible else "CROSS_ORIGIN"
+            )
+            regions.append(
+                ProbeRegion(
+                    kind="FRAME",
+                    native_identity=f"backend:{backend_id}",
+                    owner=frame_chain[-1],
+                    owner_chain=frame_chain,
+                    boundary=boundary,
+                    accessible=accessible,
+                ),
+            )
+            if accessible and isinstance(content_document, dict):
+                pending.append((content_document, frame_chain))
+            else:
+                gaps.append(
+                    CoverageGap(
+                        stage="CAPTURE",
+                        detail=CaptureGap(
+                            source="FRAME",
+                            reason="CROSS_ORIGIN",
+                            frame=None,
+                        ),
+                    ),
+                )
+        shadow_roots = raw.get("shadowRoots")
+        if isinstance(shadow_roots, list) and isinstance(backend_id, int):
+            for shadow in reversed(shadow_roots):
+                if not isinstance(shadow, dict):
+                    continue
+                shadow_type = str(
+                    shadow.get("shadowRootType") or "closed",
+                ).lower()
+                shadow_chain = (
+                    *owner_chain,
+                    f"shadow:backend:{backend_id}",
+                )
+                is_open = shadow_type == "open"
+                regions.append(
+                    ProbeRegion(
+                        kind="OWNER",
+                        native_identity=f"backend:{backend_id}",
+                        owner=shadow_chain[-1],
+                        owner_chain=shadow_chain,
+                        boundary="OPEN_SHADOW" if is_open else "CLOSED_SHADOW",
+                        accessible=is_open,
+                    ),
+                )
+                if is_open:
+                    pending.append((shadow, shadow_chain))
+                else:
+                    gaps.append(
+                        CoverageGap(
+                            stage="CAPTURE",
+                            detail=CaptureGap(
+                                source="SHADOW",
+                                reason="CLOSED_SHADOW",
+                            ),
+                        ),
+                    )
+        children = raw.get("children")
+        if isinstance(children, list):
+            pending.extend(
+                (child, owner_chain)
+                for child in reversed(children)
+                if isinstance(child, dict)
+            )
+    return ProbeBatch(
+        nodes=tuple(nodes),
+        regions=tuple(regions),
+        gaps=tuple(gaps),
+    )
+
+
+def _canonical_ax_value(value: Any) -> str:
+    if isinstance(value, dict):
+        return str(value.get("value") or "").strip()
+    return str(value or "").strip()
+
+
+def _canonical_ax_states(raw: dict[str, Any]) -> tuple[str, ...]:
+    properties = raw.get("properties")
+    if not isinstance(properties, list):
+        return ()
+    states: list[str] = []
+    for item in properties:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()
+        value = _canonical_ax_value(item.get("value"))
+        if name and value:
+            states.append(f"{name}:{value}")
+    return tuple(states)
+
+
+def _canonical_dom_attributes(value: Any) -> dict[str, str]:
+    if not isinstance(value, list):
+        return {}
+    return {
+        str(value[index]).strip().lower(): str(value[index + 1]).strip()
+        for index in range(0, len(value) - 1, 2)
+        if str(value[index]).strip()
+    }
+
+
+def _canonical_native_role(tag: str) -> str:
+    return {
+        "a": "link",
+        "button": "button",
+        "input": "textbox",
+        "select": "combobox",
+        "textarea": "textbox",
+    }.get(tag, tag if tag not in {"#document", "html", "body"} else "")
 
 
 def _control_node_params(target: dict[str, Any]) -> dict[str, int] | None:
@@ -1501,4 +1747,7 @@ __all__ = [
     "_control_text_target",
     "_control_viewport_size",
     "_control_visible_text_locator_script",
+    "canonical_probe_nodes_from_ax",
+    "canonical_probe_nodes_from_dom",
+    "canonical_probe_surface_from_dom",
 ]

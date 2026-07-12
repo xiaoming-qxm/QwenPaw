@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from typing import Any, Iterable
 
-from .model import CaseOutcome, OracleResult
+from .model import CaseOutcome, ObserveReadFacts, OracleResult
 
 
 class IndependentOracle:
@@ -42,6 +42,37 @@ class IndependentOracle:
             expected=dict(expected_facts),
             observed=selected,
             diff=diff,
+        )
+
+    def evaluate_observe_read(
+        self,
+        *,
+        expected: ObserveReadFacts,
+        fixture_facts: ObserveReadFacts,
+        backend_call_log: tuple[str, ...],
+    ) -> OracleResult:
+        """Evaluate fixture/native facts without reading Browser result claims."""
+        expected_facts = {
+            "candidate_identity_set": list(expected.candidate_identity_set),
+            "coverage_gap_set": list(expected.coverage_gap_set),
+            "backend_call_count": expected.backend_call_count,
+            "invariant_unchanged": expected.invariant_unchanged,
+        }
+        observed_events = (
+            {
+                "candidate_identity_set": list(
+                    fixture_facts.candidate_identity_set,
+                ),
+                "coverage_gap_set": list(fixture_facts.coverage_gap_set),
+                "backend_call_count": len(backend_call_log),
+                "invariant_unchanged": fixture_facts.invariant_unchanged,
+            },
+        )
+        return self.evaluate(
+            expected_facts=expected_facts,
+            observed_events=observed_events,
+            observed_resources=(),
+            observed_blocks=(),
         )
 
 

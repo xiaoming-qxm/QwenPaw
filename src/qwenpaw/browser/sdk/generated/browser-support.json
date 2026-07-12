@@ -31,6 +31,42 @@
       "limits": {"max_artifact_bytes": 20971520},
       "required_blocks": ["artifact"],
       "validation_evidence": ["result.required-artifact@build-1"]
+    },
+    {
+      "capability_id": "observe.snapshot",
+      "family": "ObserveRead",
+      "requirement": "REQUIRED",
+      "status": "READY",
+      "limits": {"max_targets": 128},
+      "required_blocks": [],
+      "validation_evidence": ["observe.snapshot-neutral@build-1"]
+    },
+    {
+      "capability_id": "observe.read",
+      "family": "ObserveRead",
+      "requirement": "REQUIRED",
+      "status": "READY",
+      "limits": {"max_page_segments": 128},
+      "required_blocks": [],
+      "validation_evidence": ["observe.read-immutable@build-1"]
+    },
+    {
+      "capability_id": "observe.screenshot.viewport",
+      "family": "ObserveRead",
+      "requirement": "REQUIRED",
+      "status": "READY",
+      "limits": {"max_image_bytes": 20971520},
+      "required_blocks": ["image"],
+      "validation_evidence": ["observe.viewport-invariant@build-1"]
+    },
+    {
+      "capability_id": "observe.screenshot.full_page",
+      "family": "ObserveRead",
+      "requirement": "REQUIRED",
+      "status": "READY",
+      "limits": {"max_image_bytes": 20971520},
+      "required_blocks": ["image"],
+      "validation_evidence": ["observe.full-page-invariant@build-1"]
     }
   ]
 }

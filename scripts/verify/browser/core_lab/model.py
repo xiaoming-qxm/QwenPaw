@@ -66,11 +66,22 @@ class OracleResult:
     diff: dict[str, dict[str, Any]]
 
 
+@dataclass(frozen=True, slots=True)
+class ObserveReadFacts:
+    """Controller-owned fixture and native call-log facts."""
+
+    candidate_identity_set: tuple[str, ...]
+    coverage_gap_set: tuple[str, ...]
+    backend_call_count: int
+    invariant_unchanged: bool
+
+
 __all__ = [
     "CapabilityFamily",
     "CaseOutcome",
     "FaultCutPoint",
     "LabCase",
     "OracleResult",
+    "ObserveReadFacts",
     "ReplayDescriptor",
 ]

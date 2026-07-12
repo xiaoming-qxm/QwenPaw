@@ -34,6 +34,97 @@
       "satisfies_observation": false,
       "signature": "async connect(context: Literal['auto', 'user', 'isolated'] = 'auto') -> Browser",
       "summary": "Connect with the trusted root-task binding."
+    },
+    "tab.read": {
+      "api_id": "tab.read",
+      "callable_path": "qwenpaw.browser.sdk.canonical.tabs:Tab.read",
+      "invalidates_observation": false,
+      "kind": "primitive",
+      "mutates": false,
+      "parameters": [
+        {
+          "annotation": "ObservationScope | None",
+          "default": null,
+          "kind": "KEYWORD_ONLY",
+          "name": "scope",
+          "required": false
+        },
+        {
+          "annotation": "ReadCursor | None",
+          "default": null,
+          "kind": "KEYWORD_ONLY",
+          "name": "cursor",
+          "required": false
+        },
+        {
+          "annotation": "int | None",
+          "default": null,
+          "kind": "KEYWORD_ONLY",
+          "name": "limit",
+          "required": false
+        }
+      ],
+      "requires_observation": false,
+      "return_type": "ReadResult",
+      "satisfies_observation": true,
+      "signature": "async read(*, scope: ObservationScope | None = None, cursor: ReadCursor | None = None, limit: int | None = None) -> ReadResult",
+      "summary": "Read one page from an immutable bounded collection."
+    },
+    "tab.screenshot": {
+      "api_id": "tab.screenshot",
+      "callable_path": "qwenpaw.browser.sdk.canonical.tabs:Tab.screenshot",
+      "invalidates_observation": false,
+      "kind": "primitive",
+      "mutates": false,
+      "parameters": [
+        {
+          "annotation": "Literal['viewport', 'full_page']",
+          "default": "viewport",
+          "kind": "KEYWORD_ONLY",
+          "name": "scope",
+          "required": false
+        }
+      ],
+      "requires_observation": false,
+      "return_type": "ScreenshotResult",
+      "satisfies_observation": true,
+      "signature": "async screenshot(*, scope: Literal['viewport', 'full_page'] = 'viewport') -> ScreenshotResult",
+      "summary": "Capture a non-mutating exact screenshot variant."
+    },
+    "tab.snapshot": {
+      "api_id": "tab.snapshot",
+      "callable_path": "qwenpaw.browser.sdk.canonical.tabs:Tab.snapshot",
+      "invalidates_observation": false,
+      "kind": "primitive",
+      "mutates": false,
+      "parameters": [
+        {
+          "annotation": "ObservationScope | None",
+          "default": null,
+          "kind": "KEYWORD_ONLY",
+          "name": "scope",
+          "required": false
+        },
+        {
+          "annotation": "TargetQuery | None",
+          "default": null,
+          "kind": "KEYWORD_ONLY",
+          "name": "query",
+          "required": false
+        },
+        {
+          "annotation": "int | None",
+          "default": null,
+          "kind": "KEYWORD_ONLY",
+          "name": "limit",
+          "required": false
+        }
+      ],
+      "requires_observation": false,
+      "return_type": "SnapshotResult",
+      "satisfies_observation": true,
+      "signature": "async snapshot(*, scope: ObservationScope | None = None, query: TargetQuery | None = None, limit: int | None = None) -> SnapshotResult",
+      "summary": "Capture neutral bounded evidence for this Tab receiver."
     }
   },
   "contexts": [
@@ -45,14 +136,17 @@
   "help": {
     "apis": {
       "browser.close": "# `browser.close`\n\nRelease the current SDK lease only.\n\nKind: `lifecycle`\nSignature: `async close() -> None`\n\nMetadata:\n- mutates: `True`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `False`\n",
-      "browser.connect": "# `browser.connect`\n\nConnect with the trusted root-task binding.\n\nKind: `lifecycle`\nSignature: `async connect(context: Literal['auto', 'user', 'isolated'] = 'auto') -> Browser`\n\nMetadata:\n- mutates: `False`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `False`\n"
+      "browser.connect": "# `browser.connect`\n\nConnect with the trusted root-task binding.\n\nKind: `lifecycle`\nSignature: `async connect(context: Literal['auto', 'user', 'isolated'] = 'auto') -> Browser`\n\nMetadata:\n- mutates: `False`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `False`\n",
+      "tab.read": "# `tab.read`\n\nRead one page from an immutable bounded collection.\n\nKind: `primitive`\nSignature: `async read(*, scope: ObservationScope | None = None, cursor: ReadCursor | None = None, limit: int | None = None) -> ReadResult`\n\nMetadata:\n- mutates: `False`\n- requires_observation: `False`\n- satisfies_observation: `True`\n- invalidates_observation: `False`\n",
+      "tab.screenshot": "# `tab.screenshot`\n\nCapture a non-mutating exact screenshot variant.\n\nKind: `primitive`\nSignature: `async screenshot(*, scope: Literal['viewport', 'full_page'] = 'viewport') -> ScreenshotResult`\n\nMetadata:\n- mutates: `False`\n- requires_observation: `False`\n- satisfies_observation: `True`\n- invalidates_observation: `False`\n",
+      "tab.snapshot": "# `tab.snapshot`\n\nCapture neutral bounded evidence for this Tab receiver.\n\nKind: `primitive`\nSignature: `async snapshot(*, scope: ObservationScope | None = None, query: TargetQuery | None = None, limit: int | None = None) -> SnapshotResult`\n\nMetadata:\n- mutates: `False`\n- requires_observation: `False`\n- satisfies_observation: `True`\n- invalidates_observation: `False`\n"
     },
-    "index": "# Browser SDK Generated Help\n\nGenerated from `api_catalog.json`.\n\nUse `Browser.capabilities(scope=\"actions\")` for compact indexes.\nUse `Browser.help(api_id=\"tab.actions.click\")` for one API.\n\n## Actions\n\n\n## Primitives\n\n\n## Diagnostics\n\n\n## Lifecycle\n\n- `browser.close` - Release the current SDK lease only.\n- `browser.connect` - Connect with the trusted root-task binding.\n",
+    "index": "# Browser SDK Generated Help\n\nGenerated from `api_catalog.json`.\n\nUse `Browser.capabilities(scope=\"actions\")` for compact indexes.\nUse `Browser.help(api_id=\"tab.actions.click\")` for one API.\n\n## Actions\n\n\n## Primitives\n\n- `tab.read` - Read one page from an immutable bounded collection.\n- `tab.screenshot` - Capture a non-mutating exact screenshot variant.\n- `tab.snapshot` - Capture neutral bounded evidence for this Tab receiver.\n\n## Diagnostics\n\n\n## Lifecycle\n\n- `browser.close` - Release the current SDK lease only.\n- `browser.connect` - Connect with the trusted root-task binding.\n",
     "scopes": {
       "actions": "# Browser SDK Actions\n\nGenerated from `api_catalog.json`.\n",
       "diagnostics": "# Browser SDK Diagnostics\n\nGenerated from `api_catalog.json`.\n",
       "lifecycle": "# Browser SDK Lifecycle\n\nGenerated from `api_catalog.json`.\n\n## `browser.close`\n\nRelease the current SDK lease only.\n\nSignature: `async close() -> None`\n\n## `browser.connect`\n\nConnect with the trusted root-task binding.\n\nSignature: `async connect(context: Literal['auto', 'user', 'isolated'] = 'auto') -> Browser`\n",
-      "primitives": "# Browser SDK Primitives\n\nGenerated from `api_catalog.json`.\n"
+      "primitives": "# Browser SDK Primitives\n\nGenerated from `api_catalog.json`.\n\n## `tab.read`\n\nRead one page from an immutable bounded collection.\n\nSignature: `async read(*, scope: ObservationScope | None = None, cursor: ReadCursor | None = None, limit: int | None = None) -> ReadResult`\n\n## `tab.screenshot`\n\nCapture a non-mutating exact screenshot variant.\n\nSignature: `async screenshot(*, scope: Literal['viewport', 'full_page'] = 'viewport') -> ScreenshotResult`\n\n## `tab.snapshot`\n\nCapture neutral bounded evidence for this Tab receiver.\n\nSignature: `async snapshot(*, scope: ObservationScope | None = None, query: TargetQuery | None = None, limit: int | None = None) -> SnapshotResult`\n"
     }
   },
   "lifecycle": {
@@ -92,19 +186,118 @@
     }
   },
   "mode": "CANONICAL",
-  "primitives": {},
+  "primitives": {
+    "tab.read": {
+      "api_id": "tab.read",
+      "callable_path": "qwenpaw.browser.sdk.canonical.tabs:Tab.read",
+      "invalidates_observation": false,
+      "kind": "primitive",
+      "mutates": false,
+      "parameters": [
+        {
+          "annotation": "ObservationScope | None",
+          "default": null,
+          "kind": "KEYWORD_ONLY",
+          "name": "scope",
+          "required": false
+        },
+        {
+          "annotation": "ReadCursor | None",
+          "default": null,
+          "kind": "KEYWORD_ONLY",
+          "name": "cursor",
+          "required": false
+        },
+        {
+          "annotation": "int | None",
+          "default": null,
+          "kind": "KEYWORD_ONLY",
+          "name": "limit",
+          "required": false
+        }
+      ],
+      "requires_observation": false,
+      "return_type": "ReadResult",
+      "satisfies_observation": true,
+      "signature": "async read(*, scope: ObservationScope | None = None, cursor: ReadCursor | None = None, limit: int | None = None) -> ReadResult",
+      "summary": "Read one page from an immutable bounded collection."
+    },
+    "tab.screenshot": {
+      "api_id": "tab.screenshot",
+      "callable_path": "qwenpaw.browser.sdk.canonical.tabs:Tab.screenshot",
+      "invalidates_observation": false,
+      "kind": "primitive",
+      "mutates": false,
+      "parameters": [
+        {
+          "annotation": "Literal['viewport', 'full_page']",
+          "default": "viewport",
+          "kind": "KEYWORD_ONLY",
+          "name": "scope",
+          "required": false
+        }
+      ],
+      "requires_observation": false,
+      "return_type": "ScreenshotResult",
+      "satisfies_observation": true,
+      "signature": "async screenshot(*, scope: Literal['viewport', 'full_page'] = 'viewport') -> ScreenshotResult",
+      "summary": "Capture a non-mutating exact screenshot variant."
+    },
+    "tab.snapshot": {
+      "api_id": "tab.snapshot",
+      "callable_path": "qwenpaw.browser.sdk.canonical.tabs:Tab.snapshot",
+      "invalidates_observation": false,
+      "kind": "primitive",
+      "mutates": false,
+      "parameters": [
+        {
+          "annotation": "ObservationScope | None",
+          "default": null,
+          "kind": "KEYWORD_ONLY",
+          "name": "scope",
+          "required": false
+        },
+        {
+          "annotation": "TargetQuery | None",
+          "default": null,
+          "kind": "KEYWORD_ONLY",
+          "name": "query",
+          "required": false
+        },
+        {
+          "annotation": "int | None",
+          "default": null,
+          "kind": "KEYWORD_ONLY",
+          "name": "limit",
+          "required": false
+        }
+      ],
+      "requires_observation": false,
+      "return_type": "SnapshotResult",
+      "satisfies_observation": true,
+      "signature": "async snapshot(*, scope: ObservationScope | None = None, query: TargetQuery | None = None, limit: int | None = None) -> SnapshotResult",
+      "summary": "Capture neutral bounded evidence for this Tab receiver."
+    }
+  },
   "scopes": {
     "actions": [],
     "all": [
       "browser.close",
-      "browser.connect"
+      "browser.connect",
+      "tab.read",
+      "tab.screenshot",
+      "tab.snapshot"
     ],
     "diagnostics": [],
     "lifecycle": [
       "browser.close",
       "browser.connect"
     ],
-    "primitives": []
+    "primitives": [
+      "tab.read",
+      "tab.screenshot",
+      "tab.snapshot"
+    ]
   },
   "source": "api_catalog.json",
   "version": 1

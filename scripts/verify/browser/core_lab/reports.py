@@ -26,6 +26,11 @@ def case_report(
         "outcome": result.outcome.value,
         "validation_evidence": f"{case.case_id}@build-1",
         "oracle": {
+            "provenance": (
+                "fixture_ax_dom_native_call_log"
+                if case.family.value == "ObserveRead"
+                else "controller_owned_events"
+            ),
             "expected": result.expected,
             "observed": result.observed,
             "diff": result.diff,

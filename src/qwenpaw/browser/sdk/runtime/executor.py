@@ -207,12 +207,13 @@ def _new_namespace(
     )
     if mode is ContractMode.CANONICAL:
         namespace.update(canonical_value_namespace())
-    namespace.update(
-        {
-            f"e{index}": f"e{index}"
-            for index in range(1, _MAX_PREBOUND_REF_INDEX + 1)
-        },
-    )
+    if mode is ContractMode.LEGACY:
+        namespace.update(
+            {
+                f"e{index}": f"e{index}"
+                for index in range(1, _MAX_PREBOUND_REF_INDEX + 1)
+            },
+        )
     return namespace
 
 

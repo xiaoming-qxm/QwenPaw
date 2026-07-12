@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 from datetime import UTC, datetime
@@ -49,6 +50,10 @@ from qwenpaw.browser.sdk.primitives.types import (
 from qwenpaw.browser.sdk.primitives.types import (
     BrowserObservation,
     BrowserScreenshot,
+)
+from qwenpaw.browser.sdk.runtime.resources import (
+    ScreenshotCapture,
+    ScreenshotInvariant,
 )
 
 BACKEND_ID = "user.chrome_extension"
@@ -117,9 +122,29 @@ class ChromeExtensionBrowserBackend:
 
     def profile(self):
         """Return exact reviewed variants; diagnostics may only narrow them."""
+        from qwenpaw.browser.sdk.backends.protocols import BackendProfile
+
         from ..action_runtime.handlers.capabilities import backend_profile
 
-        return backend_profile()
+        base = backend_profile()
+        return BackendProfile(
+            variants={
+                **base.variants,
+                "observe.snapshot": "READY",
+                "observe.read": "READY",
+                "observe.screenshot.viewport": "READY",
+                "observe.screenshot.full_page": "READY",
+            },
+            hard_limits={
+                **base.hard_limits,
+                "max_targets": 128,
+                "max_page_segments": 128,
+            },
+            contract_fingerprint=base.contract_fingerprint,
+            profile_fingerprint=base.profile_fingerprint,
+            build_fingerprint=base.build_fingerprint,
+            extension_fingerprint=base.extension_fingerprint,
+        )
 
     def is_available(self) -> bool:
         bridge = self._bridge()
@@ -768,6 +793,37 @@ class ChromeExtensionBrowserSession:
     async def screenshot(self, tab_id: str) -> BrowserScreenshot:
         payload = await self._bridge_or_engine_action("screenshot", tab_id)
         return coerce_screenshot(str(tab_id), payload)
+
+    async def screenshot_exact(
+        self,
+        tab_id: str,
+        *,
+        scope: Literal["viewport", "full_page"],
+    ) -> ScreenshotCapture:
+        """Return private exact bytes and controller-owned invariant facts."""
+        payload = await self._bridge_or_engine_action(
+            "screenshot",
+            tab_id,
+            full_page=scope == "full_page",
+        )
+        if not isinstance(payload, dict):
+            raise BrowserSDKError(
+                "Canonical screenshot returned an invalid payload.",
+                code="screenshot_payload_invalid",
+            )
+        data = str(payload.get("image_base64") or "")
+        complete = bool(payload.get("complete")) and bool(data)
+        return ScreenshotCapture(
+            scope=scope,
+            data=base64.b64decode(data) if data else b"",
+            media_type=str(payload.get("media_type") or "image/png"),
+            name=str(payload.get("name") or f"browser-{scope}.png"),
+            width=int(payload.get("width") or 0),
+            height=int(payload.get("height") or 0),
+            complete=complete,
+            before=_screenshot_invariant_from_payload(payload.get("before")),
+            after=_screenshot_invariant_from_payload(payload.get("after")),
+        )
 
     async def extract(
         self,
@@ -1424,6 +1480,34 @@ class ChromeExtensionBrowserSession:
             if domain:
                 metadata["domain"] = domain
         return metadata
+
+
+def _screenshot_invariant_from_payload(value: Any) -> ScreenshotInvariant:
+    payload = value if isinstance(value, dict) else {}
+    scroll = payload.get("scroll_offset")
+    viewport = payload.get("viewport")
+    layout = payload.get("layout")
+    return ScreenshotInvariant(
+        generation=str(payload.get("generation") or ""),
+        scroll_offset=(
+            float(scroll[0]),
+            float(scroll[1]),
+        )
+        if isinstance(scroll, list) and len(scroll) == 2
+        else (0.0, 0.0),
+        focused_backend_node=(
+            int(payload["focused_backend_node"])
+            if isinstance(payload.get("focused_backend_node"), int)
+            else None
+        ),
+        viewport=(int(viewport[0]), int(viewport[1]))
+        if isinstance(viewport, list) and len(viewport) == 2
+        else (0, 0),
+        layout=(int(layout[0]), int(layout[1]))
+        if isinstance(layout, list) and len(layout) == 2
+        else (0, 0),
+        event_watermark=int(payload.get("event_watermark") or 0),
+    )
 
 
 def register_user_backend_once(

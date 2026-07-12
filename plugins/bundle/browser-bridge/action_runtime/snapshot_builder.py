@@ -16,8 +16,27 @@ from agentscope.message import DataBlock, URLSource
 from pydantic import AnyUrl
 
 from qwenpaw.browser.sdk.runtime.responses import logger
+from qwenpaw.browser.sdk.canonical.contracts import (
+    ContextVersion,
+    CurrentSurface,
+    ObservationScope,
+    _issue_opaque_value,
+    _RUNTIME_VALUE_ISSUER,
+)
 from qwenpaw.browser.sdk.governance.error_codes import BrowserErrorCode
+from qwenpaw.browser.sdk.runtime.snapshot import (
+    ObservationBudget,
+    ProbeBatch,
+    ProbeNode,
+    SnapshotCapture,
+    capture_snapshot,
+)
 from .errors import BrowserBridgeRecoverableError, DOMSettleTimeout
+from .session_manager import _control_document_generation
+from .targets import (
+    canonical_probe_nodes_from_ax,
+    canonical_probe_surface_from_dom,
+)
 
 _OBSERVATION_ENRICHMENT_DENIED = "OBSERVATION_ENRICHMENT_DENIED"
 _DOM_TREE_FALLBACK_DEPTH = 8
@@ -358,6 +377,65 @@ async def build_control_snapshot(
     if _snapshot_has_observation_enrichment_denial(snapshot):
         degraded_snapshot = True
     return snapshot, refs, degraded_snapshot
+
+
+class _CanonicalSessionProbe:
+    """Neutral same-session probe for the canonical observation pipeline."""
+
+    def __init__(self, session: Any) -> None:
+        self._session = session
+
+    async def generation(self) -> str:
+        return await _control_document_generation(self._session)
+
+    async def capture_ax(self, *, limit: int) -> tuple[ProbeNode, ...]:
+        del limit
+        result = await _send_with_timeout(
+            self._session,
+            "Accessibility.getFullAXTree",
+            timeout=_CONTROL_AX_SNAPSHOT_TIMEOUT_SECONDS,
+        )
+        return canonical_probe_nodes_from_ax(result)
+
+    async def capture_dom(self, *, limit: int) -> ProbeBatch:
+        result = await _send_with_timeout(
+            self._session,
+            "DOM.getDocument",
+            {"depth": max(1, min(int(limit), 64)), "pierce": True},
+            timeout=_CONTROL_DOM_TREE_TIMEOUT_SECONDS,
+        )
+        return canonical_probe_surface_from_dom(result)
+
+
+async def build_canonical_snapshot(
+    session: Any,
+    *,
+    context: ContextVersion | None = None,
+    scope: ObservationScope | None = None,
+    budget: ObservationBudget | None = None,
+) -> SnapshotCapture:
+    """Build neutral AX + bounded DOM capture for trusted CANONICAL mode."""
+    probe = _CanonicalSessionProbe(session)
+    if context is None:
+        generation = await probe.generation()
+        issued = _issue_opaque_value(
+            ContextVersion,
+            _RUNTIME_VALUE_ISSUER,
+            value=generation,
+        )
+        assert isinstance(issued, ContextVersion)
+        context = issued
+    return await capture_snapshot(
+        probe,
+        context=context,
+        scope=scope or CurrentSurface(),
+        budget=budget
+        or ObservationBudget(
+            capture_nodes=256,
+            output_targets=128,
+            hard_maximum=512,
+        ),
+    )
 
 
 async def _fallback_dom_snapshot(
@@ -1947,5 +2025,6 @@ __all__ = [
     "_control_snapshot_hash",
     "_control_visual_context_block",
     "_url_source",
+    "build_canonical_snapshot",
     "build_control_snapshot",
 ]

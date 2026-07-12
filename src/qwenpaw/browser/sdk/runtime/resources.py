@@ -9,7 +9,7 @@ import os
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Literal
 from uuid import uuid4
 
 from qwenpaw.constant import WORKING_DIR
@@ -39,6 +39,37 @@ class ResourceLimits:
     def __post_init__(self) -> None:
         if min(self.max_item_bytes, self.max_task_bytes, self.max_items) <= 0:
             raise ValueError("resource limits must be positive")
+
+
+@dataclass(frozen=True, slots=True)
+class ScreenshotInvariant:
+    """Controller-owned pre/post facts around one native image capture."""
+
+    generation: str
+    scroll_offset: tuple[float, float]
+    focused_backend_node: int | None
+    viewport: tuple[int, int]
+    layout: tuple[int, int]
+    event_watermark: int
+
+
+@dataclass(frozen=True, slots=True)
+class ScreenshotCapture:
+    """Complete private image bytes plus non-mutation evidence."""
+
+    scope: Literal["viewport", "full_page"]
+    data: bytes
+    media_type: str
+    name: str
+    width: int
+    height: int
+    complete: bool
+    before: ScreenshotInvariant
+    after: ScreenshotInvariant
+
+    @property
+    def invariant_unchanged(self) -> bool:
+        return self.before == self.after
 
 
 @dataclass(frozen=True, slots=True)
@@ -316,6 +347,8 @@ __all__ = [
     "ResourceLimits",
     "ResourceStore",
     "ResourceStoreError",
+    "ScreenshotCapture",
+    "ScreenshotInvariant",
     "TrustedOutputSource",
     "cleanup_resource_store",
     "get_or_create_resource_store",

@@ -21,6 +21,7 @@ from ..snapshot_builder import (
     _control_escalation_payload,
     _control_snapshot_hash,
     _control_visual_context_block,
+    build_canonical_snapshot,
     build_control_snapshot,
 )
 from ..ref_scope import (
@@ -46,6 +47,8 @@ class SnapshotHandler:
         bridge: Any,
         **kwargs: Any,
     ):
+        request_context = kwargs.get("request_context") or {}
+        contract_mode = str(request_context.get("contract_mode") or "LEGACY")
         tab_id = _control_tab_id(
             _control_page_id(state, str(kwargs.get("page_id", ""))),
             kwargs.get("index", -1),
@@ -56,7 +59,7 @@ class SnapshotHandler:
             tab_id=tab_id,
             holder_id=holder_id,
             bridge=bridge,
-            request_context=kwargs.get("request_context") or {},
+            request_context=request_context,
         )
         if str(tab_id) in {str(item) for item in state.network_enabled_tabs}:
             await _network_quiescence_wait(
@@ -66,6 +69,54 @@ class SnapshotHandler:
                 tab_id,
                 timeout=3.0,
                 grace_ms=50.0,
+            )
+        if contract_mode == "CANONICAL":
+            capture = await build_canonical_snapshot(session)
+            refs: dict[str, dict[str, Any]] = {}
+            targets: list[dict[str, Any]] = []
+            for index, target in enumerate(capture.targets, start=1):
+                ref = f"c{index}"
+                native_id = str(target.native_identity)
+                if native_id.startswith("backend:"):
+                    raw_id = native_id.removeprefix("backend:")
+                    if raw_id.isdigit():
+                        refs[ref] = {"backendNodeId": int(raw_id)}
+                targets.append(
+                    {
+                        "ref": ref,
+                        "owner": target.owner,
+                        "role": target.role,
+                        "name": target.name,
+                        "states": list(target.states),
+                        "sources": list(target.sources),
+                        "identity_conflict": target.identity_conflict,
+                        "executable": target.executable,
+                    },
+                )
+            state.refs[str(tab_id)] = refs
+            _control_clear_observation_required(state, tab_id)
+            _control_clear_visual_observation(state, tab_id)
+            payload = {
+                "ok": capture.coverage not in {"UNAVAILABLE", "STALE"},
+                "mode": "canonical",
+                "tab_id": tab_id,
+                "generation": capture.generation,
+                "coverage": capture.coverage,
+                "gaps": [_canonical_gap_payload(gap) for gap in capture.gaps],
+                "sources": [
+                    {
+                        "source": outcome.source,
+                        "available": outcome.available,
+                        "examined": outcome.examined,
+                        "error_code": outcome.error_code,
+                    }
+                    for outcome in capture.sources
+                ],
+                "targets": targets,
+                "refs": _control_snapshot_payload_refs(refs),
+            }
+            return _tool_response(
+                json.dumps(payload, ensure_ascii=False, indent=2),
             )
         snapshot, refs, degraded_snapshot = await build_control_snapshot(
             session,
@@ -118,6 +169,22 @@ class SnapshotHandler:
         if blocks:
             return _tool_response_with_blocks(text, blocks)
         return _tool_response(text)
+
+
+def _canonical_gap_payload(gap: Any) -> dict[str, Any]:
+    """Project only closed, model-visible omission facts."""
+    detail = gap.detail
+    payload: dict[str, Any] = {
+        "stage": gap.stage,
+        "source": getattr(detail, "source", ""),
+        "reason": detail.reason,
+        "examined": detail.examined,
+        "omitted": detail.omitted,
+    }
+    frontier = getattr(detail, "frontier", None)
+    if frontier:
+        payload["frontier"] = frontier
+    return payload
 
 
 SNAPSHOT_HANDLER = SnapshotHandler()

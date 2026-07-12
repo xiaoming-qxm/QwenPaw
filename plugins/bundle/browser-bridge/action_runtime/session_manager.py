@@ -11,6 +11,17 @@ from .errors import RECOVERABLE_CONTROL_EXCEPTIONS
 from .state import StateMapping
 
 
+async def _control_document_generation(session: Any) -> str:
+    """Return root loader identity; URLs and tab indexes are not identity."""
+    result = await session.send("Page.getFrameTree")
+    tree = result.get("frameTree") if isinstance(result, dict) else None
+    frame = tree.get("frame") if isinstance(tree, dict) else None
+    generation = frame.get("loaderId") if isinstance(frame, dict) else None
+    if not generation:
+        raise RuntimeError("document_generation_unavailable")
+    return str(generation)
+
+
 def _control_holder_id(
     state: StateMapping,
     request_context: dict[str, Any] | None = None,
@@ -500,6 +511,7 @@ __all__ = [
     "_control_abandon_session",
     "_control_active_session",
     "_control_close_session",
+    "_control_document_generation",
     "_control_ensure_tab_lease",
     "_control_get_existing_session",
     "_control_get_session",

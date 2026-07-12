@@ -8,7 +8,7 @@ import secrets
 from dataclasses import dataclass
 from enum import StrEnum
 from time import monotonic
-from typing import Callable, Literal
+from typing import Callable, Literal, TypeAlias
 from uuid import uuid4
 
 
@@ -30,6 +30,9 @@ class RootTaskOutcome(StrEnum):
     RETAINED_UNCERTAIN = "RETAINED_UNCERTAIN"
 
 
+OwnerKey: TypeAlias = tuple[str, str]
+
+
 @dataclass(frozen=True, slots=True)
 class BrowserRequestBinding:
     """Registry-issued identity and lease for one Browser request."""
@@ -41,7 +44,7 @@ class BrowserRequestBinding:
     lease_generation: int
 
     @property
-    def owner_key(self) -> tuple[str, str]:
+    def owner_key(self) -> OwnerKey:
         """Return the durable root-task and Browser-owner namespace."""
         return (self.root_task_id, self.browser_owner_id)
 
@@ -80,7 +83,7 @@ class _OwnerState:
 
 @dataclass(slots=True)
 class _TokenState:
-    owner_key: tuple[str, str]
+    owner_key: OwnerKey
     root_session_id: str
     expires_at: float
     consumed: bool = False
@@ -220,8 +223,10 @@ class BrowserSessionOwnerRegistry:
             self._drop_owner(binding.owner_key)
             terminal = True
         if terminal:
+            from .observation_store import cleanup_observation_store
             from .resources import cleanup_resource_store
 
+            cleanup_observation_store(binding.owner_key)
             await cleanup_resource_store(binding.owner_key)
 
     async def retain(
@@ -251,7 +256,7 @@ class BrowserSessionOwnerRegistry:
             state.retained_until = expires_at
             return ResumeToken(value=value)
 
-    async def sweep_expired(self) -> tuple[tuple[str, str], ...]:
+    async def sweep_expired(self) -> tuple[OwnerKey, ...]:
         """Remove retained owners only after their trusted TTL expires."""
         now = self._clock()
         async with self._lock:
@@ -263,13 +268,17 @@ class BrowserSessionOwnerRegistry:
             )
             for owner_key in expired:
                 self._drop_owner(owner_key)
-            return expired
+        from .observation_store import cleanup_observation_store
 
-    def has_owner(self, owner_key: tuple[str, str]) -> bool:
+        for owner_key in expired:
+            cleanup_observation_store(owner_key)
+        return expired
+
+    def has_owner(self, owner_key: OwnerKey) -> bool:
         """Return whether an owner remains registered."""
         return owner_key in self._owners
 
-    def active_lease_count(self, owner_key: tuple[str, str]) -> int:
+    def active_lease_count(self, owner_key: OwnerKey) -> int:
         """Return the binary active lease count for contract assertions."""
         state = self._owners.get(owner_key)
         return int(state is not None and state.lease_active)
@@ -355,7 +364,7 @@ class BrowserSessionOwnerRegistry:
             raise BrowserOwnerRegistryError("stale_lease")
         return state
 
-    def _drop_owner(self, owner_key: tuple[str, str]) -> None:
+    def _drop_owner(self, owner_key: OwnerKey) -> None:
         self._owners.pop(owner_key, None)
         for value, token in tuple(self._tokens.items()):
             if token.owner_key == owner_key:
