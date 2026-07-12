@@ -29,7 +29,11 @@ def case_report(
             "provenance": (
                 "fixture_ax_dom_native_call_log"
                 if case.family.value == "ObserveRead"
-                else "controller_owned_events"
+                else (
+                    "virtual_clock_raw_probe_event_log"
+                    if case.family.value == "Synchronize"
+                    else "controller_owned_events"
+                )
             ),
             "expected": result.expected,
             "observed": result.observed,

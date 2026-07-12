@@ -24,6 +24,7 @@ from qwenpaw.browser.sdk.canonical.contracts import (
     _RUNTIME_VALUE_ISSUER,
 )
 from qwenpaw.browser.sdk.governance.error_codes import BrowserErrorCode
+from qwenpaw.browser.sdk.primitives.matching import normalize_visible_text
 from qwenpaw.browser.sdk.runtime.snapshot import (
     ObservationBudget,
     ProbeBatch,
@@ -436,6 +437,68 @@ async def build_canonical_snapshot(
             hard_maximum=512,
         ),
     )
+
+
+async def capture_condition_probe_facts(
+    session: Any,
+    *,
+    region_descriptors: tuple[dict[str, Any], ...] = (),
+) -> dict[str, Any]:
+    """Capture raw Page/Region facts without evaluating any condition."""
+    evaluated = await session.send(
+        "Runtime.evaluate",
+        {
+            "expression": (
+                "({url:String(location.href),title:String(document.title),"
+                "ready_state:String(document.readyState)})"
+            ),
+            "returnByValue": True,
+        },
+    )
+    result = evaluated.get("result") if isinstance(evaluated, dict) else None
+    page = result.get("value") if isinstance(result, dict) else None
+    if not isinstance(page, dict):
+        raise RuntimeError("condition_page_facts_unavailable")
+    generation = await _control_document_generation(session)
+    raw_regions: list[dict[str, Any]] = []
+    coverage = "COMPLETE"
+    if region_descriptors:
+        capture = await build_canonical_snapshot(session)
+        coverage = capture.coverage
+        for descriptor in region_descriptors:
+            owner_chain = tuple(
+                str(item) for item in descriptor.get("owner_chain", ())
+            )
+            kind = str(descriptor.get("kind") or "")
+            if not owner_chain or kind not in {"FRAME", "CONTENT", "OWNER"}:
+                raise ValueError("condition_region_descriptor_invalid")
+            names = tuple(
+                target.name
+                for target in capture.targets
+                if tuple(target.owner_chain) == owner_chain
+            )
+            text = normalize_visible_text(" ".join(names))
+            raw_regions.append(
+                {
+                    "key": str(descriptor.get("key") or ""),
+                    "kind": kind,
+                    "owner_chain": list(owner_chain),
+                    "text": text,
+                    "item_count": len(names),
+                    "digest": hashlib.sha256(text.encode()).hexdigest(),
+                    "coverage": capture.coverage,
+                },
+            )
+    return {
+        "page": {
+            "url": str(page.get("url") or ""),
+            "title": str(page.get("title") or ""),
+            "document_generation": generation,
+            "ready_state": str(page.get("ready_state") or "loading"),
+        },
+        "regions": raw_regions,
+        "coverage": coverage,
+    }
 
 
 async def _fallback_dom_snapshot(
@@ -1063,7 +1126,8 @@ def _dom_action_weak_add_cart_text(
         return ""
     if _CONTROL_ACTION_WEAK_ADD_CART_EXCLUSION_RE.search(source):
         return ""
-    for sibling in siblings[sibling_index + 1 : sibling_index + 4]:
+    sibling_slice = slice(sibling_index + 1, sibling_index + 4)
+    for sibling in siblings[sibling_slice]:
         if not isinstance(sibling, dict):
             continue
         sibling_attributes = _dom_action_attributes(
@@ -2027,4 +2091,5 @@ __all__ = [
     "_url_source",
     "build_canonical_snapshot",
     "build_control_snapshot",
+    "capture_condition_probe_facts",
 ]

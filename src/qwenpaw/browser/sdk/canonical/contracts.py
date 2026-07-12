@@ -5,11 +5,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Literal, TypeAlias
+from typing import Any, Literal, TypeAlias, cast
 from uuid import uuid4
 
 from ..governance.errors import BrowserSDKError
-
 
 _RUNTIME_VALUE_ISSUER = object()
 
@@ -153,9 +152,39 @@ def _issue_opaque_value(
     return value_type(_issuer=_RUNTIME_VALUE_ISSUER, **fields)
 
 
-def _require_choice(value: str, allowed: set[str], name: str) -> None:
+def _require_choice(value: object, allowed: set[Any], name: str) -> None:
     if value not in allowed:
         raise ValueError(f"invalid {name}: {value}")
+
+
+def _require_string(
+    value: object,
+    name: str,
+    *,
+    allow_empty: bool = False,
+) -> str:
+    if not isinstance(value, str):
+        raise TypeError(f"{name} must be a string")
+    if not allow_empty and not value:
+        raise ValueError(f"{name} cannot be empty")
+    return value
+
+
+def _require_bool(value: object, name: str) -> bool:
+    if not isinstance(value, bool):
+        raise TypeError(f"{name} must be a bool")
+    return value
+
+
+def _require_int(value: object, name: str, *, minimum: int = 0) -> int:
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise TypeError(f"{name} must be an integer")
+    if value < minimum:
+        requirement = (
+            "be non-negative" if minimum == 0 else f"be at least {minimum}"
+        )
+        raise ValueError(f"{name} must {requirement}")
+    return value
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -551,6 +580,31 @@ class PageCondition:
     subject: object
     match: str = "exact"
 
+    def __post_init__(self) -> None:
+        _require_choice(
+            self.kind,
+            {"url", "title", "document_changed", "ready"},
+            "page condition kind",
+        )
+        if self.kind == "url":
+            _require_string(self.subject, "value")
+            _require_choice(self.match, {"exact", "prefix"}, "match")
+        elif self.kind == "title":
+            _require_string(self.subject, "value")
+            _require_choice(self.match, {"exact", "contains"}, "match")
+        elif self.kind == "document_changed":
+            _require_runtime_value(self.subject, ContextVersion, "context")
+            if self.match != "exact":
+                raise ValueError("document_changed does not accept match")
+        else:
+            _require_choice(
+                self.subject,
+                {"dom_content_loaded", "load"},
+                "state",
+            )
+            if self.match != "exact":
+                raise ValueError("ready does not accept match")
+
     @classmethod
     def url(
         cls,
@@ -590,6 +644,34 @@ class TargetCondition:
     kind: str
     subject: object
     expected: object = True
+
+    def __post_init__(self) -> None:
+        _require_choice(
+            self.kind,
+            {
+                "exists",
+                "visible",
+                "enabled",
+                "editable",
+                "value",
+                "checked",
+                "selected",
+            },
+            "target condition kind",
+        )
+        if self.kind in {"exists", "visible"}:
+            _require_target(self.subject)
+            _require_bool(self.expected, "expected")
+        elif self.kind in {"enabled", "editable", "checked"}:
+            _require_runtime_value(self.subject, TargetRef, "target")
+            _require_bool(self.expected, "expected")
+        elif self.kind == "value":
+            _require_runtime_value(self.subject, TargetRef, "target")
+            _require_string(self.expected, "value", allow_empty=True)
+        else:
+            _require_runtime_value(self.subject, TargetRef, "target")
+            if not isinstance(self.expected, OptionChoice):
+                raise TypeError("option must be an OptionChoice")
 
     @classmethod
     def exists(
@@ -660,6 +742,29 @@ class RegionCondition:
     value: object
     option: object
 
+    def __post_init__(self) -> None:
+        _require_choice(
+            self.kind,
+            {"text", "item_count", "changed"},
+            "region condition kind",
+        )
+        _require_runtime_value(self.region, RegionRef, "region")
+        if self.kind == "text":
+            _require_string(self.value, "value", allow_empty=True)
+            if not isinstance(self.option, tuple) or len(self.option) != 2:
+                raise TypeError("text option must contain present and match")
+            # pylint: disable-next=unpacking-non-sequence
+            present, match = cast(tuple[object, object], self.option)
+            _require_bool(present, "present")
+            _require_choice(match, {"exact", "contains"}, "match")
+        elif self.kind == "item_count":
+            _require_int(self.value, "value", minimum=0)
+            _require_choice(self.option, {"eq", "gte", "lte"}, "compare")
+        else:
+            _require_runtime_value(self.value, EvidenceRef, "from_evidence")
+            if self.option is not None:
+                raise ValueError("changed does not accept an option")
+
     @classmethod
     def text(
         cls,
@@ -701,6 +806,35 @@ class SurfaceCondition:
     kind: str
     subject: object = None
 
+    def __post_init__(self) -> None:
+        _require_choice(
+            self.kind,
+            {
+                "tab_opened",
+                "tab_closed",
+                "tab_selected",
+                "prompt_present",
+                "prompt_absent",
+            },
+            "surface condition kind",
+        )
+        if self.kind == "tab_opened":
+            _require_runtime_value(
+                self.subject,
+                ContextVersion,
+                "from_context",
+            )
+        elif self.kind in {"tab_closed", "tab_selected"}:
+            _require_runtime_value(self.subject, TabSummary, "tab")
+        elif self.kind == "prompt_absent":
+            _require_runtime_value(self.subject, BrowserPrompt, "prompt")
+        elif self.subject is not None:
+            _require_choice(
+                self.subject,
+                {"alert", "confirm", "prompt", "before_unload", "permission"},
+                "prompt_type",
+            )
+
     @classmethod
     def tab_opened(cls, from_context: ContextVersion) -> "SurfaceCondition":
         _require_runtime_value(from_context, ContextVersion, "from_context")
@@ -719,14 +853,16 @@ class SurfaceCondition:
     @classmethod
     def prompt_present(
         cls,
-        prompt_type: Literal[
-            "alert",
-            "confirm",
-            "prompt",
-            "before_unload",
-            "permission",
-        ]
-        | None = None,
+        prompt_type: (
+            Literal[
+                "alert",
+                "confirm",
+                "prompt",
+                "before_unload",
+                "permission",
+            ]
+            | None
+        ) = None,
     ) -> "SurfaceCondition":
         if prompt_type is not None:
             _require_choice(
@@ -746,6 +882,32 @@ class SurfaceCondition:
 class ResourceCondition:
     kind: str
     subject: object
+
+    def __post_init__(self) -> None:
+        _require_choice(
+            self.kind,
+            {"available", "created"},
+            "resource condition kind",
+        )
+        if self.kind == "available":
+            _require_runtime_value(self.subject, ResourceHandle, "resource")
+            return
+        if not isinstance(self.subject, tuple) or len(self.subject) != 4:
+            raise TypeError(
+                "created subject must contain kind, count, media_type, "
+                "and name",
+            )
+        # pylint: disable-next=unpacking-non-sequence
+        kind, count, media_type, name = cast(
+            tuple[object, object, object, object],
+            self.subject,
+        )
+        _require_choice(kind, {"download", "page_pdf"}, "kind")
+        _require_int(count, "count", minimum=1)
+        if media_type is not None:
+            _require_string(media_type, "media_type")
+        if name is not None:
+            _require_string(name, "name")
 
     @classmethod
     def available(cls, resource: ResourceHandle) -> "ResourceCondition":
@@ -780,6 +942,12 @@ ConditionAtom = (
 class BrowserCondition:
     combinator: Literal["all", "any"]
     atoms: tuple[ConditionAtom, ...]
+
+    def __post_init__(self) -> None:
+        _require_choice(self.combinator, {"all", "any"}, "combinator")
+        if not isinstance(self.atoms, tuple):
+            raise TypeError("BrowserCondition atoms must be a tuple")
+        _condition_atoms(self.atoms)
 
     @classmethod
     def all(cls, *atoms: ConditionAtom) -> "BrowserCondition":
@@ -902,6 +1070,142 @@ def _condition_atoms(
     ):
         raise TypeError("BrowserCondition accepts only closed condition atoms")
     return atoms
+
+
+ConditionUsage: TypeAlias = Literal[
+    "WAIT_OR_EXPECTATION",
+    "ACTION_EXPECTATION_ONLY",
+]
+
+
+def _condition_usage(atom: ConditionAtom) -> ConditionUsage:
+    """Return the closed use-site classification for one atom."""
+    if isinstance(atom, ResourceCondition) and atom.kind == "created":
+        return "ACTION_EXPECTATION_ONLY"
+    return "WAIT_OR_EXPECTATION"
+
+
+def _serialize_browser_condition(
+    condition: BrowserCondition,
+    *,
+    max_atoms: int,
+) -> dict[str, object]:
+    """Serialize a validated flat condition for a trusted runtime boundary."""
+    if not isinstance(condition, BrowserCondition):
+        raise TypeError("condition must be a BrowserCondition")
+    _require_int(max_atoms, "max_condition_atoms", minimum=1)
+    if len(condition.atoms) > max_atoms:
+        raise ValueError(
+            f"condition exceeds max_condition_atoms={max_atoms}",
+        )
+    return {
+        "combinator": condition.combinator,
+        "atoms": [_serialize_condition_atom(atom) for atom in condition.atoms],
+    }
+
+
+# pylint: disable-next=too-many-return-statements
+def _serialize_condition_atom(atom: ConditionAtom) -> dict[str, object]:
+    if isinstance(atom, PageCondition):
+        if atom.kind in {"url", "title"}:
+            return {
+                "family": "page",
+                "kind": atom.kind,
+                "value": atom.subject,
+                "match": atom.match,
+            }
+        key = "context" if atom.kind == "document_changed" else "state"
+        return {
+            "family": "page",
+            "kind": atom.kind,
+            key: _condition_value(atom.subject),
+        }
+    if isinstance(atom, TargetCondition):
+        key = "subject" if atom.kind in {"exists", "visible"} else "target"
+        result = {
+            "family": "target",
+            "kind": atom.kind,
+            key: _condition_value(atom.subject),
+        }
+        result[
+            (
+                "value"
+                if atom.kind == "value"
+                else "option"
+                if atom.kind == "selected"
+                else "expected"
+            )
+        ] = _condition_value(atom.expected)
+        return result
+    if isinstance(atom, RegionCondition):
+        result = {
+            "family": "region",
+            "kind": atom.kind,
+            "region": atom.region.to_dict(),
+        }
+        if atom.kind == "text":
+            present, match = cast(tuple[bool, str], atom.option)
+            result.update(
+                value=atom.value,
+                present=present,
+                match=match,
+            )
+        elif atom.kind == "item_count":
+            result.update(value=atom.value, compare=atom.option)
+        else:
+            result["from_evidence"] = _condition_value(atom.value)
+        return result
+    if isinstance(atom, SurfaceCondition):
+        keys = {
+            "tab_opened": "from_context",
+            "tab_closed": "tab",
+            "tab_selected": "tab",
+            "prompt_present": "prompt_type",
+            "prompt_absent": "prompt",
+        }
+        return {
+            "family": "surface",
+            "kind": atom.kind,
+            keys[atom.kind]: _condition_value(atom.subject),
+        }
+    if isinstance(atom, ResourceCondition):
+        if atom.kind == "available":
+            return {
+                "family": "resource",
+                "kind": "available",
+                "resource": _condition_value(atom.subject),
+                "usage": _condition_usage(atom),
+            }
+        kind, count, media_type, name = cast(
+            tuple[str, int, str | None, str | None],
+            atom.subject,
+        )
+        return {
+            "family": "resource",
+            "kind": "created",
+            "resource_kind": kind,
+            "count": count,
+            "media_type": media_type,
+            "name": name,
+            "usage": _condition_usage(atom),
+        }
+    raise TypeError("unsupported condition atom")
+
+
+def _condition_value(value: object) -> object:
+    if isinstance(value, _OpaqueRuntimeValue):
+        return value.to_dict()
+    if isinstance(value, TargetQuery):
+        return {
+            "role": value.role,
+            "name": value.name,
+            "text": value.text,
+            "region": value.region.to_dict() if value.region else None,
+            "match": value.match,
+        }
+    if isinstance(value, OptionChoice):
+        return {"by": value.by, "value": value.value}
+    return value
 
 
 TerminalStatus: TypeAlias = Literal[
@@ -1106,15 +1410,60 @@ class ScreenshotResult(_TerminalFields):
         validate_result_contract(self)
 
 
+WaitOutcome: TypeAlias = Literal[
+    "SATISFIED",
+    "TIMED_OUT",
+    "STALE",
+    "UNAVAILABLE",
+    "INVALID_ARGUMENT",
+]
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class WaitResult(_TerminalFields):
     evidence: EvidenceRef | None = None
-    outcome: str | None = None
+    outcome: WaitOutcome | None = None
     matched_atoms: tuple[ConditionAtom, ...] = ()
     last_observed: ContextVersion | None = None
     elapsed_ms: int = 0
 
     def __post_init__(self) -> None:
+        if self.outcome is not None:
+            _require_choice(
+                self.outcome,
+                set(WaitOutcome.__args__),  # type: ignore[attr-defined]
+                "wait outcome",
+            )
+        if self.elapsed_ms < 0:
+            raise ValueError("elapsed_ms must be non-negative")
+        condition_types = (
+            PageCondition,
+            TargetCondition,
+            RegionCondition,
+            SurfaceCondition,
+            ResourceCondition,
+        )
+        if not all(
+            isinstance(atom, condition_types) for atom in self.matched_atoms
+        ):
+            raise TypeError(
+                "matched_atoms must contain closed condition atoms",
+            )
+        if self.last_observed is not None:
+            _require_runtime_value(
+                self.last_observed,
+                ContextVersion,
+                "last_observed",
+            )
+        if self.outcome in {"SATISFIED", "TIMED_OUT", "STALE", "UNAVAILABLE"}:
+            if self.evidence is None:
+                raise ResultContractError(
+                    "evidence-bearing wait outcome requires evidence",
+                )
+        if self.outcome is None and self.status != "FAILED":
+            raise ResultContractError(
+                "only startup FAILED may omit wait outcome",
+            )
         validate_result_contract(self)
 
 
@@ -1377,6 +1726,40 @@ def canonical_api_catalog() -> dict[str, Any]:
                     },
                 ],
             ),
+            _entry(
+                "tab.wait_for",
+                "qwenpaw.browser.sdk.canonical.tabs:Tab.wait_for",
+                (
+                    "async wait_for(condition: BrowserCondition, *, "
+                    "timeout_ms: int, stable_ms: int = 0) -> WaitResult"
+                ),
+                mutates=False,
+                kind="primitive",
+                satisfies_observation=True,
+                return_type="WaitResult",
+                summary="Wait for one bounded flat typed condition.",
+                parameters=[
+                    {
+                        "name": "condition",
+                        "kind": "POSITIONAL_OR_KEYWORD",
+                        "required": True,
+                        "annotation": "BrowserCondition",
+                    },
+                    {
+                        "name": "timeout_ms",
+                        "kind": "KEYWORD_ONLY",
+                        "required": True,
+                        "annotation": "int",
+                    },
+                    {
+                        "name": "stable_ms",
+                        "kind": "KEYWORD_ONLY",
+                        "required": False,
+                        "default": 0,
+                        "annotation": "int",
+                    },
+                ],
+            ),
         ],
     }
 
@@ -1510,6 +1893,7 @@ __all__ = [
     "ValidationProblemDetails",
     "VisualContextRef",
     "VisualRegion",
+    "WaitOutcome",
     "WaitResult",
     "WorkflowRequirement",
     "can_prove_global_unique",

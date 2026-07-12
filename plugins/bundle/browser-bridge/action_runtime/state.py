@@ -34,6 +34,12 @@ CONTROL_STATE_KEY_TO_FIELD: dict[str, str] = {
     "approved_domains": "approved_domains",
     "control_pending_action_transition": "pending_action_transition",
     "pending_action_transition": "pending_action_transition",
+    "control_condition_event_sequences": "condition_event_sequences",
+    "condition_event_sequences": "condition_event_sequences",
+    "control_condition_native_sequences": "condition_native_sequences",
+    "condition_native_sequences": "condition_native_sequences",
+    "control_condition_subscriptions": "condition_subscriptions",
+    "condition_subscriptions": "condition_subscriptions",
 }
 
 
@@ -57,6 +63,11 @@ class ControlState(MutableMapping[str, Any]):
     page_aliases: dict[str, int] = field(default_factory=dict)
     approved_domains: set[str] = field(default_factory=set)
     pending_action_transition: dict[str, Any] | None = None
+    condition_event_sequences: dict[str, int] = field(default_factory=dict)
+    condition_native_sequences: dict[str, int] = field(default_factory=dict)
+    condition_subscriptions: dict[str, dict[str, Any]] = field(
+        default_factory=dict,
+    )
     extra: dict[str, Any] = field(default_factory=dict)
 
     _KEY_TO_FIELD: ClassVar[dict[str, str]] = CONTROL_STATE_KEY_TO_FIELD
@@ -145,6 +156,7 @@ def control_state_from_mapping(
     return ControlState(**kwargs)
 
 
+# pylint: disable-next=too-many-branches
 def control_state_to_mapping(state: ControlState) -> dict[str, Any]:
     """Serialize typed control state to the external workspace mapping."""
     data = dict(state.extra)
@@ -175,6 +187,16 @@ def control_state_to_mapping(state: ControlState) -> dict[str, Any]:
         data[
             "control_pending_action_transition"
         ] = state.pending_action_transition
+    if state.condition_event_sequences:
+        data[
+            "control_condition_event_sequences"
+        ] = state.condition_event_sequences
+    if state.condition_native_sequences:
+        data[
+            "control_condition_native_sequences"
+        ] = state.condition_native_sequences
+    if state.condition_subscriptions:
+        data["control_condition_subscriptions"] = state.condition_subscriptions
     return data
 
 
@@ -205,6 +227,9 @@ def _default_field_value(field_name: str) -> Any:
         "click_effects",
         "snapshot_hashes",
         "page_aliases",
+        "condition_event_sequences",
+        "condition_native_sequences",
+        "condition_subscriptions",
         "extra",
     }:
         return {}

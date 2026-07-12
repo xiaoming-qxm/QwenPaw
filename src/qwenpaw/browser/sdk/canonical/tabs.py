@@ -4,9 +4,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable, Literal
+from hashlib import sha256
+from typing import Any, Awaitable, Callable, Literal, cast
 
+from ..backends.protocols import BackendProfile
+from ..condition_evaluator import (
+    ConditionEvaluation,
+    ConditionEvaluator,
+    ConditionReceiver,
+)
 from ..governance.errors import BrowserSDKGap
+from ..primitives.matching import normalize_visible_text
 from ..runtime.resources import (
     ResourceStore,
     ScreenshotCapture,
@@ -26,6 +34,7 @@ from ..runtime.snapshot import (
 )
 from .contracts import (
     CapabilityProblemDetails,
+    BrowserCondition,
     CaptureGap,
     CoverageGap,
     CurrentSurface,
@@ -38,16 +47,21 @@ from .contracts import (
     ReadSegment,
     RegionScope,
     RegionSummary,
+    ResourceCondition,
     SelectionGap,
     ScreenshotResult,
     SnapshotResult,
+    SurfaceCondition,
     RetryDirective,
     TargetQuery,
     TargetRef,
     TargetSummary,
+    TargetCondition,
     TerminalStatus,
     VisualRegion,
     VisualContextRef,
+    WaitResult,
+    _condition_usage,
     _RUNTIME_VALUE_ISSUER,
     _issue_opaque_value,
     issue_operation_id,
@@ -77,6 +91,91 @@ class Tab:
     _session: Any = field(default=None, repr=False)
     _resources: ResourceStore | None = field(default=None, repr=False)
     _observations: ObservationStore | None = field(default=None, repr=False)
+    _condition_evaluator: ConditionEvaluator | Any = field(
+        default=None,
+        repr=False,
+    )
+    _profile: BackendProfile | None = field(default=None, repr=False)
+
+    async def wait_for(
+        self,
+        condition: BrowserCondition,
+        *,
+        timeout_ms: int,
+        stable_ms: int = 0,
+    ) -> WaitResult:
+        """Wait for one bounded flat typed condition on this Tab receiver."""
+        preflight = _wait_preflight(
+            condition,
+            timeout_ms=timeout_ms,
+            stable_ms=stable_ms,
+            profile=self._profile,
+        )
+        if preflight is not None:
+            return _record_wait_result(preflight)
+        if self._observations is None:
+            raise _capability_blocked("tab.wait_for")
+        unsupported = tuple(
+            atom
+            for atom in condition.atoms
+            if isinstance(
+                atom,
+                (TargetCondition, SurfaceCondition, ResourceCondition),
+            )
+        )
+        if unsupported:
+            observation = self._observations.issue_evidence(
+                kind="SNAPSHOT",
+                scope=CurrentSurface(),
+                coverage="UNAVAILABLE",
+                gaps=(),
+            )
+            return _record_wait_result(
+                WaitResult(
+                    operation_id=issue_operation_id(),
+                    status="BLOCKED",
+                    retry="AFTER_OBSERVATION",
+                    problem=Problem(
+                        code="capability_unavailable",
+                        phase="PREFLIGHT",
+                        safe_message=(
+                            "One or more condition families are not active."
+                        ),
+                        details=CapabilityProblemDetails(
+                            capability="tab.wait_for.condition_family",
+                        ),
+                    ),
+                    evidence=observation.ref,
+                    outcome="UNAVAILABLE",
+                    last_observed=observation.context,
+                ),
+            )
+        if self._session is None or self._condition_evaluator is None:
+            raise _capability_blocked("tab.wait_for")
+        probe = self._session.condition_probe(self.id)
+        receiver = ConditionReceiver(
+            owner_key=self._observations.owner_key,
+            root_session_id=self._observations.root_session_id,
+            tab_id=self.id,
+            context=self._observations.context,
+            generation=self._observations.generation,
+            observation_store=self._observations,
+        )
+        evaluation = await self._condition_evaluator.evaluate(
+            receiver,
+            condition,
+            probe=probe,
+            timeout_ms=timeout_ms,
+            stable_ms=stable_ms,
+            baseline=None,
+            armed=None,
+        )
+        if not isinstance(evaluation, ConditionEvaluation):
+            raise BrowserSDKGap(
+                "Condition evaluator returned invalid terminal facts.",
+                action="tab.wait_for",
+            )
+        return _record_wait_result(_wait_result(evaluation))
 
     async def snapshot(
         self,
@@ -185,6 +284,32 @@ class Tab:
             _region_summary(self._observations, region)
             for region in capture.regions
         )
+        register_baseline = getattr(
+            self._session,
+            "_register_condition_region_baseline",
+            None,
+        )
+        if callable(register_baseline):
+            register = cast(Callable[[Any, Any, str], None], register_baseline)
+            for captured_region, summary in zip(
+                capture.regions,
+                region_summaries,
+                strict=True,
+            ):
+                text = normalize_visible_text(
+                    " ".join(
+                        target.name
+                        for target in capture.targets
+                        if tuple(target.owner_chain)
+                        == tuple(captured_region.owner_chain)
+                    ),
+                )
+                # pylint: disable-next=not-callable
+                register(
+                    summary.ref,
+                    observation.ref,
+                    sha256(text.encode()).hexdigest(),
+                )
         status, retry, problem = _snapshot_terminal(coverage)
         result = SnapshotResult(
             operation_id=issue_operation_id(),
@@ -436,6 +561,11 @@ class BrowserTabs:
 
     _session: Any = field(default=None, repr=False)
     _resources: ResourceStore | None = field(default=None, repr=False)
+    _condition_evaluator: ConditionEvaluator | None = field(
+        default=None,
+        repr=False,
+    )
+    _profile: BackendProfile | None = field(default=None, repr=False)
 
     async def active(self) -> Tab:
         raise _capability_blocked("browser.tabs.active")
@@ -452,6 +582,111 @@ def _capability_blocked(capability: str) -> BrowserSDKGap:
 def _record_snapshot_result(result: SnapshotResult) -> SnapshotResult:
     record_browser_result(result)
     return result
+
+
+def _record_wait_result(result: WaitResult) -> WaitResult:
+    record_browser_result(result)
+    return result
+
+
+# pylint: disable-next=too-many-return-statements
+def _wait_preflight(
+    condition: BrowserCondition,
+    *,
+    timeout_ms: int,
+    stable_ms: int,
+    profile: BackendProfile | None,
+) -> WaitResult | None:
+    if not isinstance(condition, BrowserCondition):
+        return _invalid_wait("condition must be a BrowserCondition")
+    action_only = any(
+        _condition_usage(atom) == "ACTION_EXPECTATION_ONLY"
+        for atom in condition.atoms
+    )
+    if action_only:
+        return _invalid_wait(
+            "ResourceCondition.created is action-expectation-only",
+        )
+    limits = profile.hard_limits if profile is not None else {}
+    max_wait_ms = int(limits.get("max_wait_ms", 30_000))
+    max_stable_ms = int(limits.get("max_stable_ms", 5_000))
+    max_atoms = int(limits.get("max_condition_atoms", 16))
+    if not isinstance(timeout_ms, int) or isinstance(timeout_ms, bool):
+        return _invalid_wait("timeout_ms must be an integer")
+    if not isinstance(stable_ms, int) or isinstance(stable_ms, bool):
+        return _invalid_wait("stable_ms must be an integer")
+    if timeout_ms < 1 or timeout_ms > max_wait_ms:
+        return _invalid_wait("timeout_ms exceeds the backend profile")
+    if stable_ms < 0 or stable_ms > min(timeout_ms, max_stable_ms):
+        return _invalid_wait("stable_ms exceeds the backend profile")
+    if len(condition.atoms) > max_atoms:
+        return _invalid_wait("condition exceeds max_condition_atoms")
+    return None
+
+
+def _invalid_wait(message: str) -> WaitResult:
+    return WaitResult(
+        operation_id=issue_operation_id(),
+        status="FAILED",
+        retry="NONE",
+        problem=Problem(
+            code="condition_invalid_argument",
+            phase="PREFLIGHT",
+            safe_message=message,
+        ),
+        outcome="INVALID_ARGUMENT",
+    )
+
+
+def _wait_result(evaluation: ConditionEvaluation) -> WaitResult:
+    problem = _wait_problem(evaluation)
+    retry: RetryDirective = "NONE"
+    if evaluation.status in {"PARTIAL", "BLOCKED"}:
+        retry = "AFTER_OBSERVATION"
+    elif evaluation.status == "FAILED":
+        retry = "SAFE"
+    return WaitResult(
+        operation_id=issue_operation_id(),
+        status=evaluation.status,
+        retry=retry,
+        problem=problem,
+        cleanup=evaluation.cleanup,
+        evidence=(
+            evaluation.evidence.ref
+            if evaluation.evidence is not None
+            else None
+        ),
+        outcome=evaluation.outcome,
+        matched_atoms=evaluation.matched_atoms,
+        last_observed=evaluation.last_observed,
+        elapsed_ms=evaluation.elapsed_ms,
+    )
+
+
+def _wait_problem(evaluation: ConditionEvaluation) -> Problem | None:
+    if evaluation.status == "SUCCEEDED":
+        return None
+    code = {
+        "TIMED_OUT": "condition_timeout_partial",
+        "STALE": "condition_baseline_stale",
+        "UNAVAILABLE": "condition_probe_unavailable",
+        "INVALID_ARGUMENT": "condition_invalid_argument",
+        None: "condition_evaluator_startup",
+    }[evaluation.outcome]
+    phase: Literal["PREFLIGHT", "CAPTURE", "VERIFY", "TRANSPORT"]
+    if evaluation.outcome == "INVALID_ARGUMENT":
+        phase = "PREFLIGHT"
+    elif evaluation.outcome in {"TIMED_OUT", "STALE"}:
+        phase = "VERIFY"
+    elif evaluation.status == "FAILED":
+        phase = "TRANSPORT"
+    else:
+        phase = "CAPTURE"
+    return Problem(
+        code=code,
+        phase=phase,
+        safe_message="Condition evaluation did not prove satisfaction.",
+    )
 
 
 def _scope_owner_chain(

@@ -18,6 +18,7 @@ from ..canonical.contracts import (
     ObservationScope,
     ReadCursor,
     RegionRef,
+    RegionScope,
     _issue_opaque_value,
     _RUNTIME_VALUE_ISSUER,
 )
@@ -105,6 +106,16 @@ class _EvidenceEntry:
 
 
 @dataclass(frozen=True, slots=True)
+class _ContextEntry:
+    context: ContextVersion
+    owner_key: OwnerKey
+    root_session_id: str
+    tab_id: str
+    generation: int
+    expires_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
 class RegionBinding:
     """Private exact surface identity behind an opaque RegionRef."""
 
@@ -130,6 +141,7 @@ _COLLECTIONS: dict[str, _CollectionEntry] = {}
 _CURSORS: dict[str, _CursorEntry] = {}
 _EVIDENCE: dict[str, _EvidenceEntry] = {}
 _REGIONS: dict[str, _RegionEntry] = {}
+_CONTEXTS: dict[int, _ContextEntry] = {}
 
 
 class ObservationStore:
@@ -162,6 +174,14 @@ class ObservationStore:
         self.generation = generation
         self.ttl_seconds = float(ttl_seconds)
         self._clock = clock or (lambda: datetime.now(UTC))
+        _CONTEXTS[id(context)] = _ContextEntry(
+            context=context,
+            owner_key=owner_key,
+            root_session_id=root_session_id,
+            tab_id=tab_id,
+            generation=generation,
+            expires_at=self._clock() + timedelta(seconds=self.ttl_seconds),
+        )
 
     def collection_expiry(self) -> datetime:
         """Return the immutable collection expiry under this store's clock."""
@@ -230,7 +250,7 @@ class ObservationStore:
         if self._clock() >= collection.expires_at:
             raise ObservationStoreError("cursor_expired")
         end = min(entry.offset + limit, len(collection.segments))
-        segments = collection.segments[entry.offset : end]
+        segments = collection.segments[slice(entry.offset, end)]
         exhausted = end >= len(collection.segments)
         next_cursor = None
         if not exhausted:
@@ -264,6 +284,77 @@ class ObservationStore:
             _EVIDENCE.pop(evidence_id, None)
             raise ObservationStoreError("evidence_expired")
         return entry.meta
+
+    def require_context_baseline(
+        self,
+        context: ContextVersion,
+    ) -> ContextVersion:
+        """Validate a prior page context against this exact receiver."""
+        if not isinstance(context, ContextVersion):
+            raise ObservationStoreError("context_invalid")
+        entry = _CONTEXTS.get(id(context))
+        if entry is None or entry.context is not context:
+            raise ObservationStoreError("context_unavailable")
+        if entry.owner_key != self.owner_key:
+            raise ObservationStoreError("context_owner_mismatch")
+        if entry.root_session_id != self.root_session_id:
+            raise ObservationStoreError("context_session_mismatch")
+        if entry.tab_id != self.tab_id:
+            raise ObservationStoreError("context_tab_mismatch")
+        if entry.generation > self.generation:
+            raise ObservationStoreError("context_generation_mismatch")
+        if self._clock() >= entry.expires_at:
+            _CONTEXTS.pop(id(context), None)
+            raise ObservationStoreError("context_expired")
+        return entry.context
+
+    def require_region_evidence_baseline(
+        self,
+        region: RegionRef,
+        evidence: EvidenceRef,
+    ) -> tuple[RegionBinding, EvidenceMeta]:
+        """Validate an exact region/evidence baseline in this document."""
+        region_id = _opaque_id(region, RegionRef, "region_unavailable")
+        evidence_id = _opaque_id(
+            evidence,
+            EvidenceRef,
+            "evidence_unavailable",
+        )
+        region_entry = _REGIONS.get(region_id)
+        evidence_entry = _EVIDENCE.get(evidence_id)
+        if region_entry is None:
+            raise ObservationStoreError("region_unavailable")
+        if evidence_entry is None:
+            raise ObservationStoreError("evidence_unavailable")
+        self._validate_binding(
+            owner_key=region_entry.owner_key,
+            root_session_id=region_entry.root_session_id,
+            tab_id=region_entry.tab_id,
+            context=region_entry.context,
+            generation=region_entry.generation,
+            prefix="region",
+        )
+        self._validate_binding(
+            owner_key=evidence_entry.owner_key,
+            root_session_id=evidence_entry.root_session_id,
+            tab_id=evidence_entry.tab_id,
+            context=evidence_entry.context,
+            generation=evidence_entry.generation,
+            prefix="evidence",
+        )
+        if (
+            region_entry.context is not evidence_entry.context
+            or region_entry.generation != evidence_entry.generation
+        ):
+            raise ObservationStoreError("region_evidence_context_mismatch")
+        scope = evidence_entry.meta.scope
+        if not isinstance(scope, RegionScope) or scope.region is not region:
+            raise ObservationStoreError("region_evidence_scope_mismatch")
+        if self._clock() >= region_entry.expires_at:
+            raise ObservationStoreError("region_expired")
+        if self._clock() >= evidence_entry.expires_at:
+            raise ObservationStoreError("evidence_expired")
+        return region_entry.binding, evidence_entry.meta
 
     def issue_region(
         self,
@@ -442,6 +533,9 @@ def cleanup_observation_store(owner_key: OwnerKey) -> None:
     for key, region_entry in tuple(_REGIONS.items()):
         if region_entry.owner_key == owner_key:
             _REGIONS.pop(key, None)
+    for context_key, context_entry in tuple(_CONTEXTS.items()):
+        if context_entry.owner_key == owner_key:
+            _CONTEXTS.pop(context_key, None)
 
 
 def _opaque_id(value: object, expected: type[object], code: str) -> str:

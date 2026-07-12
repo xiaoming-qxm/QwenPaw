@@ -4,11 +4,192 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
+from uuid import uuid4
 
+from qwenpaw.browser.sdk.runtime.session_owner import OwnerKey
 from qwenpaw.browser.sdk.runtime.responses import logger
 from .errors import RECOVERABLE_CONTROL_EXCEPTIONS
 from .state import StateMapping
+
+
+_CONDITION_HINT_METHODS = frozenset(
+    {
+        "Page.frameNavigated",
+        "Page.navigatedWithinDocument",
+        "Page.lifecycleEvent",
+        "DOM.documentUpdated",
+    },
+)
+
+
+def _control_condition_subscribe(
+    state: StateMapping,
+    *,
+    owner_key: OwnerKey,
+    tab_id: int,
+) -> tuple[str, int]:
+    """Atomically subscribe at the current owner/tab event watermark."""
+    token = f"condition-sub-{uuid4().hex}"
+    sequences = state.setdefault("condition_event_sequences", {})
+    subscriptions = state.setdefault("condition_subscriptions", {})
+    watermark = int(sequences.get(str(tab_id), 0))
+    subscriptions[token] = {
+        "owner_key": tuple(owner_key),
+        "tab_id": int(tab_id),
+        "watermark": watermark,
+        "hints": [],
+        "event": asyncio.Event(),
+    }
+    return token, watermark
+
+
+def _control_condition_record_event(
+    state: StateMapping,
+    *,
+    tab_id: int,
+    method: str,
+    native_sequence: int | None = None,
+) -> int:
+    """Record one relevant event as a monotonic hint, never as truth."""
+    sequences = state.setdefault("condition_event_sequences", {})
+    current = int(sequences.get(str(tab_id), 0))
+    if method not in _CONDITION_HINT_METHODS:
+        return current
+    native_sequences = state.setdefault("condition_native_sequences", {})
+    if native_sequence is not None:
+        previous_native = int(native_sequences.get(str(tab_id), -1))
+        if native_sequence <= previous_native:
+            return current
+        native_sequences[str(tab_id)] = native_sequence
+    current += 1
+    sequences[str(tab_id)] = current
+    subscriptions = state.setdefault("condition_subscriptions", {})
+    for entry in subscriptions.values():
+        if int(entry.get("tab_id", -1)) != int(tab_id):
+            continue
+        hints = entry.setdefault("hints", [])
+        hints.append(current)
+        event = entry.get("event")
+        if isinstance(event, asyncio.Event):
+            event.set()
+    return current
+
+
+def _control_condition_next_hint(
+    state: StateMapping,
+    *,
+    token: str,
+    owner_key: OwnerKey,
+    tab_id: int,
+) -> int | None:
+    """Consume the first post-watermark hint for an exact subscription."""
+    subscriptions = state.setdefault("condition_subscriptions", {})
+    entry = subscriptions.get(token)
+    if not isinstance(entry, dict):
+        return None
+    if tuple(entry.get("owner_key", ())) != tuple(owner_key):
+        return None
+    if int(entry.get("tab_id", -1)) != int(tab_id):
+        return None
+    watermark = int(entry.get("watermark", 0))
+    hints = entry.setdefault("hints", [])
+    while hints:
+        sequence = int(hints.pop(0))
+        if sequence > watermark:
+            entry["watermark"] = sequence
+            return sequence
+    return None
+
+
+def _control_condition_unsubscribe(
+    state: StateMapping,
+    *,
+    token: str,
+    owner_key: OwnerKey,
+    tab_id: int,
+) -> bool:
+    """Release only the exact owner/tab subscription."""
+    subscriptions = state.setdefault("condition_subscriptions", {})
+    entry = subscriptions.get(token)
+    if not isinstance(entry, dict):
+        return False
+    if tuple(entry.get("owner_key", ())) != tuple(owner_key):
+        return False
+    if int(entry.get("tab_id", -1)) != int(tab_id):
+        return False
+    subscriptions.pop(token, None)
+    return True
+
+
+def _control_cleanup_condition_subscriptions(
+    state: StateMapping,
+    *,
+    owner_key: OwnerKey | None = None,
+    tab_id: int | None = None,
+) -> None:
+    """Release subscriptions at owner, tab, disconnect, or terminal cleanup."""
+    subscriptions = state.setdefault("condition_subscriptions", {})
+    for token, entry in tuple(subscriptions.items()):
+        owner_matches = owner_key is None or tuple(
+            entry.get("owner_key", ()),
+        ) == tuple(owner_key)
+        tab_matches = tab_id is None or int(entry.get("tab_id", -1)) == int(
+            tab_id,
+        )
+        if owner_matches and tab_matches:
+            subscriptions.pop(token, None)
+
+
+def _control_register_condition_event_handler(
+    state: StateMapping,
+    *,
+    session: Any,
+    bridge: Any,
+    tab_id: int,
+) -> None:
+    add_listener = getattr(bridge, "add_event_listener", None)
+    if not callable(add_listener):
+        return
+    if getattr(session, "_condition_event_handler_registered", False):
+        return
+
+    async def _record(event: dict[str, Any]) -> None:
+        if not isinstance(event, dict):
+            return
+        event_tab = event.get("tabId", event.get("tab_id"))
+        if event_tab is None or int(event_tab) != int(tab_id):
+            return
+        native = event.get("sequence")
+        _control_condition_record_event(
+            state,
+            tab_id=tab_id,
+            method=str(event.get("method") or ""),
+            native_sequence=int(native) if isinstance(native, int) else None,
+        )
+
+    add_listener("cdp.event", _record)
+    setattr(session, "_condition_event_handler", _record)
+    setattr(session, "_condition_event_handler_registered", True)
+
+
+def _control_remove_condition_event_handler(
+    session: Any,
+    bridge: Any,
+) -> None:
+    handler = getattr(session, "_condition_event_handler", None)
+    remove_listener = getattr(bridge, "remove_event_listener", None)
+    if callable(handler) and callable(remove_listener):
+        try:
+            remove_listener("cdp.event", handler)
+        except (RuntimeError, OSError, ValueError, TypeError):
+            logger.debug(
+                "Failed to remove condition event handler",
+                exc_info=True,
+            )
+    setattr(session, "_condition_event_handler", None)
+    setattr(session, "_condition_event_handler_registered", False)
 
 
 async def _control_document_generation(session: Any) -> str:
@@ -55,6 +236,10 @@ def _control_sessions(state: StateMapping) -> dict[str, Any]:
 
 
 async def _control_abandon_session(session: Any) -> None:
+    _control_remove_condition_event_handler(
+        session,
+        getattr(session, "bridge", None),
+    )
     abandon = getattr(session, "abandon", None)
     if callable(abandon):
         await abandon()
@@ -330,6 +515,12 @@ async def _control_prepare_session_events(
         bridge=bridge,
         tab_id=tab_id,
     )
+    _control_register_condition_event_handler(
+        state,
+        session=session,
+        bridge=bridge,
+        tab_id=tab_id,
+    )
     try:
         await session.send("Page.enable")
     except (RuntimeError, OSError, ValueError, TypeError):
@@ -496,9 +687,11 @@ async def _control_close_session(
     holder_id: str,
     bridge: Any,
 ) -> None:
+    _control_cleanup_condition_subscriptions(state, tab_id=tab_id)
     sessions = _control_sessions(state)
     session = sessions.pop(str(tab_id), None)
     if session is not None:
+        _control_remove_condition_event_handler(session, bridge)
         await session.close()
     else:
         await bridge.release(tab_id, holder_id)
@@ -511,6 +704,11 @@ __all__ = [
     "_control_abandon_session",
     "_control_active_session",
     "_control_close_session",
+    "_control_cleanup_condition_subscriptions",
+    "_control_condition_next_hint",
+    "_control_condition_record_event",
+    "_control_condition_subscribe",
+    "_control_condition_unsubscribe",
     "_control_document_generation",
     "_control_ensure_tab_lease",
     "_control_get_existing_session",

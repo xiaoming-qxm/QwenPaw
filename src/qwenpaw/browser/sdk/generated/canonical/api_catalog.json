@@ -134,6 +134,41 @@
       "signature": "async screenshot(*, scope: Literal['viewport', 'full_page'] = 'viewport') -> ScreenshotResult",
       "summary": "Capture a non-mutating exact screenshot variant.",
       "visibility": "default"
+    },
+    {
+      "api_id": "tab.wait_for",
+      "callable_path": "qwenpaw.browser.sdk.canonical.tabs:Tab.wait_for",
+      "invalidates_observation": false,
+      "kind": "primitive",
+      "mutates": false,
+      "parameters": [
+        {
+          "annotation": "BrowserCondition",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "condition",
+          "required": true
+        },
+        {
+          "annotation": "int",
+          "kind": "KEYWORD_ONLY",
+          "name": "timeout_ms",
+          "required": true
+        },
+        {
+          "annotation": "int",
+          "default": 0,
+          "kind": "KEYWORD_ONLY",
+          "name": "stable_ms",
+          "required": false
+        }
+      ],
+      "public_name": "tab.wait_for",
+      "requires_observation": false,
+      "return_type": "WaitResult",
+      "satisfies_observation": true,
+      "signature": "async wait_for(condition: BrowserCondition, *, timeout_ms: int, stable_ms: int = 0) -> WaitResult",
+      "summary": "Wait for one bounded flat typed condition.",
+      "visibility": "default"
     }
   ],
   "mode": "CANONICAL",

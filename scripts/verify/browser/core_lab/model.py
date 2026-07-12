@@ -76,6 +76,25 @@ class ObserveReadFacts:
     invariant_unchanged: bool
 
 
+@dataclass(frozen=True, slots=True)
+class SynchronizeFacts:
+    """Raw timeline plus controller logs; no Browser result claims."""
+
+    atom_kind: str
+    expected_value: object
+    match_mode: str
+    timeline: tuple[dict[str, Any], ...]
+    observed_truth: tuple[bool, ...]
+    observed_summary: dict[str, Any]
+    hint_sequences: tuple[int, ...]
+    deadline_ms: int
+    stable_ms: int
+    cleanup_count: int
+    evaluator_symbols: tuple[str, str]
+    matcher_symbols: tuple[str, str]
+    probe_identities: tuple[str, str]
+
+
 __all__ = [
     "CapabilityFamily",
     "CaseOutcome",
@@ -84,4 +103,5 @@ __all__ = [
     "OracleResult",
     "ObserveReadFacts",
     "ReplayDescriptor",
+    "SynchronizeFacts",
 ]

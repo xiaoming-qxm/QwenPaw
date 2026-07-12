@@ -7,6 +7,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
 
+from ..condition_evaluator import ConditionProbe
 from ..primitives.types import (
     BrowserActionResult,
     BrowserBackendCapabilities,
@@ -93,14 +94,8 @@ class BrowserSession(Protocol):
     ) -> BrowserExtractionResult | str:
         """Extract data from a tab."""
 
-    async def wait_for(
-        self,
-        tab_id: str,
-        condition: dict[str, Any] | str,
-        *,
-        timeout_ms: int = 10000,
-    ) -> BrowserActionResult:
-        """Wait for a structured tab condition."""
+    def condition_probe(self, tab_id: str) -> ConditionProbe:
+        """Return the sole private raw-fact probe for a receiver tab."""
 
     async def navigate(self, tab_id: str, url: str) -> BrowserActionResult:
         """Navigate a tab to a URL."""

@@ -3,10 +3,13 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
+from time import monotonic
 from typing import Any, Literal
 
 from ..backends.registry import get_default_backend_registry
+from ..condition_evaluator import ConditionEvaluator
 from ..governance.errors import (
     BrowserContextUnavailable,
     BrowserSDKError,
@@ -51,6 +54,7 @@ class Browser:
     ownership_context: BrowserOwnershipContext
     tabs: BrowserTabs = field(init=False)
     resources: BrowserResources = field(init=False)
+    _condition_evaluator: ConditionEvaluator = field(init=False, repr=False)
     _closed: bool = field(default=False, init=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -59,7 +63,16 @@ class Browser:
             self.ownership_context.owner_id,
         )
         store = get_or_create_resource_store(owner_key)
-        self.tabs = BrowserTabs(self.session, store)
+        self._condition_evaluator = ConditionEvaluator(clock=_RuntimeClock())
+        profile = get_default_backend_registry().profile(
+            self.context.backend_id,
+        )
+        self.tabs = BrowserTabs(
+            self.session,
+            store,
+            self._condition_evaluator,
+            profile,
+        )
         self.resources = BrowserResources(store)
 
     @classmethod
@@ -189,6 +202,16 @@ def execution_binding(execution: Any):
         contract_mode=execution.contract_mode,
         lease_generation=execution.lease_generation,
     )
+
+
+class _RuntimeClock:
+    """Production monotonic clock injected into the sole evaluator."""
+
+    def now(self) -> float:
+        return monotonic()
+
+    async def sleep_until(self, deadline: float) -> None:
+        await asyncio.sleep(max(0.0, deadline - monotonic()))
 
 
 __all__ = ["Browser", "BrowserResources"]

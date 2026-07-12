@@ -125,6 +125,39 @@
       "satisfies_observation": true,
       "signature": "async snapshot(*, scope: ObservationScope | None = None, query: TargetQuery | None = None, limit: int | None = None) -> SnapshotResult",
       "summary": "Capture neutral bounded evidence for this Tab receiver."
+    },
+    "tab.wait_for": {
+      "api_id": "tab.wait_for",
+      "callable_path": "qwenpaw.browser.sdk.canonical.tabs:Tab.wait_for",
+      "invalidates_observation": false,
+      "kind": "primitive",
+      "mutates": false,
+      "parameters": [
+        {
+          "annotation": "BrowserCondition",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "condition",
+          "required": true
+        },
+        {
+          "annotation": "int",
+          "kind": "KEYWORD_ONLY",
+          "name": "timeout_ms",
+          "required": true
+        },
+        {
+          "annotation": "int",
+          "default": 0,
+          "kind": "KEYWORD_ONLY",
+          "name": "stable_ms",
+          "required": false
+        }
+      ],
+      "requires_observation": false,
+      "return_type": "WaitResult",
+      "satisfies_observation": true,
+      "signature": "async wait_for(condition: BrowserCondition, *, timeout_ms: int, stable_ms: int = 0) -> WaitResult",
+      "summary": "Wait for one bounded flat typed condition."
     }
   },
   "contexts": [
@@ -139,14 +172,15 @@
       "browser.connect": "# `browser.connect`\n\nConnect with the trusted root-task binding.\n\nKind: `lifecycle`\nSignature: `async connect(context: Literal['auto', 'user', 'isolated'] = 'auto') -> Browser`\n\nMetadata:\n- mutates: `False`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `False`\n",
       "tab.read": "# `tab.read`\n\nRead one page from an immutable bounded collection.\n\nKind: `primitive`\nSignature: `async read(*, scope: ObservationScope | None = None, cursor: ReadCursor | None = None, limit: int | None = None) -> ReadResult`\n\nMetadata:\n- mutates: `False`\n- requires_observation: `False`\n- satisfies_observation: `True`\n- invalidates_observation: `False`\n",
       "tab.screenshot": "# `tab.screenshot`\n\nCapture a non-mutating exact screenshot variant.\n\nKind: `primitive`\nSignature: `async screenshot(*, scope: Literal['viewport', 'full_page'] = 'viewport') -> ScreenshotResult`\n\nMetadata:\n- mutates: `False`\n- requires_observation: `False`\n- satisfies_observation: `True`\n- invalidates_observation: `False`\n",
-      "tab.snapshot": "# `tab.snapshot`\n\nCapture neutral bounded evidence for this Tab receiver.\n\nKind: `primitive`\nSignature: `async snapshot(*, scope: ObservationScope | None = None, query: TargetQuery | None = None, limit: int | None = None) -> SnapshotResult`\n\nMetadata:\n- mutates: `False`\n- requires_observation: `False`\n- satisfies_observation: `True`\n- invalidates_observation: `False`\n"
+      "tab.snapshot": "# `tab.snapshot`\n\nCapture neutral bounded evidence for this Tab receiver.\n\nKind: `primitive`\nSignature: `async snapshot(*, scope: ObservationScope | None = None, query: TargetQuery | None = None, limit: int | None = None) -> SnapshotResult`\n\nMetadata:\n- mutates: `False`\n- requires_observation: `False`\n- satisfies_observation: `True`\n- invalidates_observation: `False`\n",
+      "tab.wait_for": "# `tab.wait_for`\n\nWait for one bounded flat typed condition.\n\nKind: `primitive`\nSignature: `async wait_for(condition: BrowserCondition, *, timeout_ms: int, stable_ms: int = 0) -> WaitResult`\n\nMetadata:\n- mutates: `False`\n- requires_observation: `False`\n- satisfies_observation: `True`\n- invalidates_observation: `False`\n"
     },
-    "index": "# Browser SDK Generated Help\n\nGenerated from `api_catalog.json`.\n\nUse `Browser.capabilities(scope=\"actions\")` for compact indexes.\nUse `Browser.help(api_id=\"tab.actions.click\")` for one API.\n\n## Actions\n\n\n## Primitives\n\n- `tab.read` - Read one page from an immutable bounded collection.\n- `tab.screenshot` - Capture a non-mutating exact screenshot variant.\n- `tab.snapshot` - Capture neutral bounded evidence for this Tab receiver.\n\n## Diagnostics\n\n\n## Lifecycle\n\n- `browser.close` - Release the current SDK lease only.\n- `browser.connect` - Connect with the trusted root-task binding.\n",
+    "index": "# Browser SDK Generated Help\n\nGenerated from `api_catalog.json`.\n\nUse `Browser.capabilities(scope=\"actions\")` for compact indexes.\nUse `Browser.help(api_id=\"tab.actions.click\")` for one API.\n\n## Actions\n\n\n## Primitives\n\n- `tab.read` - Read one page from an immutable bounded collection.\n- `tab.screenshot` - Capture a non-mutating exact screenshot variant.\n- `tab.snapshot` - Capture neutral bounded evidence for this Tab receiver.\n- `tab.wait_for` - Wait for one bounded flat typed condition.\n\n## Diagnostics\n\n\n## Lifecycle\n\n- `browser.close` - Release the current SDK lease only.\n- `browser.connect` - Connect with the trusted root-task binding.\n",
     "scopes": {
       "actions": "# Browser SDK Actions\n\nGenerated from `api_catalog.json`.\n",
       "diagnostics": "# Browser SDK Diagnostics\n\nGenerated from `api_catalog.json`.\n",
       "lifecycle": "# Browser SDK Lifecycle\n\nGenerated from `api_catalog.json`.\n\n## `browser.close`\n\nRelease the current SDK lease only.\n\nSignature: `async close() -> None`\n\n## `browser.connect`\n\nConnect with the trusted root-task binding.\n\nSignature: `async connect(context: Literal['auto', 'user', 'isolated'] = 'auto') -> Browser`\n",
-      "primitives": "# Browser SDK Primitives\n\nGenerated from `api_catalog.json`.\n\n## `tab.read`\n\nRead one page from an immutable bounded collection.\n\nSignature: `async read(*, scope: ObservationScope | None = None, cursor: ReadCursor | None = None, limit: int | None = None) -> ReadResult`\n\n## `tab.screenshot`\n\nCapture a non-mutating exact screenshot variant.\n\nSignature: `async screenshot(*, scope: Literal['viewport', 'full_page'] = 'viewport') -> ScreenshotResult`\n\n## `tab.snapshot`\n\nCapture neutral bounded evidence for this Tab receiver.\n\nSignature: `async snapshot(*, scope: ObservationScope | None = None, query: TargetQuery | None = None, limit: int | None = None) -> SnapshotResult`\n"
+      "primitives": "# Browser SDK Primitives\n\nGenerated from `api_catalog.json`.\n\n## `tab.read`\n\nRead one page from an immutable bounded collection.\n\nSignature: `async read(*, scope: ObservationScope | None = None, cursor: ReadCursor | None = None, limit: int | None = None) -> ReadResult`\n\n## `tab.screenshot`\n\nCapture a non-mutating exact screenshot variant.\n\nSignature: `async screenshot(*, scope: Literal['viewport', 'full_page'] = 'viewport') -> ScreenshotResult`\n\n## `tab.snapshot`\n\nCapture neutral bounded evidence for this Tab receiver.\n\nSignature: `async snapshot(*, scope: ObservationScope | None = None, query: TargetQuery | None = None, limit: int | None = None) -> SnapshotResult`\n\n## `tab.wait_for`\n\nWait for one bounded flat typed condition.\n\nSignature: `async wait_for(condition: BrowserCondition, *, timeout_ms: int, stable_ms: int = 0) -> WaitResult`\n"
     }
   },
   "lifecycle": {
@@ -277,6 +311,39 @@
       "satisfies_observation": true,
       "signature": "async snapshot(*, scope: ObservationScope | None = None, query: TargetQuery | None = None, limit: int | None = None) -> SnapshotResult",
       "summary": "Capture neutral bounded evidence for this Tab receiver."
+    },
+    "tab.wait_for": {
+      "api_id": "tab.wait_for",
+      "callable_path": "qwenpaw.browser.sdk.canonical.tabs:Tab.wait_for",
+      "invalidates_observation": false,
+      "kind": "primitive",
+      "mutates": false,
+      "parameters": [
+        {
+          "annotation": "BrowserCondition",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "condition",
+          "required": true
+        },
+        {
+          "annotation": "int",
+          "kind": "KEYWORD_ONLY",
+          "name": "timeout_ms",
+          "required": true
+        },
+        {
+          "annotation": "int",
+          "default": 0,
+          "kind": "KEYWORD_ONLY",
+          "name": "stable_ms",
+          "required": false
+        }
+      ],
+      "requires_observation": false,
+      "return_type": "WaitResult",
+      "satisfies_observation": true,
+      "signature": "async wait_for(condition: BrowserCondition, *, timeout_ms: int, stable_ms: int = 0) -> WaitResult",
+      "summary": "Wait for one bounded flat typed condition."
     }
   },
   "scopes": {
@@ -286,7 +353,8 @@
       "browser.connect",
       "tab.read",
       "tab.screenshot",
-      "tab.snapshot"
+      "tab.snapshot",
+      "tab.wait_for"
     ],
     "diagnostics": [],
     "lifecycle": [
@@ -296,7 +364,8 @@
     "primitives": [
       "tab.read",
       "tab.screenshot",
-      "tab.snapshot"
+      "tab.snapshot",
+      "tab.wait_for"
     ]
   },
   "source": "api_catalog.json",

@@ -13,6 +13,7 @@ Use `Browser.help(api_id="tab.actions.click")` for one API.
 - `tab.read` - Read one page from an immutable bounded collection.
 - `tab.screenshot` - Capture a non-mutating exact screenshot variant.
 - `tab.snapshot` - Capture neutral bounded evidence for this Tab receiver.
+- `tab.wait_for` - Wait for one bounded flat typed condition.
 
 ## Diagnostics
 

@@ -67,6 +67,69 @@
       "limits": {"max_image_bytes": 20971520},
       "required_blocks": ["image"],
       "validation_evidence": ["observe.full-page-invariant@build-1"]
+    },
+    {
+      "capability_id": "synchronize.page.url",
+      "family": "Synchronize",
+      "requirement": "REQUIRED",
+      "status": "READY",
+      "limits": {"max_wait_ms": 30000, "max_stable_ms": 5000, "max_condition_atoms": 16},
+      "required_blocks": [],
+      "validation_evidence": ["synchronize.page-url@build-1"]
+    },
+    {
+      "capability_id": "synchronize.page.title",
+      "family": "Synchronize",
+      "requirement": "REQUIRED",
+      "status": "READY",
+      "limits": {"max_wait_ms": 30000, "max_stable_ms": 5000, "max_condition_atoms": 16},
+      "required_blocks": [],
+      "validation_evidence": ["synchronize.page-title@build-1"]
+    },
+    {
+      "capability_id": "synchronize.page.document_changed",
+      "family": "Synchronize",
+      "requirement": "REQUIRED",
+      "status": "READY",
+      "limits": {"max_wait_ms": 30000, "max_stable_ms": 5000, "max_condition_atoms": 16},
+      "required_blocks": [],
+      "validation_evidence": ["synchronize.page-document-changed@build-1"]
+    },
+    {
+      "capability_id": "synchronize.page.ready",
+      "family": "Synchronize",
+      "requirement": "REQUIRED",
+      "status": "READY",
+      "limits": {"max_wait_ms": 30000, "max_stable_ms": 5000, "max_condition_atoms": 16},
+      "required_blocks": [],
+      "validation_evidence": ["synchronize.page-ready@build-1"]
+    },
+    {
+      "capability_id": "synchronize.region.text",
+      "family": "Synchronize",
+      "requirement": "REQUIRED",
+      "status": "READY",
+      "limits": {"max_wait_ms": 30000, "max_stable_ms": 5000, "max_condition_atoms": 16},
+      "required_blocks": [],
+      "validation_evidence": ["synchronize.region-text@build-1"]
+    },
+    {
+      "capability_id": "synchronize.region.item_count",
+      "family": "Synchronize",
+      "requirement": "REQUIRED",
+      "status": "READY",
+      "limits": {"max_wait_ms": 30000, "max_stable_ms": 5000, "max_condition_atoms": 16},
+      "required_blocks": [],
+      "validation_evidence": ["synchronize.region-item-count@build-1"]
+    },
+    {
+      "capability_id": "synchronize.region.changed",
+      "family": "Synchronize",
+      "requirement": "REQUIRED",
+      "status": "READY",
+      "limits": {"max_wait_ms": 30000, "max_stable_ms": 5000, "max_condition_atoms": 16},
+      "required_blocks": [],
+      "validation_evidence": ["synchronize.region-changed@build-1"]
     }
   ]
 }

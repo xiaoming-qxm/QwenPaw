@@ -1,11 +1,20 @@
 # -*- coding: utf-8 -*-
 """Independent oracle over controller-owned observed facts."""
+# pylint: disable=too-many-boolean-expressions
 
 from __future__ import annotations
 
+import posixpath
+import unicodedata
 from typing import Any, Iterable
+from urllib.parse import urlsplit, urlunsplit
 
-from .model import CaseOutcome, ObserveReadFacts, OracleResult
+from .model import (
+    CaseOutcome,
+    ObserveReadFacts,
+    OracleResult,
+    SynchronizeFacts,
+)
 
 
 class IndependentOracle:
@@ -74,6 +83,190 @@ class IndependentOracle:
             observed_resources=(),
             observed_blocks=(),
         )
+
+    def evaluate_synchronize(self, facts: SynchronizeFacts) -> OracleResult:
+        """Recompute timeline truth without reading Browser result claims."""
+        truth = tuple(
+            _oracle_atom_truth(
+                facts.atom_kind,
+                item,
+                facts.expected_value,
+                facts.match_mode,
+            )
+            for item in facts.timeline
+        )
+        expected = _oracle_timeline_summary(
+            facts.timeline,
+            truth,
+            deadline_ms=facts.deadline_ms,
+            stable_ms=facts.stable_ms,
+        )
+        expected.update(
+            cleanup_count=1,
+            hint_count=len(facts.hint_sequences),
+            same_evaluator=(len(set(facts.evaluator_symbols)) == 1),
+            same_matcher=len(set(facts.matcher_symbols)) == 1,
+            same_probe=len(set(facts.probe_identities)) == 1,
+        )
+        observed = dict(facts.observed_summary)
+        observed.update(
+            cleanup_count=facts.cleanup_count,
+            hint_count=len(facts.hint_sequences),
+            same_evaluator=(len(set(facts.evaluator_symbols)) == 1),
+            same_matcher=len(set(facts.matcher_symbols)) == 1,
+            same_probe=len(set(facts.probe_identities)) == 1,
+        )
+        return self.evaluate(
+            expected_facts=expected,
+            observed_events=(observed,),
+            observed_resources=(),
+            observed_blocks=(),
+        )
+
+
+# pylint: disable-next=too-many-return-statements
+def _oracle_atom_truth(
+    kind: str,
+    item: dict[str, Any],
+    expected: object,
+    mode: str,
+) -> bool:
+    actual = item.get("actual")
+    if kind == "page.url":
+        return _oracle_url_match(str(actual), str(expected), mode)
+    if kind in {"page.title", "region.text"}:
+        actual_text = _oracle_visible_text(str(actual))
+        expected_text = _oracle_visible_text(str(expected))
+        found = (
+            actual_text == expected_text
+            if mode == "exact"
+            else expected_text in actual_text
+        )
+        present = bool(item.get("present", True))
+        if present:
+            return found
+        return not found and item.get("coverage") == "COMPLETE"
+    if kind == "page.document_changed":
+        return actual != expected
+    if kind == "page.ready":
+        ranks = {"loading": 0, "dom_content_loaded": 1, "load": 2}
+        return ranks.get(str(actual), -1) >= ranks.get(str(expected), 99)
+    if kind == "region.item_count":
+        count = int(str(actual or 0))
+        value = int(str(expected))
+        if mode == "gte":
+            return count >= value
+        if item.get("coverage") != "COMPLETE":
+            return False
+        return count == value if mode == "eq" else count <= value
+    if kind == "region.changed":
+        return str(actual) != str(expected)
+    return False
+
+
+def _oracle_timeline_summary(
+    timeline: tuple[dict[str, Any], ...],
+    truth: tuple[bool, ...],
+    *,
+    deadline_ms: int,
+    stable_ms: int,
+) -> dict[str, Any]:
+    stable_since: int | None = None
+    last_truth = False
+    last_coverage = "COMPLETE"
+    for item, matched in zip(timeline, truth, strict=True):
+        at_ms = int(item["at_ms"])
+        state = str(item.get("state") or "AVAILABLE")
+        last_coverage = str(item.get("coverage") or "COMPLETE")
+        if state in {"STALE", "UNAVAILABLE", "CANCELLED"}:
+            status = {
+                "STALE": "PARTIAL",
+                "UNAVAILABLE": "BLOCKED",
+                "CANCELLED": "CANCELLED",
+            }[state]
+            return {
+                "status": status,
+                "outcome": state,
+                "elapsed_ms": at_ms,
+                "matched_count": 0,
+                "stable_interval_ms": 0,
+            }
+        last_truth = matched
+        if matched:
+            if stable_since is None:
+                stable_since = at_ms
+            if at_ms >= stable_since + stable_ms:
+                return {
+                    "status": "SUCCEEDED",
+                    "outcome": "SATISFIED",
+                    "elapsed_ms": at_ms,
+                    "matched_count": 1,
+                    "stable_interval_ms": at_ms - stable_since,
+                }
+        else:
+            stable_since = None
+    return {
+        "status": "SUCCEEDED" if last_coverage == "COMPLETE" else "PARTIAL",
+        "outcome": "TIMED_OUT",
+        "elapsed_ms": deadline_ms,
+        "matched_count": 1 if last_truth else 0,
+        "stable_interval_ms": 0,
+    }
+
+
+def _oracle_visible_text(value: str) -> str:
+    return " ".join(unicodedata.normalize("NFC", value).split())
+
+
+def _oracle_url_match(actual: str, expected: str, mode: str) -> bool:
+    actual_raw = urlsplit(actual)
+    expected_raw = urlsplit(expected)
+    # Closed safety checks are intentionally visible in one audit point.
+    if (
+        actual_raw.scheme.lower() not in {"http", "https"}
+        or expected_raw.scheme.lower() not in {"http", "https"}
+        or actual_raw.username is not None
+        or actual_raw.password is not None
+        or expected_raw.username is not None
+        or expected_raw.password is not None
+    ):
+        return False
+    actual_parts = _oracle_url(actual)
+    expected_parts = _oracle_url(expected)
+    if mode == "exact":
+        return actual_parts == expected_parts
+    if expected_parts[3] or expected_parts[4]:
+        return False
+    if actual_parts[:2] != expected_parts[:2]:
+        return False
+    actual_path = actual_parts[2]
+    expected_path = expected_parts[2]
+    return actual_path == expected_path or actual_path.startswith(
+        expected_path.rstrip("/") + "/",
+    )
+
+
+def _oracle_url(value: str) -> tuple[str, str, str, str, str]:
+    parsed = urlsplit(value)
+    scheme = parsed.scheme.lower()
+    host = (parsed.hostname or "").encode("idna").decode().lower()
+    port = parsed.port
+    if port == (80 if scheme == "http" else 443):
+        port = None
+    authority = host if port is None else f"{host}:{port}"
+    path = posixpath.normpath(parsed.path or "/")
+    if not path.startswith("/"):
+        path = f"/{path}"
+    normalized = urlsplit(
+        urlunsplit((scheme, authority, path, parsed.query, parsed.fragment)),
+    )
+    return (
+        normalized.scheme,
+        normalized.netloc,
+        normalized.path,
+        normalized.query,
+        normalized.fragment,
+    )
 
 
 __all__ = ["IndependentOracle"]

@@ -9,10 +9,26 @@ import json
 import logging
 from datetime import UTC, datetime
 from time import perf_counter
-from typing import Any, Callable, Literal
+from typing import Any, Callable, Literal, cast
 from urllib.parse import urlparse
 
 from qwenpaw.browser.sdk.backends.registry import get_default_backend_registry
+from qwenpaw.browser.sdk.canonical.contracts import (
+    Coverage,
+    CurrentSurface,
+    EvidenceRef,
+    RegionCondition,
+    RegionRef,
+)
+from qwenpaw.browser.sdk.condition_evaluator import (
+    ConditionProbe,
+    PageFacts,
+    ProbeHint,
+    ProbeObservation,
+    ProbeRequest,
+    ProbeSubscription,
+    RegionFacts,
+)
 from qwenpaw.browser.sdk.governance.errors import (
     BrowserContextUnavailable,
     BrowserPolicyDenied,
@@ -134,11 +150,21 @@ class ChromeExtensionBrowserBackend:
                 "observe.read": "READY",
                 "observe.screenshot.viewport": "READY",
                 "observe.screenshot.full_page": "READY",
+                "synchronize.page.url": "READY",
+                "synchronize.page.title": "READY",
+                "synchronize.page.document_changed": "READY",
+                "synchronize.page.ready": "READY",
+                "synchronize.region.text": "READY",
+                "synchronize.region.item_count": "READY",
+                "synchronize.region.changed": "READY",
             },
             hard_limits={
                 **base.hard_limits,
                 "max_targets": 128,
                 "max_page_segments": 128,
+                "max_wait_ms": 30_000,
+                "max_stable_ms": 5_000,
+                "max_condition_atoms": 16,
             },
             contract_fingerprint=base.contract_fingerprint,
             profile_fingerprint=base.profile_fingerprint,
@@ -503,6 +529,7 @@ class ChromeExtensionBrowserSession:
         self._tab_ownership: dict[str, _TabOwnership] = {}
         self._current_tab_id: str | None = None
         self._registry_keys: set[str] = set()
+        self._condition_region_baselines: dict[tuple[str, str], str] = {}
 
     def set_registry_keys(self, keys: set[str]) -> None:
         """Store cleanup registry keys owned by this request session."""
@@ -540,6 +567,8 @@ class ChromeExtensionBrowserSession:
         cleanup_reason: str,
         preserve_owned_tabs: bool = False,
     ) -> dict[str, Any]:
+        self._state.pop("control_condition_subscriptions", None)
+        self._condition_region_baselines.clear()
         closed_tabs = 0
         released_tabs = 0
         released_borrowed_tabs = 0
@@ -849,6 +878,23 @@ class ChromeExtensionBrowserSession:
             condition=condition,
             timeout_ms=timeout_ms,
         )
+
+    def condition_probe(self, tab_id: str) -> ConditionProbe:
+        """Return a private raw-fact probe bound to one receiver tab."""
+        return _UserConditionProbe(self, str(tab_id))
+
+    def _register_condition_region_baseline(
+        self,
+        region: RegionRef,
+        evidence: EvidenceRef,
+        digest: str,
+    ) -> None:
+        """Bind a private snapshot digest for future Region.changed checks."""
+        region_id = str(region.to_dict().get("id") or "")
+        evidence_id = str(evidence.to_dict().get("id") or "")
+        if not region_id or not evidence_id or not digest:
+            raise ValueError("condition region baseline is incomplete")
+        self._condition_region_baselines[(region_id, evidence_id)] = digest
 
     async def evaluate(
         self,
@@ -1480,6 +1526,226 @@ class ChromeExtensionBrowserSession:
             if domain:
                 metadata["domain"] = domain
         return metadata
+
+
+class _UserConditionProbe:
+    """User Chrome adapter for raw facts and watermarked hints only."""
+
+    def __init__(
+        self,
+        session: ChromeExtensionBrowserSession,
+        tab_id: str,
+    ) -> None:
+        self._session = session
+        self._tab_id = tab_id
+
+    # pylint: disable-next=too-many-branches
+    async def check(self, request: ProbeRequest) -> ProbeObservation:
+        store = request.receiver.observation_store
+        if store is None:
+            raise BrowserSDKError(
+                "Condition probe requires an observation store.",
+                code="condition_probe_store_unavailable",
+            )
+        descriptors: list[dict[str, Any]] = []
+        regions: dict[str, Any] = {}
+        baselines: dict[str, list[tuple[EvidenceRef, str]]] = {}
+        baseline_unavailable = False
+        for atom in request.condition.atoms:
+            if not isinstance(atom, RegionCondition):
+                continue
+            key = str(atom.region.to_dict().get("id") or "")
+            if key in regions:
+                continue
+            binding = None
+            for kind in ("FRAME", "CONTENT", "OWNER"):
+                try:
+                    binding = store.require_region(
+                        atom.region,
+                        kind=cast(Any, kind),
+                    )
+                    break
+                except Exception:  # pylint: disable=broad-exception-caught
+                    continue
+            if binding is None:
+                evidence = store.issue_evidence(
+                    kind="SNAPSHOT",
+                    scope=CurrentSurface(),
+                    coverage="STALE",
+                    gaps=(),
+                )
+                return ProbeObservation(
+                    evidence=evidence,
+                    context=request.receiver.context,
+                    coverage="STALE",
+                    state="STALE",
+                )
+            regions[key] = atom.region
+            if atom.kind == "changed":
+                evidence_ref = cast(EvidenceRef, atom.value)
+                evidence_id = str(
+                    evidence_ref.to_dict().get("id") or "",
+                )
+                registry = getattr(
+                    self._session,
+                    "_condition_region_baselines",
+                    {},
+                )
+                digest = registry.get((key, evidence_id))
+                if digest:
+                    baselines.setdefault(key, []).append(
+                        (evidence_ref, str(digest)),
+                    )
+                else:
+                    baseline_unavailable = True
+            descriptors.append(
+                {
+                    "key": key,
+                    "kind": binding.kind,
+                    "owner_chain": list(binding.owner_chain),
+                },
+            )
+        if baseline_unavailable:
+            evidence = store.issue_evidence(
+                kind="SNAPSHOT",
+                scope=CurrentSurface(),
+                coverage="UNAVAILABLE",
+                gaps=(),
+            )
+            return ProbeObservation(
+                evidence=evidence,
+                context=request.receiver.context,
+                coverage="UNAVAILABLE",
+                state="UNAVAILABLE",
+            )
+        payload = await self._dispatch(
+            "check",
+            region_descriptors=descriptors,
+        )
+        if not payload.get("ok"):
+            raise BrowserSDKError(
+                "User Chrome condition check failed.",
+                code=str(payload.get("code") or "condition_probe_failed"),
+            )
+        coverage = cast(
+            Coverage,
+            str(payload.get("coverage") or "UNAVAILABLE"),
+        )
+        evidence = store.issue_evidence(
+            kind="SNAPSHOT",
+            scope=CurrentSurface(),
+            coverage=coverage,
+            gaps=(),
+        )
+        page_payload = payload.get("page")
+        page = None
+        if isinstance(page_payload, dict):
+            page = PageFacts(
+                url=str(page_payload.get("url") or ""),
+                title=str(page_payload.get("title") or ""),
+                document_generation=str(
+                    page_payload.get("document_generation") or "",
+                ),
+                ready_state=cast(
+                    Any,
+                    str(page_payload.get("ready_state") or "loading"),
+                ),
+            )
+        region_facts: list[RegionFacts] = []
+        raw_regions = payload.get("regions")
+        if isinstance(raw_regions, list):
+            for raw in raw_regions:
+                if not isinstance(raw, dict):
+                    continue
+                region = regions.get(str(raw.get("key") or ""))
+                if region is None:
+                    continue
+                region_facts.append(
+                    RegionFacts(
+                        region=region,
+                        text=str(raw.get("text") or ""),
+                        item_count=int(raw.get("item_count") or 0),
+                        digest=str(raw.get("digest") or ""),
+                        coverage=cast(
+                            Coverage,
+                            str(raw.get("coverage") or coverage),
+                        ),
+                        baselines=tuple(
+                            baselines.get(str(raw.get("key") or ""), ()),
+                        ),
+                    ),
+                )
+        return ProbeObservation(
+            evidence=evidence,
+            context=request.receiver.context,
+            coverage=coverage,
+            state=cast(Any, str(payload.get("state") or "AVAILABLE")),
+            page=page,
+            regions=tuple(region_facts),
+        )
+
+    async def subscribe(self, request: ProbeRequest) -> ProbeSubscription:
+        del request
+        payload = await self._dispatch("subscribe")
+        if not payload.get("ok"):
+            raise BrowserSDKError(
+                "User Chrome condition subscription failed.",
+                code=str(payload.get("code") or "condition_subscribe_failed"),
+            )
+        return ProbeSubscription(
+            token=str(payload.get("subscription") or ""),
+            watermark=int(payload.get("watermark") or 0),
+        )
+
+    async def next_hint(
+        self,
+        subscription: ProbeSubscription,
+        *,
+        deadline: float,
+    ) -> ProbeHint | None:
+        timeout_ms = max(0, round((deadline - perf_counter()) * 1000))
+        payload = await self._dispatch(
+            "next_hint",
+            subscription=str(subscription.token),
+            timeout_ms=timeout_ms,
+        )
+        sequence = payload.get("sequence")
+        if sequence is None:
+            return None
+        return ProbeHint(sequence=int(sequence))
+
+    async def unsubscribe(self, subscription: ProbeSubscription) -> None:
+        await self._dispatch(
+            "unsubscribe",
+            subscription=str(subscription.token),
+        )
+
+    async def _dispatch(
+        self,
+        operation: str,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        # pylint: disable-next=protected-access
+        if self._session._control_engine is None:
+            raise BrowserSDKError(
+                "Canonical condition probe requires the trusted "
+                "control engine.",
+                code="condition_probe_unavailable",
+            )
+        # pylint: disable-next=protected-access
+        payload = await self._session._bridge_or_engine_action(
+            "wait_for",
+            self._tab_id,
+            apply_aliases=False,
+            probe_operation=operation,
+            **kwargs,
+        )
+        if not isinstance(payload, dict):
+            raise BrowserSDKError(
+                "Condition probe returned an invalid payload.",
+                code="condition_probe_payload_invalid",
+            )
+        return payload
 
 
 def _screenshot_invariant_from_payload(value: Any) -> ScreenshotInvariant:
