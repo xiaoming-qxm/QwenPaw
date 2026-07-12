@@ -38,6 +38,7 @@ class FaultCutPoint(StrEnum):
     AFTER_STATE_COMMIT = "after_state_commit"
     BEFORE_RESULT_PUBLISH = "before_result_publish"
     AFTER_RESULT_PUBLISH = "after_result_publish"
+    AFTER_FINAL_TARGET_VALIDATE = "after_final_target_validate"
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,6 +57,7 @@ class LabCase:
     transformations: tuple[str, ...]
     fault: FaultCutPoint | None
     replay: ReplayDescriptor
+    prerequisites: tuple[CapabilityFamily, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,6 +97,19 @@ class SynchronizeFacts:
     probe_identities: tuple[str, str]
 
 
+@dataclass(frozen=True, slots=True)
+class TargetControlFacts:
+    """Controller-only fake native object/command/effect facts."""
+
+    expected_object_id: str | None
+    observed_object_id: str | None
+    expected_command_count: int
+    observed_command_count: int
+    expected_effect_count: int
+    observed_effect_count: int
+    public_dispatch_count: int
+
+
 __all__ = [
     "CapabilityFamily",
     "CaseOutcome",
@@ -104,4 +119,5 @@ __all__ = [
     "ObserveReadFacts",
     "ReplayDescriptor",
     "SynchronizeFacts",
+    "TargetControlFacts",
 ]

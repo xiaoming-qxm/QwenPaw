@@ -25,6 +25,8 @@ from ..snapshot_builder import (
     build_control_snapshot,
 )
 from ..ref_scope import (
+    _control_bind_canonical_target,
+    _control_note_canonical_document,
     _control_scope_snapshot_refs,
     _control_snapshot_payload_refs,
 )
@@ -72,49 +74,19 @@ class SnapshotHandler:
             )
         if contract_mode == "CANONICAL":
             capture = await build_canonical_snapshot(session)
-            refs: dict[str, dict[str, Any]] = {}
-            targets: list[dict[str, Any]] = []
-            for index, target in enumerate(capture.targets, start=1):
-                ref = f"c{index}"
-                native_id = str(target.native_identity)
-                if native_id.startswith("backend:"):
-                    raw_id = native_id.removeprefix("backend:")
-                    if raw_id.isdigit():
-                        refs[ref] = {"backendNodeId": int(raw_id)}
-                targets.append(
-                    {
-                        "ref": ref,
-                        "owner": target.owner,
-                        "role": target.role,
-                        "name": target.name,
-                        "states": list(target.states),
-                        "sources": list(target.sources),
-                        "identity_conflict": target.identity_conflict,
-                        "executable": target.executable,
-                    },
-                )
-            state.refs[str(tab_id)] = refs
             _control_clear_observation_required(state, tab_id)
             _control_clear_visual_observation(state, tab_id)
-            payload = {
-                "ok": capture.coverage not in {"UNAVAILABLE", "STALE"},
-                "mode": "canonical",
-                "tab_id": tab_id,
-                "generation": capture.generation,
-                "coverage": capture.coverage,
-                "gaps": [_canonical_gap_payload(gap) for gap in capture.gaps],
-                "sources": [
-                    {
-                        "source": outcome.source,
-                        "available": outcome.available,
-                        "examined": outcome.examined,
-                        "error_code": outcome.error_code,
-                    }
-                    for outcome in capture.sources
-                ],
-                "targets": targets,
-                "refs": _control_snapshot_payload_refs(refs),
-            }
+            payload = _canonical_snapshot_payload(
+                state,
+                tab_id=tab_id,
+                request_context=request_context,
+                capture=capture,
+                observed_urls=getattr(
+                    session,
+                    "_canonical_observed_urls",
+                    {},
+                ),
+            )
             return _tool_response(
                 json.dumps(payload, ensure_ascii=False, indent=2),
             )
@@ -169,6 +141,113 @@ class SnapshotHandler:
         if blocks:
             return _tool_response_with_blocks(text, blocks)
         return _tool_response(text)
+
+
+def _canonical_snapshot_payload(
+    state: ControlState,
+    *,
+    tab_id: int,
+    request_context: dict[str, Any],
+    capture: Any,
+    observed_urls: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    """Build safe evidence plus a private trusted binding side channel."""
+    root_task_id = str(request_context.get("root_task_id") or "").strip()
+    browser_owner_id = str(
+        request_context.get("browser_owner_id") or "",
+    ).strip()
+    session_id = str(
+        request_context.get("root_session_id")
+        or request_context.get("session_id")
+        or "",
+    ).strip()
+    if not root_task_id or not browser_owner_id or not session_id:
+        raise ValueError("canonical_snapshot_owner_missing")
+    context = _control_note_canonical_document(
+        state,
+        tab_id=tab_id,
+        document_token=str(capture.generation),
+    )
+    targets: list[dict[str, Any]] = []
+    trusted_bindings: dict[str, dict[str, Any]] = {}
+    observed_urls = observed_urls or {}
+    for target in capture.targets:
+        native_identity = _canonical_native_identity(
+            str(target.native_identity),
+        )
+        token = _control_bind_canonical_target(
+            state,
+            owner_key=(root_task_id, browser_owner_id),
+            tab_id=tab_id,
+            frame_key=str(target.owner),
+            context=context,
+            native_identity=native_identity,
+            action_state=tuple(
+                [("executable", bool(target.executable))]
+                + [(str(item), True) for item in target.states],
+            ),
+            geometry_digest="",
+            visual_context_ref=None,
+            allowed_actions=("click",) if target.executable else (),
+            effect_ceiling=("DOM_INPUT",) if target.executable else (),
+        )
+        binding = state.canonical_target_bindings[token]
+        trusted_bindings[token] = {
+            **binding,
+            "root_task_id": root_task_id,
+            "browser_owner_id": browser_owner_id,
+            "session_id": session_id,
+            "backend_id": "user",
+        }
+        targets.append(
+            {
+                "binding_token": token,
+                "owner": target.owner,
+                "role": target.role,
+                "name": target.name,
+                "states": list(target.states),
+                "sources": list(target.sources),
+                "identity_conflict": target.identity_conflict,
+                "executable": target.executable,
+                "observed_url": (
+                    observed_urls.get(str(target.native_identity))
+                    if target.role == "link"
+                    else None
+                ),
+            },
+        )
+    return {
+        "ok": capture.coverage not in {"UNAVAILABLE", "STALE"},
+        "mode": "canonical",
+        "tab_id": tab_id,
+        "generation": capture.generation,
+        "coverage": capture.coverage,
+        "gaps": [_canonical_gap_payload(gap) for gap in capture.gaps],
+        "sources": [
+            {
+                "source": outcome.source,
+                "available": outcome.available,
+                "examined": outcome.examined,
+                "error_code": outcome.error_code,
+            }
+            for outcome in capture.sources
+        ],
+        "context": dict(context),
+        "targets": targets,
+        "_trusted_bindings": trusted_bindings,
+    }
+
+
+def _canonical_native_identity(
+    value: str,
+) -> tuple[tuple[str, str | int], ...]:
+    if value.startswith("backend:"):
+        backend_id = value.removeprefix("backend:")
+        if backend_id.isdigit():
+            return (("backendNodeId", int(backend_id)),)
+    if not value:
+        raise ValueError("canonical_snapshot_native_identity_missing")
+    return (("nativeIdentity", value),)
 
 
 def _canonical_gap_payload(gap: Any) -> dict[str, Any]:

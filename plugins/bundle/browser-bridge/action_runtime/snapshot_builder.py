@@ -24,7 +24,10 @@ from qwenpaw.browser.sdk.canonical.contracts import (
     _RUNTIME_VALUE_ISSUER,
 )
 from qwenpaw.browser.sdk.governance.error_codes import BrowserErrorCode
-from qwenpaw.browser.sdk.primitives.matching import normalize_visible_text
+from qwenpaw.browser.sdk.primitives.matching import (
+    canonicalize_http_url,
+    normalize_visible_text,
+)
 from qwenpaw.browser.sdk.runtime.snapshot import (
     ObservationBudget,
     ProbeBatch,
@@ -405,7 +408,56 @@ class _CanonicalSessionProbe:
             {"depth": max(1, min(int(limit), 64)), "pierce": True},
             timeout=_CONTROL_DOM_TREE_TIMEOUT_SECONDS,
         )
+        setattr(
+            self._session,
+            "_canonical_observed_urls",
+            _canonical_link_urls_from_dom(result),
+        )
         return canonical_probe_surface_from_dom(result)
+
+
+def _canonical_link_urls_from_dom(payload: dict[str, Any]) -> dict[str, str]:
+    """Return only unique credential-free HTTP(S) links by native id."""
+    root = payload.get("root")
+    if not isinstance(root, dict):
+        return {}
+    pending = [root]
+    candidates: dict[str, set[str]] = {}
+    while pending:
+        node = pending.pop()
+        attributes = node.get("attributes")
+        pairs = (
+            zip(attributes[::2], attributes[1::2])
+            if isinstance(attributes, list)
+            else ()
+        )
+        attrs = {str(key).lower(): str(value) for key, value in pairs}
+        backend_id = node.get("backendNodeId") or node.get(
+            "backendDOMNodeId",
+        )
+        if isinstance(backend_id, int) and attrs.get("href"):
+            try:
+                url = canonicalize_http_url(attrs["href"]).value
+            except (TypeError, ValueError):
+                pass
+            else:
+                candidates.setdefault(f"backend:{backend_id}", set()).add(
+                    url,
+                )
+        for key in ("children", "shadowRoots"):
+            children = node.get(key)
+            if isinstance(children, list):
+                pending.extend(
+                    item for item in children if isinstance(item, dict)
+                )
+        content = node.get("contentDocument")
+        if isinstance(content, dict):
+            pending.append(content)
+    return {
+        identity: next(iter(urls))
+        for identity, urls in candidates.items()
+        if len(urls) == 1
+    }
 
 
 async def build_canonical_snapshot(

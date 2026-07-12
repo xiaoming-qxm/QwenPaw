@@ -7,6 +7,8 @@ Use `Browser.help(api_id="tab.actions.click")` for one API.
 
 ## Actions
 
+- `tab.actions.click` - Use one Runtime-issued target; dispatch remains blocked.
+- `tab.actions.drag` - Validate ordered Runtime-issued endpoints; dispatch remains blocked.
 
 ## Primitives
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import defaultdict, deque
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Literal, Protocol
 
 from ..canonical.contracts import (
@@ -16,6 +16,12 @@ from ..canonical.contracts import (
     ObservationScope,
     ReadSegment,
     SelectionGap,
+    TargetRef,
+)
+from .session_owner import (
+    BrowserRequestBinding,
+    BrowserSessionOwnerRegistry,
+    TargetBinding,
 )
 
 INTERACTIVE_ROLES = frozenset(
@@ -137,6 +143,7 @@ class SnapshotTarget:
     sources: tuple[SnapshotSource, ...]
     identity_conflict: bool
     executable: bool
+    ref: TargetRef | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -180,6 +187,51 @@ class ReadCapture:
             isinstance(segment, ReadSegment) for segment in self.segments
         ):
             raise TypeError("ReadCapture segments must be ReadSegment values")
+
+
+def bind_snapshot_targets(
+    capture: SnapshotCapture,
+    *,
+    registry: BrowserSessionOwnerRegistry,
+    owner: BrowserRequestBinding,
+    receiver_tab: str,
+    backend_id: str,
+    frame_key: str,
+    expires_at: float,
+) -> SnapshotCapture:
+    """Bind one trusted neutral capture to opaque executable target refs."""
+    registry.resolve_context(
+        capture.context,
+        owner=owner,
+        receiver_tab=receiver_tab,
+    )
+    context_ref = str(capture.context.version_ref)
+    targets: list[SnapshotTarget] = []
+    for target in capture.targets:
+        binding = TargetBinding(
+            root_task_id=owner.root_task_id,
+            browser_owner_id=owner.browser_owner_id,
+            session_id=owner.root_session_id,
+            backend_id=str(backend_id),
+            receiver_tab_key=str(receiver_tab),
+            frame_key=str(frame_key),
+            context_ref=context_ref,
+            native_identity=(("nativeIdentity", target.native_identity),),
+            action_state=tuple((state, True) for state in target.states),
+            geometry_digest="",
+            visual_context_ref=None,
+            allowed_actions=(),
+            effect_ceiling=(),
+            use_state="FRESH",
+            expires_at=float(expires_at),
+        )
+        ref = registry.issue_target(
+            binding,
+            safe_role=target.role,
+            safe_name=target.name,
+        )
+        targets.append(replace(target, ref=ref))
+    return replace(capture, targets=tuple(targets))
 
 
 class SnapshotProbe(Protocol):
@@ -532,6 +584,7 @@ def refs_from_snapshot_payload(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 __all__ = [
+    "bind_snapshot_targets",
     "build_role_snapshot_from_aria",
     "capture_snapshot",
     "from_cdp_ax_tree",

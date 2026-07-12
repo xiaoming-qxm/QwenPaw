@@ -5,11 +5,19 @@ from __future__ import annotations
 
 import asyncio
 import secrets
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from time import monotonic
 from typing import Callable, Literal, TypeAlias
 from uuid import uuid4
+
+from ..canonical.contracts import (
+    ContextVersion,
+    TargetRef,
+    _issue_context_version,
+    _issue_target_ref,
+)
+from ..governance.errors import BrowserSDKError
 
 
 class ContractMode(StrEnum):
@@ -31,6 +39,39 @@ class RootTaskOutcome(StrEnum):
 
 
 OwnerKey: TypeAlias = tuple[str, str]
+
+
+@dataclass(frozen=True)
+class NativeContextVersion:
+    """Private browser generations behind one public ContextVersion."""
+
+    connection_generation: int
+    tab_generation: int
+    frame_generation: int
+    document_generation: int
+    spa_route_generation: int
+    layout_generation: int
+
+
+@dataclass(frozen=True)
+class TargetBinding:
+    """Private exact native authority behind one public TargetRef."""
+
+    root_task_id: str
+    browser_owner_id: str
+    session_id: str
+    backend_id: str
+    receiver_tab_key: str
+    frame_key: str
+    context_ref: str
+    native_identity: tuple[tuple[str, str | int], ...]
+    action_state: tuple[tuple[str, bool], ...]
+    geometry_digest: str
+    visual_context_ref: str | None
+    allowed_actions: tuple[str, ...]
+    effect_ceiling: tuple[str, ...]
+    use_state: str
+    expires_at: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,6 +120,17 @@ class _OwnerState:
     lease_active: bool = True
     retained_until: float | None = None
     attachment: BrowserOwnerAttachment | None = None
+    contexts: dict[ContextVersion, "_ContextState"] = field(
+        default_factory=dict,
+    )
+    targets: dict[TargetRef, TargetBinding] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
+class _ContextState:
+    native: NativeContextVersion
+    receiver_tab_key: str
+    expires_at: float
 
 
 @dataclass(slots=True)
@@ -283,6 +335,239 @@ class BrowserSessionOwnerRegistry:
         state = self._owners.get(owner_key)
         return int(state is not None and state.lease_active)
 
+    @property
+    def target_issue_count(self) -> int:
+        """Return issuance count for no-authority query assertions."""
+        return sum(len(state.targets) for state in self._owners.values())
+
+    def issue_context(
+        self,
+        owner: BrowserRequestBinding,
+        *,
+        receiver_tab: str,
+        native: NativeContextVersion,
+        expires_at: float,
+        safe_receiver: str = "",
+    ) -> ContextVersion:
+        """Issue an opaque context whose private facts remain owner-scoped."""
+        state = self._require_owner(owner)
+        receiver = _require_handle_text(receiver_tab, "receiver_tab")
+        if not isinstance(native, NativeContextVersion):
+            raise BrowserSDKError(
+                "context native version is invalid",
+                code="runtime_issued_value",
+            )
+        expiry = float(expires_at)
+        context = _issue_context_version(
+            version_ref=_new_handle_token("context"),
+            safe_receiver=str(safe_receiver or receiver),
+        )
+        state.contexts[context] = _ContextState(
+            native=native,
+            receiver_tab_key=receiver,
+            expires_at=expiry,
+        )
+        return context
+
+    def resolve_context(
+        self,
+        context: ContextVersion,
+        *,
+        owner: BrowserRequestBinding,
+        receiver_tab: str,
+    ) -> NativeContextVersion:
+        """Resolve a context only for its issuing owner and receiver."""
+        if not isinstance(context, ContextVersion):
+            raise BrowserSDKError(
+                "runtime_issued_value: context has the wrong type",
+                code="runtime_issued_value",
+            )
+        state = self._require_owner(owner)
+        stored = state.contexts.get(context)
+        if stored is None:
+            raise BrowserSDKError(
+                "runtime_issued_value: context is not registered "
+                "to this owner",
+                code="runtime_issued_value",
+            )
+        receiver = _require_handle_text(receiver_tab, "receiver_tab")
+        if stored.receiver_tab_key != receiver:
+            raise BrowserSDKError(
+                "context receiver mismatch",
+                code="context_wrong_receiver",
+            )
+        if self._clock() > stored.expires_at:
+            raise BrowserSDKError(
+                "context binding expired",
+                code="context_expired",
+            )
+        return stored.native
+
+    def issue_target(
+        self,
+        binding: TargetBinding,
+        *,
+        safe_role: str = "",
+        safe_name: str = "",
+        observed_url: str | None = None,
+        single_use: bool = False,
+    ) -> TargetRef:
+        """Issue a public target backed only by the existing owner record."""
+        if not isinstance(binding, TargetBinding):
+            raise BrowserSDKError(
+                "target binding is invalid",
+                code="runtime_issued_value",
+            )
+        owner_key = (binding.root_task_id, binding.browser_owner_id)
+        state = self._owners.get(owner_key)
+        if (
+            state is None
+            or state.binding.root_session_id != binding.session_id
+        ):
+            raise BrowserSDKError(
+                "target owner binding is invalid",
+                code="target_wrong_owner",
+            )
+        _require_handle_text(binding.receiver_tab_key, "receiver_tab_key")
+        _require_handle_text(binding.context_ref, "context_ref")
+        if not binding.native_identity:
+            raise BrowserSDKError(
+                "target native identity is missing",
+                code="target_binding_invalid",
+            )
+        target = _issue_target_ref(
+            ref=_new_handle_token("target"),
+            safe_role=str(safe_role),
+            safe_name=str(safe_name),
+            observed_url=observed_url,
+            allowed_actions=tuple(binding.allowed_actions),
+            single_use=bool(single_use),
+        )
+        state.targets[target] = binding
+        return target
+
+    def resolve_target(
+        self,
+        target: TargetRef,
+        *,
+        receiver_tab: str,
+        owner: BrowserRequestBinding | None = None,
+    ) -> TargetBinding:
+        """Resolve exact target authority without trusting public fields."""
+        if not isinstance(target, TargetRef):
+            raise BrowserSDKError(
+                "runtime_issued_value: target has the wrong type",
+                code="runtime_issued_value",
+            )
+        found_owner: _OwnerState | None = None
+        binding: TargetBinding | None = None
+        for state in self._owners.values():
+            candidate = state.targets.get(target)
+            if candidate is not None:
+                found_owner = state
+                binding = candidate
+                break
+        if found_owner is None or binding is None:
+            raise BrowserSDKError(
+                "runtime_issued_value: target is not registered "
+                "to this Runtime",
+                code="runtime_issued_value",
+            )
+        if (
+            owner is not None
+            and found_owner.binding.owner_key != owner.owner_key
+        ):
+            raise BrowserSDKError(
+                "target owner mismatch",
+                code="target_wrong_owner",
+            )
+        receiver = _require_handle_text(receiver_tab, "receiver_tab")
+        if binding.receiver_tab_key != receiver:
+            raise BrowserSDKError(
+                "target receiver mismatch",
+                code="target_wrong_receiver",
+            )
+        if self._clock() > binding.expires_at:
+            raise BrowserSDKError(
+                "target binding expired",
+                code="target_expired",
+            )
+        return binding
+
+    def target_context_status(
+        self,
+        target: TargetRef,
+        *,
+        current_context: ContextVersion,
+        receiver_tab: str,
+        owner: BrowserRequestBinding,
+    ) -> Literal["VALID", "REVALIDATE", "STALE"]:
+        """Compare target and current context generations semantically."""
+        binding = self.resolve_target(
+            target,
+            receiver_tab=receiver_tab,
+            owner=owner,
+        )
+        state = self._require_owner(owner)
+        current = state.contexts.get(current_context)
+        if current is None:
+            raise BrowserSDKError(
+                "runtime_issued_value: current context is not registered",
+                code="runtime_issued_value",
+            )
+        bound = next(
+            (
+                entry
+                for context, entry in state.contexts.items()
+                if str(context.version_ref) == binding.context_ref
+            ),
+            None,
+        )
+        if bound is None:
+            return "STALE"
+        hard_fields = (
+            "connection_generation",
+            "tab_generation",
+            "frame_generation",
+            "document_generation",
+        )
+        if any(
+            getattr(bound.native, field_name)
+            != getattr(current.native, field_name)
+            for field_name in hard_fields
+        ):
+            return "STALE"
+        if (
+            bound.native.spa_route_generation
+            != current.native.spa_route_generation
+        ):
+            return "REVALIDATE"
+        return "VALID"
+
+    def same_target_identity(
+        self,
+        first: TargetRef,
+        second: TargetRef,
+        *,
+        receiver_tab: str,
+        owner: BrowserRequestBinding,
+    ) -> bool:
+        """Return exact private identity equality for two resolved refs."""
+        first_binding = self.resolve_target(
+            first,
+            receiver_tab=receiver_tab,
+            owner=owner,
+        )
+        second_binding = self.resolve_target(
+            second,
+            receiver_tab=receiver_tab,
+            owner=owner,
+        )
+        return (
+            first_binding.frame_key == second_binding.frame_key
+            and first_binding.native_identity == second_binding.native_identity
+        )
+
     async def _resume(
         self,
         root_session_id: str,
@@ -371,8 +656,22 @@ class BrowserSessionOwnerRegistry:
                 self._tokens.pop(value, None)
 
 
-def _require_identity(value: str, field: str) -> str:
+def _require_identity(value: str, field_name: str) -> str:
     normalized = str(value or "").strip()
     if not normalized:
-        raise BrowserOwnerRegistryError(f"{field}_missing")
+        raise BrowserOwnerRegistryError(f"{field_name}_missing")
     return normalized
+
+
+def _require_handle_text(value: str, field_name: str) -> str:
+    normalized = str(value or "").strip()
+    if not normalized:
+        raise BrowserSDKError(
+            f"{field_name} is missing",
+            code="runtime_issued_value",
+        )
+    return normalized
+
+
+def _new_handle_token(kind: str) -> str:
+    return f"{kind}_{secrets.token_urlsafe(32)}"

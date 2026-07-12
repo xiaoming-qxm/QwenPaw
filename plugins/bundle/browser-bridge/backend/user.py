@@ -8,17 +8,20 @@ import base64
 import json
 import logging
 from datetime import UTC, datetime
-from time import perf_counter
+from time import monotonic, perf_counter
 from typing import Any, Callable, Literal, cast
 from urllib.parse import urlparse
 
 from qwenpaw.browser.sdk.backends.registry import get_default_backend_registry
 from qwenpaw.browser.sdk.canonical.contracts import (
+    ActionResult,
     Coverage,
     CurrentSurface,
     EvidenceRef,
     RegionCondition,
     RegionRef,
+    Problem,
+    issue_operation_id,
 )
 from qwenpaw.browser.sdk.condition_evaluator import (
     ConditionProbe,
@@ -70,6 +73,17 @@ from qwenpaw.browser.sdk.primitives.types import (
 from qwenpaw.browser.sdk.runtime.resources import (
     ScreenshotCapture,
     ScreenshotInvariant,
+)
+from qwenpaw.browser.sdk.runtime.session_owner import (
+    BrowserRequestBinding,
+    BrowserSessionOwnerRegistry,
+    NativeContextVersion,
+    TargetBinding,
+)
+from qwenpaw.browser.sdk.runtime.snapshot import (
+    SnapshotCapture,
+    SnapshotTarget,
+    SourceOutcome,
 )
 
 BACKEND_ID = "user.chrome_extension"
@@ -819,6 +833,47 @@ class ChromeExtensionBrowserSession:
         payload = await self._bridge_or_engine_action("snapshot", tab_id)
         return coerce_observation(str(tab_id), payload)
 
+    async def capture_snapshot(
+        self,
+        tab_id: str,
+        *,
+        scope: Any,
+        budget: Any,
+    ) -> SnapshotCapture:
+        """Return a registry-issued Canonical capture from trusted payload."""
+        del scope, budget
+        payload = await self._bridge_or_engine_action("snapshot", tab_id)
+        if not isinstance(payload, dict):
+            raise BrowserSDKError(
+                "Canonical snapshot returned an invalid payload.",
+                code="snapshot_payload_invalid",
+            )
+        from qwenpaw.browser.sdk.runtime.kernel import (
+            get_current_execution_context,
+        )
+        from qwenpaw.runtime.root_request_coordinator import _OWNER_REGISTRY
+
+        execution = get_current_execution_context()
+        if execution is None:
+            raise BrowserSDKError(
+                "Canonical snapshot owner is unavailable.",
+                code="browser_ownership_context_missing",
+            )
+        owner = BrowserRequestBinding(
+            root_session_id=execution.root_session_id,
+            root_task_id=execution.root_task_id,
+            browser_owner_id=execution.browser_owner_id,
+            contract_mode=execution.contract_mode,
+            lease_generation=execution.lease_generation,
+        )
+        return _canonical_capture_from_payload(
+            payload,
+            registry=_OWNER_REGISTRY,
+            owner=owner,
+            receiver_tab=str(tab_id),
+            expires_at=monotonic() + 30.0,
+        )
+
     async def screenshot(self, tab_id: str) -> BrowserScreenshot:
         payload = await self._bridge_or_engine_action("screenshot", tab_id)
         return coerce_screenshot(str(tab_id), payload)
@@ -1526,6 +1581,232 @@ class ChromeExtensionBrowserSession:
             if domain:
                 metadata["domain"] = domain
         return metadata
+
+
+def _canonical_capture_from_payload(
+    payload: dict[str, Any],
+    *,
+    registry: BrowserSessionOwnerRegistry,
+    owner: BrowserRequestBinding,
+    receiver_tab: str,
+    expires_at: float,
+) -> SnapshotCapture:
+    """Convert trusted Bridge side-channel facts into owner-issued handles."""
+    context_payload = payload.get("context")
+    if not isinstance(context_payload, dict):
+        raise BrowserSDKError(
+            "Canonical snapshot context is invalid.",
+            code="snapshot_payload_invalid",
+        )
+    try:
+        native_context = NativeContextVersion(
+            connection_generation=int(
+                context_payload["connection_generation"],
+            ),
+            tab_generation=int(context_payload["tab_generation"]),
+            frame_generation=int(context_payload["frame_generation"]),
+            document_generation=int(
+                context_payload["document_generation"],
+            ),
+            spa_route_generation=int(
+                context_payload["spa_route_generation"],
+            ),
+            layout_generation=int(context_payload["layout_generation"]),
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        raise BrowserSDKError(
+            "Canonical snapshot context is malformed.",
+            code="snapshot_payload_invalid",
+        ) from exc
+    context = registry.issue_context(
+        owner,
+        receiver_tab=receiver_tab,
+        native=native_context,
+        safe_receiver=receiver_tab,
+        expires_at=expires_at,
+    )
+    trusted = payload.get("_trusted_bindings")
+    raw_targets = payload.get("targets")
+    if not isinstance(trusted, dict) or not isinstance(raw_targets, list):
+        raise BrowserSDKError(
+            "Canonical target bindings are unavailable.",
+            code="snapshot_payload_invalid",
+        )
+    targets: list[SnapshotTarget] = []
+    for raw in raw_targets:
+        if not isinstance(raw, dict):
+            raise BrowserSDKError(
+                "Canonical target projection is malformed.",
+                code="snapshot_payload_invalid",
+            )
+        token = str(raw.get("binding_token") or "")
+        binding_payload = trusted.get(token)
+        if not token.startswith("target_") or not isinstance(
+            binding_payload,
+            dict,
+        ):
+            raise BrowserSDKError(
+                "Canonical target token is not trusted.",
+                code="runtime_issued_value",
+            )
+        _require_canonical_payload_owner(
+            binding_payload,
+            owner=owner,
+            receiver_tab=receiver_tab,
+        )
+        native_identity = _binding_pairs(
+            binding_payload.get("native_identity"),
+            value_type=(str, int),
+        )
+        action_state = _binding_pairs(
+            binding_payload.get("action_state"),
+            value_type=bool,
+        )
+        allowed_actions = tuple(
+            str(item) for item in binding_payload.get("allowed_actions", ())
+        )
+        target_binding = TargetBinding(
+            root_task_id=owner.root_task_id,
+            browser_owner_id=owner.browser_owner_id,
+            session_id=owner.root_session_id,
+            backend_id=str(binding_payload.get("backend_id") or BACKEND_ID),
+            receiver_tab_key=receiver_tab,
+            frame_key=str(binding_payload.get("frame_key") or ""),
+            context_ref=str(context.version_ref),
+            native_identity=cast(Any, native_identity),
+            action_state=cast(Any, action_state),
+            geometry_digest=str(
+                binding_payload.get("geometry_digest") or "",
+            ),
+            visual_context_ref=(
+                str(binding_payload["visual_context_ref"])
+                if binding_payload.get("visual_context_ref") is not None
+                else None
+            ),
+            allowed_actions=allowed_actions,
+            effect_ceiling=tuple(
+                str(item) for item in binding_payload.get("effect_ceiling", ())
+            ),
+            use_state="FRESH",
+            expires_at=float(expires_at),
+        )
+        ref = registry.issue_target(
+            target_binding,
+            safe_role=str(raw.get("role") or ""),
+            safe_name=str(raw.get("name") or ""),
+            observed_url=(
+                str(raw["observed_url"])
+                if raw.get("observed_url") is not None
+                else None
+            ),
+        )
+        targets.append(
+            SnapshotTarget(
+                native_identity=token,
+                owner=str(raw.get("owner") or ""),
+                owner_chain=(str(raw.get("owner") or ""),),
+                role=str(raw.get("role") or ""),
+                name=str(raw.get("name") or ""),
+                states=tuple(str(item) for item in raw.get("states", ())),
+                sources=cast(Any, tuple(raw.get("sources", ()))),
+                identity_conflict=bool(raw.get("identity_conflict")),
+                executable=bool(raw.get("executable")),
+                ref=ref,
+            ),
+        )
+    sources = tuple(
+        SourceOutcome(
+            source=cast(Any, str(item.get("source") or "AX")),
+            available=bool(item.get("available")),
+            examined=int(item.get("examined") or 0),
+            error_code=str(item.get("error_code") or ""),
+        )
+        for item in payload.get("sources", ())
+        if isinstance(item, dict)
+    )
+    return SnapshotCapture(
+        context=context,
+        scope=CurrentSurface(),
+        generation=str(payload.get("generation") or ""),
+        coverage=cast(Coverage, str(payload.get("coverage") or "UNAVAILABLE")),
+        gaps=(),
+        sources=sources,
+        targets=tuple(targets),
+    )
+
+
+async def _canonical_action_dispatch_not_enabled(
+    *,
+    action: str,
+) -> ActionResult:
+    """Keep public Canonical mutation blocked with zero native commands."""
+    return ActionResult(
+        operation_id=issue_operation_id(),
+        status="BLOCKED",
+        retry="AFTER_OBSERVATION",
+        problem=Problem(
+            code="canonical_action_dispatch_not_enabled",
+            phase="PREFLIGHT",
+            safe_message=(
+                f"Canonical action dispatch is not enabled: {action}."
+            ),
+        ),
+        commands=(),
+        effect_facts=(),
+    )
+
+
+def _require_canonical_payload_owner(
+    payload: dict[str, Any],
+    *,
+    owner: BrowserRequestBinding,
+    receiver_tab: str,
+) -> None:
+    if (
+        str(payload.get("root_task_id") or "") != owner.root_task_id
+        or str(payload.get("browser_owner_id") or "") != owner.browser_owner_id
+        or str(payload.get("session_id") or "") != owner.root_session_id
+    ):
+        raise BrowserSDKError(
+            "Canonical target owner mismatch.",
+            code="target_wrong_owner",
+        )
+    if str(payload.get("tab_id") or "") != str(receiver_tab):
+        raise BrowserSDKError(
+            "Canonical target receiver mismatch.",
+            code="target_wrong_receiver",
+        )
+
+
+def _binding_pairs(
+    value: Any,
+    *,
+    value_type: Any,
+) -> tuple[tuple[str, Any], ...]:
+    if not isinstance(value, (list, tuple)):
+        raise BrowserSDKError(
+            "Canonical target binding facts are malformed.",
+            code="snapshot_payload_invalid",
+        )
+    result: list[tuple[str, Any]] = []
+    for item in value:
+        if (
+            not isinstance(item, (list, tuple))
+            or len(item) != 2
+            or not isinstance(item[0], str)
+            or not isinstance(item[1], value_type)
+        ):
+            raise BrowserSDKError(
+                "Canonical target binding pair is malformed.",
+                code="snapshot_payload_invalid",
+            )
+        result.append((item[0], item[1]))
+    if not result:
+        raise BrowserSDKError(
+            "Canonical target binding is empty.",
+            code="snapshot_payload_invalid",
+        )
+    return tuple(result)
 
 
 class _UserConditionProbe:

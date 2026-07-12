@@ -7,6 +7,7 @@ import inspect
 from collections.abc import Callable
 from typing import Any
 
+from .canonical.contracts import TargetRef
 from .contracts import BrowserAPIContract
 from .contracts import iter_browser_api_contracts
 from .governance.errors import BrowserObservationRequired
@@ -116,6 +117,8 @@ def _validate_target_shape(
     contract: BrowserAPIContract,
     target: Any,
 ) -> None:
+    if isinstance(target, TargetRef):
+        return
     if not isinstance(target, dict):
         _raise_target_invalid(contract, target)
     keys = set(target)
@@ -140,9 +143,25 @@ def _validate_target_shape(
 
 def _validate_target_resolution(
     contract: BrowserAPIContract,
-    target: dict[str, Any],
+    target: Any,
     owner: Any | None,
 ) -> None:
+    if isinstance(target, TargetRef):
+        registry = getattr(owner, "_target_registry", None)
+        owner_binding = getattr(owner, "_owner_binding", None)
+        receiver_tab = str(getattr(owner, "_receiver_tab", "") or "")
+        if registry is None or owner_binding is None or not receiver_tab:
+            raise BrowserSDKError(
+                "runtime_issued_value: target authority is unavailable",
+                code="runtime_issued_value",
+                action=contract.api_id,
+            )
+        registry.resolve_target(
+            target,
+            receiver_tab=receiver_tab,
+            owner=owner_binding,
+        )
+        return
     observation = _latest_observation(owner)
     if observation is None:
         if contract.target and contract.target.snapshot_bound:

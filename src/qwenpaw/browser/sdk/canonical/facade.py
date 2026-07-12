@@ -67,11 +67,23 @@ class Browser:
         profile = get_default_backend_registry().profile(
             self.context.backend_id,
         )
+        execution = get_current_execution_context()
+        target_registry = None
+        owner_binding = None
+        if execution is not None:
+            from qwenpaw.runtime.root_request_coordinator import (
+                _OWNER_REGISTRY,
+            )
+
+            target_registry = _OWNER_REGISTRY
+            owner_binding = execution_binding(execution)
         self.tabs = BrowserTabs(
             self.session,
             store,
             self._condition_evaluator,
             profile,
+            target_registry,
+            owner_binding,
         )
         self.resources = BrowserResources(store)
 

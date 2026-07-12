@@ -22,6 +22,7 @@ def case_report(
         "family": case.family.value,
         "seed": case.seed,
         "transformations": list(case.transformations),
+        "prerequisites": [item.value for item in case.prerequisites],
         "fault": case.fault.value if case.fault is not None else None,
         "outcome": result.outcome.value,
         "validation_evidence": f"{case.case_id}@build-1",
@@ -30,9 +31,13 @@ def case_report(
                 "fixture_ax_dom_native_call_log"
                 if case.family.value == "ObserveRead"
                 else (
-                    "virtual_clock_raw_probe_event_log"
-                    if case.family.value == "Synchronize"
-                    else "controller_owned_events"
+                    "fake_native_object_effect_log"
+                    if case.family.value == "TargetControl"
+                    else (
+                        "virtual_clock_raw_probe_event_log"
+                        if case.family.value == "Synchronize"
+                        else "controller_owned_events"
+                    )
                 )
             ),
             "expected": result.expected,

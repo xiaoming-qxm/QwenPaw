@@ -20,15 +20,23 @@ from .canonical.contracts import (
     EvidenceMeta,
     EvidenceRef,
     Notice,
+    OptionChoice,
     PageCondition,
     RegionCondition,
     RegionRef,
+    TargetCondition,
+    TargetQuery,
+    TargetRef,
     TerminalStatus,
     _serialize_browser_condition,
 )
 from .primitives.matching import match_page_url, normalize_visible_text
 from .runtime.observation_store import ObservationStore, ObservationStoreError
-from .runtime.session_owner import OwnerKey
+from .runtime.session_owner import (
+    BrowserRequestBinding,
+    BrowserSessionOwnerRegistry,
+    OwnerKey,
+)
 
 
 ProbeState = Literal["AVAILABLE", "STALE", "UNAVAILABLE"]
@@ -65,6 +73,9 @@ class ConditionReceiver:
     context: ContextVersion
     generation: int
     observation_store: ObservationStore | None = None
+    target_registry: BrowserSessionOwnerRegistry | None = None
+    owner_binding: BrowserRequestBinding | None = None
+    target_facts: tuple["TargetFacts", ...] = ()
 
     def __post_init__(self) -> None:
         if (
@@ -83,7 +94,11 @@ class ConditionReceiver:
     @property
     def fingerprint(self) -> str:
         """Return a stable private receiver fingerprint."""
-        context_id = self.context.to_dict().get("id", "")
+        context_fields = self.context.to_dict()
+        context_id = context_fields.get("id") or context_fields.get(
+            "version_ref",
+            "",
+        )
         raw = repr(
             (
                 self.owner_key,
@@ -140,6 +155,32 @@ class RegionFacts:
 
 
 @dataclass(frozen=True, slots=True)
+class TargetFacts:
+    """Immutable target evidence; authority remains in the owner registry."""
+
+    ref: TargetRef
+    role: str
+    name: str
+    text: str
+    states: tuple[str, ...] = ()
+    value: str | None = None
+    checked: bool | None = None
+    selected: OptionChoice | None = None
+    region: RegionRef | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.ref, TargetRef):
+            raise TypeError("target facts require a TargetRef")
+
+
+@dataclass(frozen=True, slots=True)
+class MatchedTargetCondition(TargetCondition):
+    """Matched Target atom retaining every immutable candidate ref."""
+
+    matched_target_refs: tuple[TargetRef, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class ProbeObservation:
     """One fresh trusted observation from a backend probe."""
 
@@ -149,6 +190,7 @@ class ProbeObservation:
     state: ProbeState
     page: PageFacts | None = None
     regions: tuple[RegionFacts, ...] = ()
+    targets: tuple[TargetFacts, ...] = ()
 
     def __post_init__(self) -> None:
         if self.state not in {"AVAILABLE", "STALE", "UNAVAILABLE"}:
@@ -358,7 +400,20 @@ class ConditionEvaluator:
         terminal = _probe_terminal(observation, started, self._clock.now())
         if terminal is not None:
             return terminal
-        matched = _matched_atoms(watch._request.condition, observation)
+        terminal = _target_terminal(
+            watch._request.condition,
+            watch._request.receiver,
+            observation,
+            started,
+            self._clock.now(),
+        )
+        if terminal is not None:
+            return terminal
+        matched = _matched_atoms(
+            watch._request.condition,
+            observation,
+            watch._request.receiver,
+        )
         if (
             _condition_true(watch._request.condition, matched)
             and stable_ms == 0
@@ -384,7 +439,20 @@ class ConditionEvaluator:
             terminal = _probe_terminal(observation, started, self._clock.now())
             if terminal is not None:
                 return terminal
-            matched = _matched_atoms(watch._request.condition, observation)
+            terminal = _target_terminal(
+                watch._request.condition,
+                watch._request.receiver,
+                observation,
+                started,
+                self._clock.now(),
+            )
+            if terminal is not None:
+                return terminal
+            matched = _matched_atoms(
+                watch._request.condition,
+                observation,
+                watch._request.receiver,
+            )
             truth = _condition_true(watch._request.condition, matched)
             now = self._clock.now()
             if truth:
@@ -518,7 +586,8 @@ def _opaque_id(value: object | None) -> str:
     to_dict = getattr(value, "to_dict", None)
     if not callable(to_dict):
         return "invalid"
-    return str(to_dict().get("id", ""))
+    fields = to_dict()
+    return str(fields.get("id") or fields.get("version_ref") or "")
 
 
 def _validate_baseline_shape(
@@ -581,10 +650,25 @@ def _raise_baseline_error(error: ObservationStoreError) -> None:
 def _matched_atoms(
     condition: BrowserCondition,
     observation: ProbeObservation,
+    receiver: ConditionReceiver,
 ) -> tuple[ConditionAtom, ...]:
-    return tuple(
-        atom for atom in condition.atoms if _atom_matches(atom, observation)
-    )
+    matched: list[ConditionAtom] = []
+    for atom in condition.atoms:
+        if isinstance(atom, TargetCondition):
+            target_refs = _target_matches(atom, observation, receiver)
+            if target_refs is not None:
+                matched.append(
+                    MatchedTargetCondition(
+                        atom.kind,
+                        atom.subject,
+                        atom.expected,
+                        target_refs,
+                    ),
+                )
+            continue
+        if _atom_matches(atom, observation):
+            matched.append(atom)
+    return tuple(matched)
 
 
 def _condition_true(
@@ -601,6 +685,145 @@ def _atom_matches(atom: ConditionAtom, observation: ProbeObservation) -> bool:
         return _page_matches(atom, observation)
     if isinstance(atom, RegionCondition):
         return _region_matches(atom, observation)
+    return False
+
+
+def _target_terminal(
+    condition: BrowserCondition,
+    receiver: ConditionReceiver,
+    observation: ProbeObservation,
+    started: float,
+    now: float,
+) -> ConditionEvaluation | None:
+    registry = receiver.target_registry
+    owner = receiver.owner_binding
+    for atom in condition.atoms:
+        if not isinstance(atom, TargetCondition) or not isinstance(
+            atom.subject,
+            TargetRef,
+        ):
+            continue
+        if registry is None or owner is None:
+            return _unavailable(observation, started, now)
+        try:
+            status = registry.target_context_status(
+                atom.subject,
+                current_context=receiver.context,
+                receiver_tab=receiver.tab_id,
+                owner=owner,
+            )
+        except Exception:  # pylint: disable=broad-exception-caught
+            return _stale(observation, started, now)
+        if status == "STALE":
+            return _stale(observation, started, now)
+    return None
+
+
+def _target_matches(
+    atom: ConditionAtom,
+    observation: ProbeObservation,
+    receiver: ConditionReceiver,
+) -> tuple[TargetRef, ...] | None:
+    if not isinstance(atom, TargetCondition):
+        return None
+    facts = observation.targets or receiver.target_facts
+    candidates = _target_candidates(atom, facts, receiver)
+    if candidates is None:
+        return None
+    matching = tuple(
+        fact for fact in candidates if _target_fact_matches(atom, fact)
+    )
+    if atom.kind in {"exists", "visible"}:
+        expected = cast(bool, atom.expected)
+        truth = bool(matching)
+        if truth == expected and (
+            expected or observation.coverage == "COMPLETE"
+        ):
+            return tuple(fact.ref for fact in matching)
+        return None
+    if atom.kind in {"enabled", "editable", "checked"}:
+        expected = cast(bool, atom.expected)
+        if not candidates:
+            return None
+        truth = bool(matching)
+        if truth == expected and (
+            expected or observation.coverage == "COMPLETE"
+        ):
+            return tuple(fact.ref for fact in candidates)
+        return None
+    if matching:
+        return tuple(fact.ref for fact in matching)
+    return None
+
+
+def _target_candidates(
+    atom: TargetCondition,
+    facts: tuple[TargetFacts, ...],
+    receiver: ConditionReceiver,
+) -> tuple[TargetFacts, ...] | None:
+    if isinstance(atom.subject, TargetQuery):
+        return tuple(
+            fact for fact in facts if _target_query_matches(atom.subject, fact)
+        )
+    if not isinstance(atom.subject, TargetRef):
+        return None
+    registry = receiver.target_registry
+    owner = receiver.owner_binding
+    if registry is None or owner is None:
+        return ()
+    matches: list[TargetFacts] = []
+    for fact in facts:
+        try:
+            same = registry.same_target_identity(
+                atom.subject,
+                fact.ref,
+                receiver_tab=receiver.tab_id,
+                owner=owner,
+            )
+        except Exception:  # pylint: disable=broad-exception-caught
+            continue
+        if same:
+            matches.append(fact)
+    return tuple(matches)
+
+
+def _target_query_matches(query: TargetQuery, fact: TargetFacts) -> bool:
+    if query.region is not None and fact.region is not query.region:
+        return False
+    if (
+        query.role is not None
+        and normalize_visible_text(fact.role) != query.role
+    ):
+        return False
+    for expected, actual in (
+        (query.name, fact.name),
+        (query.text, fact.text),
+    ):
+        if expected is None:
+            continue
+        normalized = normalize_visible_text(actual)
+        if query.match == "exact":
+            if normalized != expected:
+                return False
+        elif expected not in normalized:
+            return False
+    return True
+
+
+def _target_fact_matches(
+    atom: TargetCondition,
+    fact: TargetFacts,
+) -> bool:
+    if atom.kind == "exists":
+        return True
+    if atom.kind in {"visible", "enabled", "editable"}:
+        return atom.kind in fact.states
+    if atom.kind == "value":
+        return fact.value == atom.expected
+    if atom.kind == "checked":
+        return fact.checked is True or "checked" in fact.states
+    if atom.kind == "selected":
+        return fact.selected == atom.expected
     return False
 
 

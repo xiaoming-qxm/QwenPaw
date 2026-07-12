@@ -9,6 +9,7 @@ from typing import Any, Literal, TypeAlias, cast
 from uuid import uuid4
 
 from ..governance.errors import BrowserSDKError
+from ..primitives.matching import normalize_visible_text
 
 _RUNTIME_VALUE_ISSUER = object()
 
@@ -152,6 +153,46 @@ def _issue_opaque_value(
     return value_type(_issuer=_RUNTIME_VALUE_ISSUER, **fields)
 
 
+def _issue_context_version(
+    *,
+    version_ref: str,
+    safe_receiver: str,
+) -> ContextVersion:
+    """Issue the safe public projection of a private context binding."""
+    value = _issue_opaque_value(
+        ContextVersion,
+        _RUNTIME_VALUE_ISSUER,
+        version_ref=version_ref,
+        safe_receiver=safe_receiver,
+    )
+    assert isinstance(value, ContextVersion)
+    return value
+
+
+def _issue_target_ref(
+    *,
+    ref: str,
+    safe_role: str,
+    safe_name: str,
+    observed_url: str | None,
+    allowed_actions: tuple[str, ...],
+    single_use: bool,
+) -> TargetRef:
+    """Issue the safe public projection of a private target binding."""
+    value = _issue_opaque_value(
+        TargetRef,
+        _RUNTIME_VALUE_ISSUER,
+        ref=ref,
+        safe_role=safe_role,
+        safe_name=safe_name,
+        observed_url=observed_url,
+        allowed_actions=allowed_actions,
+        single_use=single_use,
+    )
+    assert isinstance(value, TargetRef)
+    return value
+
+
 def _require_choice(value: object, allowed: set[Any], name: str) -> None:
     if value not in allowed:
         raise ValueError(f"invalid {name}: {value}")
@@ -198,6 +239,15 @@ class TargetQuery:
     match: Literal["exact", "contains"] = "exact"
 
     def __post_init__(self) -> None:
+        for field_name in ("role", "name", "text"):
+            value = getattr(self, field_name)
+            if value is None:
+                continue
+            object.__setattr__(
+                self,
+                field_name,
+                normalize_visible_text(value),
+            )
         if not any((self.role, self.name, self.text)):
             raise ValueError("TargetQuery requires role, name, or text")
         _require_choice(self.match, {"exact", "contains"}, "match")
@@ -1623,6 +1673,54 @@ def canonical_api_catalog() -> dict[str, Any]:
                         "required": False,
                         "default": "auto",
                         "annotation": "Literal['auto', 'user', 'isolated']",
+                    },
+                ],
+            ),
+            _entry(
+                "tab.actions.click",
+                "qwenpaw.browser.sdk.canonical.tabs:TabActions.click",
+                "async click(target: TargetRef) -> ActionResult",
+                mutates=True,
+                kind="action",
+                return_type="ActionResult",
+                summary=(
+                    "Use one Runtime-issued target; dispatch remains blocked."
+                ),
+                parameters=[
+                    {
+                        "name": "target",
+                        "kind": "POSITIONAL_OR_KEYWORD",
+                        "required": True,
+                        "annotation": "TargetRef",
+                    },
+                ],
+            ),
+            _entry(
+                "tab.actions.drag",
+                "qwenpaw.browser.sdk.canonical.tabs:TabActions.drag",
+                (
+                    "async drag(source: TargetRef, destination: TargetRef) "
+                    "-> ActionResult"
+                ),
+                mutates=True,
+                kind="action",
+                return_type="ActionResult",
+                summary=(
+                    "Validate ordered Runtime-issued endpoints; dispatch "
+                    "remains blocked."
+                ),
+                parameters=[
+                    {
+                        "name": "source",
+                        "kind": "POSITIONAL_OR_KEYWORD",
+                        "required": True,
+                        "annotation": "TargetRef",
+                    },
+                    {
+                        "name": "destination",
+                        "kind": "POSITIONAL_OR_KEYWORD",
+                        "required": True,
+                        "annotation": "TargetRef",
                     },
                 ],
             ),

@@ -14,6 +14,7 @@ from .model import (
     ObserveReadFacts,
     OracleResult,
     SynchronizeFacts,
+    TargetControlFacts,
 )
 
 
@@ -123,6 +124,30 @@ class IndependentOracle:
             observed_blocks=(),
         )
 
+    def evaluate_target_control(
+        self,
+        facts: TargetControlFacts,
+    ) -> OracleResult:
+        """Compare only fake-native object/command/effect controller logs."""
+        return self.evaluate(
+            expected_facts={
+                "native_object_id": facts.expected_object_id,
+                "native_command_count": facts.expected_command_count,
+                "native_effect_count": facts.expected_effect_count,
+                "public_dispatch_count": 0,
+            },
+            observed_events=(
+                {
+                    "native_object_id": facts.observed_object_id,
+                    "native_command_count": facts.observed_command_count,
+                    "native_effect_count": facts.observed_effect_count,
+                    "public_dispatch_count": facts.public_dispatch_count,
+                },
+            ),
+            observed_resources=(),
+            observed_blocks=(),
+        )
+
 
 # pylint: disable-next=too-many-return-statements
 def _oracle_atom_truth(
@@ -161,6 +186,12 @@ def _oracle_atom_truth(
         return count == value if mode == "eq" else count <= value
     if kind == "region.changed":
         return str(actual) != str(expected)
+    if kind == "target.exists":
+        present = bool(actual)
+        expected_present = bool(expected)
+        return present == expected_present and (
+            expected_present or item.get("coverage") == "COMPLETE"
+        )
     return False
 
 

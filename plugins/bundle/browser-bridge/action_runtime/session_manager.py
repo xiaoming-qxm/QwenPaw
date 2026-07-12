@@ -11,6 +11,7 @@ from uuid import uuid4
 from qwenpaw.browser.sdk.runtime.session_owner import OwnerKey
 from qwenpaw.browser.sdk.runtime.responses import logger
 from .errors import RECOVERABLE_CONTROL_EXCEPTIONS
+from .ref_scope import _control_advance_canonical_generation
 from .state import StateMapping
 
 
@@ -162,10 +163,35 @@ def _control_register_condition_event_handler(
         if event_tab is None or int(event_tab) != int(tab_id):
             return
         native = event.get("sequence")
+        method = str(event.get("method") or "")
+        params = event.get("params")
+        if not isinstance(params, dict):
+            params = {}
+        if method == "Page.frameNavigated":
+            frame = params.get("frame")
+            if not isinstance(frame, dict):
+                frame = {}
+            _control_advance_canonical_generation(
+                state,
+                tab_id=tab_id,
+                change=("FRAME" if frame.get("parentId") else "DOCUMENT"),
+            )
+        elif method in {"Page.navigatedWithinDocument", "DOM.documentUpdated"}:
+            _control_advance_canonical_generation(
+                state,
+                tab_id=tab_id,
+                change="SPA",
+            )
+        elif method in {"Page.frameResized", "Page.deviceMetricsChanged"}:
+            _control_advance_canonical_generation(
+                state,
+                tab_id=tab_id,
+                change="LAYOUT",
+            )
         _control_condition_record_event(
             state,
             tab_id=tab_id,
-            method=str(event.get("method") or ""),
+            method=method,
             native_sequence=int(native) if isinstance(native, int) else None,
         )
 
@@ -544,6 +570,7 @@ async def _control_get_session(
     sessions = _control_sessions(state)
     key = str(tab_id)
     session = sessions.get(key)
+    replaced_session = False
     known_to_holder = _control_tab_known_to_holder(
         state,
         tab_id=tab_id,
@@ -561,6 +588,7 @@ async def _control_get_session(
             except RECOVERABLE_CONTROL_EXCEPTIONS:
                 sessions.pop(key, None)
                 await _control_abandon_session(session)
+                replaced_session = True
             else:
                 from .navigation import _control_sync_session_navigation_scope
 
@@ -573,6 +601,7 @@ async def _control_get_session(
         else:
             sessions.pop(key, None)
             await _control_abandon_session(session)
+            replaced_session = True
 
     if known_to_holder:
         await _control_ensure_tab_lease(
@@ -603,6 +632,12 @@ async def _control_get_session(
         tab_id=tab_id,
     )
     sessions[key] = session
+    if replaced_session:
+        _control_advance_canonical_generation(
+            state,
+            tab_id=tab_id,
+            change="CONNECTION",
+        )
     return session
 
 

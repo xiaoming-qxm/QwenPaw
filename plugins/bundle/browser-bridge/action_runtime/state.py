@@ -18,6 +18,8 @@ CONTROL_STATE_KEY_TO_FIELD: dict[str, str] = {
     "control_sessions": "sessions",
     "sessions": "sessions",
     "refs": "refs",
+    "canonical_context_generations": "canonical_context_generations",
+    "canonical_target_bindings": "canonical_target_bindings",
     "control_pending_observations": "pending_observations",
     "pending_observations": "pending_observations",
     "control_visual_observations": "visual_observations",
@@ -55,6 +57,12 @@ class ControlState(MutableMapping[str, Any]):
     tabs: dict[str, dict[str, Any]] = field(default_factory=dict)
     sessions: dict[str, Any] = field(default_factory=dict)
     refs: dict[str, dict[str, Any]] = field(default_factory=dict)
+    canonical_context_generations: dict[str, dict[str, int]] = field(
+        default_factory=dict,
+    )
+    canonical_target_bindings: dict[str, dict[str, Any]] = field(
+        default_factory=dict,
+    )
     pending_observations: dict[str, Any] = field(default_factory=dict)
     visual_observations: dict[str, Any] = field(default_factory=dict)
     click_effects: dict[str, Any] = field(default_factory=dict)
@@ -169,6 +177,12 @@ def control_state_to_mapping(state: ControlState) -> dict[str, Any]:
         data["control_sessions"] = state.sessions
     if state.refs:
         data["refs"] = state.refs
+    if state.canonical_context_generations:
+        data[
+            "canonical_context_generations"
+        ] = state.canonical_context_generations
+    if state.canonical_target_bindings:
+        data["canonical_target_bindings"] = state.canonical_target_bindings
     if state.pending_observations:
         data["control_pending_observations"] = state.pending_observations
     if state.visual_observations:
@@ -222,6 +236,8 @@ def _default_field_value(field_name: str) -> Any:
         "tabs",
         "sessions",
         "refs",
+        "canonical_context_generations",
+        "canonical_target_bindings",
         "pending_observations",
         "visual_observations",
         "click_effects",

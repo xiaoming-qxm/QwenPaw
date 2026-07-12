@@ -4,15 +4,18 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
+from hashlib import sha256
 import json
 import re
-from typing import Any
+from typing import Any, Callable
 
 from qwenpaw.browser.sdk.runtime.responses import (
     _CONTROL_BANNER_TIMEOUT_SECONDS,
     logger,
 )
 from qwenpaw.browser.sdk.canonical.contracts import CaptureGap, CoverageGap
+from qwenpaw.browser.sdk.governance.errors import BrowserSDKError
 from qwenpaw.browser.sdk.runtime.snapshot import (
     ProbeBatch,
     ProbeNode,
@@ -22,6 +25,11 @@ from qwenpaw.browser.sdk.runtime.snapshot import (
 from .cdp_relay import CDPRelayError
 from .errors import RECOVERABLE_CONTROL_EXCEPTIONS, TargetResolutionFailed
 from .navigation import _control_same_site, _control_url_key
+from .ref_scope import (
+    _control_canonical_context,
+    _require_canonical_binding,
+)
+from .state import ControlState
 
 _CONTROL_POINT_SNAP_EXCEPTIONS = RECOVERABLE_CONTROL_EXCEPTIONS + (
     CDPRelayError,
@@ -1722,6 +1730,188 @@ async def _control_press_key(session: Any, key: str) -> None:
         "Input.dispatchKeyEvent",
         _control_key_params(normalized_key, "keyUp"),
     )
+
+
+_TRUSTED_TEST_COMMAND_ISSUER = object()
+
+
+@dataclass(frozen=True, slots=True)
+class _TrustedTestCommand:
+    token: str
+    action: str
+    effect: str
+    issuer_token: object
+
+
+@dataclass(frozen=True, slots=True)
+class _PreparedNativeInjection:
+    token: str
+    action: str
+    effect: str
+    native_identity: tuple[tuple[str, str | int], ...]
+    fingerprint: str
+
+
+@dataclass(frozen=True, slots=True)
+class _BoundaryProblem:
+    code: str
+
+
+@dataclass(frozen=True, slots=True)
+class _NativeBoundaryResult:
+    status: str
+    retry: str
+    problem: _BoundaryProblem | None = None
+
+
+def _trusted_test_command(
+    state: ControlState,
+    *,
+    token: str,
+    action: str,
+    effect: str,
+) -> _TrustedTestCommand:
+    """Issue a command only from an existing private binding in tests."""
+    _require_canonical_binding(state, token)
+    return _TrustedTestCommand(
+        token=str(token),
+        action=str(action),
+        effect=str(effect),
+        issuer_token=_TRUSTED_TEST_COMMAND_ISSUER,
+    )
+
+
+class _PrivateNativeTargetBoundary:
+    """Trusted fake-only final validation and immediate inject turn."""
+
+    def __init__(
+        self,
+        state: ControlState,
+        *,
+        owner_key: tuple[str, str],
+        receiver_tab: int,
+        facts_reader: Callable[[str], dict[str, object]],
+    ) -> None:
+        self._state = state
+        self._owner_key = tuple(owner_key)
+        self._receiver_tab = int(receiver_tab)
+        self._facts_reader = facts_reader
+
+    async def dispatch_for_test(
+        self,
+        command: _TrustedTestCommand,
+        *,
+        injector: Callable[[_PreparedNativeInjection], bool],
+    ) -> _NativeBoundaryResult:
+        """Validate and invoke a synchronous atomic fake injector."""
+        prepared = self._prepare(command)
+        if prepared is None:
+            return _blocked_native_boundary()
+        if not injector(prepared):
+            return _blocked_native_boundary()
+        return _NativeBoundaryResult(status="SUCCEEDED", retry="NONE")
+
+    # pylint: disable-next=too-many-return-statements
+    def _prepare(
+        self,
+        command: _TrustedTestCommand,
+    ) -> _PreparedNativeInjection | None:
+        if (
+            not isinstance(command, _TrustedTestCommand)
+            or command.issuer_token is not _TRUSTED_TEST_COMMAND_ISSUER
+        ):
+            return None
+        try:
+            binding = _require_canonical_binding(
+                self._state,
+                command.token,
+            )
+        except BrowserSDKError:
+            return None
+        if tuple(binding.get("owner_key", ())) != self._owner_key:
+            return None
+        if int(binding.get("tab_id", -1)) != self._receiver_tab:
+            return None
+        current_context = _control_canonical_context(
+            self._state,
+            tab_id=self._receiver_tab,
+        )
+        if binding.get("context") != current_context:
+            return None
+        allowed_actions = tuple(binding.get("allowed_actions", ()))
+        effect_ceiling = tuple(binding.get("effect_ceiling", ()))
+        if (
+            command.action not in allowed_actions
+            or command.effect not in effect_ceiling
+        ):
+            return None
+        live = self._facts_reader(command.token)
+        native_identity = tuple(binding.get("native_identity", ()))
+        required = {
+            "owner_key": self._owner_key,
+            "receiver_tab": self._receiver_tab,
+            "frame_key": binding.get("frame_key"),
+            "context": current_context,
+            "native_identity": native_identity,
+            "visible": True,
+            "stable": True,
+            "enabled": True,
+            "event_receiver": native_identity,
+            "occluded": False,
+            "geometry_digest": binding.get("geometry_digest"),
+            "effect_ceiling": effect_ceiling,
+        }
+        if command.action == "type":
+            required["editable"] = True
+        if any(live.get(key) != value for key, value in required.items()):
+            return None
+        return _PreparedNativeInjection(
+            token=command.token,
+            action=command.action,
+            effect=command.effect,
+            native_identity=tuple(native_identity),
+            fingerprint=_native_fact_fingerprint(live),
+        )
+
+
+def _native_fact_fingerprint(facts: dict[str, object]) -> str:
+    """Seal all fake-native final facts checked by the atomic injector."""
+    payload = json.dumps(
+        facts,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=list,
+    )
+    return sha256(payload.encode()).hexdigest()
+
+
+def _blocked_native_boundary() -> _NativeBoundaryResult:
+    return _NativeBoundaryResult(
+        status="BLOCKED",
+        retry="AFTER_OBSERVATION",
+        problem=_BoundaryProblem("canonical_target_revalidation_required"),
+    )
+
+
+def validate_ordered_targets(
+    ordered: tuple[tuple[str, object], ...],
+) -> tuple[object, object]:
+    """Validate one distinct SOURCE followed by one DESTINATION."""
+    if len(ordered) != 2 or tuple(item[0] for item in ordered) != (
+        "SOURCE",
+        "DESTINATION",
+    ):
+        raise BrowserSDKError(
+            "ordered targets must be SOURCE then DESTINATION",
+            code="target_order_invalid",
+        )
+    source, destination = ordered[0][1], ordered[1][1]
+    if source is destination:
+        raise BrowserSDKError(
+            "drag endpoints must be distinct",
+            code="target_order_invalid",
+        )
+    return source, destination
 
 
 __all__ = [

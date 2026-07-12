@@ -22,6 +22,7 @@ from .navigation import (
     _control_same_site,
     _control_url_key,
 )
+from .ref_scope import _control_advance_canonical_generation
 from .session_manager import _control_close_session, _control_holder_id
 from .state import ControlState, StateMapping
 
@@ -177,6 +178,11 @@ async def _control_forget_tab_state(state: StateMapping, tab_id: int) -> None:
     from .observation import _control_clear_observation_required
 
     key = str(tab_id)
+    _control_advance_canonical_generation(
+        state,
+        tab_id=tab_id,
+        change="TAB",
+    )
     _control_clear_observation_required(state, tab_id)
     control_tabs = state.get("control_tabs")
     if isinstance(control_tabs, dict):

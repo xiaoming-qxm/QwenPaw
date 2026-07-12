@@ -12,8 +12,9 @@ from ..condition_evaluator import (
     ConditionEvaluation,
     ConditionEvaluator,
     ConditionReceiver,
+    TargetFacts,
 )
-from ..governance.errors import BrowserSDKGap
+from ..governance.errors import BrowserSDKError, BrowserSDKGap
 from ..primitives.matching import normalize_visible_text
 from ..runtime.resources import (
     ResourceStore,
@@ -32,7 +33,12 @@ from ..runtime.snapshot import (
     SnapshotCapture,
     SnapshotTarget,
 )
+from ..runtime.session_owner import (
+    BrowserRequestBinding,
+    BrowserSessionOwnerRegistry,
+)
 from .contracts import (
+    ActionResult,
     CapabilityProblemDetails,
     BrowserCondition,
     CaptureGap,
@@ -56,7 +62,6 @@ from .contracts import (
     TargetQuery,
     TargetRef,
     TargetSummary,
-    TargetCondition,
     TerminalStatus,
     VisualRegion,
     VisualContextRef,
@@ -76,10 +81,61 @@ class TabActions:
     """S0 action surface; later stages activate individual capabilities."""
 
     dispatch: Dispatch | None = field(default=None, repr=False)
+    _target_registry: BrowserSessionOwnerRegistry | None = field(
+        default=None,
+        repr=False,
+    )
+    _owner_binding: BrowserRequestBinding | None = field(
+        default=None,
+        repr=False,
+    )
+    _receiver_tab: str = field(default="", repr=False)
 
-    async def click(self, *_args: Any, **_kwargs: Any) -> None:
+    async def click(self, target: TargetRef) -> ActionResult:
         """Fail before backend dispatch until target/action stages activate."""
-        raise _capability_blocked("tab.actions.click")
+        if isinstance(target, str):
+            # Preserve the S0 zero-dispatch characterization while the
+            # canonical signature and all executable authority are TargetRef.
+            raise _capability_blocked("tab.actions.click")
+        self._require_target(target)
+        return _blocked_canonical_action("tab.actions.click", target=target)
+
+    async def drag(
+        self,
+        source: TargetRef,
+        destination: TargetRef,
+    ) -> ActionResult:
+        """Validate ordered endpoints without enabling native dispatch."""
+        self._require_target(source)
+        self._require_target(destination)
+        return _blocked_canonical_action(
+            "tab.actions.drag",
+            source=source,
+            destination=destination,
+        )
+
+    def _require_target(self, target: TargetRef) -> None:
+        if not isinstance(target, TargetRef):
+            raise BrowserSDKError(
+                "Canonical mutation target must be a TargetRef.",
+                code="target_invalid",
+                action="tab.actions",
+            )
+        if (
+            self._target_registry is None
+            or self._owner_binding is None
+            or not self._receiver_tab
+        ):
+            raise BrowserSDKError(
+                "runtime_issued_value: target authority is unavailable",
+                code="runtime_issued_value",
+                action="tab.actions",
+            )
+        self._target_registry.resolve_target(
+            target,
+            receiver_tab=self._receiver_tab,
+            owner=self._owner_binding,
+        )
 
 
 @dataclass(slots=True)
@@ -96,6 +152,26 @@ class Tab:
         repr=False,
     )
     _profile: BackendProfile | None = field(default=None, repr=False)
+    _target_registry: BrowserSessionOwnerRegistry | None = field(
+        default=None,
+        repr=False,
+    )
+    _owner_binding: BrowserRequestBinding | None = field(
+        default=None,
+        repr=False,
+    )
+    _target_facts: tuple[TargetFacts, ...] = field(
+        default=(),
+        repr=False,
+    )
+
+    def __post_init__(self) -> None:
+        self.actions = TabActions(
+            dispatch=self.actions.dispatch,
+            _target_registry=self._target_registry,
+            _owner_binding=self._owner_binding,
+            _receiver_tab=self.id,
+        )
 
     async def wait_for(
         self,
@@ -120,7 +196,7 @@ class Tab:
             for atom in condition.atoms
             if isinstance(
                 atom,
-                (TargetCondition, SurfaceCondition, ResourceCondition),
+                (SurfaceCondition, ResourceCondition),
             )
         )
         if unsupported:
@@ -160,6 +236,9 @@ class Tab:
             context=self._observations.context,
             generation=self._observations.generation,
             observation_store=self._observations,
+            target_registry=self._target_registry,
+            owner_binding=self._owner_binding,
+            target_facts=self._target_facts,
         )
         evaluation = await self._condition_evaluator.evaluate(
             receiver,
@@ -237,18 +316,11 @@ class Tab:
                 for target in candidates
                 if target.owner_chain[: len(owner_chain)] == owner_chain
             )
-        if query_owner_chain is not None:
-            candidates = tuple(
-                target
-                for target in candidates
-                if target.owner_chain[: len(query_owner_chain)]
-                == query_owner_chain
-            )
         if query is not None:
-            candidates = tuple(
-                target
-                for target in candidates
-                if _query_matches(target, query)
+            candidates = apply_target_query(
+                candidates,
+                query,
+                region_owner_chain=query_owner_chain,
             )
         gaps = list(capture.gaps)
         if clamp_gap is not None:
@@ -279,6 +351,17 @@ class Tab:
         target_summaries = tuple(
             _target_summary(target, index)
             for index, target in enumerate(candidates, start=1)
+        )
+        self._target_facts = tuple(
+            TargetFacts(
+                ref=summary.ref,
+                role=summary.role,
+                name=summary.name,
+                text=summary.name,
+                states=summary.states,
+                checked=(True if "checked" in summary.states else None),
+            )
+            for summary in target_summaries
         )
         region_summaries = tuple(
             _region_summary(self._observations, region)
@@ -566,9 +649,27 @@ class BrowserTabs:
         repr=False,
     )
     _profile: BackendProfile | None = field(default=None, repr=False)
+    _target_registry: BrowserSessionOwnerRegistry | None = field(
+        default=None,
+        repr=False,
+    )
+    _owner_binding: BrowserRequestBinding | None = field(
+        default=None,
+        repr=False,
+    )
+    _selected: Tab | None = field(default=None, repr=False)
 
     async def active(self) -> Tab:
+        if self._selected is not None:
+            return self._selected
         raise _capability_blocked("browser.tabs.active")
+
+    async def select(self, tab: Tab) -> Tab:
+        """Select only the collection pointer; never rebind the Tab."""
+        if not isinstance(tab, Tab):
+            raise TypeError("tabs.select requires a Tab")
+        self._selected = tab
+        return tab
 
 
 def _capability_blocked(capability: str) -> BrowserSDKGap:
@@ -576,6 +677,33 @@ def _capability_blocked(capability: str) -> BrowserSDKGap:
         f"Canonical capability is not active in S0: {capability}",
         action=capability,
         metadata={"capability": capability, "backend_dispatch_count": 0},
+    )
+
+
+def _blocked_canonical_action(
+    capability: str,
+    *,
+    target: TargetRef | None = None,
+    source: TargetRef | None = None,
+    destination: TargetRef | None = None,
+) -> ActionResult:
+    """Return structured zero-dispatch truth for a valid grounded target."""
+    return ActionResult(
+        operation_id=issue_operation_id(),
+        status="BLOCKED",
+        retry="AFTER_OBSERVATION",
+        problem=Problem(
+            code="canonical_action_dispatch_not_enabled",
+            phase="PREFLIGHT",
+            safe_message=(
+                f"Canonical action dispatch is not enabled: {capability}."
+            ),
+        ),
+        target=target,
+        source=source,
+        destination=destination,
+        commands=(),
+        effect_facts=(),
     )
 
 
@@ -749,7 +877,7 @@ def _snapshot_limit(
 def _query_matches(target: SnapshotTarget, query: TargetQuery) -> bool:
     checks: list[bool] = []
     if query.role:
-        checks.append(_text_matches(target.role, query.role, query.match))
+        checks.append(normalize_visible_text(target.role) == query.role)
     if query.name:
         checks.append(_text_matches(target.name, query.name, query.match))
     if query.text:
@@ -758,8 +886,8 @@ def _query_matches(target: SnapshotTarget, query: TargetQuery) -> bool:
 
 
 def _text_matches(value: str, expected: str, match: str) -> bool:
-    value_key = value.casefold()
-    expected_key = expected.casefold()
+    value_key = normalize_visible_text(value)
+    expected_key = normalize_visible_text(expected)
     return (
         value_key == expected_key
         if match == "exact"
@@ -767,19 +895,46 @@ def _text_matches(value: str, expected: str, match: str) -> bool:
     )
 
 
-def _target_summary(target: SnapshotTarget, index: int) -> TargetSummary:
-    ref = _issue_opaque_value(
-        TargetRef,
-        _RUNTIME_VALUE_ISSUER,
-        id=f"target-{issue_operation_id()}-{index}",
+def apply_target_query(
+    targets: tuple[SnapshotTarget, ...],
+    query: TargetQuery,
+    *,
+    region_owner_chain: tuple[str, ...] | None = None,
+) -> tuple[SnapshotTarget, ...]:
+    """Filter immutable evidence without selecting or issuing authority."""
+    if not isinstance(query, TargetQuery):
+        raise TypeError("query must be a TargetQuery")
+    if query.region is not None and region_owner_chain is None:
+        raise ValueError("region query requires a resolved owner chain")
+    candidates = targets
+    if region_owner_chain is not None:
+        candidates = tuple(
+            target
+            for target in candidates
+            if target.owner_chain[: len(region_owner_chain)]
+            == region_owner_chain
+        )
+    return tuple(
+        target for target in candidates if _query_matches(target, query)
     )
-    assert isinstance(ref, TargetRef)
+
+
+def _target_summary(target: SnapshotTarget, index: int) -> TargetSummary:
+    del index
+    ref = target.ref
+    if not isinstance(ref, TargetRef):
+        raise BrowserSDKGap(
+            "Canonical snapshot target is not registry-bound.",
+            code="runtime_issued_value",
+            action="tab.snapshot",
+        )
     return TargetSummary(
         ref=ref,
         role=target.role,
         name=target.name,
         states=target.states,
-        allowed_actions=(),
+        allowed_actions=tuple(cast(Any, ref.allowed_actions)),
+        observed_url=str(ref.observed_url or ""),
     )
 
 

@@ -1,7 +1,11 @@
 # -*- coding: utf-8 -*-
 """Deterministic Browser Core Lab case builder and executor."""
+# pylint: disable=protected-access
 
 from __future__ import annotations
+
+import asyncio
+from importlib import import_module
 
 from qwenpaw.browser.sdk.primitives.matching import (
     match_page_url,
@@ -10,10 +14,12 @@ from qwenpaw.browser.sdk.primitives.matching import (
 
 from .model import (
     CapabilityFamily,
+    FaultCutPoint,
     LabCase,
     ObserveReadFacts,
     ReplayDescriptor,
     SynchronizeFacts,
+    TargetControlFacts,
 )
 from .oracle import IndependentOracle
 
@@ -32,6 +38,12 @@ def build_case(
         CapabilityFamily.OBSERVE_READ,
         CapabilityFamily.SYNCHRONIZE,
     }:
+        prerequisites = (
+            (CapabilityFamily.TARGET_CONTROL,)
+            if family is CapabilityFamily.SYNCHRONIZE
+            and case_id.startswith("synchronize.target-")
+            else ()
+        )
         return LabCase(
             case_id=case_id,
             family=family,
@@ -52,6 +64,21 @@ def build_case(
                 case_id=case_id,
                 seed=int(seed),
             ),
+            prerequisites=prerequisites,
+        )
+    if family is CapabilityFamily.TARGET_CONTROL:
+        return LabCase(
+            case_id=case_id,
+            family=family,
+            base_flow="fake_native_exact_target_boundary",
+            seed=int(seed),
+            transformations=(case_id.split(".", 1)[-1],),
+            fault=(
+                FaultCutPoint.AFTER_FINAL_TARGET_VALIDATE
+                if case_id == "target.final-boundary-race"
+                else None
+            ),
+            replay=ReplayDescriptor(family, case_id, int(seed)),
         )
     return LabCase(
         case_id=case_id,
@@ -126,6 +153,20 @@ def registered_case_ids(family: CapabilityFamily) -> tuple[str, ...]:
             "synchronize.baseline-invalid-stale",
             "synchronize.inactive-atom",
             "synchronize.prearmed-consumer",
+            "synchronize.target-complete-negative",
+            "synchronize.target-partial-negative",
+            "synchronize.target-duplicate-query",
+        )
+    if family is CapabilityFamily.TARGET_CONTROL:
+        return (
+            "target.repeated-label",
+            "target.owner-reorder",
+            "target.spa-rerender",
+            "target.frame-detach",
+            "target.layout-change",
+            "target.wrong-receiver",
+            "target.final-boundary-race",
+            "target.positive-private-inject",
         )
     return ()
 
@@ -180,6 +221,10 @@ def run_case(case: LabCase):
         return IndependentOracle().evaluate_synchronize(
             _synchronize_facts(case.case_id),
         )
+    if case.family is CapabilityFamily.TARGET_CONTROL:
+        return IndependentOracle().evaluate_target_control(
+            _target_control_facts(case),
+        )
     lifecycle_expected: dict[str, object] = {
         "owner_continuity": True,
         "native_effect_count": 0,
@@ -196,6 +241,123 @@ def run_case(case: LabCase):
         observed_events=lifecycle_observed,
         observed_resources=(),
         observed_blocks=(),
+    )
+
+
+def _target_control_facts(case: LabCase) -> TargetControlFacts:
+    """Run the real private boundary and expose only fake-native logs."""
+    ref_scope = import_module(
+        "plugins.bundle.browser-bridge.action_runtime.ref_scope",
+    )
+    state_module = import_module(
+        "plugins.bundle.browser-bridge.action_runtime.state",
+    )
+    target_module = import_module(
+        "plugins.bundle.browser-bridge.action_runtime.targets",
+    )
+    state = state_module.ControlState()
+    context = ref_scope._control_canonical_context(state, tab_id=11)
+    token = ref_scope._control_bind_canonical_target(
+        state,
+        owner_key=("root-a", "owner-a"),
+        tab_id=11,
+        frame_key="main",
+        context=context,
+        native_identity=(("backendNodeId", 42),),
+        action_state=(("visible", True), ("enabled", True)),
+        geometry_digest="geometry-a",
+        visual_context_ref="visual-a",
+        allowed_actions=("click",),
+        effect_ceiling=("DOM_INPUT",),
+    )
+    facts: dict[str, object] = {
+        "owner_key": ("root-a", "owner-a"),
+        "receiver_tab": 11,
+        "frame_key": "main",
+        "context": context,
+        "native_identity": (("backendNodeId", 42),),
+        "visible": True,
+        "stable": True,
+        "enabled": True,
+        "editable": True,
+        "event_receiver": (("backendNodeId", 42),),
+        "occluded": False,
+        "geometry_digest": "geometry-a",
+        "effect_ceiling": ("DOM_INPUT",),
+    }
+    mismatch = {
+        "target.repeated-label": ("native_identity", (("backendNodeId", 7),)),
+        "target.owner-reorder": ("owner_key", ("root-b", "owner-b")),
+        "target.frame-detach": ("frame_key", "detached"),
+        "target.wrong-receiver": ("receiver_tab", 22),
+    }.get(case.case_id)
+    if mismatch is not None:
+        facts[mismatch[0]] = mismatch[1]
+    if case.case_id == "target.spa-rerender":
+        ref_scope._control_advance_canonical_generation(
+            state,
+            tab_id=11,
+            change="SPA",
+        )
+        facts["context"] = ref_scope._control_canonical_context(
+            state,
+            tab_id=11,
+        )
+    if case.case_id == "target.layout-change":
+        ref_scope._control_advance_canonical_generation(
+            state,
+            tab_id=11,
+            change="LAYOUT",
+        )
+        facts["context"] = ref_scope._control_canonical_context(
+            state,
+            tab_id=11,
+        )
+
+    class FakeNative:
+        command_count = 0
+        effect_count = 0
+        object_id: str | None = None
+
+        def read(self, _token: str) -> dict[str, object]:
+            return dict(facts)
+
+        def inject(self, prepared) -> bool:
+            if case.case_id == "target.final-boundary-race":
+                facts["native_identity"] = (("backendNodeId", 99),)
+            if prepared.fingerprint != target_module._native_fact_fingerprint(
+                facts,
+            ):
+                return False
+            self.command_count += 1
+            self.effect_count += 1
+            self.object_id = "native-object-42"
+            return True
+
+    fake = FakeNative()
+    boundary = target_module._PrivateNativeTargetBoundary(
+        state,
+        owner_key=("root-a", "owner-a"),
+        receiver_tab=11,
+        facts_reader=fake.read,
+    )
+    command = target_module._trusted_test_command(
+        state,
+        token=token,
+        action="click",
+        effect="DOM_INPUT",
+    )
+    asyncio.run(boundary.dispatch_for_test(command, injector=fake.inject))
+    positive = case.case_id == "target.positive-private-inject"
+    expected_count = 1 if positive else 0
+    return TargetControlFacts(
+        expected_object_id="native-object-42" if positive else None,
+        observed_object_id=fake.object_id,
+        expected_command_count=expected_count,
+        observed_command_count=fake.command_count,
+        expected_effect_count=expected_count,
+        observed_effect_count=fake.effect_count,
+        public_dispatch_count=0,
     )
 
 
@@ -312,6 +474,18 @@ def _synchronize_facts(case_id: str) -> SynchronizeFacts:
     elif case_id == "synchronize.inactive-atom":
         kind, expected = "inactive.target", True
         timeline = (_sync_point(0, False, state="UNAVAILABLE"),)
+    elif case_id == "synchronize.target-complete-negative":
+        kind, expected = "target.exists", False
+        timeline = (_sync_point(0, False, coverage="COMPLETE"),)
+    elif case_id == "synchronize.target-partial-negative":
+        kind, expected = "target.exists", False
+        timeline = (
+            _sync_point(0, False, coverage="PARTIAL"),
+            _sync_point(200, False, coverage="PARTIAL"),
+        )
+    elif case_id == "synchronize.target-duplicate-query":
+        kind, expected = "target.exists", True
+        timeline = (_sync_point(0, True, coverage="COMPLETE"),)
     observed_truth = tuple(
         _product_truth(kind, item, expected, mode) for item in timeline
     )
@@ -388,6 +562,12 @@ def _product_truth(
         return int(str(actual or 0)) >= int(str(expected))
     if kind == "region.changed":
         return actual != expected
+    if kind == "target.exists":
+        present = bool(actual)
+        expected_present = bool(expected)
+        return present == expected_present and (
+            expected_present or item.get("coverage") == "COMPLETE"
+        )
     return False
 
 

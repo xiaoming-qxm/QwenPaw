@@ -39,6 +39,56 @@
       "visibility": "default"
     },
     {
+      "api_id": "tab.actions.click",
+      "callable_path": "qwenpaw.browser.sdk.canonical.tabs:TabActions.click",
+      "invalidates_observation": false,
+      "kind": "action",
+      "mutates": true,
+      "parameters": [
+        {
+          "annotation": "TargetRef",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "target",
+          "required": true
+        }
+      ],
+      "public_name": "tab.actions.click",
+      "requires_observation": false,
+      "return_type": "ActionResult",
+      "satisfies_observation": false,
+      "signature": "async click(target: TargetRef) -> ActionResult",
+      "summary": "Use one Runtime-issued target; dispatch remains blocked.",
+      "visibility": "default"
+    },
+    {
+      "api_id": "tab.actions.drag",
+      "callable_path": "qwenpaw.browser.sdk.canonical.tabs:TabActions.drag",
+      "invalidates_observation": false,
+      "kind": "action",
+      "mutates": true,
+      "parameters": [
+        {
+          "annotation": "TargetRef",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "source",
+          "required": true
+        },
+        {
+          "annotation": "TargetRef",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "destination",
+          "required": true
+        }
+      ],
+      "public_name": "tab.actions.drag",
+      "requires_observation": false,
+      "return_type": "ActionResult",
+      "satisfies_observation": false,
+      "signature": "async drag(source: TargetRef, destination: TargetRef) -> ActionResult",
+      "summary": "Validate ordered Runtime-issued endpoints; dispatch remains blocked.",
+      "visibility": "default"
+    },
+    {
       "api_id": "tab.snapshot",
       "callable_path": "qwenpaw.browser.sdk.canonical.tabs:Tab.snapshot",
       "invalidates_observation": false,
