@@ -1,26 +1,43 @@
 # -*- coding: utf-8 -*-
 """Thin Canonical Browser action preflight and exact binding skeleton."""
 
+# pylint: disable=protected-access,too-many-boolean-expressions
+# pylint: disable=too-many-return-statements
+
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from hashlib import sha256
 import json
 import secrets
 from time import monotonic
+from typing import Any, Literal, cast
 from urllib.parse import urlsplit
 
 from .canonical.contracts import (
     ActionExpectation,
+    ActionResult,
+    PagePdfResult,
+    Problem,
+    RetryDirective,
     StateRequirement,
     TabSummary,
     TargetRef,
+    TerminalStatus,
     _serialize_browser_condition,
     issue_operation_id,
 )
 from .contracts import BrowserAPIContract
+from .condition_evaluator import (
+    ConditionBaseline,
+    ConditionEvaluator,
+    ConditionProbe,
+    ConditionReceiver,
+    ConditionWatch,
+    _condition_fingerprint,
+)
 from .governance.boundary import canonical_preflight_handoff_reason
 from .governance.effects import (
     UNKNOWN,
@@ -46,6 +63,288 @@ class PreflightDecision(StrEnum):
     EXACT_APPROVAL = "EXACT_APPROVAL"
     HANDOFF = "HANDOFF"
     BLOCKED = "BLOCKED"
+
+
+class DispatchFact(StrEnum):
+    """Closed operation-level native dispatch truth."""
+
+    NOT_SENT = "NOT_SENT"
+    REJECTED = "REJECTED"
+    SENT = "SENT"
+    UNKNOWN = "UNKNOWN"
+
+
+class FactOutcome(StrEnum):
+    """Closed commit/effect evidence aggregate."""
+
+    NOT_REQUESTED = "NOT_REQUESTED"
+    NOT_OBSERVED = "NOT_OBSERVED"
+    NOT_COMMITTED = "NOT_COMMITTED"
+    OBSERVED = "OBSERVED"
+    CONTRADICTED = "CONTRADICTED"
+    UNKNOWN = "UNKNOWN"
+
+
+class PostconditionFact(StrEnum):
+    """Closed typed expectation result."""
+
+    NOT_REQUESTED = "NOT_REQUESTED"
+    PASSED = "PASSED"
+    FAILED = "FAILED"
+    UNKNOWN = "UNKNOWN"
+
+
+@dataclass(frozen=True, slots=True)
+class EffectFact:
+    """Evidence outcome for one concrete classified effect."""
+
+    category: EffectCategory
+    outcome: FactOutcome
+
+
+CommandKind = Literal["INITIAL", "PROMPT_RESPONSE", "STATUS_QUERY"]
+CommandObservedState = Literal[
+    "NOT_OBSERVED",
+    "RECEIVED",
+    "RUNNING",
+    "COMPLETED",
+    "LOST",
+    "UNKNOWN",
+]
+
+
+@dataclass(frozen=True, slots=True)
+class CommandFact:
+    """Pre-send fact proving that observation has not yet occurred."""
+
+    command_id: str
+    command_kind: CommandKind
+    safe_fingerprint_summary: str
+    observed_state: CommandObservedState = "NOT_OBSERVED"
+
+
+@dataclass(frozen=True, slots=True)
+class PendingCommand:
+    """One independently identified command under a logical operation."""
+
+    command_id: str
+    command_kind: CommandKind
+    command_fingerprint: str
+    operation_fingerprint: str
+    _payload: object = field(repr=False, compare=False)
+
+
+@dataclass(slots=True)
+class PendingAction:
+    """Owner-persistent logical mutation and its pre-send command facts."""
+
+    operation_id: str
+    operation_fingerprint: str
+    revision: int
+    logical_api: str
+    ordered_target_bindings: tuple[tuple[str, str], ...]
+    critical_arguments: tuple[tuple[str, object], ...] = field(repr=False)
+    state_binding_digest: str
+    expectation_digest: str
+    classified_effects: tuple[EffectCategory, ...]
+    receiver_tab_ref: str
+    context_ref: str
+    expires_at: float
+    command_fingerprints: dict[str, str] = field(default_factory=dict)
+    command_facts: dict[str, CommandFact] = field(default_factory=dict)
+    commands: dict[str, PendingCommand] = field(default_factory=dict)
+    _status_query: (
+        Callable[["PendingAction"], Awaitable[object]] | None
+    ) = field(default=None, repr=False, compare=False)
+    _reconcile_evaluator: ConditionEvaluator | Any | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+    )
+    _reconcile_receiver: ConditionReceiver | Any | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+    )
+    _reconcile_probe: ConditionProbe | Any | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+    )
+    _reconcile_expectation: ActionExpectation | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+    )
+    _reconcile_baseline: ConditionBaseline | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+    )
+
+    def issue_command(
+        self,
+        command_kind: CommandKind,
+        payload: object,
+    ) -> PendingCommand:
+        """Persist a fresh command identity and NOT_OBSERVED fact."""
+        command_id = f"browser-command-{secrets.token_urlsafe(24)}"
+        while command_id in self.commands:
+            command_id = f"browser-command-{secrets.token_urlsafe(24)}"
+        return self.issue_command_with_id(command_id, command_kind, payload)
+
+    def issue_command_with_id(
+        self,
+        command_id: str,
+        command_kind: CommandKind,
+        payload: object,
+    ) -> PendingCommand:
+        """Idempotently persist the exact command before any send."""
+        if command_kind not in {
+            "INITIAL",
+            "PROMPT_RESPONSE",
+            "STATUS_QUERY",
+        }:
+            raise BrowserSDKError(
+                "pending command kind is invalid",
+                code="command_kind_invalid",
+            )
+        normalized_id = str(command_id or "").strip()
+        if not normalized_id:
+            raise BrowserSDKError(
+                "pending command id is invalid",
+                code="command_id_invalid",
+            )
+        fingerprint = _digest(
+            {
+                "command_id": normalized_id,
+                "operation_fingerprint": self.operation_fingerprint,
+                "command_kind": command_kind,
+                "logical_api": self.logical_api,
+                "receiver_tab_ref": self.receiver_tab_ref,
+                "context_ref": self.context_ref,
+                "expectation_digest": self.expectation_digest,
+                "classified_effects": self.classified_effects,
+                "payload": payload,
+            },
+        )
+        existing = self.commands.get(normalized_id)
+        if existing is not None:
+            if existing.command_fingerprint != fingerprint:
+                raise BrowserSDKError(
+                    "command id is bound to a different fingerprint",
+                    code="command_fingerprint_mismatch",
+                )
+            return existing
+        command = PendingCommand(
+            command_id=normalized_id,
+            command_kind=command_kind,
+            command_fingerprint=fingerprint,
+            operation_fingerprint=self.operation_fingerprint,
+            _payload=payload,
+        )
+        self.command_fingerprints[normalized_id] = fingerprint
+        self.command_facts[normalized_id] = CommandFact(
+            command_id=normalized_id,
+            command_kind=command_kind,
+            safe_fingerprint_summary=fingerprint[:16],
+        )
+        self.commands[normalized_id] = command
+        return command
+
+    def configure_reconcile(
+        self,
+        *,
+        status_query: Callable[["PendingAction"], Awaitable[object]],
+        evaluator: ConditionEvaluator | Any | None = None,
+        receiver: ConditionReceiver | Any | None = None,
+        probe: ConditionProbe | Any | None = None,
+        expectation: ActionExpectation | None = None,
+        baseline: ConditionBaseline | None = None,
+    ) -> None:
+        """Bind the private read-only receipt query for this operation."""
+        self._status_query = status_query
+        self._reconcile_evaluator = evaluator
+        self._reconcile_receiver = receiver
+        self._reconcile_probe = probe
+        self._reconcile_expectation = expectation
+        self._reconcile_baseline = baseline
+
+
+class PendingActionStore:
+    """Lease-fenced view over the sole registry owner record."""
+
+    def __init__(
+        self,
+        *,
+        registry: BrowserSessionOwnerRegistry,
+        binding: BrowserRequestBinding,
+    ) -> None:
+        self._registry = registry
+        self._binding = binding
+
+    def create(
+        self,
+        *,
+        logical_api: str,
+        ordered_target_bindings: tuple[tuple[str, str], ...],
+        critical_arguments: tuple[tuple[str, object], ...],
+        state_binding_digest: str,
+        expectation_digest: str,
+        classified_effects: tuple[EffectCategory, ...],
+        receiver_tab_ref: str,
+        context_ref: str,
+        operation_id: str | None = None,
+        operation_fingerprint: str | None = None,
+    ) -> PendingAction:
+        """Create and owner-persist one immutable logical identity."""
+        issued_operation_id = operation_id or str(issue_operation_id())
+        fingerprint = operation_fingerprint or _digest(
+            {
+                "owner": self._binding.owner_key,
+                "logical_api": logical_api,
+                "ordered_target_bindings": ordered_target_bindings,
+                "critical_arguments": critical_arguments,
+                "state_binding_digest": state_binding_digest,
+                "expectation_digest": expectation_digest,
+                "classified_effects": classified_effects,
+                "receiver_tab_ref": receiver_tab_ref,
+                "context_ref": context_ref,
+            },
+        )
+        action = PendingAction(
+            operation_id=issued_operation_id,
+            operation_fingerprint=fingerprint,
+            revision=1,
+            logical_api=str(logical_api),
+            ordered_target_bindings=tuple(ordered_target_bindings),
+            critical_arguments=tuple(critical_arguments),
+            state_binding_digest=str(state_binding_digest),
+            expectation_digest=str(expectation_digest),
+            classified_effects=tuple(classified_effects),
+            receiver_tab_ref=str(receiver_tab_ref),
+            context_ref=str(context_ref),
+            expires_at=self._registry.pending_action_expiry(),
+        )
+        self._registry.save_pending_action(self._binding, action)
+        return action
+
+    def require(self, operation_id: str) -> PendingAction:
+        """Return the action through the current owner lease."""
+        action = self._registry.require_pending_action(
+            self._binding,
+            operation_id,
+        )
+        if not isinstance(action, PendingAction):
+            raise BrowserSDKError(
+                "pending action has an invalid Runtime type",
+                code="pending_action_invalid",
+            )
+        return action
+
+    def abandon(self, operation_id: str) -> None:
+        """Remove the action through the current owner lease."""
+        self._registry.abandon_pending_action(self._binding, operation_id)
 
 
 @dataclass(frozen=True, slots=True)
@@ -150,17 +449,37 @@ class DispatchContext:
     root_task_id: str
     browser_owner_id: str
     session_id: str
-    lease_generation: int
+    owner_lease_generation: int
     api_id: str
     operation_id: str
     operation_fingerprint: str
+    command_id: str
+    command_kind: CommandKind
+    command_fingerprint: str
+    receiver_tab_ref: str | None
+    context_ref: str | None
     binding_hash: str
-    grant_id: str
-    effects: tuple[EffectCategory, ...]
+    approval_grant_id: str | None
     expectation_digest: str
+    classified_effects: tuple[EffectCategory, ...]
     _registry: BrowserSessionOwnerRegistry = field(repr=False, compare=False)
     _owner_binding: BrowserRequestBinding = field(repr=False, compare=False)
     _receiver_tab_key: str = field(repr=False, compare=False)
+
+    @property
+    def lease_generation(self) -> int:
+        """Return the S5-compatible name for the owner lease generation."""
+        return self.owner_lease_generation
+
+    @property
+    def grant_id(self) -> str:
+        """Return the S5-compatible exact grant id."""
+        return self.approval_grant_id or ""
+
+    @property
+    def effects(self) -> tuple[EffectCategory, ...]:
+        """Return the S5-compatible classified effect tuple."""
+        return self.classified_effects
 
     def is_bound_to(
         self,
@@ -169,7 +488,7 @@ class DispatchContext:
     ) -> bool:
         """Return exact private registry and receiver binding equality."""
         return self._registry is registry and self._receiver_tab_key == str(
-            receiver_tab
+            receiver_tab,
         )
 
 
@@ -183,14 +502,19 @@ class ActionPreflight:
     needs_exact_approval: bool = False
     grant_consumed: bool = False
 
-    def dispatch_context(self, grant: ApprovalGrant) -> DispatchContext:
+    def dispatch_context(
+        self,
+        grant: ApprovalGrant,
+        *,
+        command: PendingCommand | None = None,
+    ) -> DispatchContext:
         """Issue and registry-bind the one context for this preflight."""
         if self.preview is None:
             raise BrowserSDKError(
                 "preflight has no dispatchable preview",
                 code="dispatch_context_invalid",
             )
-        return _dispatch_context(self.preview, grant)
+        return _dispatch_context(self.preview, grant, command=command)
 
 
 class ActionRunner:
@@ -206,6 +530,287 @@ class ActionRunner:
         self._registry = registry
         self._clock = clock
         self._verifier_catalog = tuple(verifier_catalog)
+
+    async def run(
+        self,
+        *,
+        binding: BrowserRequestBinding,
+        receiver_tab: TabSummary | None,
+        contract: BrowserAPIContract,
+        ordered_targets: tuple[tuple[str, TargetRef], ...],
+        arguments: Mapping[str, object],
+        expectation: ActionExpectation | None = None,
+        state: StateRequirement | None = None,
+        deadline: float | None = None,
+        condition_evaluator: ConditionEvaluator | Any | None = None,
+        condition_receiver: ConditionReceiver | Any | None = None,
+        condition_probe: ConditionProbe | Any | None = None,
+        condition_baseline: ConditionBaseline | None = None,
+        final_revalidator: Callable[..., Awaitable[str]] | None = None,
+        approval_grant: ApprovalGrant | None = None,
+        dispatcher: Callable[..., Awaitable[object]] | None = None,
+        event_hook: Callable[[str], None] | None = None,
+        receipt_status_query: (
+            Callable[[PendingAction], Awaitable[object]] | None
+        ) = None,
+    ) -> ActionResult | PagePdfResult:
+        """Enter the sole bounded Canonical mutation attempt."""
+        preflight = await self.preflight(
+            contract=contract,
+            binding=binding,
+            receiver_tab=receiver_tab,
+            ordered_targets=ordered_targets,
+            arguments=arguments,
+            expectation=expectation,
+            state=state,
+        )
+        if (
+            preflight.preview is not None
+            and expectation is not None
+            and condition_evaluator is not None
+            and condition_receiver is not None
+            and condition_probe is not None
+            and dispatcher is not None
+        ):
+            return await self._run_armed_attempt(
+                preflight=preflight,
+                binding=binding,
+                receiver_tab=receiver_tab,
+                contract=contract,
+                ordered_targets=ordered_targets,
+                arguments=arguments,
+                expectation=expectation,
+                state=state,
+                deadline=deadline,
+                evaluator=condition_evaluator,
+                condition_receiver=condition_receiver,
+                condition_probe=condition_probe,
+                baseline=condition_baseline,
+                final_revalidator=final_revalidator,
+                approval_grant=approval_grant,
+                dispatcher=dispatcher,
+                event_hook=event_hook,
+                receipt_status_query=receipt_status_query,
+            )
+        return _blocked_run_result(preflight, contract)
+
+    async def _run_armed_attempt(
+        self,
+        *,
+        preflight: ActionPreflight,
+        binding: BrowserRequestBinding,
+        receiver_tab: TabSummary | None,
+        contract: BrowserAPIContract,
+        ordered_targets: tuple[tuple[str, TargetRef], ...],
+        arguments: Mapping[str, object],
+        expectation: ActionExpectation,
+        state: StateRequirement | None,
+        deadline: float | None,
+        evaluator: ConditionEvaluator | Any,
+        condition_receiver: ConditionReceiver | Any,
+        condition_probe: ConditionProbe | Any,
+        baseline: ConditionBaseline | None,
+        final_revalidator: Callable[..., Awaitable[str]] | None,
+        approval_grant: ApprovalGrant | None,
+        dispatcher: Callable[..., Awaitable[object]],
+        event_hook: Callable[[str], None] | None,
+        receipt_status_query: (
+            Callable[[PendingAction], Awaitable[object]] | None
+        ),
+    ) -> ActionResult:
+        """Run the pre-armed, final-revalidated single attempt."""
+        preview = preflight.preview
+        assert preview is not None
+        pending = PendingActionStore(
+            registry=self._registry,
+            binding=binding,
+        ).create(
+            logical_api=contract.api_id,
+            ordered_target_bindings=preview.ordered_targets,
+            critical_arguments=preview._critical_arguments,
+            state_binding_digest=preview.state_binding_digest,
+            expectation_digest=preview.expectation_digest,
+            classified_effects=preview.effects,
+            receiver_tab_ref=preview.tab_ref or "",
+            context_ref=preview.state_revision,
+            operation_id=preview.operation_id,
+            operation_fingerprint=preview.operation_fingerprint,
+        )
+        _emit(event_hook, "pending_saved")
+        if receipt_status_query is not None:
+            pending.configure_reconcile(
+                status_query=receipt_status_query,
+                evaluator=evaluator,
+                receiver=condition_receiver,
+                probe=condition_probe,
+                expectation=expectation,
+                baseline=baseline,
+            )
+        watch = await evaluator.arm(
+            condition_receiver,
+            expectation.condition,
+            probe=condition_probe,
+            baseline=baseline,
+        )
+        _emit(event_hook, "watcher_prearmed")
+        watch_consumed = False
+        timeout_ms = _remaining_timeout_ms(deadline, self._clock())
+        try:
+            _validate_armed_watch(
+                watch,
+                pending=pending,
+                receiver=condition_receiver,
+                expectation=expectation,
+                baseline=baseline,
+            )
+        except Exception:
+            await evaluator.evaluate(
+                condition_receiver,
+                expectation.condition,
+                probe=condition_probe,
+                timeout_ms=1,
+                stable_ms=0,
+                baseline=baseline,
+                armed=watch,
+            )
+            raise
+        try:
+            if final_revalidator is None:
+                repeated = await self.preflight(
+                    contract=contract,
+                    binding=binding,
+                    receiver_tab=receiver_tab,
+                    ordered_targets=ordered_targets,
+                    arguments=arguments,
+                    expectation=expectation,
+                    state=state,
+                )
+                decision = (
+                    "VALID"
+                    if repeated.preview is not None
+                    and _preview_material(repeated.preview)
+                    == _preview_material(preview)
+                    else "DRIFTED"
+                )
+                _emit(event_hook, "final_revalidation")
+            else:
+                decision = await final_revalidator(
+                    pending=pending,
+                    preview=preview,
+                    watch=watch,
+                )
+                _emit(event_hook, "final_revalidation")
+            if decision in {"ALREADY_SATISFIED", "DRIFTED"}:
+                if approval_grant is not None:
+                    approval_grant.remaining_uses = 0
+                watch_consumed = True
+                await evaluator.evaluate(
+                    condition_receiver,
+                    expectation.condition,
+                    probe=condition_probe,
+                    timeout_ms=max(1, timeout_ms),
+                    stable_ms=expectation.stable_ms,
+                    baseline=baseline,
+                    armed=watch,
+                )
+                if decision == "ALREADY_SATISFIED":
+                    return ActionResult(
+                        operation_id=pending.operation_id,
+                        status="SUCCEEDED",
+                        retry="NONE",
+                        already_satisfied=True,
+                        dispatch="NOT_SENT",
+                    )
+                return ActionResult(
+                    operation_id=pending.operation_id,
+                    status="BLOCKED",
+                    retry="AFTER_OBSERVATION",
+                    problem=Problem(
+                        code="final_revalidation_drifted",
+                        phase="PREFLIGHT",
+                        safe_message=(
+                            "Action state changed before native dispatch."
+                        ),
+                    ),
+                    dispatch="NOT_SENT",
+                )
+            if decision != "VALID":
+                raise BrowserSDKError(
+                    "final revalidator returned an invalid decision",
+                    code="final_revalidation_invalid",
+                )
+            command = pending.issue_command(
+                "INITIAL",
+                {
+                    "arguments": dict(arguments),
+                    "root_task_id": binding.root_task_id,
+                    "browser_owner_id": binding.browser_owner_id,
+                    "session_id": binding.root_session_id,
+                    "owner_lease_generation": binding.lease_generation,
+                    "binding_hash": preview.binding_hash,
+                    "approval_grant_id": (
+                        approval_grant.grant_id
+                        if approval_grant is not None
+                        else None
+                    ),
+                },
+            )
+            _emit(event_hook, "command_fact_persisted")
+            dispatch_context = None
+            if approval_grant is not None:
+                dispatch_context = preflight.dispatch_context(
+                    approval_grant,
+                    command=command,
+                )
+                await self._registry.consume_grant_for_dispatch(
+                    dispatch_context,
+                )
+                _emit(event_hook, "grant_consumed")
+            _emit(event_hook, "dispatch")
+            dispatch_fact = await dispatcher(
+                command=command,
+                dispatch_context=dispatch_context,
+            )
+            watch_consumed = True
+            evaluation = await evaluator.evaluate(
+                condition_receiver,
+                expectation.condition,
+                probe=condition_probe,
+                timeout_ms=max(1, timeout_ms),
+                stable_ms=expectation.stable_ms,
+                baseline=baseline,
+                armed=watch,
+            )
+            if evaluation.outcome != "SATISFIED":
+                self._registry.fence_uncertain_action(
+                    binding,
+                    pending.operation_id,
+                )
+                return await reconcile_pending(
+                    binding=binding,
+                    pending=pending,
+                    deadline=(deadline or pending.expires_at),
+                )
+            return ActionResult(
+                operation_id=pending.operation_id,
+                status="SUCCEEDED",
+                retry="NONE",
+                effect_facts=(evaluation,),
+                commands=(pending.command_facts[command.command_id],),
+                dispatch=dispatch_fact,
+                postcondition=evaluation,
+            )
+        finally:
+            if not watch_consumed:
+                await evaluator.evaluate(
+                    condition_receiver,
+                    expectation.condition,
+                    probe=condition_probe,
+                    timeout_ms=1,
+                    stable_ms=0,
+                    baseline=baseline,
+                    armed=watch,
+                )
 
     async def preflight(
         self,
@@ -231,6 +836,27 @@ class ActionRunner:
             raise BrowserSDKError(
                 "ActionRunner owner binding is invalid",
                 code="browser_ownership_context_missing",
+            )
+        unresolved = self._registry.unresolved_pending_action(binding)
+        if isinstance(unresolved, PendingAction):
+            reconciled = await reconcile_pending(
+                binding=binding,
+                pending=unresolved,
+                deadline=min(unresolved.expires_at, self._clock() + 30.0),
+            )
+            if reconciled.status == "UNCERTAIN":
+                return ActionPreflight(
+                    decision=PreflightDecision.HANDOFF,
+                    reason="pending_action_reconcile_required",
+                )
+            self._registry.clear_uncertain_action(
+                binding,
+                unresolved.operation_id,
+            )
+        if contract.api_id == "tab.print_to_pdf":
+            return ActionPreflight(
+                decision=PreflightDecision.BLOCKED,
+                reason="capability_unavailable_pdf",
             )
 
         if receiver_tab is None:
@@ -374,6 +1000,307 @@ class ActionRunner:
         return tuple(logical), tuple(facts)
 
 
+def project_action_truth(
+    *,
+    operation_id: str,
+    classified_effects: tuple[EffectCategory, ...],
+    commands: tuple[CommandFact, ...],
+    dispatch: DispatchFact,
+    commit: FactOutcome,
+    effect_facts: tuple[EffectFact, ...],
+    postcondition: PostconditionFact,
+) -> ActionResult:
+    """Project four independent facts through a conservative lattice."""
+    if any(
+        fact.category is UNKNOWN and fact.outcome is FactOutcome.OBSERVED
+        for fact in effect_facts
+    ):
+        raise BrowserSDKError(
+            "UNKNOWN classification cannot become observed effect truth",
+            code="effect_fact_invalid",
+        )
+    concrete = tuple(
+        category for category in classified_effects if category is not UNKNOWN
+    )
+    outcomes = tuple(
+        fact.outcome for fact in effect_facts if fact.category is not UNKNOWN
+    )
+    if not concrete:
+        effect = FactOutcome.NOT_REQUESTED
+    elif len(outcomes) < len(concrete) or FactOutcome.UNKNOWN in outcomes:
+        effect = FactOutcome.UNKNOWN
+    elif FactOutcome.CONTRADICTED in outcomes:
+        effect = FactOutcome.CONTRADICTED
+    elif FactOutcome.NOT_OBSERVED in outcomes:
+        effect = FactOutcome.NOT_OBSERVED
+    elif all(outcome is FactOutcome.OBSERVED for outcome in outcomes):
+        effect = FactOutcome.OBSERVED
+    else:
+        effect = FactOutcome.UNKNOWN
+
+    if postcondition is PostconditionFact.FAILED:
+        status: TerminalStatus = "FAILED"
+        retry: RetryDirective = "FORBIDDEN"
+    elif dispatch in {DispatchFact.NOT_SENT, DispatchFact.REJECTED}:
+        status = "BLOCKED"
+        retry = "SAFE"
+    elif postcondition is PostconditionFact.PASSED and effect in {
+        FactOutcome.OBSERVED,
+        FactOutcome.NOT_REQUESTED,
+    }:
+        status = "SUCCEEDED"
+        retry = "NONE"
+    else:
+        status = "UNCERTAIN"
+        retry = "RECONCILE_ONLY"
+    return ActionResult(
+        operation_id=operation_id,
+        status=status,
+        retry=retry,
+        problem=(
+            None
+            if status == "SUCCEEDED"
+            else Problem(
+                code=(
+                    "action_truth_uncertain"
+                    if status == "UNCERTAIN"
+                    else "action_postcondition_failed"
+                    if status == "FAILED"
+                    else "action_not_dispatched"
+                ),
+                phase=(
+                    "VERIFY" if dispatch is DispatchFact.SENT else "PREFLIGHT"
+                ),
+                safe_message=(
+                    "Action facts do not prove successful completion."
+                ),
+            )
+        ),
+        classified_effects=tuple(item.value for item in classified_effects),
+        effect_facts=effect_facts,
+        commands=commands,
+        dispatch=dispatch,
+        commit=commit,
+        effect=effect,
+        postcondition=postcondition,
+    )
+
+
+async def reconcile_pending(
+    *,
+    binding: BrowserRequestBinding,
+    pending: PendingAction,
+    deadline: float,
+) -> ActionResult:
+    """Query receipt/state only; never resend the original command."""
+    del binding
+    if pending._status_query is None:
+        return project_action_truth(
+            operation_id=pending.operation_id,
+            classified_effects=pending.classified_effects,
+            commands=tuple(pending.command_facts.values()),
+            dispatch=DispatchFact.UNKNOWN,
+            commit=FactOutcome.UNKNOWN,
+            effect_facts=(),
+            postcondition=PostconditionFact.UNKNOWN,
+        )
+    target_id = next(reversed(pending.commands), "")
+    target_fingerprint = pending.command_fingerprints.get(target_id, "")
+    pending.issue_command(
+        "STATUS_QUERY",
+        {
+            "target_command_id": target_id,
+            "target_command_fingerprint": target_fingerprint,
+        },
+    )
+    status_result = await pending._status_query(pending)
+    target_receipt = getattr(status_result, "target_receipt", None)
+    receipt_state = str(getattr(target_receipt, "state", "") or "")
+    if receipt_state in {
+        "RECEIVED",
+        "RUNNING",
+        "COMPLETED",
+    }:
+        pending.command_facts[target_id] = replace(
+            pending.command_facts.get(
+                target_id,
+                CommandFact(
+                    command_id=target_id,
+                    command_kind="INITIAL",
+                    safe_fingerprint_summary=target_fingerprint[:16],
+                ),
+            ),
+            observed_state=cast(CommandObservedState, receipt_state),
+        )
+    postcondition = PostconditionFact.UNKNOWN
+    if (
+        pending._reconcile_evaluator is not None
+        and pending._reconcile_receiver is not None
+        and pending._reconcile_probe is not None
+        and pending._reconcile_expectation is not None
+    ):
+        expectation = pending._reconcile_expectation
+        watch = await pending._reconcile_evaluator.arm(
+            pending._reconcile_receiver,
+            expectation.condition,
+            probe=pending._reconcile_probe,
+            baseline=pending._reconcile_baseline,
+        )
+        evaluation = await pending._reconcile_evaluator.evaluate(
+            pending._reconcile_receiver,
+            expectation.condition,
+            probe=pending._reconcile_probe,
+            timeout_ms=max(1, int((deadline - monotonic()) * 1000)),
+            stable_ms=expectation.stable_ms,
+            baseline=pending._reconcile_baseline,
+            armed=watch,
+        )
+        postcondition = (
+            PostconditionFact.PASSED
+            if evaluation.outcome == "SATISFIED"
+            else PostconditionFact.FAILED
+            if evaluation.outcome == "TIMED_OUT"
+            else PostconditionFact.UNKNOWN
+        )
+    return project_action_truth(
+        operation_id=pending.operation_id,
+        classified_effects=pending.classified_effects,
+        commands=tuple(pending.command_facts.values()),
+        dispatch=(
+            DispatchFact.SENT
+            if target_receipt is not None
+            else DispatchFact.UNKNOWN
+        ),
+        commit=FactOutcome.UNKNOWN,
+        effect_facts=(),
+        postcondition=postcondition,
+    )
+
+
+def _blocked_run_result(
+    preflight: ActionPreflight,
+    contract: BrowserAPIContract,
+) -> ActionResult | PagePdfResult:
+    problem = Problem(
+        code=(
+            preflight.reason
+            if preflight.decision is PreflightDecision.BLOCKED
+            else "canonical_action_dispatch_not_enabled"
+        ),
+        phase="PREFLIGHT",
+        safe_message="Canonical native mutation is not active in this stage.",
+    )
+    if contract.api_id == "tab.print_to_pdf":
+        return PagePdfResult(
+            operation_id=issue_operation_id(),
+            status="BLOCKED",
+            retry="AFTER_OBSERVATION",
+            problem=problem,
+        )
+    return ActionResult(
+        operation_id=(
+            preflight.preview.operation_id
+            if preflight.preview is not None
+            else issue_operation_id()
+        ),
+        status="BLOCKED",
+        retry="AFTER_OBSERVATION",
+        problem=problem,
+        classified_effects=(
+            tuple(item.value for item in preflight.preview.effects)
+            if preflight.preview is not None
+            else ()
+        ),
+    )
+
+
+def _emit(hook: Callable[[str], None] | None, event: str) -> None:
+    if hook is not None:
+        hook(event)
+
+
+def _remaining_timeout_ms(deadline: float | None, now: float) -> int:
+    if deadline is None:
+        return 30_000
+    return max(1, int((float(deadline) - now) * 1000))
+
+
+def _preview_material(preview: ActionPreview) -> tuple[object, ...]:
+    return (
+        preview.root_task_id,
+        preview.browser_owner_id,
+        preview.api_id,
+        preview.session_id,
+        preview.tab_ref,
+        preview.origin,
+        preview.ordered_targets,
+        preview.state_revision,
+        preview.state_binding_digest,
+        preview._critical_arguments,
+        preview.effects,
+        preview.expectation_digest,
+        preview.layout_revision,
+        preview._receiver_tab_key,
+    )
+
+
+def _validate_armed_watch(
+    watch: ConditionWatch | Any,
+    *,
+    pending: PendingAction,
+    receiver: ConditionReceiver | Any,
+    expectation: ActionExpectation,
+    baseline: ConditionBaseline | None,
+) -> None:
+    request = getattr(watch, "_request", None)
+    watch_receiver = getattr(request, "receiver", None)
+    owner_key = getattr(
+        watch,
+        "owner_key",
+        getattr(watch_receiver, "owner_key", None),
+    )
+    receiver_fingerprint = getattr(
+        watch,
+        "receiver_fingerprint",
+        getattr(watch, "_receiver_fingerprint", None),
+    )
+    condition_fingerprint = getattr(
+        watch,
+        "condition_fingerprint",
+        getattr(watch, "_condition_fingerprint", None),
+    )
+    baseline_fingerprint = getattr(
+        watch,
+        "baseline_fingerprint",
+        getattr(watch, "_baseline_fingerprint", None),
+    )
+    subscription = getattr(watch, "_subscription", None)
+    watermark = getattr(
+        watch,
+        "watermark",
+        getattr(subscription, "watermark", None),
+    )
+    expected_baseline = (
+        baseline.fingerprint if baseline is not None else "none"
+    )
+    valid = (
+        owner_key == getattr(receiver, "owner_key", None)
+        and owner_key is not None
+        and receiver_fingerprint == getattr(receiver, "fingerprint", None)
+        and condition_fingerprint
+        == _condition_fingerprint(expectation.condition)
+        and baseline_fingerprint == expected_baseline
+        and isinstance(watermark, int)
+        and watermark >= 0
+        and pending.expectation_digest == _expectation_digest(expectation)
+    )
+    if not valid:
+        raise BrowserSDKError(
+            "armed condition watch does not match the pending action",
+            code="condition_watch_binding_mismatch",
+        )
+
+
 def issue_exact_grant(
     preview: ActionPreview,
     *,
@@ -428,13 +1355,15 @@ def validate_grant(
         and current <= grant.expires_at
         and grant.operation_id == preview.operation_id
         and grant.operation_fingerprint == preview.operation_fingerprint
-        and grant.binding_hash == preview.binding_hash
+        and grant.binding_hash == preview.binding_hash,
     )
 
 
 def _dispatch_context(
     preview: ActionPreview,
     grant: ApprovalGrant,
+    *,
+    command: PendingCommand | None = None,
 ) -> DispatchContext:
     if (
         preview._registry is None
@@ -449,18 +1378,42 @@ def _dispatch_context(
             code="approval_grant_invalid",
         )
     owner = preview._owner_binding
+    command_id = (
+        command.command_id
+        if command is not None
+        else f"browser-command-{secrets.token_urlsafe(24)}"
+    )
+    command_kind: CommandKind = (
+        command.command_kind if command is not None else "INITIAL"
+    )
+    command_fingerprint = (
+        command.command_fingerprint
+        if command is not None
+        else _dispatch_command_fingerprint(
+            preview,
+            grant,
+            owner,
+            command_id=command_id,
+            command_kind=command_kind,
+        )
+    )
     context = DispatchContext(
         root_task_id=owner.root_task_id,
         browser_owner_id=owner.browser_owner_id,
         session_id=owner.root_session_id,
-        lease_generation=owner.lease_generation,
+        owner_lease_generation=owner.lease_generation,
         api_id=preview.api_id,
         operation_id=preview.operation_id,
         operation_fingerprint=preview.operation_fingerprint,
+        command_id=command_id,
+        command_kind=command_kind,
+        command_fingerprint=command_fingerprint,
+        receiver_tab_ref=preview.tab_ref,
+        context_ref=None,
         binding_hash=preview.binding_hash,
-        grant_id=grant.grant_id,
-        effects=preview.effects,
+        approval_grant_id=grant.grant_id,
         expectation_digest=preview.expectation_digest,
+        classified_effects=preview.effects,
         _registry=preview._registry,
         _owner_binding=owner,
         _receiver_tab_key=preview._receiver_tab_key,
@@ -471,6 +1424,35 @@ def _dispatch_context(
         context=context,
     )
     return context
+
+
+def _dispatch_command_fingerprint(
+    preview: ActionPreview,
+    grant: ApprovalGrant,
+    owner: BrowserRequestBinding,
+    *,
+    command_id: str,
+    command_kind: CommandKind,
+) -> str:
+    return _digest(
+        {
+            "root_task_id": owner.root_task_id,
+            "browser_owner_id": owner.browser_owner_id,
+            "session_id": owner.root_session_id,
+            "owner_lease_generation": owner.lease_generation,
+            "api_id": preview.api_id,
+            "operation_id": preview.operation_id,
+            "operation_fingerprint": preview.operation_fingerprint,
+            "command_id": command_id,
+            "command_kind": command_kind,
+            "receiver_tab_ref": preview.tab_ref,
+            "context_ref": None,
+            "binding_hash": preview.binding_hash,
+            "approval_grant_id": grant.grant_id,
+            "expectation_digest": preview.expectation_digest,
+            "classified_effects": preview.effects,
+        },
+    )
 
 
 def _new_preview(

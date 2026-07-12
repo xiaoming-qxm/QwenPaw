@@ -1725,6 +1725,62 @@ def canonical_api_catalog() -> dict[str, Any]:
                 ],
             ),
             _entry(
+                "tab.close",
+                "qwenpaw.browser.sdk.canonical.tabs:Tab.close",
+                "async close() -> ActionResult",
+                mutates=True,
+                kind="primitive",
+                return_type="ActionResult",
+                summary="Close this exact tab through the ActionRunner.",
+            ),
+            _entry(
+                "browser.tabs.open",
+                "qwenpaw.browser.sdk.canonical.tabs:BrowserTabs.open",
+                "async open(url: str) -> ActionResult",
+                mutates=True,
+                kind="primitive",
+                return_type="ActionResult",
+                summary="Create and navigate a task tab without selecting it.",
+                parameters=[
+                    {
+                        "name": "url",
+                        "kind": "POSITIONAL_OR_KEYWORD",
+                        "required": True,
+                        "annotation": "str",
+                    },
+                ],
+            ),
+            _entry(
+                "browser.tabs.new",
+                "qwenpaw.browser.sdk.canonical.tabs:BrowserTabs.new",
+                "async new() -> ActionResult",
+                mutates=True,
+                kind="primitive",
+                return_type="ActionResult",
+                summary="Create one blank task tab without selecting it.",
+            ),
+            _entry(
+                "tab.print_to_pdf",
+                "qwenpaw.browser.sdk.canonical.tabs:Tab.print_to_pdf",
+                (
+                    "async print_to_pdf(*, options: PagePdfOptions | None "
+                    "= None) -> PagePdfResult"
+                ),
+                mutates=True,
+                kind="primitive",
+                return_type="PagePdfResult",
+                summary="Route page PDF through ActionRunner before S8.",
+                parameters=[
+                    {
+                        "name": "options",
+                        "kind": "KEYWORD_ONLY",
+                        "required": False,
+                        "default": None,
+                        "annotation": "PagePdfOptions | None",
+                    },
+                ],
+            ),
+            _entry(
                 "tab.snapshot",
                 "qwenpaw.browser.sdk.canonical.tabs:Tab.snapshot",
                 (

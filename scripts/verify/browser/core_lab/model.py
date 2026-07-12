@@ -39,6 +39,14 @@ class FaultCutPoint(StrEnum):
     BEFORE_RESULT_PUBLISH = "before_result_publish"
     AFTER_RESULT_PUBLISH = "after_result_publish"
     AFTER_FINAL_TARGET_VALIDATE = "after_final_target_validate"
+    ACTION_BEFORE_DISPATCH = "BEFORE_DISPATCH"
+    AFTER_SEND_BEFORE_ACK = "AFTER_SEND_BEFORE_ACK"
+    AFTER_ACK_BEFORE_EFFECT = "AFTER_ACK_BEFORE_EFFECT"
+    AFTER_EFFECT_BEFORE_VERIFY = "AFTER_EFFECT_BEFORE_VERIFY"
+    DURING_RESULT_MAPPING = "DURING_RESULT_MAPPING"
+    DROP_REQUIRED_RESOURCE_BLOCK = "DROP_REQUIRED_RESOURCE_BLOCK"
+    BRIDGE_OR_EXTENSION_LOSS = "BRIDGE_OR_EXTENSION_LOSS"
+    CLEANUP_FAILURE = "CLEANUP_FAILURE"
 
 
 @dataclass(frozen=True, slots=True)
@@ -131,8 +139,25 @@ class StateApprovalFacts:
     native_effect_count: int
 
 
+@dataclass(frozen=True, slots=True)
+class ActionFaultFacts:
+    """Independent logs for one S6 command/effect fault cut point."""
+
+    fault: FaultCutPoint
+    native_dispatch_count: int
+    native_effect_count: int
+    blind_resend_count: int
+    receipt_state: str
+    terminal_status: str
+    retry: str
+    command_identity_visible: bool
+    failure_or_cleanup_visible: bool
+    false_success: bool
+
+
 __all__ = [
     "CapabilityFamily",
+    "ActionFaultFacts",
     "CaseOutcome",
     "FaultCutPoint",
     "LabCase",

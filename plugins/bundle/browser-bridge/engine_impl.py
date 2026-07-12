@@ -14,6 +14,9 @@ from .action_runtime import tab_manager as control_tab_manager
 from .action_runtime import navigation as control_navigation
 from .action_runtime.handlers import ACTION_HANDLERS
 from .action_runtime.handlers.dispatcher import dispatch
+from .action_runtime.handlers.protocol import (
+    is_trusted_command_envelope,
+)
 from .action_runtime.handlers.misc import (
     unsupported_control_action_response,
 )
@@ -55,6 +58,31 @@ class ControlEngineImpl:
         manager = self._bridge_manager
         bridge = manager.get_connection() if manager is not None else None
         request_context = _control_request_context()
+        envelope = kwargs.get("trusted_envelope")
+        if envelope is not None:
+            if not is_trusted_command_envelope(envelope):
+                from qwenpaw.browser.sdk.governance.errors import (
+                    BrowserSDKError,
+                )
+
+                raise BrowserSDKError(
+                    "Control engine received an untrusted command envelope",
+                    code="trusted_command_envelope_invalid",
+                )
+            if envelope.action != action_name:
+                from qwenpaw.browser.sdk.governance.errors import (
+                    BrowserSDKError,
+                )
+
+                raise BrowserSDKError(
+                    "Control engine action does not match its envelope",
+                    code="trusted_command_envelope_mismatch",
+                )
+            request_context = {
+                **request_context,
+                "contract_mode": "CANONICAL",
+                "canonical_dispatch_context": envelope.dispatch_context,
+            }
         owner_id = _control_owner_id(state_obj)
         if not owner_id:
             return _ownership_context_missing_response()

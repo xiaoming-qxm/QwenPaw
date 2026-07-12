@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """Authoritative closed effect classification for Canonical Browser."""
 
+# pylint: disable=too-many-branches,too-many-return-statements
+
 from __future__ import annotations
 
 from collections.abc import Mapping

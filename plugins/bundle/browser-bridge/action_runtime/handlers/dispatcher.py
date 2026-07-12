@@ -4,11 +4,13 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, cast
 
 from agentscope.tool import ToolChunk
 
 from qwenpaw.browser.sdk.runtime.responses import _tool_response
+from qwenpaw.browser.sdk.governance.errors import BrowserSDKError
 from ..navigation import _control_tab_id
 from ..observation import (
     _control_mark_observation_required,
@@ -18,7 +20,11 @@ from ..state import ControlState
 from ..tab_manager import _control_int_tab_id, _control_page_id
 from ..transitions import _control_consume_pending_action_transition
 from .misc import unsupported_control_action_response
-from .protocol import ActionHandler
+from .protocol import (
+    ActionHandler,
+    TrustedCommandEnvelope,
+    is_trusted_command_envelope,
+)
 
 _REGISTRY: dict[str, ActionHandler] = {}
 
@@ -48,9 +54,61 @@ _TRANSITION_OBSERVATION_ACTIONS = {
 }
 
 
+@dataclass(frozen=True)
+class _TrustedHandlerGuard:
+    """Prevent Canonical callers from bypassing the dispatcher gate."""
+
+    action: str
+    handler: ActionHandler
+
+    @property
+    def meta(self):
+        return self.handler.meta
+
+    async def execute(
+        self,
+        state: ControlState,
+        *,
+        holder_id: str,
+        bridge: Any,
+        **kwargs: Any,
+    ) -> ToolChunk:
+        request_context = kwargs.get("request_context") or {}
+        envelope = kwargs.get("trusted_envelope")
+        canonical = (
+            bool(envelope)
+            or str(
+                request_context.get("contract_mode") or "",
+            ).upper()
+            == "CANONICAL"
+        )
+        if canonical and not is_trusted_command_envelope(envelope):
+            raise BrowserSDKError(
+                "Direct Canonical handler call lacks a trusted envelope",
+                code="trusted_command_envelope_missing",
+            )
+        if is_trusted_command_envelope(envelope):
+            trusted = cast(TrustedCommandEnvelope, envelope)
+            if (
+                trusted.action != self.action
+                or trusted.dispatch_context.command_kind == "STATUS_QUERY"
+            ):
+                raise BrowserSDKError(
+                    "Trusted envelope cannot execute this mutation handler",
+                    code="trusted_command_envelope_mismatch",
+                )
+        return await self.handler.execute(
+            state,
+            holder_id=holder_id,
+            bridge=bridge,
+            **kwargs,
+        )
+
+
 def register_handler(name: str, handler: ActionHandler) -> None:
     """Register a typed action handler by action name."""
-    _REGISTRY[str(name or "").strip().lower()] = handler
+    action = str(name or "").strip().lower()
+    _REGISTRY[action] = _TrustedHandlerGuard(action, handler)
 
 
 def _bridge_unavailable_response() -> ToolChunk:
@@ -119,6 +177,39 @@ async def dispatch(
     handler = _REGISTRY.get(action_name)
     if handler is None:
         return unsupported_control_action_response(action_name)
+
+    request_context = kwargs.get("request_context") or {}
+    envelope = kwargs.get("trusted_envelope")
+    canonical = (
+        bool(envelope)
+        or str(
+            request_context.get("contract_mode") or "",
+        ).upper()
+        == "CANONICAL"
+    )
+    if canonical and not is_trusted_command_envelope(envelope):
+        raise BrowserSDKError(
+            "Canonical handler requires a trusted command envelope",
+            code="trusted_command_envelope_missing",
+        )
+    if is_trusted_command_envelope(envelope):
+        envelope = cast(TrustedCommandEnvelope, envelope)
+        context = envelope.dispatch_context
+        if envelope.action != action_name:
+            raise BrowserSDKError(
+                "trusted envelope action does not match handler",
+                code="trusted_command_envelope_mismatch",
+            )
+        if context.command_kind == "STATUS_QUERY":
+            raise BrowserSDKError(
+                "status query cannot enter a mutation handler",
+                code="status_query_mutation_forbidden",
+            )
+        kwargs["request_context"] = {
+            **request_context,
+            "contract_mode": "CANONICAL",
+            "canonical_dispatch_context": context,
+        }
 
     if handler.meta.requires_tab_claimed and (
         bridge is None or not bool(getattr(bridge, "connected", False))

@@ -2,6 +2,7 @@
 """Chrome Extension backend adapter for the unified Browser SDK."""
 
 # pylint: disable=redefined-builtin,too-many-public-methods,too-many-statements
+# pylint: disable=protected-access
 
 from __future__ import annotations
 
@@ -90,6 +91,9 @@ from qwenpaw.browser.sdk.runtime.snapshot import (
     SnapshotTarget,
     SourceOutcome,
 )
+from ..action_runtime.handlers.protocol import (
+    _issue_trusted_command_envelope,
+)
 
 BACKEND_ID = "user.chrome_extension"
 logger = logging.getLogger(__name__)
@@ -141,6 +145,80 @@ def _validate_canonical_effect_floor(
         arguments,
         classification,
     )
+
+
+def _validate_consumed_dispatch_context(
+    registry: BrowserSessionOwnerRegistry,
+    context: DispatchContext,
+    *,
+    execution: Any,
+    tab_id: str,
+    command_payload: Mapping[str, object],
+) -> None:
+    """Recheck the consumed context against sole owner-registry records."""
+    owner = context._owner_binding
+    expected_execution = (
+        execution.root_task_id,
+        execution.browser_owner_id,
+        execution.root_session_id,
+        execution.lease_generation,
+    )
+    observed_execution = (
+        context.root_task_id,
+        context.browser_owner_id,
+        context.session_id,
+        context.owner_lease_generation,
+    )
+    if expected_execution != observed_execution or not context.is_bound_to(
+        registry,
+        str(tab_id),
+    ):
+        raise BrowserSDKError(
+            "Canonical DispatchContext owner or receiver is invalid",
+            code="dispatch_context_invalid",
+        )
+    pending = registry.require_pending_action(owner, context.operation_id)
+    commands = getattr(pending, "commands", {})
+    command = commands.get(context.command_id)
+    payload = getattr(command, "_payload", None)
+    expected_payload = (
+        payload.get("arguments") if isinstance(payload, Mapping) else None
+    )
+    expected_effects = tuple(
+        str(item) for item in getattr(pending, "classified_effects", ())
+    )
+    observed_effects = tuple(str(item) for item in context.effects)
+    pending_invalid = (
+        command is None
+        or getattr(pending, "logical_api", None) != context.api_id
+        or getattr(pending, "operation_fingerprint", None)
+        != context.operation_fingerprint
+        or getattr(pending, "expectation_digest", None)
+        != context.expectation_digest
+        or getattr(command, "command_fingerprint", None)
+        != context.command_fingerprint
+        or getattr(command, "operation_fingerprint", None)
+        != context.operation_fingerprint
+        or expected_payload != dict(command_payload)
+        or expected_effects != observed_effects
+    )
+    state = registry._require_current_lease(owner)
+    grant = state.grants.get(context.grant_id)
+    grant_invalid = (
+        grant is None
+        or grant.remaining_uses != 0
+        or grant.dispatch_context_identity != id(context)
+        or grant.operation_id != context.operation_id
+        or grant.operation_fingerprint != context.operation_fingerprint
+        or grant.binding_hash != context.binding_hash
+        or grant.effects != observed_effects
+        or grant.expectation_digest != context.expectation_digest
+    )
+    if pending_invalid or grant_invalid:
+        raise BrowserSDKError(
+            "Canonical DispatchContext is forged, stale, or not consumed",
+            code="dispatch_context_invalid",
+        )
 
 
 class ChromeExtensionBrowserBackend:
@@ -1127,6 +1205,7 @@ class ChromeExtensionBrowserSession:
         name: str,
         *,
         dispatch_context: DispatchContext | None = None,
+        command_payload: Mapping[str, object] | None = None,
         **kwargs: Any,
     ) -> BrowserActionResult:
         from qwenpaw.browser.sdk.runtime.kernel import (
@@ -1148,6 +1227,49 @@ class ChromeExtensionBrowserSession:
                 raise BrowserSDKError(
                     "Canonical DispatchContext is not valid for this tab.",
                     code="dispatch_context_invalid",
+                )
+            if command_payload is not None:
+                _validate_consumed_dispatch_context(
+                    _OWNER_REGISTRY,
+                    dispatch_context,
+                    execution=execution,
+                    tab_id=tab_id,
+                    command_payload=command_payload,
+                )
+                _validate_canonical_effect_floor(
+                    dispatch_context.api_id,
+                    command_payload,
+                    EffectClassification(
+                        categories=dispatch_context.effects,
+                        proof_ref=None,
+                    ),
+                )
+                envelope = _issue_trusted_command_envelope(
+                    dispatch_context,
+                    action=name,
+                    command_payload=command_payload,
+                )
+                bridge_action = cast(Any, self._bridge_or_engine_action)
+                payload = await bridge_action(
+                    name,
+                    tab_id,
+                    trusted_envelope=envelope,
+                    **dict(command_payload),
+                )
+                if isinstance(payload, BrowserActionResult):
+                    return payload
+                return BrowserActionResult(
+                    ok=bool(payload.get("ok"))
+                    if isinstance(payload, Mapping)
+                    else False,
+                    message=(
+                        str(payload.get("message") or "")
+                        if isinstance(payload, Mapping)
+                        else ""
+                    ),
+                    data=(
+                        dict(payload) if isinstance(payload, Mapping) else {}
+                    ),
                 )
             _validate_canonical_effect_floor(
                 dispatch_context.api_id,

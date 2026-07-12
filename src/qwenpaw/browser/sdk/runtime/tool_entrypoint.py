@@ -29,7 +29,11 @@ from ..telemetry.trace import (
     summarize_browser_reliability_counters,
 )
 from ..telemetry.trace import validate_browser_trace_events
-from .kernel import BrowserKernelResult, get_default_kernel_manager
+from .kernel import (
+    BrowserKernelResult,
+    _current_core_lab_fault,
+    get_default_kernel_manager,
+)
 from .result_delivery import BrowserResultProjector
 from .session_owner import ContractMode
 
@@ -176,6 +180,12 @@ async def browser(
         if result.envelope is not None
         else result.error is None
     )
+    projection_fault = _current_core_lab_fault()
+    if projection_fault in {
+        "DURING_RESULT_MAPPING",
+        "DROP_REQUIRED_RESOURCE_BLOCK",
+    }:
+        ok = False
     trace_events = trace_store.list(session_id)[trace_start_index:]
     if result.error and not trace_events:
         record_browser_trace_event(
@@ -448,6 +458,9 @@ def _summary_text(
     progress_decision: BrowserProgressDecision | None = None,
 ) -> str:
     if result.envelope is not None:
+        fault = _current_core_lab_fault()
+        if fault == "DURING_RESULT_MAPPING":
+            return "FAILED VERIFY: deterministic result mapping fault"
         projected = BrowserResultProjector().project(
             result.envelope,
             profile=type(
@@ -456,6 +469,10 @@ def _summary_text(
                 {"text": True, "data": True, "image": True, "artifact": True},
             )(),
         )
+        if fault == "DROP_REQUIRED_RESOURCE_BLOCK" and any(
+            block.kind != "text" for block in projected
+        ):
+            return "FAILED TRANSPORT: required resource block was dropped"
         return "\n".join(
             block.text
             for block in projected

@@ -59,6 +59,29 @@ _CURRENT_ARTIFACTS: ContextVar[list[BrowserArtifact] | None] = ContextVar(
     "qwenpaw_browser_artifacts",
     default=None,
 )
+_CORE_LAB_FAULT_AUTHORITY = object()
+_CURRENT_CORE_LAB_FAULT: ContextVar[str | None] = ContextVar(
+    "qwenpaw_browser_core_lab_fault",
+    default=None,
+)
+
+
+def _install_core_lab_fault(
+    fault: str,
+    authority: object,
+) -> Token[str | None]:
+    """Install a fault only for the trusted internal Core Lab controller."""
+    if authority is not _CORE_LAB_FAULT_AUTHORITY:
+        raise PermissionError("Core Lab fault authority is invalid")
+    return _CURRENT_CORE_LAB_FAULT.set(str(fault))
+
+
+def _reset_core_lab_fault(token: Token[str | None]) -> None:
+    _CURRENT_CORE_LAB_FAULT.reset(token)
+
+
+def _current_core_lab_fault() -> str | None:
+    return _CURRENT_CORE_LAB_FAULT.get()
 
 
 def get_current_execution_context() -> BrowserExecutionContext | None:

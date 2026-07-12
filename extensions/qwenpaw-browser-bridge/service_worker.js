@@ -28,6 +28,10 @@ const TAB_OWNERSHIP_PENDING_CLAIM = "pending_claim";
 const TAB_OWNERSHIP_PROTECTED = "protected";
 const TAB_OWNERSHIP_ORPHANED = "orphaned";
 const TAB_OWNERSHIP_RELEASED = "released";
+const COMMAND_RECEIPT_PREFIX = "qwenpawCommandReceipt:";
+const COMMAND_EVICTIONS_KEY = "qwenpawCommandReceiptEvictions";
+const COMMAND_RECEIPT_TTL_MS = 5 * 60 * 1000;
+const COMMAND_RECEIPT_CAPACITY = 256;
 
 if (typeof importScripts === "function") {
   try {
@@ -53,6 +57,7 @@ let lastDisconnectReason = "";
 const managedTabs = new Set();
 const createdTabs = new Set();
 const tabMetadata = new Map();
+const commandInflight = new Map();
 
 async function persistManagedTabs() {
   const persistedMetadata = {};
@@ -875,12 +880,181 @@ function extensionStatusPayload() {
   };
 }
 
+function requiredCommandText(value, fieldName) {
+  const normalized = String(value || "").trim();
+  if (!normalized) {
+    throw new Error(`command_identity_invalid:${fieldName}`);
+  }
+  return normalized;
+}
+
+function commandReceiptKey(sessionId, commandId) {
+  return COMMAND_RECEIPT_PREFIX + encodeURIComponent(sessionId) + ":" +
+    encodeURIComponent(commandId);
+}
+
+async function commandReceipt(sessionId, commandId) {
+  const key = commandReceiptKey(sessionId, commandId);
+  const stored = await chrome.storage.session.get([key]);
+  return stored[key] || null;
+}
+
+async function persistCommandReceipt(receipt) {
+  if (!["RECEIVED", "RUNNING", "COMPLETED"].includes(receipt.state)) {
+    throw new Error("command_receipt_state_invalid");
+  }
+  const key = commandReceiptKey(receipt.sessionId, receipt.commandId);
+  await chrome.storage.session.set({ [key]: receipt });
+  return receipt;
+}
+
+async function recordCommandEvictions(evictions) {
+  if (!evictions.length) return;
+  const stored = await chrome.storage.session.get([COMMAND_EVICTIONS_KEY]);
+  const prior = Array.isArray(stored[COMMAND_EVICTIONS_KEY])
+    ? stored[COMMAND_EVICTIONS_KEY] : [];
+  await chrome.storage.session.set({
+    [COMMAND_EVICTIONS_KEY]: [...prior, ...evictions].slice(
+      -COMMAND_RECEIPT_CAPACITY,
+    ),
+  });
+}
+
+async function sweepCommandReceipts() {
+  const stored = await chrome.storage.session.get(null);
+  const now = Date.now();
+  const receipts = Object.entries(stored)
+    .filter(([key, value]) =>
+      key.startsWith(COMMAND_RECEIPT_PREFIX) && value &&
+      typeof value === "object")
+    .sort((left, right) =>
+      Number(left[1].updatedAt || 0) - Number(right[1].updatedAt || 0));
+  const expired = receipts.filter(([, receipt]) =>
+    now - Number(receipt.updatedAt || 0) > COMMAND_RECEIPT_TTL_MS);
+  const live = receipts.filter(([, receipt]) =>
+    now - Number(receipt.updatedAt || 0) <= COMMAND_RECEIPT_TTL_MS);
+  const excess = live.slice(
+    0, Math.max(0, live.length - COMMAND_RECEIPT_CAPACITY),
+  );
+  const removed = [...expired, ...excess];
+  if (!removed.length) return;
+  await chrome.storage.session.remove(removed.map(([key]) => key));
+  const expiredKeys = new Set(expired.map(([key]) => key));
+  await recordCommandEvictions(removed.map(([key, receipt]) => ({
+    sessionId: receipt.sessionId,
+    commandId: receipt.commandId,
+    commandFingerprint: receipt.commandFingerprint,
+    reason: expiredKeys.has(key) ? "TTL" : "CAPACITY",
+    observedAt: now,
+  })));
+}
+
+async function runReceiptCommand(params, executor) {
+  const sessionId = requiredCommandText(params.sessionId, "sessionId");
+  const commandId = requiredCommandText(params.commandId, "commandId");
+  const commandFingerprint = requiredCommandText(
+    params.commandFingerprint, "commandFingerprint",
+  );
+  await sweepCommandReceipts();
+  const key = commandReceiptKey(sessionId, commandId);
+  const inflight = commandInflight.get(key);
+  if (inflight) {
+    if (inflight.commandFingerprint !== commandFingerprint) {
+      throw new Error("command_fingerprint_mismatch");
+    }
+    return inflight.promise;
+  }
+  const promise = (async () => {
+    const existing = await commandReceipt(sessionId, commandId);
+    if (existing) {
+      if (existing.commandFingerprint !== commandFingerprint) {
+        throw new Error("command_fingerprint_mismatch");
+      }
+      return existing;
+    }
+    const createdAt = Date.now();
+    await persistCommandReceipt({
+      sessionId, commandId, commandFingerprint, state: "RECEIVED",
+      result: null, createdAt, updatedAt: createdAt,
+    });
+    await persistCommandReceipt({
+      sessionId, commandId, commandFingerprint, state: "RUNNING",
+      result: null, createdAt, updatedAt: Date.now(),
+    });
+    const result = await executor();
+    return persistCommandReceipt({
+      sessionId, commandId, commandFingerprint, state: "COMPLETED",
+      result, createdAt, updatedAt: Date.now(),
+    });
+  })();
+  commandInflight.set(key, { commandFingerprint, promise });
+  try {
+    return await promise;
+  } finally {
+    commandInflight.delete(key);
+  }
+}
+
+async function executeClosedCommand(params) {
+  const payload = params.payload || {};
+  if (params.commandType === "CDP") {
+    return sendCdp(payload.tabId, payload.method, payload.params || {});
+  }
+  throw new Error("command_type_unsupported");
+}
+
+async function executeCommand(params) {
+  const receipt = await runReceiptCommand(params, () =>
+    executeClosedCommand(params));
+  return { receipt };
+}
+
+async function queryCommandStatus(params) {
+  const queryReceipt = await runReceiptCommand({
+    sessionId: params.sessionId,
+    commandId: params.queryCommandId,
+    commandFingerprint: params.queryCommandFingerprint,
+  }, async () => {
+    const targetReceipt = await commandReceipt(
+      requiredCommandText(params.sessionId, "sessionId"),
+      requiredCommandText(params.targetCommandId, "targetCommandId"),
+    );
+    if (targetReceipt &&
+        targetReceipt.commandFingerprint !== params.targetCommandFingerprint) {
+      throw new Error("command_fingerprint_mismatch");
+    }
+    const stored = await chrome.storage.session.get([COMMAND_EVICTIONS_KEY]);
+    const evictions = Array.isArray(stored[COMMAND_EVICTIONS_KEY])
+      ? stored[COMMAND_EVICTIONS_KEY] : [];
+    const evicted = evictions.some((item) =>
+      item.sessionId === params.sessionId &&
+      item.commandId === params.targetCommandId &&
+      item.commandFingerprint === params.targetCommandFingerprint);
+    return {
+      targetReceipt,
+      targetCommandFact: {
+        observedState: targetReceipt ? "OBSERVED" :
+          evicted ? "LOST" : "UNKNOWN",
+      },
+    };
+  });
+  return {
+    queryReceipt,
+    targetReceipt: queryReceipt.result.targetReceipt,
+    targetCommandFact: queryReceipt.result.targetCommandFact,
+  };
+}
+
 async function handleMessage(message) {
   const id = message && message.id !== undefined ? message.id : null;
   const params = message && message.params ? message.params : {};
 
   try {
     switch (message && message.method) {
+      case "command.execute":
+        return jsonRpcResult(id, await executeCommand(params));
+      case "command.status":
+        return jsonRpcResult(id, await queryCommandStatus(params));
       case "cdp.send":
         // Page.captureScreenshot works on background tabs when a debugger is
         // attached: chrome.debugger.attach() keeps the renderer alive and CDP

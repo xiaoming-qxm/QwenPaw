@@ -11,7 +11,9 @@ from typing import Any, Iterable
 from urllib.parse import urlsplit, urlunsplit
 
 from .model import (
+    ActionFaultFacts,
     CaseOutcome,
+    FaultCutPoint,
     ObserveReadFacts,
     OracleResult,
     StateApprovalFacts,
@@ -180,6 +182,56 @@ class IndependentOracle:
                     "dispatch_attempt_count": facts.observed_attempt_count,
                     "remaining_uses": facts.observed_remaining_uses,
                     "native_effect_count": facts.native_effect_count,
+                },
+            ),
+            observed_resources=(),
+            observed_blocks=(),
+        )
+
+    def evaluate_action_fault(
+        self,
+        facts: ActionFaultFacts,
+    ) -> OracleResult:
+        """Check controller/native logs without trusting ActionResult."""
+        expected_effect_count = (
+            0
+            if facts.fault
+            in {
+                FaultCutPoint.ACTION_BEFORE_DISPATCH,
+                FaultCutPoint.AFTER_SEND_BEFORE_ACK,
+                FaultCutPoint.AFTER_ACK_BEFORE_EFFECT,
+            }
+            else 1
+        )
+        return self.evaluate(
+            expected_facts={
+                "native_effect_count": expected_effect_count,
+                "effect_count_at_most_one": True,
+                "blind_resend_count": 0,
+                "terminal_status": facts.terminal_status,
+                "retry": facts.retry,
+                "receipt_state": facts.receipt_state,
+                "false_success": False,
+                "command_identity_visible": True,
+                "failure_or_cleanup_visible": True,
+            },
+            observed_events=(
+                {
+                    "native_effect_count": facts.native_effect_count,
+                    "effect_count_at_most_one": (
+                        facts.native_effect_count <= 1
+                    ),
+                    "blind_resend_count": facts.blind_resend_count,
+                    "terminal_status": facts.terminal_status,
+                    "retry": facts.retry,
+                    "receipt_state": facts.receipt_state,
+                    "false_success": facts.false_success,
+                    "command_identity_visible": (
+                        facts.command_identity_visible
+                    ),
+                    "failure_or_cleanup_visible": (
+                        facts.failure_or_cleanup_visible
+                    ),
                 },
             ),
             observed_resources=(),

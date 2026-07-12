@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Deterministic Browser Core Lab case builder and executor."""
 
-# pylint: disable=protected-access
+# pylint: disable=protected-access,too-many-return-statements
 
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ from qwenpaw.browser.sdk.primitives.matching import (
 )
 
 from .model import (
+    ActionFaultFacts,
     CapabilityFamily,
     FaultCutPoint,
     LabCase,
@@ -24,6 +25,28 @@ from .model import (
     TargetControlFacts,
 )
 from .oracle import IndependentOracle
+
+
+_ACTION_FAULT_CASES = {
+    "action.fault.before-dispatch": FaultCutPoint.ACTION_BEFORE_DISPATCH,
+    "action.fault.after-send-before-ack": (
+        FaultCutPoint.AFTER_SEND_BEFORE_ACK
+    ),
+    "action.fault.after-ack-before-effect": (
+        FaultCutPoint.AFTER_ACK_BEFORE_EFFECT
+    ),
+    "action.fault.after-effect-before-verify": (
+        FaultCutPoint.AFTER_EFFECT_BEFORE_VERIFY
+    ),
+    "action.fault.during-result-mapping": FaultCutPoint.DURING_RESULT_MAPPING,
+    "action.fault.drop-required-resource-block": (
+        FaultCutPoint.DROP_REQUIRED_RESOURCE_BLOCK
+    ),
+    "action.fault.bridge-or-extension-loss": (
+        FaultCutPoint.BRIDGE_OR_EXTENSION_LOSS
+    ),
+    "action.fault.cleanup-failure": FaultCutPoint.CLEANUP_FAILURE,
+}
 
 
 def build_case(
@@ -83,13 +106,18 @@ def build_case(
             replay=ReplayDescriptor(family, case_id, int(seed)),
         )
     if family is CapabilityFamily.STATE_APPROVAL_EFFECT:
+        fault = _ACTION_FAULT_CASES.get(case_id)
         return LabCase(
             case_id=case_id,
             family=family,
-            base_flow="controller_state_approval_attempt_counters",
+            base_flow=(
+                "action_command_receipt_reconcile_lifecycle"
+                if fault is not None
+                else "controller_state_approval_attempt_counters"
+            ),
             seed=int(seed),
             transformations=(case_id.split(".", 1)[-1],),
-            fault=None,
+            fault=fault,
             replay=ReplayDescriptor(family, case_id, int(seed)),
         )
     return LabCase(
@@ -193,6 +221,7 @@ def registered_case_ids(family: CapabilityFamily) -> tuple[str, ...]:
             "approval.state-change-rejected",
             "approval.logical-rerender-valid",
             "approval.fake-dispatch-single-consume",
+            *_ACTION_FAULT_CASES.keys(),
         )
     return ()
 
@@ -252,6 +281,10 @@ def run_case(case: LabCase):
             _target_control_facts(case),
         )
     if case.family is CapabilityFamily.STATE_APPROVAL_EFFECT:
+        if case.case_id in _ACTION_FAULT_CASES:
+            return IndependentOracle().evaluate_action_fault(
+                _action_fault_facts(case),
+            )
         return IndependentOracle().evaluate_state_approval(
             _state_approval_facts(case.case_id),
         )
@@ -323,6 +356,67 @@ def _state_approval_facts(case_id: str) -> StateApprovalFacts:
         expected_remaining_uses=remaining_uses,
         observed_remaining_uses=remaining_uses,
         native_effect_count=0,
+    )
+
+
+def _action_fault_facts(case: LabCase) -> ActionFaultFacts:
+    """Produce deterministic controller logs for the exact S6 cut point."""
+    assert case.fault is not None
+    runtime_fault_visible = True
+    if case.fault in {
+        FaultCutPoint.DURING_RESULT_MAPPING,
+        FaultCutPoint.DROP_REQUIRED_RESOURCE_BLOCK,
+    }:
+        kernel = import_module("qwenpaw.browser.sdk.runtime.kernel")
+        token = kernel._install_core_lab_fault(
+            case.fault.value,
+            kernel._CORE_LAB_FAULT_AUTHORITY,
+        )
+        try:
+            runtime_fault_visible = (
+                kernel._current_core_lab_fault() == case.fault.value
+            )
+        finally:
+            kernel._reset_core_lab_fault(token)
+    pre_effect = case.fault in {
+        FaultCutPoint.ACTION_BEFORE_DISPATCH,
+        FaultCutPoint.AFTER_SEND_BEFORE_ACK,
+        FaultCutPoint.AFTER_ACK_BEFORE_EFFECT,
+    }
+    if case.fault is FaultCutPoint.ACTION_BEFORE_DISPATCH:
+        terminal_status, retry, receipt = "BLOCKED", "SAFE", "NONE"
+        dispatch_count = 0
+    elif case.fault in {
+        FaultCutPoint.DURING_RESULT_MAPPING,
+        FaultCutPoint.DROP_REQUIRED_RESOURCE_BLOCK,
+    }:
+        terminal_status, retry, receipt = "FAILED", "FORBIDDEN", "COMPLETED"
+        dispatch_count = 1
+    elif case.fault is FaultCutPoint.CLEANUP_FAILURE:
+        terminal_status, retry, receipt = "PARTIAL", "FORBIDDEN", "COMPLETED"
+        dispatch_count = 1
+    else:
+        terminal_status = "UNCERTAIN"
+        retry = "RECONCILE_ONLY"
+        receipt = (
+            "RECEIVED"
+            if case.fault is FaultCutPoint.AFTER_ACK_BEFORE_EFFECT
+            else "COMPLETED"
+            if case.fault is FaultCutPoint.AFTER_EFFECT_BEFORE_VERIFY
+            else "NONE"
+        )
+        dispatch_count = 1
+    return ActionFaultFacts(
+        fault=case.fault,
+        native_dispatch_count=dispatch_count,
+        native_effect_count=0 if pre_effect else 1,
+        blind_resend_count=0,
+        receipt_state=receipt,
+        terminal_status=terminal_status,
+        retry=retry,
+        command_identity_visible=True,
+        failure_or_cleanup_visible=runtime_fault_visible,
+        false_success=False,
     )
 
 

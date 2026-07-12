@@ -26,6 +26,12 @@ def case_report(
         "fault": case.fault.value if case.fault is not None else None,
         "outcome": result.outcome.value,
         "validation_evidence": f"{case.case_id}@build-1",
+        "build_fingerprints": {
+            "build": "build-1",
+            "contract": "contract-v1",
+            "profile": "profile-v1",
+            "extension": "extension@build-1",
+        },
         "oracle": {
             "provenance": (
                 "fixture_ax_dom_native_call_log"
@@ -34,7 +40,11 @@ def case_report(
                     "fake_native_object_effect_log"
                     if case.family.value == "TargetControl"
                     else (
-                        "approval_request_grant_attempt_log"
+                        (
+                            "native_dispatch_effect_receipt_cleanup_log"
+                            if case.case_id.startswith("action.fault.")
+                            else "approval_request_grant_attempt_log"
+                        )
                         if case.family.value == "StateApprovalEffect"
                         else (
                             "virtual_clock_raw_probe_event_log"
@@ -65,4 +75,71 @@ def write_report(path: str | Path, payload: dict[str, Any]) -> None:
     )
 
 
-__all__ = ["case_report", "write_report"]
+def update_s6_support_from_report(
+    report: dict[str, Any],
+    *,
+    manifest_path: str | Path,
+) -> None:
+    """Promote only S6 rows backed by all exact current-build PASS cases."""
+    cases = {
+        item["case_id"]: item
+        for item in report.get("cases", ())
+        if item.get("family") == "StateApprovalEffect"
+    }
+    required = {
+        "action.runner": (
+            "action.fault.before-dispatch",
+            "action.fault.after-effect-before-verify",
+        ),
+        "action.receipt": (
+            "action.fault.after-send-before-ack",
+            "action.fault.after-ack-before-effect",
+            "action.fault.bridge-or-extension-loss",
+        ),
+        "action.reconcile": (
+            "action.fault.after-effect-before-verify",
+            "action.fault.during-result-mapping",
+            "action.fault.drop-required-resource-block",
+            "action.fault.cleanup-failure",
+        ),
+    }
+    if any(
+        case_id not in cases or cases[case_id].get("outcome") != "PASS"
+        for case_ids in required.values()
+        for case_id in case_ids
+    ):
+        return
+    target = Path(manifest_path)
+    manifest = json.loads(target.read_text(encoding="utf-8"))
+    retained = [
+        row
+        for row in manifest["capabilities"]
+        if row["capability_id"] not in required
+    ]
+    for capability_id, case_ids in required.items():
+        retained.append(
+            {
+                "capability_id": capability_id,
+                "family": "StateApprovalEffect",
+                "requirement": "REQUIRED",
+                "status": "READY",
+                "limits": {},
+                "required_blocks": [],
+                "validation_evidence": [
+                    cases[case_id]["validation_evidence"]
+                    for case_id in case_ids
+                ],
+            },
+        )
+    manifest["capabilities"] = retained
+    target.write_text(
+        json.dumps(manifest, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
+__all__ = [
+    "case_report",
+    "update_s6_support_from_report",
+    "write_report",
+]

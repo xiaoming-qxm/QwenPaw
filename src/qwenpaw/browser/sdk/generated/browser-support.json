@@ -12,124 +12,239 @@
       "status": "READY",
       "limits": {},
       "required_blocks": [],
-      "validation_evidence": ["result.terminal-preserved@build-1"]
+      "validation_evidence": [
+        "result.terminal-preserved@build-1"
+      ]
     },
     {
       "capability_id": "result.model_image_delivery",
       "family": "ResultDelivery",
       "requirement": "REQUIRED",
       "status": "READY",
-      "limits": {"max_image_bytes": 20971520},
-      "required_blocks": ["image"],
-      "validation_evidence": ["result.required-image@build-1"]
+      "limits": {
+        "max_image_bytes": 20971520
+      },
+      "required_blocks": [
+        "image"
+      ],
+      "validation_evidence": [
+        "result.required-image@build-1"
+      ]
     },
     {
       "capability_id": "result.artifact_delivery",
       "family": "ResultDelivery",
       "requirement": "REQUIRED",
       "status": "READY",
-      "limits": {"max_artifact_bytes": 20971520},
-      "required_blocks": ["artifact"],
-      "validation_evidence": ["result.required-artifact@build-1"]
+      "limits": {
+        "max_artifact_bytes": 20971520
+      },
+      "required_blocks": [
+        "artifact"
+      ],
+      "validation_evidence": [
+        "result.required-artifact@build-1"
+      ]
     },
     {
       "capability_id": "observe.snapshot",
       "family": "ObserveRead",
       "requirement": "REQUIRED",
       "status": "READY",
-      "limits": {"max_targets": 128},
+      "limits": {
+        "max_targets": 128
+      },
       "required_blocks": [],
-      "validation_evidence": ["observe.snapshot-neutral@build-1"]
+      "validation_evidence": [
+        "observe.snapshot-neutral@build-1"
+      ]
     },
     {
       "capability_id": "observe.read",
       "family": "ObserveRead",
       "requirement": "REQUIRED",
       "status": "READY",
-      "limits": {"max_page_segments": 128},
+      "limits": {
+        "max_page_segments": 128
+      },
       "required_blocks": [],
-      "validation_evidence": ["observe.read-immutable@build-1"]
+      "validation_evidence": [
+        "observe.read-immutable@build-1"
+      ]
     },
     {
       "capability_id": "observe.screenshot.viewport",
       "family": "ObserveRead",
       "requirement": "REQUIRED",
       "status": "READY",
-      "limits": {"max_image_bytes": 20971520},
-      "required_blocks": ["image"],
-      "validation_evidence": ["observe.viewport-invariant@build-1"]
+      "limits": {
+        "max_image_bytes": 20971520
+      },
+      "required_blocks": [
+        "image"
+      ],
+      "validation_evidence": [
+        "observe.viewport-invariant@build-1"
+      ]
     },
     {
       "capability_id": "observe.screenshot.full_page",
       "family": "ObserveRead",
       "requirement": "REQUIRED",
       "status": "READY",
-      "limits": {"max_image_bytes": 20971520},
-      "required_blocks": ["image"],
-      "validation_evidence": ["observe.full-page-invariant@build-1"]
+      "limits": {
+        "max_image_bytes": 20971520
+      },
+      "required_blocks": [
+        "image"
+      ],
+      "validation_evidence": [
+        "observe.full-page-invariant@build-1"
+      ]
     },
     {
       "capability_id": "synchronize.page.url",
       "family": "Synchronize",
       "requirement": "REQUIRED",
       "status": "READY",
-      "limits": {"max_wait_ms": 30000, "max_stable_ms": 5000, "max_condition_atoms": 16},
+      "limits": {
+        "max_wait_ms": 30000,
+        "max_stable_ms": 5000,
+        "max_condition_atoms": 16
+      },
       "required_blocks": [],
-      "validation_evidence": ["synchronize.page-url@build-1"]
+      "validation_evidence": [
+        "synchronize.page-url@build-1"
+      ]
     },
     {
       "capability_id": "synchronize.page.title",
       "family": "Synchronize",
       "requirement": "REQUIRED",
       "status": "READY",
-      "limits": {"max_wait_ms": 30000, "max_stable_ms": 5000, "max_condition_atoms": 16},
+      "limits": {
+        "max_wait_ms": 30000,
+        "max_stable_ms": 5000,
+        "max_condition_atoms": 16
+      },
       "required_blocks": [],
-      "validation_evidence": ["synchronize.page-title@build-1"]
+      "validation_evidence": [
+        "synchronize.page-title@build-1"
+      ]
     },
     {
       "capability_id": "synchronize.page.document_changed",
       "family": "Synchronize",
       "requirement": "REQUIRED",
       "status": "READY",
-      "limits": {"max_wait_ms": 30000, "max_stable_ms": 5000, "max_condition_atoms": 16},
+      "limits": {
+        "max_wait_ms": 30000,
+        "max_stable_ms": 5000,
+        "max_condition_atoms": 16
+      },
       "required_blocks": [],
-      "validation_evidence": ["synchronize.page-document-changed@build-1"]
+      "validation_evidence": [
+        "synchronize.page-document-changed@build-1"
+      ]
     },
     {
       "capability_id": "synchronize.page.ready",
       "family": "Synchronize",
       "requirement": "REQUIRED",
       "status": "READY",
-      "limits": {"max_wait_ms": 30000, "max_stable_ms": 5000, "max_condition_atoms": 16},
+      "limits": {
+        "max_wait_ms": 30000,
+        "max_stable_ms": 5000,
+        "max_condition_atoms": 16
+      },
       "required_blocks": [],
-      "validation_evidence": ["synchronize.page-ready@build-1"]
+      "validation_evidence": [
+        "synchronize.page-ready@build-1"
+      ]
     },
     {
       "capability_id": "synchronize.region.text",
       "family": "Synchronize",
       "requirement": "REQUIRED",
       "status": "READY",
-      "limits": {"max_wait_ms": 30000, "max_stable_ms": 5000, "max_condition_atoms": 16},
+      "limits": {
+        "max_wait_ms": 30000,
+        "max_stable_ms": 5000,
+        "max_condition_atoms": 16
+      },
       "required_blocks": [],
-      "validation_evidence": ["synchronize.region-text@build-1"]
+      "validation_evidence": [
+        "synchronize.region-text@build-1"
+      ]
     },
     {
       "capability_id": "synchronize.region.item_count",
       "family": "Synchronize",
       "requirement": "REQUIRED",
       "status": "READY",
-      "limits": {"max_wait_ms": 30000, "max_stable_ms": 5000, "max_condition_atoms": 16},
+      "limits": {
+        "max_wait_ms": 30000,
+        "max_stable_ms": 5000,
+        "max_condition_atoms": 16
+      },
       "required_blocks": [],
-      "validation_evidence": ["synchronize.region-item-count@build-1"]
+      "validation_evidence": [
+        "synchronize.region-item-count@build-1"
+      ]
     },
     {
       "capability_id": "synchronize.region.changed",
       "family": "Synchronize",
       "requirement": "REQUIRED",
       "status": "READY",
-      "limits": {"max_wait_ms": 30000, "max_stable_ms": 5000, "max_condition_atoms": 16},
+      "limits": {
+        "max_wait_ms": 30000,
+        "max_stable_ms": 5000,
+        "max_condition_atoms": 16
+      },
       "required_blocks": [],
-      "validation_evidence": ["synchronize.region-changed@build-1"]
+      "validation_evidence": [
+        "synchronize.region-changed@build-1"
+      ]
+    },
+    {
+      "capability_id": "action.runner",
+      "family": "StateApprovalEffect",
+      "requirement": "REQUIRED",
+      "status": "READY",
+      "limits": {},
+      "required_blocks": [],
+      "validation_evidence": [
+        "action.fault.before-dispatch@build-1",
+        "action.fault.after-effect-before-verify@build-1"
+      ]
+    },
+    {
+      "capability_id": "action.receipt",
+      "family": "StateApprovalEffect",
+      "requirement": "REQUIRED",
+      "status": "READY",
+      "limits": {},
+      "required_blocks": [],
+      "validation_evidence": [
+        "action.fault.after-send-before-ack@build-1",
+        "action.fault.after-ack-before-effect@build-1",
+        "action.fault.bridge-or-extension-loss@build-1"
+      ]
+    },
+    {
+      "capability_id": "action.reconcile",
+      "family": "StateApprovalEffect",
+      "requirement": "REQUIRED",
+      "status": "READY",
+      "limits": {},
+      "required_blocks": [],
+      "validation_evidence": [
+        "action.fault.after-effect-before-verify@build-1",
+        "action.fault.during-result-mapping@build-1",
+        "action.fault.drop-required-resource-block@build-1",
+        "action.fault.cleanup-failure@build-1"
+      ]
     }
   ]
 }

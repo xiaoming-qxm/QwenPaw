@@ -32,6 +32,7 @@ class BrowserRecoveryAction(StrEnum):
     WAIT_FOR_APPROVAL = "wait_for_approval"
     BLOCKED = "blocked"
     FAILED = "failed"
+    HANDOFF = "handoff"
 
 
 @dataclass(frozen=True)
@@ -418,6 +419,42 @@ def collect_browser_request_evidence(
     )
 
 
+def _action_truth_handoff_reason(
+    metadata_items: tuple[dict[str, Any], ...],
+) -> str:
+    """Make unresolved or forbidden material mutation dominant over retry."""
+    high_risk_intents = {
+        "purchase",
+        "send_message",
+        "permission_change",
+        "permanent_delete",
+    }
+    for metadata in reversed(metadata_items):
+        status = str(metadata.get("status") or "").upper()
+        retry = str(metadata.get("retry") or "").upper()
+        intent = str(metadata.get("intent") or "").casefold()
+        effects = {
+            str(item).upper()
+            for item in metadata.get("classified_effects", ())
+        }
+        if status == "UNCERTAIN" or retry == "RECONCILE_ONLY":
+            return "unresolved_pending_action"
+        if retry == "FORBIDDEN" and (
+            intent in high_risk_intents or "UNKNOWN" in effects
+        ):
+            return "material_mutation_handoff"
+    return ""
+
+
+def fresh_attempt_is_safe(
+    *,
+    dispatch: str,
+    trusted_abort: bool = False,
+) -> bool:
+    """Authorize a new operation only from definite pre-send evidence."""
+    return trusted_abort or str(dispatch).upper() in {"NOT_SENT", "REJECTED"}
+
+
 class BrowserRecoveryPolicy:
     """Convert Browser evidence into structured recovery decisions."""
 
@@ -444,6 +481,15 @@ class BrowserRecoveryPolicy:
             )
 
         event = _latest_event(evidence.trace_events)
+        handoff_reason = _action_truth_handoff_reason(evidence.tool_metadata)
+        if handoff_reason:
+            return self._decision(
+                BrowserRecoveryAction.HANDOFF,
+                reason=handoff_reason,
+                event=event,
+                required_next_step="handoff_to_user",
+                forbidden=("retry_mutation", "reuse_approval_grant"),
+            )
         approval = _approval_state(evidence)
         approval_loop = _repeated_approval_domain(
             evidence,
@@ -593,10 +639,10 @@ class BrowserRecoveryPolicy:
                     },
                 )
             return self._decision(
-                BrowserRecoveryAction.CONTINUE,
+                BrowserRecoveryAction.HANDOFF,
                 reason="no_progress",
                 event=event,
-                required_next_step="change_strategy_or_observe",
+                required_next_step="handoff_to_user",
                 forbidden=("repeat_identical_action",),
                 metadata={"progress_decision": progress_decision.to_dict()},
             )
@@ -616,10 +662,10 @@ class BrowserRecoveryPolicy:
                     metadata=_degraded_fallback_metadata(event),
                 )
             return self._decision(
-                BrowserRecoveryAction.CONTINUE,
+                BrowserRecoveryAction.HANDOFF,
                 reason="no_progress",
                 event=event,
-                required_next_step="change_strategy_or_observe",
+                required_next_step="handoff_to_user",
                 forbidden=("repeat_identical_action",),
             )
         if _observation_enrichment_denied(evidence):
@@ -675,6 +721,7 @@ class BrowserRecoveryPolicy:
         if action in {
             BrowserRecoveryAction.BLOCKED,
             BrowserRecoveryAction.FAILED,
+            BrowserRecoveryAction.HANDOFF,
         }:
             recovery_hint = str(merged_metadata.get("recovery_hint") or "")
             final_message = (

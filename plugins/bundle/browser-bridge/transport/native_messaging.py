@@ -13,7 +13,8 @@ from collections import defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any
+from enum import StrEnum
+from typing import Any, Mapping
 
 from qwenpaw.browser.sdk.governance.error_codes import BrowserErrorCode
 from qwenpaw.browser.sdk.telemetry.trace import record_browser_trace_event
@@ -54,6 +55,20 @@ class NMBridgeDisconnectedError(NMBridgeError):
     """Raised when no Native Messaging WebSocket is connected."""
 
 
+class CommandTransportUncertainError(NMBridgeError):
+    """No response was observed; this never authorizes command replay."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        reconcile_keys: tuple[tuple[str, str], ...],
+    ) -> None:
+        super().__init__(message, code="command_transport_uncertain")
+        self.reconcile_keys = reconcile_keys
+        self.observed_state = "UNKNOWN"
+
+
 class TabOccupiedError(NMBridgeError):
     """Raised when a tab is already held by another holder."""
 
@@ -64,6 +79,48 @@ class StaleLeaseError(NMBridgeError):
     """Raised when a holder presents an old lease version."""
 
     browser_error_code = str(BrowserErrorCode.BROWSER_STALE_LEASE.value)
+
+
+class ReceiptState(StrEnum):
+    """Closed states that can be persisted by the extension."""
+
+    RECEIVED = "RECEIVED"
+    RUNNING = "RUNNING"
+    COMPLETED = "COMPLETED"
+
+
+@dataclass(frozen=True, slots=True)
+class CommandReceipt:
+    """One observed extension receipt for an exact command."""
+
+    session_id: str
+    command_id: str
+    command_fingerprint: str
+    state: ReceiptState
+    result: object | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class CommandFactProjection:
+    """Host projection when a target receipt is absent or evicted."""
+
+    observed_state: str
+
+
+@dataclass(frozen=True, slots=True)
+class CommandExecutionResponse:
+    """Typed command.execute transport response."""
+
+    receipt: CommandReceipt
+
+
+@dataclass(frozen=True, slots=True)
+class CommandStatusResponse:
+    """Typed read-only status response with separate query identity."""
+
+    query_receipt: CommandReceipt
+    target_receipt: CommandReceipt | None
+    target_command_fact: CommandFactProjection
 
 
 @dataclass(frozen=True)
@@ -343,6 +400,144 @@ class NMBridge:
         finally:
             self._pending.pop(request_id, None)
 
+    async def execute_command(
+        self,
+        *,
+        session_id: str,
+        command_id: str,
+        command_fingerprint: str,
+        command_type: str,
+        dispatch_context: Mapping[str, object],
+        payload: Mapping[str, object],
+        timeout: float = DEFAULT_REQUEST_TIMEOUT_SECONDS,
+    ) -> CommandExecutionResponse:
+        """Execute one independently identified extension command."""
+        normalized_session = _required_command_text(session_id, "sessionId")
+        normalized_command = _required_command_text(command_id, "commandId")
+        normalized_fingerprint = _required_command_text(
+            command_fingerprint,
+            "commandFingerprint",
+        )
+        try:
+            response = await self.request(
+                "command.execute",
+                {
+                    "sessionId": normalized_session,
+                    "commandId": normalized_command,
+                    "commandFingerprint": normalized_fingerprint,
+                    "commandType": _required_command_text(
+                        command_type,
+                        "commandType",
+                    ),
+                    "dispatchContext": dict(dispatch_context),
+                    "payload": dict(payload),
+                },
+                timeout=timeout,
+            )
+        except NMBridgeError as exc:
+            raise CommandTransportUncertainError(
+                "command response was not observed",
+                reconcile_keys=((normalized_command, normalized_fingerprint),),
+            ) from exc
+        if "error" in response:
+            message = _wire_error_message(response["error"])
+            raise NMBridgeError(
+                message,
+                code=(
+                    "command_fingerprint_mismatch"
+                    if "command_fingerprint_mismatch" in message
+                    else "command_execute_failed"
+                ),
+            )
+        result = response.get("result")
+        if not isinstance(result, Mapping):
+            raise NMBridgeError("command.execute returned an invalid result")
+        return CommandExecutionResponse(
+            receipt=_parse_command_receipt(result.get("receipt")),
+        )
+
+    async def query_command_status(
+        self,
+        *,
+        session_id: str,
+        query_command_id: str,
+        query_command_fingerprint: str,
+        target_command_id: str,
+        target_command_fingerprint: str,
+        timeout: float = DEFAULT_REQUEST_TIMEOUT_SECONDS,
+    ) -> CommandStatusResponse:
+        """Issue a fresh read-only STATUS_QUERY for another command."""
+        if query_command_id == target_command_id:
+            raise NMBridgeError(
+                "query and target command ids must be independent",
+                code="command_identity_invalid",
+            )
+        normalized_query = _required_command_text(
+            query_command_id,
+            "queryCommandId",
+        )
+        normalized_query_fingerprint = _required_command_text(
+            query_command_fingerprint,
+            "queryCommandFingerprint",
+        )
+        normalized_target = _required_command_text(
+            target_command_id,
+            "targetCommandId",
+        )
+        normalized_target_fingerprint = _required_command_text(
+            target_command_fingerprint,
+            "targetCommandFingerprint",
+        )
+        try:
+            response = await self.request(
+                "command.status",
+                {
+                    "sessionId": _required_command_text(
+                        session_id,
+                        "sessionId",
+                    ),
+                    "queryCommandId": normalized_query,
+                    "queryCommandFingerprint": normalized_query_fingerprint,
+                    "targetCommandId": normalized_target,
+                    "targetCommandFingerprint": normalized_target_fingerprint,
+                },
+                timeout=timeout,
+            )
+        except NMBridgeError as exc:
+            raise CommandTransportUncertainError(
+                "status response was not observed",
+                reconcile_keys=(
+                    (normalized_query, normalized_query_fingerprint),
+                    (normalized_target, normalized_target_fingerprint),
+                ),
+            ) from exc
+        if "error" in response:
+            raise NMBridgeError(
+                _wire_error_message(response["error"]),
+                code="command_status_failed",
+            )
+        result = response.get("result")
+        if not isinstance(result, Mapping):
+            raise NMBridgeError("command.status returned an invalid result")
+        target_payload = result.get("targetReceipt")
+        fact_payload = result.get("targetCommandFact")
+        observed_state = (
+            str(fact_payload.get("observedState") or "UNKNOWN")
+            if isinstance(fact_payload, Mapping)
+            else "UNKNOWN"
+        )
+        return CommandStatusResponse(
+            query_receipt=_parse_command_receipt(
+                result.get("queryReceipt"),
+            ),
+            target_receipt=(
+                _parse_command_receipt(target_payload)
+                if target_payload is not None
+                else None
+            ),
+            target_command_fact=CommandFactProjection(observed_state),
+        )
+
     async def send_cdp(
         self,
         tab_id: int,
@@ -498,6 +693,43 @@ def _store_extension_version(payload: dict[str, Any]) -> None:
     version_text = str(version or "").strip()
     if version_text:
         get_nm_bridge_route_state().extension_version = version_text
+
+
+def _required_command_text(value: object, field_name: str) -> str:
+    normalized = str(value or "").strip()
+    if not normalized:
+        raise NMBridgeError(
+            f"{field_name} is required",
+            code="command_identity_invalid",
+        )
+    return normalized
+
+
+def _parse_command_receipt(value: object) -> CommandReceipt:
+    if not isinstance(value, Mapping):
+        raise NMBridgeError("extension command receipt is invalid")
+    try:
+        state = ReceiptState(str(value.get("state") or ""))
+    except ValueError as exc:
+        raise NMBridgeError(
+            "extension command receipt state is invalid",
+        ) from exc
+    return CommandReceipt(
+        session_id=_required_command_text(value.get("sessionId"), "sessionId"),
+        command_id=_required_command_text(value.get("commandId"), "commandId"),
+        command_fingerprint=_required_command_text(
+            value.get("commandFingerprint"),
+            "commandFingerprint",
+        ),
+        state=state,
+        result=value.get("result"),
+    )
+
+
+def _wire_error_message(value: object) -> str:
+    if isinstance(value, Mapping):
+        return str(value.get("message") or value.get("code") or "wire error")
+    return str(value or "wire error")
 
 
 def _mark_request_timeout(method: str, timeout: float) -> None:

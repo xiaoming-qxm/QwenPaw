@@ -207,6 +207,8 @@ class _OwnerState:
     targets: dict[TargetRef, TargetBinding] = field(default_factory=dict)
     tabs: dict[TabSummary, "_TabState"] = field(default_factory=dict)
     grants: dict[str, "_GrantState"] = field(default_factory=dict)
+    pending_actions: dict[str, object] = field(default_factory=dict)
+    unresolved_operation_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -426,9 +428,19 @@ class BrowserSessionOwnerRegistry:
         *,
         clock: Callable[[], float] = monotonic,
         modes: SessionContractModeRegistry | None = None,
+        pending_action_capacity: int = 128,
+        pending_action_ttl_seconds: float = 300.0,
     ) -> None:
+        if pending_action_capacity <= 0:
+            raise ValueError("pending_action_capacity must be positive")
+        if pending_action_ttl_seconds <= 0:
+            raise ValueError("pending_action_ttl_seconds must be positive")
         self._clock = clock
         self._modes = modes or SessionContractModeRegistry()
+        self._pending_action_capacity = int(pending_action_capacity)
+        self._pending_action_ttl_seconds = float(
+            pending_action_ttl_seconds,
+        )
         self._owners: dict[tuple[str, str], _OwnerState] = {}
         self._tokens: dict[str, _TokenState] = {}
         self._lock = asyncio.Lock()
@@ -577,6 +589,112 @@ class BrowserSessionOwnerRegistry:
         """Return the binary active lease count for contract assertions."""
         state = self._owners.get(owner_key)
         return int(state is not None and state.lease_active)
+
+    def pending_action_expiry(self) -> float:
+        """Return the owner-store expiry for a newly admitted action."""
+        return self._clock() + self._pending_action_ttl_seconds
+
+    def save_pending_action(
+        self,
+        owner: BrowserRequestBinding,
+        action: object,
+    ) -> None:
+        """Persist one action in the sole durable owner record."""
+        state = self._require_current_lease(owner)
+        operation_id = _require_identity(
+            str(getattr(action, "operation_id", "")),
+            "operation_id",
+        )
+        if operation_id in state.pending_actions:
+            raise BrowserSDKError(
+                "pending action is already registered",
+                code="pending_action_duplicate",
+            )
+        while len(state.pending_actions) >= self._pending_action_capacity:
+            oldest = next(iter(state.pending_actions))
+            del state.pending_actions[oldest]
+        state.pending_actions[operation_id] = action
+
+    def require_pending_action(
+        self,
+        owner: BrowserRequestBinding,
+        operation_id: str,
+    ) -> object:
+        """Resolve one live action through the current fenced lease."""
+        state = self._require_current_lease(owner)
+        key = _require_identity(operation_id, "operation_id")
+        action = state.pending_actions.get(key)
+        if action is None:
+            raise BrowserSDKError(
+                "pending action is not registered",
+                code="pending_action_missing",
+            )
+        expires_at = float(getattr(action, "expires_at", 0.0))
+        if self._clock() > expires_at:
+            del state.pending_actions[key]
+            raise BrowserSDKError(
+                "pending action expired; execution state is unknown",
+                code="pending_action_expired",
+            )
+        return action
+
+    def abandon_pending_action(
+        self,
+        owner: BrowserRequestBinding,
+        operation_id: str,
+    ) -> None:
+        """Drop an action only through its current fenced owner lease."""
+        state = self._require_current_lease(owner)
+        state.pending_actions.pop(str(operation_id), None)
+        if state.unresolved_operation_id == str(operation_id):
+            state.unresolved_operation_id = None
+
+    def fence_uncertain_action(
+        self,
+        owner: BrowserRequestBinding,
+        operation_id: str,
+    ) -> None:
+        """Fence later mutations behind read-only reconciliation."""
+        state = self._require_current_lease(owner)
+        key = _require_identity(operation_id, "operation_id")
+        if key not in state.pending_actions:
+            raise BrowserSDKError(
+                "uncertain action is not registered",
+                code="pending_action_missing",
+            )
+        state.unresolved_operation_id = key
+
+    def clear_uncertain_action(
+        self,
+        owner: BrowserRequestBinding,
+        operation_id: str,
+    ) -> None:
+        """Clear only the exact reconciled operation fence."""
+        state = self._require_current_lease(owner)
+        if state.unresolved_operation_id == str(operation_id):
+            state.unresolved_operation_id = None
+
+    def require_mutation_unfenced(
+        self,
+        owner: BrowserRequestBinding,
+    ) -> None:
+        """Fail closed while a prior mutation remains unresolved."""
+        state = self._require_current_lease(owner)
+        if state.unresolved_operation_id is not None:
+            raise BrowserSDKError(
+                "prior mutation requires read-only reconciliation",
+                code="pending_action_reconcile_required",
+            )
+
+    def unresolved_pending_action(
+        self,
+        owner: BrowserRequestBinding,
+    ) -> object | None:
+        """Return the exact fenced action for automatic reconciliation."""
+        state = self._require_current_lease(owner)
+        if state.unresolved_operation_id is None:
+            return None
+        return state.pending_actions.get(state.unresolved_operation_id)
 
     @property
     def target_issue_count(self) -> int:

@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from time import monotonic
 from typing import Any, Literal
 
+from ..action_runner import ActionRunner
 from ..backends.registry import get_default_backend_registry
 from ..condition_evaluator import ConditionEvaluator
 from ..governance.errors import (
@@ -70,6 +71,7 @@ class Browser:
         execution = get_current_execution_context()
         target_registry = None
         owner_binding = None
+        action_runner = None
         if execution is not None:
             from qwenpaw.runtime.root_request_coordinator import (
                 _OWNER_REGISTRY,
@@ -77,13 +79,15 @@ class Browser:
 
             target_registry = _OWNER_REGISTRY
             owner_binding = execution_binding(execution)
+            action_runner = ActionRunner(registry=_OWNER_REGISTRY)
         self.tabs = BrowserTabs(
-            self.session,
-            store,
-            self._condition_evaluator,
-            profile,
-            target_registry,
-            owner_binding,
+            _session=self.session,
+            _resources=store,
+            _condition_evaluator=self._condition_evaluator,
+            _profile=profile,
+            _target_registry=target_registry,
+            _owner_binding=owner_binding,
+            _action_runner=action_runner,
         )
         self.resources = BrowserResources(store)
 

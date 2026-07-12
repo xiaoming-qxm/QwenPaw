@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from hashlib import sha256
 from typing import Any, Iterable
 
 from .trace import BrowserTraceEvent
@@ -208,14 +209,15 @@ def _observation_digest(metadata: dict[str, Any]) -> str:
 
 def _stable_digest(value: Any) -> str:
     try:
-        return json.dumps(
+        serialized = json.dumps(
             value,
             sort_keys=True,
             separators=(",", ":"),
             default=str,
         )
     except (TypeError, ValueError):
-        return str(value)
+        serialized = str(type(value).__name__)
+    return sha256(serialized.encode("utf-8")).hexdigest()
 
 
 __all__ = [

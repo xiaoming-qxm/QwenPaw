@@ -10,7 +10,11 @@ from pathlib import Path
 from typing import Sequence
 
 from .model import CapabilityFamily, CaseOutcome
-from .reports import case_report, write_report
+from .reports import (
+    case_report,
+    update_s6_support_from_report,
+    write_report,
+)
 from .runner import build_case, registered_case_ids, run_case
 
 
@@ -58,6 +62,13 @@ def _run(args: argparse.Namespace) -> int:
         "cases": reports,
     }
     write_report(args.report, payload)
+    if family is CapabilityFamily.STATE_APPROVAL_EFFECT:
+        update_s6_support_from_report(
+            payload,
+            manifest_path=(
+                "src/qwenpaw/browser/sdk/generated/browser-support.json"
+            ),
+        )
     return _exit_for(reports)
 
 

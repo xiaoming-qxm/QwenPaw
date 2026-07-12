@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Interaction helpers for Browser Bridge typed handlers."""
 # pylint: disable=too-many-branches,too-many-statements
+# pylint: disable=too-many-return-statements
 
 from __future__ import annotations
 
@@ -98,6 +99,31 @@ class _DeferredNetworkWaitMonitor:
 
 def _json_response(payload: dict[str, Any]):
     return _tool_response(json.dumps(payload, ensure_ascii=False, indent=2))
+
+
+def _canonical_runner_request(request_context: dict[str, Any]) -> bool:
+    """Return whether S3 owns all condition truth for this command."""
+    return (
+        bool(request_context.get("canonical_dispatch_context"))
+        or str(
+            request_context.get("contract_mode") or "",
+        ).upper()
+        == "CANONICAL"
+    )
+
+
+def _canonical_raw_command_hint(tab_id: int, action: str):
+    """Emit no postcondition truth from the Bridge interaction helper."""
+    return _json_response(
+        {
+            "ok": True,
+            "mode": "control",
+            "tab_id": tab_id,
+            "action": action,
+            "raw_change_hint": True,
+            "condition_truth": "NOT_EVALUATED",
+        },
+    )
 
 
 def _control_link_href(target: dict[str, Any], base_url: str) -> str:
@@ -317,6 +343,7 @@ async def click_control(
     request_context: dict[str, Any],
     kwargs: dict[str, Any],
 ):
+    canonical_runner = _canonical_runner_request(request_context)
     tab_id = _control_tab_id(
         _control_page_id(state, str(kwargs.get("page_id", ""))),
         kwargs.get("index", -1),
@@ -416,21 +443,24 @@ async def click_control(
     if not before_url:
         before_url = _control_tab_url_from_tabs(before_tabs, tab_id)
     semantic_link_href = _control_link_href(target, before_url)
-    if semantic_link_href:
+    if semantic_link_href and not canonical_runner:
         return await _control_activate_semantic_link(
             state,
             session,
             tab_id,
             semantic_link_href,
         )
+    if not allow_new_context:
+        await _control_prepare_silent_new_context_at_point(session, x, y)
+    if canonical_runner:
+        await _control_click_at(session, x, y, "Click")
+        return _canonical_raw_command_hint(tab_id, "click")
     network_monitor = await _network_quiescence_monitor_impl(
         session,
         bridge,
         state,
         tab_id,
     )
-    if not allow_new_context:
-        await _control_prepare_silent_new_context_at_point(session, x, y)
     try:
         waiter = _control_create_action_transition_waiter(
             bridge,
@@ -502,6 +532,7 @@ async def type_control(
     request_context: dict[str, Any],
     kwargs: dict[str, Any],
 ):
+    canonical_runner = _canonical_runner_request(request_context)
     tab_id = _control_tab_id(
         _control_page_id(state, str(kwargs.get("page_id", ""))),
         kwargs.get("index", -1),
@@ -515,10 +546,14 @@ async def type_control(
         request_context=request_context,
     )
     before_tabs = await _control_discover_tabs_safe(bridge)
-    waiter = _control_create_action_transition_waiter(
-        bridge,
-        before_tabs=before_tabs,
-        source_tab_id=tab_id,
+    waiter = (
+        None
+        if canonical_runner
+        else _control_create_action_transition_waiter(
+            bridge,
+            before_tabs=before_tabs,
+            source_tab_id=tab_id,
+        )
     )
     ref = str(kwargs.get("ref") or "").strip()
     selector = str(kwargs.get("selector") or "").strip()
@@ -544,6 +579,8 @@ async def type_control(
     await session.send("Input.insertText", {"text": text_to_type})
     if bool(kwargs.get("submit", False)):
         await _control_press_key(session, "Enter")
+    if canonical_runner:
+        return _canonical_raw_command_hint(tab_id, "type")
     return await _finalize_keyboard_action(
         state,
         bridge,
@@ -568,6 +605,7 @@ async def press_key_control(
     request_context: dict[str, Any],
     kwargs: dict[str, Any],
 ):
+    canonical_runner = _canonical_runner_request(request_context)
     tab_id = _control_tab_id(
         _control_page_id(state, str(kwargs.get("page_id", ""))),
         kwargs.get("index", -1),
@@ -581,12 +619,18 @@ async def press_key_control(
         request_context=request_context,
     )
     before_tabs = await _control_discover_tabs_safe(bridge)
-    waiter = _control_create_action_transition_waiter(
-        bridge,
-        before_tabs=before_tabs,
-        source_tab_id=tab_id,
+    waiter = (
+        None
+        if canonical_runner
+        else _control_create_action_transition_waiter(
+            bridge,
+            before_tabs=before_tabs,
+            source_tab_id=tab_id,
+        )
     )
     await _control_press_key(session, str(kwargs.get("key") or ""))
+    if canonical_runner:
+        return _canonical_raw_command_hint(tab_id, "press_key")
     return await _finalize_keyboard_action(
         state,
         bridge,

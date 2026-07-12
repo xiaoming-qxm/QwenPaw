@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from hashlib import sha256
 from typing import Any, Awaitable, Callable, Literal, cast
 
+from ..action_runner import ActionRunner
 from ..backends.protocols import BackendProfile
 from ..condition_evaluator import (
     ConditionEvaluation,
@@ -14,6 +15,7 @@ from ..condition_evaluator import (
     ConditionReceiver,
     TargetFacts,
 )
+from ..contract_runtime import canonical_mutation_contract
 from ..governance.errors import BrowserSDKError, BrowserSDKGap
 from ..primitives.matching import normalize_visible_text
 from ..runtime.resources import (
@@ -47,6 +49,8 @@ from .contracts import (
     EvidenceRef,
     FrameScope,
     ObservationScope,
+    PagePdfOptions,
+    PagePdfResult,
     Problem,
     ReadCursor,
     ReadResult,
@@ -58,6 +62,7 @@ from .contracts import (
     ScreenshotResult,
     SnapshotResult,
     SurfaceCondition,
+    TabSummary,
     RetryDirective,
     TargetQuery,
     TargetRef,
@@ -90,6 +95,11 @@ class TabActions:
         repr=False,
     )
     _receiver_tab: str = field(default="", repr=False)
+    _receiver_summary: TabSummary | None = field(default=None, repr=False)
+    _action_runner: ActionRunner | Any | None = field(
+        default=None,
+        repr=False,
+    )
 
     async def click(self, target: TargetRef) -> ActionResult:
         """Fail before backend dispatch until target/action stages activate."""
@@ -98,7 +108,11 @@ class TabActions:
             # canonical signature and all executable authority are TargetRef.
             raise _capability_blocked("tab.actions.click")
         self._require_target(target)
-        return _blocked_canonical_action("tab.actions.click", target=target)
+        return await self._run_mutation(
+            "tab.actions.click",
+            ordered_targets=(("target", target),),
+            arguments={},
+        )
 
     async def drag(
         self,
@@ -108,11 +122,39 @@ class TabActions:
         """Validate ordered endpoints without enabling native dispatch."""
         self._require_target(source)
         self._require_target(destination)
-        return _blocked_canonical_action(
+        return await self._run_mutation(
             "tab.actions.drag",
-            source=source,
-            destination=destination,
+            ordered_targets=(
+                ("source", source),
+                ("destination", destination),
+            ),
+            arguments={},
         )
+
+    async def _run_mutation(
+        self,
+        api_id: str,
+        *,
+        ordered_targets: tuple[tuple[str, TargetRef], ...],
+        arguments: dict[str, object],
+    ) -> ActionResult:
+        if self._action_runner is None:
+            raise BrowserSDKError(
+                "Canonical ActionRunner is unavailable",
+                code="action_runner_missing",
+                action=api_id,
+            )
+        result = await self._action_runner.run(
+            binding=cast(BrowserRequestBinding, self._owner_binding),
+            receiver_tab=self._receiver_summary,
+            contract=canonical_mutation_contract(api_id),
+            ordered_targets=ordered_targets,
+            arguments=arguments,
+            expectation=None,
+            state=None,
+            deadline=None,
+        )
+        return cast(ActionResult, result)
 
     def _require_target(self, target: TargetRef) -> None:
         if not isinstance(target, TargetRef):
@@ -164,6 +206,11 @@ class Tab:
         default=(),
         repr=False,
     )
+    _tab_summary: TabSummary | None = field(default=None, repr=False)
+    _action_runner: ActionRunner | Any | None = field(
+        default=None,
+        repr=False,
+    )
 
     def __post_init__(self) -> None:
         self.actions = TabActions(
@@ -171,6 +218,48 @@ class Tab:
             _target_registry=self._target_registry,
             _owner_binding=self._owner_binding,
             _receiver_tab=self.id,
+            _receiver_summary=self._tab_summary,
+            _action_runner=self._action_runner,
+        )
+
+    async def close(self) -> ActionResult:
+        """Route explicit close through the sole ActionRunner."""
+        result = await self._run_mutation("tab.close")
+        return cast(ActionResult, result)
+
+    async def print_to_pdf(
+        self,
+        *,
+        options: PagePdfOptions | None = None,
+    ) -> PagePdfResult:
+        """Route page PDF through the runner before S8 native support."""
+        result = await self._run_mutation(
+            "tab.print_to_pdf",
+            arguments={"options": options},
+        )
+        return cast(PagePdfResult, result)
+
+    async def _run_mutation(
+        self,
+        api_id: str,
+        *,
+        arguments: dict[str, object] | None = None,
+    ) -> ActionResult | PagePdfResult:
+        if self._action_runner is None:
+            raise BrowserSDKError(
+                "Canonical ActionRunner is unavailable",
+                code="action_runner_missing",
+                action=api_id,
+            )
+        return await self._action_runner.run(
+            binding=cast(BrowserRequestBinding, self._owner_binding),
+            receiver_tab=self._tab_summary,
+            contract=canonical_mutation_contract(api_id),
+            ordered_targets=(),
+            arguments=arguments or {},
+            expectation=None,
+            state=None,
+            deadline=None,
         )
 
     async def wait_for(
@@ -658,6 +747,45 @@ class BrowserTabs:
         repr=False,
     )
     _selected: Tab | None = field(default=None, repr=False)
+    _action_runner: ActionRunner | Any | None = field(
+        default=None,
+        repr=False,
+    )
+
+    async def open(self, url: str) -> ActionResult:
+        """Route create-and-navigate without changing selected Tab."""
+        return await self._run_mutation(
+            "browser.tabs.open",
+            arguments={"url": url},
+        )
+
+    async def new(self) -> ActionResult:
+        """Route blank task-tab creation without implicit selection."""
+        return await self._run_mutation("browser.tabs.new", arguments={})
+
+    async def _run_mutation(
+        self,
+        api_id: str,
+        *,
+        arguments: dict[str, object],
+    ) -> ActionResult:
+        if self._action_runner is None:
+            raise BrowserSDKError(
+                "Canonical ActionRunner is unavailable",
+                code="action_runner_missing",
+                action=api_id,
+            )
+        result = await self._action_runner.run(
+            binding=cast(BrowserRequestBinding, self._owner_binding),
+            receiver_tab=None,
+            contract=canonical_mutation_contract(api_id),
+            ordered_targets=(),
+            arguments=arguments,
+            expectation=None,
+            state=None,
+            deadline=None,
+        )
+        return cast(ActionResult, result)
 
     async def active(self) -> Tab:
         if self._selected is not None:
