@@ -1,21 +1,30 @@
 # -*- coding: utf-8 -*-
 """Trusted session-mode and root-task ownership registries."""
 
+# pylint: disable=protected-access
+
 from __future__ import annotations
 
 import asyncio
+from hashlib import sha256
+import json
 import secrets
 from dataclasses import dataclass, field
 from enum import StrEnum
 from time import monotonic
-from typing import Callable, Literal, TypeAlias
+from typing import Callable, Literal, Protocol, TypeAlias
 from uuid import uuid4
 
 from ..canonical.contracts import (
     ContextVersion,
+    EvidenceRef,
+    StateRequirement,
+    TabSummary,
     TargetRef,
     _issue_context_version,
+    _issue_opaque_value,
     _issue_target_ref,
+    _RUNTIME_VALUE_ISSUER,
 )
 from ..governance.errors import BrowserSDKError
 
@@ -39,6 +48,78 @@ class RootTaskOutcome(StrEnum):
 
 
 OwnerKey: TypeAlias = tuple[str, str]
+
+
+class StateFactStatus(StrEnum):
+    """Closed trust state for one action-required fact."""
+
+    VERIFIED = "VERIFIED"
+    UNKNOWN = "UNKNOWN"
+    MISMATCH = "MISMATCH"
+    STALE = "STALE"
+
+
+@dataclass(frozen=True, slots=True)
+class StateVerificationRequest:
+    """Finite trusted input supplied to a state verifier."""
+
+    fact_name: str
+    expected: str | bool | int | None
+    owner_key: OwnerKey
+    origin: str
+    generation: str
+
+
+@dataclass(frozen=True, slots=True)
+class StateVerification:
+    """Typed result returned by a site-independent trusted verifier."""
+
+    status: Literal["VERIFIED", "UNKNOWN", "MISMATCH", "STALE"]
+    safe_summary: str
+    evidence_ref: EvidenceRef | None
+    revision: str
+    fresh_until: float | None
+
+
+class TrustedStateVerifier(Protocol):
+    """Minimal closed verifier hook exposed by a reviewed backend profile."""
+
+    key: str
+
+    async def verify(
+        self,
+        request: StateVerificationRequest,
+    ) -> StateVerification:
+        """Verify one cataloged fact without page or browser metadata."""
+
+
+@dataclass(frozen=True, slots=True)
+class StateFact:
+    """Safe action-scoped projection of one required fact."""
+
+    status: StateFactStatus
+    safe_summary: str
+    evidence_ref: EvidenceRef | None
+    revision: str
+    fresh_until: float | None
+
+
+@dataclass(frozen=True, slots=True)
+class StateBinding:
+    """Ordered required facts and their trusted action-scoped digest."""
+
+    required_facts: tuple[tuple[str, StateFact], ...]
+    digest: str
+
+    def fact(self, name: str) -> StateFact:
+        """Return one required fact, failing closed when it was not bound."""
+        for fact_name, fact in self.required_facts:
+            if fact_name == name:
+                return fact
+        raise BrowserSDKError(
+            f"state fact {name!r} was not required",
+            code="state_fact_not_required",
+        )
 
 
 @dataclass(frozen=True)
@@ -124,6 +205,8 @@ class _OwnerState:
         default_factory=dict,
     )
     targets: dict[TargetRef, TargetBinding] = field(default_factory=dict)
+    tabs: dict[TabSummary, "_TabState"] = field(default_factory=dict)
+    grants: dict[str, "_GrantState"] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -133,12 +216,171 @@ class _ContextState:
     expires_at: float
 
 
+@dataclass(frozen=True, slots=True)
+class _TabState:
+    receiver_tab_key: str
+    origin: str
+    state_revision: str
+    layout_revision: str
+
+
+@dataclass(slots=True)
+class _GrantState:
+    api_id: str
+    operation_id: str
+    operation_fingerprint: str
+    binding_hash: str
+    effects: tuple[str, ...]
+    expectation_digest: str
+    expires_at: float
+    grant_object: object
+    remaining_uses: int = 1
+    dispatch_context_identity: int | None = None
+
+
 @dataclass(slots=True)
 class _TokenState:
     owner_key: OwnerKey
     root_session_id: str
     expires_at: float
     consumed: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class _ActionStateOwner:
+    """Owner-scoped action fact collector with a closed verifier catalog."""
+
+    registry: "BrowserSessionOwnerRegistry"
+    binding: BrowserRequestBinding
+    runtime_session_id: str
+    origin: str
+    generation: str
+    verifier_catalog: tuple[TrustedStateVerifier, ...]
+
+    async def collect_state_binding(
+        self,
+        *,
+        requirement: StateRequirement,
+        trusted_floor: StateRequirement,
+    ) -> StateBinding:
+        """Collect only facts required by the caller or trusted floor."""
+        self.registry._require_owner(self.binding)
+        merged = _merge_state_requirements(requirement, trusted_floor)
+        verifiers = _index_verifiers(self.verifier_catalog)
+        expected_facts = _required_state_facts(merged)
+        workflow = merged.workflow
+        if workflow is not None and workflow.key not in verifiers:
+            raise BrowserSDKError(
+                "workflow state verifier is not in the trusted catalog",
+                code="state_verifier_unknown",
+            )
+
+        facts: list[tuple[str, StateFact]] = []
+        digest_facts: list[dict[str, object]] = []
+        for fact_name, verifier_key, expected in expected_facts:
+            if fact_name == "same_session":
+                fact = _runtime_session_fact(
+                    matches=(
+                        self.runtime_session_id == self.binding.root_session_id
+                    ),
+                    generation=self.generation,
+                )
+            else:
+                verifier = verifiers.get(verifier_key)
+                fact = await self._verified_fact(
+                    verifier=verifier,
+                    fact_name=fact_name,
+                    expected=expected,
+                )
+            facts.append((fact_name, fact))
+            digest_facts.append(
+                {
+                    "name": fact_name,
+                    "expected": expected,
+                    "status": fact.status.value,
+                    "revision": fact.revision,
+                    "fresh_until": fact.fresh_until,
+                    "evidence": (
+                        fact.evidence_ref.to_dict()
+                        if fact.evidence_ref is not None
+                        else None
+                    ),
+                },
+            )
+
+        digest_payload = {
+            "root_task_id": self.binding.root_task_id,
+            "browser_owner_id": self.binding.browser_owner_id,
+            "runtime_session_id": self.runtime_session_id,
+            "origin": self.origin,
+            "generation": self.generation,
+            "facts": digest_facts,
+        }
+        digest = sha256(
+            json.dumps(
+                digest_payload,
+                ensure_ascii=False,
+                separators=(",", ":"),
+                sort_keys=False,
+            ).encode("utf-8"),
+        ).hexdigest()
+        return StateBinding(required_facts=tuple(facts), digest=digest)
+
+    async def _verified_fact(
+        self,
+        *,
+        verifier: TrustedStateVerifier | None,
+        fact_name: str,
+        expected: str | bool | int | None,
+    ) -> StateFact:
+        if verifier is None:
+            return StateFact(
+                status=StateFactStatus.UNKNOWN,
+                safe_summary="required fact has no trusted evidence",
+                evidence_ref=None,
+                revision="unverified",
+                fresh_until=None,
+            )
+        result = await verifier.verify(
+            StateVerificationRequest(
+                fact_name=fact_name,
+                expected=expected,
+                owner_key=self.binding.owner_key,
+                origin=self.origin,
+                generation=self.generation,
+            ),
+        )
+        if not isinstance(result, StateVerification):
+            raise BrowserSDKError(
+                "trusted state verifier returned an invalid result",
+                code="state_verifier_invalid",
+            )
+        try:
+            status = StateFactStatus(result.status)
+        except ValueError as exc:
+            raise BrowserSDKError(
+                "trusted state verifier returned an invalid status",
+                code="state_verifier_invalid",
+            ) from exc
+        evidence = result.evidence_ref
+        if status is StateFactStatus.VERIFIED and not isinstance(
+            evidence,
+            EvidenceRef,
+        ):
+            status = StateFactStatus.UNKNOWN
+            evidence = None
+        if (
+            result.fresh_until is not None
+            and self.registry._clock() > result.fresh_until
+        ):
+            status = StateFactStatus.STALE
+        return StateFact(
+            status=status,
+            safe_summary=_safe_fact_summary(result.safe_summary),
+            evidence_ref=evidence,
+            revision=_require_verifier_text(result.revision, "revision"),
+            fresh_until=result.fresh_until,
+        )
 
 
 class SessionContractModeRegistry:
@@ -175,6 +417,7 @@ class SessionContractModeRegistry:
                 ) from exc
 
 
+# pylint: disable-next=too-many-public-methods
 class BrowserSessionOwnerRegistry:
     """Manage main-process owners, fenced leases, and opaque resumes."""
 
@@ -339,6 +582,216 @@ class BrowserSessionOwnerRegistry:
     def target_issue_count(self) -> int:
         """Return issuance count for no-authority query assertions."""
         return sum(len(state.targets) for state in self._owners.values())
+
+    def state_binding_owner(
+        self,
+        binding: BrowserRequestBinding,
+        *,
+        runtime_session_id: str,
+        origin: str,
+        generation: str,
+        verifier_catalog: tuple[TrustedStateVerifier, ...],
+    ) -> _ActionStateOwner:
+        """Bind finite Runtime facts and trusted verifiers to one owner."""
+        self._require_owner(binding)
+        session_id = _require_identity(
+            runtime_session_id,
+            "runtime_session_id",
+        )
+        normalized_origin = _require_identity(origin, "origin")
+        normalized_generation = _require_identity(generation, "generation")
+        catalog = tuple(verifier_catalog)
+        _index_verifiers(catalog)
+        return _ActionStateOwner(
+            registry=self,
+            binding=binding,
+            runtime_session_id=session_id,
+            origin=normalized_origin,
+            generation=normalized_generation,
+            verifier_catalog=catalog,
+        )
+
+    def issue_tab_summary(
+        self,
+        owner: BrowserRequestBinding,
+        *,
+        receiver_tab: str,
+        origin: str,
+        state_revision: str,
+        layout_revision: str,
+        safe_title: str = "",
+    ) -> TabSummary:
+        """Issue a safe logical tab backed by private receiver authority."""
+        state = self._require_owner(owner)
+        receiver = _require_handle_text(receiver_tab, "receiver_tab")
+        normalized_origin = _require_identity(origin, "origin")
+        revision = _require_identity(state_revision, "state_revision")
+        layout = _require_identity(layout_revision, "layout_revision")
+        issued = _issue_opaque_value(
+            TabSummary,
+            _RUNTIME_VALUE_ISSUER,
+            ref=_new_handle_token("tab"),
+            safe_origin=normalized_origin,
+            safe_title=" ".join(str(safe_title or "").split())[:120],
+        )
+        assert isinstance(issued, TabSummary)
+        state.tabs[issued] = _TabState(
+            receiver_tab_key=receiver,
+            origin=normalized_origin,
+            state_revision=revision,
+            layout_revision=layout,
+        )
+        return issued
+
+    def resolve_tab_summary(
+        self,
+        tab: TabSummary,
+        *,
+        owner: BrowserRequestBinding,
+    ) -> _TabState:
+        """Resolve only a TabSummary issued for the exact owner."""
+        if not isinstance(tab, TabSummary):
+            raise BrowserSDKError(
+                "runtime_issued_value: tab has the wrong type",
+                code="runtime_issued_value",
+            )
+        state = self._require_owner(owner)
+        resolved = state.tabs.get(tab)
+        if resolved is None:
+            raise BrowserSDKError(
+                "runtime_issued_value: tab is not registered to this owner",
+                code="runtime_issued_value",
+            )
+        return resolved
+
+    def register_exact_grant(
+        self,
+        owner: BrowserRequestBinding,
+        *,
+        grant_id: str,
+        api_id: str,
+        operation_id: str,
+        operation_fingerprint: str,
+        binding_hash: str,
+        effects: tuple[str, ...],
+        expectation_digest: str,
+        expires_at: float,
+        grant_object: object,
+    ) -> None:
+        """Register one exact grant before any dispatch context is issued."""
+        state = self._require_current_lease(owner)
+        key = _require_identity(grant_id, "grant_id")
+        if key in state.grants:
+            raise BrowserSDKError(
+                "exact approval grant is already registered",
+                code="approval_grant_replayed",
+            )
+        state.grants[key] = _GrantState(
+            api_id=_require_identity(api_id, "api_id"),
+            operation_id=_require_identity(operation_id, "operation_id"),
+            operation_fingerprint=_require_identity(
+                operation_fingerprint,
+                "operation_fingerprint",
+            ),
+            binding_hash=_require_identity(binding_hash, "binding_hash"),
+            effects=tuple(str(item) for item in effects),
+            expectation_digest=_require_identity(
+                expectation_digest,
+                "expectation_digest",
+            ),
+            expires_at=float(expires_at),
+            grant_object=grant_object,
+        )
+
+    def bind_dispatch_context(
+        self,
+        owner: BrowserRequestBinding,
+        *,
+        grant_id: str,
+        context: object,
+    ) -> None:
+        """Bind the one registry-issued context object to a grant."""
+        state = self._require_current_lease(owner)
+        grant = state.grants.get(str(grant_id))
+        if grant is None:
+            raise BrowserSDKError(
+                "exact approval grant is not registered",
+                code="approval_grant_invalid",
+            )
+        identity = id(context)
+        if (
+            grant.dispatch_context_identity is not None
+            and grant.dispatch_context_identity != identity
+        ):
+            raise BrowserSDKError(
+                "dispatch context has already been issued",
+                code="approval_grant_replayed",
+            )
+        grant.dispatch_context_identity = identity
+
+    async def consume_grant_for_dispatch(self, context: object) -> None:
+        """Atomically verify and consume at the unique attempt boundary."""
+        owner = getattr(context, "_owner_binding", None)
+        if not isinstance(owner, BrowserRequestBinding):
+            raise BrowserSDKError(
+                "dispatch context owner is not Runtime-issued",
+                code="dispatch_context_invalid",
+            )
+        async with self._lock:
+            state = self._require_current_lease(owner)
+            grant_id = str(getattr(context, "grant_id", "") or "")
+            grant = state.grants.get(grant_id)
+            if grant is None:
+                raise BrowserSDKError(
+                    "dispatch grant is not registered",
+                    code="approval_grant_invalid",
+                )
+            expected = (
+                owner.root_task_id,
+                owner.browser_owner_id,
+                owner.root_session_id,
+                owner.lease_generation,
+                grant.api_id,
+                grant.operation_id,
+                grant.operation_fingerprint,
+                grant.binding_hash,
+                grant.effects,
+                grant.expectation_digest,
+            )
+            observed = (
+                getattr(context, "root_task_id", None),
+                getattr(context, "browser_owner_id", None),
+                getattr(context, "session_id", None),
+                getattr(context, "lease_generation", None),
+                getattr(context, "api_id", None),
+                getattr(context, "operation_id", None),
+                getattr(context, "operation_fingerprint", None),
+                getattr(context, "binding_hash", None),
+                tuple(str(item) for item in getattr(context, "effects", ())),
+                getattr(context, "expectation_digest", None),
+            )
+            grant_object_remaining = getattr(
+                grant.grant_object,
+                "remaining_uses",
+                None,
+            )
+            binding_invalid = (
+                getattr(context, "_registry", None) is not self
+                or grant.dispatch_context_identity != id(context)
+                or expected != observed
+            )
+            grant_invalid = (
+                self._clock() > grant.expires_at
+                or grant.remaining_uses != 1
+                or grant_object_remaining != 1
+            )
+            if binding_invalid or grant_invalid:
+                raise BrowserSDKError(
+                    "dispatch grant is expired, replayed, or mismatched",
+                    code="approval_grant_invalid",
+                )
+            grant.remaining_uses = 0
+            setattr(grant.grant_object, "remaining_uses", 0)
 
     def issue_context(
         self,
@@ -675,3 +1128,141 @@ def _require_handle_text(value: str, field_name: str) -> str:
 
 def _new_handle_token(kind: str) -> str:
     return f"{kind}_{secrets.token_urlsafe(32)}"
+
+
+def _merge_state_requirements(
+    requirement: StateRequirement,
+    trusted_floor: StateRequirement,
+) -> StateRequirement:
+    if not isinstance(requirement, StateRequirement) or not isinstance(
+        trusted_floor,
+        StateRequirement,
+    ):
+        raise BrowserSDKError(
+            "state requirement is invalid",
+            code="state_requirement_invalid",
+        )
+    caller_workflow = requirement.workflow
+    floor_workflow = trusted_floor.workflow
+    if (
+        caller_workflow is not None
+        and floor_workflow is not None
+        and caller_workflow.key != floor_workflow.key
+    ):
+        raise BrowserSDKError(
+            "trusted state workflow floor conflicts with the request",
+            code="state_requirement_conflict",
+        )
+    return StateRequirement(
+        same_session=requirement.same_session or trusted_floor.same_session,
+        authenticated=(
+            trusted_floor.authenticated
+            if trusted_floor.authenticated is not None
+            else requirement.authenticated
+        ),
+        account_hint=(
+            trusted_floor.account_hint
+            if trusted_floor.account_hint is not None
+            else requirement.account_hint
+        ),
+        tenant_hint=(
+            trusted_floor.tenant_hint
+            if trusted_floor.tenant_hint is not None
+            else requirement.tenant_hint
+        ),
+        workspace_hint=(
+            trusted_floor.workspace_hint
+            if trusted_floor.workspace_hint is not None
+            else requirement.workspace_hint
+        ),
+        role_hint=(
+            trusted_floor.role_hint
+            if trusted_floor.role_hint is not None
+            else requirement.role_hint
+        ),
+        workflow=floor_workflow or caller_workflow,
+    )
+
+
+def _required_state_facts(
+    requirement: StateRequirement,
+) -> tuple[tuple[str, str, str | bool | int | None], ...]:
+    facts: list[tuple[str, str, str | bool | int | None]] = []
+    if requirement.same_session:
+        facts.append(("same_session", "same_session", True))
+    if requirement.authenticated is not None:
+        facts.append(
+            ("authenticated", "authenticated", requirement.authenticated),
+        )
+    for fact_name, expected in (
+        ("account", requirement.account_hint),
+        ("tenant", requirement.tenant_hint),
+        ("workspace", requirement.workspace_hint),
+        ("role", requirement.role_hint),
+    ):
+        if expected is not None:
+            facts.append((fact_name, fact_name, expected))
+    if requirement.workflow is not None:
+        workflow = requirement.workflow
+        facts.append(
+            (
+                f"workflow:{workflow.key}",
+                workflow.key,
+                workflow.expected,
+            ),
+        )
+    return tuple(facts)
+
+
+def _runtime_session_fact(*, matches: bool, generation: str) -> StateFact:
+    return StateFact(
+        status=(
+            StateFactStatus.VERIFIED if matches else StateFactStatus.MISMATCH
+        ),
+        safe_summary=(
+            "Runtime session matches the owner"
+            if matches
+            else "Runtime session does not match the owner"
+        ),
+        evidence_ref=None,
+        revision=f"runtime:{generation}",
+        fresh_until=None,
+    )
+
+
+def _index_verifiers(
+    catalog: tuple[TrustedStateVerifier, ...],
+) -> dict[str, TrustedStateVerifier]:
+    indexed: dict[str, TrustedStateVerifier] = {}
+    for verifier in catalog:
+        key = _require_verifier_text(
+            getattr(verifier, "key", ""),
+            "verifier key",
+        )
+        if not callable(getattr(verifier, "verify", None)):
+            raise BrowserSDKError(
+                "trusted state verifier is invalid",
+                code="state_verifier_invalid",
+            )
+        if key in indexed:
+            raise BrowserSDKError(
+                "trusted state verifier key is duplicated",
+                code="state_verifier_invalid",
+            )
+        indexed[key] = verifier
+    return indexed
+
+
+def _require_verifier_text(value: object, field_name: str) -> str:
+    normalized = str(value or "").strip()
+    if not normalized:
+        raise BrowserSDKError(
+            f"trusted state verifier {field_name} is missing",
+            code="state_verifier_invalid",
+        )
+    return normalized
+
+
+def _safe_fact_summary(value: str) -> str:
+    summary = " ".join(str(value or "").split())[:160]
+    return summary or "trusted verifier supplied no safe summary"

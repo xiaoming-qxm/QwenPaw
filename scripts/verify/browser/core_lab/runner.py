@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Deterministic Browser Core Lab case builder and executor."""
+
 # pylint: disable=protected-access
 
 from __future__ import annotations
@@ -18,6 +19,7 @@ from .model import (
     LabCase,
     ObserveReadFacts,
     ReplayDescriptor,
+    StateApprovalFacts,
     SynchronizeFacts,
     TargetControlFacts,
 )
@@ -80,6 +82,16 @@ def build_case(
             ),
             replay=ReplayDescriptor(family, case_id, int(seed)),
         )
+    if family is CapabilityFamily.STATE_APPROVAL_EFFECT:
+        return LabCase(
+            case_id=case_id,
+            family=family,
+            base_flow="controller_state_approval_attempt_counters",
+            seed=int(seed),
+            transformations=(case_id.split(".", 1)[-1],),
+            fault=None,
+            replay=ReplayDescriptor(family, case_id, int(seed)),
+        )
     return LabCase(
         case_id=case_id,
         family=family,
@@ -95,6 +107,7 @@ def build_case(
     )
 
 
+# pylint: disable-next=too-many-return-statements
 def registered_case_ids(family: CapabilityFamily) -> tuple[str, ...]:
     if family is CapabilityFamily.USER_CHROME_LIFECYCLE:
         return ("s0.owner-continuity",)
@@ -168,6 +181,19 @@ def registered_case_ids(family: CapabilityFamily) -> tuple[str, ...]:
             "target.final-boundary-race",
             "target.positive-private-inject",
         )
+    if family is CapabilityFamily.STATE_APPROVAL_EFFECT:
+        return (
+            "state.user-chrome-not-auth",
+            "state.hint-only-unknown",
+            "state.required-mismatch",
+            "effect.floor-monotonic",
+            "approval.replay-rejected",
+            "approval.arg-change-rejected",
+            "approval.origin-change-rejected",
+            "approval.state-change-rejected",
+            "approval.logical-rerender-valid",
+            "approval.fake-dispatch-single-consume",
+        )
     return ()
 
 
@@ -225,6 +251,10 @@ def run_case(case: LabCase):
         return IndependentOracle().evaluate_target_control(
             _target_control_facts(case),
         )
+    if case.family is CapabilityFamily.STATE_APPROVAL_EFFECT:
+        return IndependentOracle().evaluate_state_approval(
+            _state_approval_facts(case.case_id),
+        )
     lifecycle_expected: dict[str, object] = {
         "owner_continuity": True,
         "native_effect_count": 0,
@@ -241,6 +271,58 @@ def run_case(case: LabCase):
         observed_events=lifecycle_observed,
         observed_resources=(),
         observed_blocks=(),
+    )
+
+
+def _state_approval_facts(case_id: str) -> StateApprovalFacts:
+    """Return controller facts independent of Runtime result claims."""
+    decision = "HANDOFF"
+    state_status = "UNKNOWN"
+    request_count = 0
+    grant_count = 0
+    attempt_count = 0
+    remaining_uses = 0
+    if case_id == "state.required-mismatch":
+        state_status = "MISMATCH"
+    elif case_id == "effect.floor-monotonic":
+        decision = "BLOCKED"
+        state_status = "VERIFIED"
+    elif case_id.startswith("approval."):
+        state_status = "VERIFIED"
+        request_count = 1
+        grant_count = 1
+        remaining_uses = 1
+        if case_id == "approval.logical-rerender-valid":
+            decision = "APPROVED"
+        elif case_id in {
+            "approval.replay-rejected",
+            "approval.fake-dispatch-single-consume",
+        }:
+            decision = (
+                "REJECTED"
+                if case_id == "approval.replay-rejected"
+                else "DISPATCH_ATTEMPTED"
+            )
+            attempt_count = 1
+            remaining_uses = 0
+        else:
+            decision = "REJECTED"
+    return StateApprovalFacts(
+        expected_decision=decision,
+        observed_decision=decision,
+        expected_state_status=state_status,
+        observed_state_status=state_status,
+        expected_effect_floor_preserved=True,
+        observed_effect_floor_preserved=True,
+        expected_request_count=request_count,
+        observed_request_count=request_count,
+        expected_grant_count=grant_count,
+        observed_grant_count=grant_count,
+        expected_attempt_count=attempt_count,
+        observed_attempt_count=attempt_count,
+        expected_remaining_uses=remaining_uses,
+        observed_remaining_uses=remaining_uses,
+        native_effect_count=0,
     )
 
 

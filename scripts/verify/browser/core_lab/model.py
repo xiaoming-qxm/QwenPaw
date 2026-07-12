@@ -110,6 +110,27 @@ class TargetControlFacts:
     public_dispatch_count: int
 
 
+@dataclass(frozen=True, slots=True)
+class StateApprovalFacts:
+    """Controller-owned state and approval request/grant/attempt facts."""
+
+    expected_decision: str
+    observed_decision: str
+    expected_state_status: str
+    observed_state_status: str
+    expected_effect_floor_preserved: bool
+    observed_effect_floor_preserved: bool
+    expected_request_count: int
+    observed_request_count: int
+    expected_grant_count: int
+    observed_grant_count: int
+    expected_attempt_count: int
+    observed_attempt_count: int
+    expected_remaining_uses: int
+    observed_remaining_uses: int
+    native_effect_count: int
+
+
 __all__ = [
     "CapabilityFamily",
     "CaseOutcome",
@@ -119,5 +140,6 @@ __all__ = [
     "ObserveReadFacts",
     "ReplayDescriptor",
     "SynchronizeFacts",
+    "StateApprovalFacts",
     "TargetControlFacts",
 ]

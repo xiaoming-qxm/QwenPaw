@@ -108,6 +108,8 @@ export function ApprovalCard({
     () => browserApprovalSummary(toolParams),
     [toolParams],
   );
+  const exactOnlyApproval = toolParams.scope_policy === "exact_only";
+  const canApproveSimilar = Boolean(isGeneralized && !exactOnlyApproval);
   const redactedApprovalBrief = useMemo(
     () => approvalBriefSummary(approvalBrief),
     [approvalBrief],
@@ -290,7 +292,7 @@ export function ApprovalCard({
           </div>
         )}
 
-        {isGeneralized && (exactTarget || similarTarget) && (
+        {canApproveSimilar && (exactTarget || similarTarget) && (
           <div className={styles.infoRow}>
             <Text className={styles.label}>
               {t("approval.approvalScope", "Approval scope")}:
@@ -521,7 +523,17 @@ export function ApprovalCard({
             >
               {t("approval.deny", "Deny")}
             </Button>
-            {isGeneralized ? (
+            {exactOnlyApproval ? (
+              <Button
+                type="primary"
+                icon={<Check size={14} />}
+                onClick={() => handleApprove("exact")}
+                loading={loading === "approve-exact"}
+                disabled={loading !== null}
+              >
+                {t("approval.approveExact", "Approve Exact")}
+              </Button>
+            ) : canApproveSimilar ? (
               <>
                 <Button
                   onClick={() => handleApprove("exact")}

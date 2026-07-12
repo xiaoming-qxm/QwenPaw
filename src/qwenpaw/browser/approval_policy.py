@@ -6,10 +6,16 @@ from __future__ import annotations
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from time import monotonic
 from typing import Any
 from urllib.parse import urlparse
 
 from qwenpaw.app.approvals.models import ApprovalBrief, ApprovalRequestSummary
+from qwenpaw.browser.sdk.action_runner import (
+    ActionPreview,
+    ApprovalGrant,
+    issue_exact_grant,
+)
 from qwenpaw.browser.sdk.governance.error_codes import BrowserErrorCode
 from qwenpaw.browser.sdk.telemetry.trace import record_browser_trace_event
 from qwenpaw.browser.sdk.primitives.types import (
@@ -51,6 +57,7 @@ class BrowserApprovalCacheKey:
     domain: str
     action_family: str
     risk_kind: str
+    source_type: str = "legacy_browser"
 
 
 @dataclass(frozen=True)
@@ -69,6 +76,15 @@ class BrowserApprovalResolution:
     allowed: bool
     reason: str
     metadata: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class BrowserExactApprovalResolution:
+    """Decision and optional single-use grant for one Canonical action."""
+
+    pending: Any
+    decision: ApprovalDecision
+    grant: ApprovalGrant | None
 
 
 class BrowserApprovalCache:
@@ -115,6 +131,18 @@ class BrowserApprovalCache:
     def clear(self) -> None:
         self._items.clear()
 
+    def items_for(
+        self,
+        source_type: str,
+    ) -> tuple[BrowserApprovalCacheEntry, ...]:
+        """Return cache entries for characterization by source."""
+        source = str(source_type or "")
+        return tuple(
+            entry
+            for key, entry in self._items.items()
+            if key.source_type == source
+        )
+
 
 _DEFAULT_BROWSER_APPROVAL_CACHE = BrowserApprovalCache()
 
@@ -133,10 +161,12 @@ class QwenPawBrowserApprovalPolicy:
         approval_service: Any | None = None,
         approval_cache: BrowserApprovalCache | None = None,
         now: Callable[[], float] | None = None,
+        grant_clock: Callable[[], float] | None = None,
         cache_ttl_seconds: float = _DEFAULT_CACHE_TTL_SECONDS,
     ) -> None:
         self._approval_service = approval_service
         self._now = now or time.time
+        self._grant_clock = grant_clock or monotonic
         self._approval_cache = approval_cache or BrowserApprovalCache(
             now=self._now,
             ttl_seconds=cache_ttl_seconds,
@@ -148,6 +178,60 @@ class QwenPawBrowserApprovalPolicy:
     ) -> BrowserPolicyDecision:
         del request
         return BrowserPolicyDecision(allowed=True, reason="allowed")
+
+    async def request_exact(
+        self,
+        preview: ActionPreview,
+    ) -> BrowserExactApprovalResolution:
+        """Request one uncached exact Canonical Browser approval."""
+        if not isinstance(preview, ActionPreview):
+            raise TypeError("preview must be an ActionPreview")
+        context = _canonical_approval_context(preview)
+        payload = _canonical_preview_payload(preview)
+        summary = ApprovalRequestSummary(
+            source_type="browser_core_action",
+            scope_policy="exact_only",
+            name="browser",
+            severity="medium",
+            findings_count=1,
+            result_summary=(
+                f"Approve exact Browser operation {preview.api_id}"
+            ),
+            payload=payload,
+        )
+        service = self._service()
+        timeout_seconds = _approval_timeout_seconds()
+        pending = await service.create_pending_summary(
+            session_id=context["session_id"],
+            root_session_id=context["root_session_id"],
+            owner_agent_id=context["owner_agent_id"],
+            user_id=context["user_id"],
+            channel=context["channel"],
+            agent_id=context["agent_id"],
+            summary=summary,
+            timeout_seconds=timeout_seconds,
+            extra={
+                "tool_call": {
+                    "id": context["tool_call_id"],
+                    "name": "browser",
+                    "input": payload,
+                },
+            },
+        )
+        decision = await service.wait_for_approval(
+            pending.request_id,
+            timeout_seconds,
+        )
+        grant = (
+            issue_exact_grant(preview, now=self._grant_clock())
+            if decision == ApprovalDecision.APPROVED
+            else None
+        )
+        return BrowserExactApprovalResolution(
+            pending=pending,
+            decision=decision,
+            grant=grant,
+        )
 
     async def allow_action(
         self,
@@ -345,6 +429,44 @@ def _approval_context(request: BrowserActionRequest) -> dict[str, str]:
         "channel": _agent_context_value("get_current_channel"),
         "agent_id": agent_id,
         "tool_call_id": str(getattr(call_context, "tool_call_id", "") or ""),
+    }
+
+
+def _canonical_approval_context(preview: ActionPreview) -> dict[str, str]:
+    call_context = _call_context()
+    agent_id = (
+        str(getattr(call_context, "agent_id", "") or "")
+        or _agent_context_value("get_current_agent_id")
+        or "unknown"
+    )
+    return {
+        "session_id": preview.session_id,
+        "root_session_id": preview.session_id,
+        "owner_agent_id": agent_id,
+        "user_id": _agent_context_value("get_current_user_id"),
+        "channel": _agent_context_value("get_current_channel"),
+        "agent_id": agent_id,
+        "tool_call_id": str(
+            getattr(call_context, "tool_call_id", "") or "",
+        ),
+    }
+
+
+def _canonical_preview_payload(preview: ActionPreview) -> dict[str, Any]:
+    return {
+        "source_type": "browser_core_action",
+        "scope_policy": "exact_only",
+        "operation_id": preview.operation_id,
+        "api_id": preview.api_id,
+        "origin": preview.origin,
+        "ordered_targets": [
+            {"label": label, "ref": target_ref}
+            for label, target_ref in preview.ordered_targets
+        ],
+        "safe_arguments": dict(preview.safe_arguments),
+        "effects": [effect.value for effect in preview.effects],
+        "expectation_bound": preview.expectation_digest != "none",
+        "binding_hash": preview.binding_hash,
     }
 
 
@@ -1105,6 +1227,7 @@ __all__ = [
     "BrowserApprovalCacheKey",
     "BrowserApprovalLevelResolution",
     "BrowserApprovalResolution",
+    "BrowserExactApprovalResolution",
     "QwenPawBrowserApprovalPolicy",
     "browser_approval_cache_key",
     "get_default_browser_approval_cache",

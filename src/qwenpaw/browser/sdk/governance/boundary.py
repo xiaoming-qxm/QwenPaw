@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -14,6 +15,17 @@ from ..primitives.types import (
     ResolvedBrowserContext,
 )
 from .errors import BrowserPolicyDenied
+from .effects import (
+    COMMUNICATION,
+    DELETE,
+    FINANCIAL,
+    PERMISSION_OR_SECURITY,
+    REMOTE_WRITE,
+    UNKNOWN,
+    EffectClassification,
+    minimum_effects,
+)
+from .errors import BrowserSDKError
 from .policy import BrowserPolicy, maybe_await_policy_decision
 from .risk import classify_browser_action
 
@@ -151,6 +163,69 @@ def state_changing_action(name: str, kwargs: dict[str, Any]) -> bool:
     }
 
 
+def require_canonical_effect_floor(
+    api_id: str,
+    arguments: Mapping[str, object],
+    classification: EffectClassification,
+) -> EffectClassification:
+    """Reject a Canonical classification that lowers its operation floor."""
+    if not isinstance(classification, EffectClassification):
+        raise BrowserSDKError(
+            "Canonical effect classification is invalid",
+            code="effect_floor_lowered",
+        )
+    floor = minimum_effects(api_id, arguments)
+    received = set(classification.categories)
+    if any(
+        category not in received
+        for category in floor
+        if category is not UNKNOWN
+    ):
+        raise BrowserSDKError(
+            "Canonical effect classification lowered its minimum floor",
+            code="effect_floor_lowered",
+        )
+    if (
+        UNKNOWN in floor
+        and UNKNOWN not in received
+        and not str(classification.proof_ref or "").strip()
+    ):
+        raise BrowserSDKError(
+            "Canonical UNKNOWN effect lacks independent closure proof",
+            code="effect_floor_lowered",
+        )
+    return classification
+
+
+def canonical_preflight_handoff_reason(
+    classification: EffectClassification,
+    arguments: Mapping[str, object],
+) -> str:
+    """Return the fixed material-risk handoff reason, if any."""
+    material = {
+        REMOTE_WRITE,
+        DELETE,
+        COMMUNICATION,
+        FINANCIAL,
+        PERMISSION_OR_SECURITY,
+    }
+    if material.intersection(classification.categories):
+        return "material_effect_requires_handoff"
+    if any(
+        bool(arguments.get(signal))
+        for signal in (
+            "financial_signal",
+            "communication_signal",
+            "delete_signal",
+            "security_signal",
+            "credential_signal",
+            "irreversible_signal",
+        )
+    ):
+        return "material_effect_requires_handoff"
+    return ""
+
+
 def bool_arg(value: Any) -> bool:
     """Coerce common Browser action boolean inputs."""
     if isinstance(value, str):
@@ -234,10 +309,12 @@ __all__ = [
     "approval_state_from_reason",
     "bool_arg",
     "boundary_decision_metadata",
+    "canonical_preflight_handoff_reason",
     "evaluate_browser_boundary",
     "policy_denial_metadata",
     "policy_metadata_kwargs",
     "raise_if_boundary_denied",
+    "require_canonical_effect_floor",
     "risk_evidence",
     "state_changing_action",
 ]

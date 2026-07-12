@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Chrome Extension backend adapter for the unified Browser SDK."""
+
 # pylint: disable=redefined-builtin,too-many-public-methods,too-many-statements
 
 from __future__ import annotations
@@ -9,10 +10,11 @@ import json
 import logging
 from datetime import UTC, datetime
 from time import monotonic, perf_counter
-from typing import Any, Callable, Literal, cast
+from typing import Any, Callable, Literal, Mapping, cast
 from urllib.parse import urlparse
 
 from qwenpaw.browser.sdk.backends.registry import get_default_backend_registry
+from qwenpaw.browser.sdk.action_runner import DispatchContext
 from qwenpaw.browser.sdk.canonical.contracts import (
     ActionResult,
     Coverage,
@@ -51,7 +53,9 @@ from qwenpaw.browser.sdk.governance.boundary import (
     evaluate_browser_boundary,
     policy_metadata_kwargs,
     raise_if_boundary_denied,
+    require_canonical_effect_floor,
 )
+from qwenpaw.browser.sdk.governance.effects import EffectClassification
 from qwenpaw.browser.sdk.telemetry.trace import record_browser_trace_event
 from qwenpaw.browser.sdk.primitives.types import (
     BrowserActionResult,
@@ -77,6 +81,7 @@ from qwenpaw.browser.sdk.runtime.resources import (
 from qwenpaw.browser.sdk.runtime.session_owner import (
     BrowserRequestBinding,
     BrowserSessionOwnerRegistry,
+    ContractMode,
     NativeContextVersion,
     TargetBinding,
 )
@@ -123,6 +128,19 @@ _ENGINE_ACTION_ALIASES = {
     "select": "select_option",
 }
 _USER_BROWSER_SESSIONS: dict[str, set["ChromeExtensionBrowserSession"]] = {}
+
+
+def _validate_canonical_effect_floor(
+    api_id: str,
+    arguments: Mapping[str, object],
+    classification: EffectClassification,
+) -> EffectClassification:
+    """Apply the shared Canonical floor at the User backend boundary."""
+    return require_canonical_effect_floor(
+        api_id,
+        arguments,
+        classification,
+    )
 
 
 class ChromeExtensionBrowserBackend:
@@ -184,6 +202,7 @@ class ChromeExtensionBrowserBackend:
             profile_fingerprint=base.profile_fingerprint,
             build_fingerprint=base.build_fingerprint,
             extension_fingerprint=base.extension_fingerprint,
+            state_verifiers=(),
         )
 
     def is_available(self) -> bool:
@@ -324,9 +343,11 @@ class ChromeExtensionBrowserBackend:
                 ),
                 BrowserDiagnosticCheck(
                     name="control_engine",
-                    status="available"
-                    if control_engine_registered
-                    else "degraded",
+                    status=(
+                        "available"
+                        if control_engine_registered
+                        else "degraded"
+                    ),
                     code=(
                         ""
                         if control_engine_registered
@@ -1104,8 +1125,46 @@ class ChromeExtensionBrowserSession:
         self,
         tab_id: str,
         name: str,
+        *,
+        dispatch_context: DispatchContext | None = None,
         **kwargs: Any,
     ) -> BrowserActionResult:
+        from qwenpaw.browser.sdk.runtime.kernel import (
+            get_current_execution_context,
+        )
+        from qwenpaw.runtime.root_request_coordinator import _OWNER_REGISTRY
+
+        execution = get_current_execution_context()
+        if (
+            execution is not None
+            and execution.contract_mode is ContractMode.CANONICAL
+        ):
+            if not isinstance(dispatch_context, DispatchContext):
+                raise BrowserSDKError(
+                    "Canonical action requires a DispatchContext.",
+                    code="canonical_dispatch_context_missing",
+                )
+            if not dispatch_context.is_bound_to(_OWNER_REGISTRY, str(tab_id)):
+                raise BrowserSDKError(
+                    "Canonical DispatchContext is not valid for this tab.",
+                    code="dispatch_context_invalid",
+                )
+            _validate_canonical_effect_floor(
+                dispatch_context.api_id,
+                kwargs,
+                EffectClassification(
+                    categories=dispatch_context.effects,
+                    proof_ref=None,
+                ),
+            )
+            await _OWNER_REGISTRY.consume_grant_for_dispatch(
+                dispatch_context,
+            )
+            raise BrowserSDKError(
+                "Canonical native action dispatch is not enabled in S5.",
+                code="canonical_action_dispatch_not_enabled",
+            )
+
         metadata = await self._action_metadata(
             tab_id,
             policy_metadata_kwargs(name, kwargs),
@@ -2037,22 +2096,28 @@ def _screenshot_invariant_from_payload(value: Any) -> ScreenshotInvariant:
     return ScreenshotInvariant(
         generation=str(payload.get("generation") or ""),
         scroll_offset=(
-            float(scroll[0]),
-            float(scroll[1]),
-        )
-        if isinstance(scroll, list) and len(scroll) == 2
-        else (0.0, 0.0),
+            (
+                float(scroll[0]),
+                float(scroll[1]),
+            )
+            if isinstance(scroll, list) and len(scroll) == 2
+            else (0.0, 0.0)
+        ),
         focused_backend_node=(
             int(payload["focused_backend_node"])
             if isinstance(payload.get("focused_backend_node"), int)
             else None
         ),
-        viewport=(int(viewport[0]), int(viewport[1]))
-        if isinstance(viewport, list) and len(viewport) == 2
-        else (0, 0),
-        layout=(int(layout[0]), int(layout[1]))
-        if isinstance(layout, list) and len(layout) == 2
-        else (0, 0),
+        viewport=(
+            (int(viewport[0]), int(viewport[1]))
+            if isinstance(viewport, list) and len(viewport) == 2
+            else (0, 0)
+        ),
+        layout=(
+            (int(layout[0]), int(layout[1]))
+            if isinstance(layout, list) and len(layout) == 2
+            else (0, 0)
+        ),
         event_watermark=int(payload.get("event_watermark") or 0),
     )
 

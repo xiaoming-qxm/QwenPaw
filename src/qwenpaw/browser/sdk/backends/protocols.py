@@ -8,6 +8,11 @@ from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
 
 from ..condition_evaluator import ConditionProbe
+from ..runtime.session_owner import (
+    StateVerification,
+    StateVerificationRequest,
+    TrustedStateVerifier,
+)
 from ..primitives.types import (
     BrowserActionResult,
     BrowserBackendCapabilities,
@@ -31,6 +36,7 @@ class BackendProfile:
     profile_fingerprint: str
     build_fingerprint: str
     extension_fingerprint: str
+    state_verifiers: tuple[TrustedStateVerifier, ...] = ()
 
     def __post_init__(self) -> None:
         if any(
@@ -209,4 +215,11 @@ class BrowserBackend(Protocol):
         """Return static backend capabilities."""
 
 
-__all__ = ["BackendProfile", "BrowserBackend", "BrowserSession"]
+__all__ = [
+    "BackendProfile",
+    "BrowserBackend",
+    "BrowserSession",
+    "StateVerification",
+    "StateVerificationRequest",
+    "TrustedStateVerifier",
+]

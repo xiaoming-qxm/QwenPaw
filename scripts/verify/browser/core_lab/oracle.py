@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Independent oracle over controller-owned observed facts."""
+
 # pylint: disable=too-many-boolean-expressions
 
 from __future__ import annotations
@@ -13,6 +14,7 @@ from .model import (
     CaseOutcome,
     ObserveReadFacts,
     OracleResult,
+    StateApprovalFacts,
     SynchronizeFacts,
     TargetControlFacts,
 )
@@ -142,6 +144,42 @@ class IndependentOracle:
                     "native_command_count": facts.observed_command_count,
                     "native_effect_count": facts.observed_effect_count,
                     "public_dispatch_count": facts.public_dispatch_count,
+                },
+            ),
+            observed_resources=(),
+            observed_blocks=(),
+        )
+
+    def evaluate_state_approval(
+        self,
+        facts: StateApprovalFacts,
+    ) -> OracleResult:
+        """Compare controller state plus request/grant/attempt counters."""
+        return self.evaluate(
+            expected_facts={
+                "decision": facts.expected_decision,
+                "state_status": facts.expected_state_status,
+                "effect_floor_preserved": (
+                    facts.expected_effect_floor_preserved
+                ),
+                "approval_request_count": facts.expected_request_count,
+                "approval_grant_count": facts.expected_grant_count,
+                "dispatch_attempt_count": facts.expected_attempt_count,
+                "remaining_uses": facts.expected_remaining_uses,
+                "native_effect_count": 0,
+            },
+            observed_events=(
+                {
+                    "decision": facts.observed_decision,
+                    "state_status": facts.observed_state_status,
+                    "effect_floor_preserved": (
+                        facts.observed_effect_floor_preserved
+                    ),
+                    "approval_request_count": facts.observed_request_count,
+                    "approval_grant_count": facts.observed_grant_count,
+                    "dispatch_attempt_count": facts.observed_attempt_count,
+                    "remaining_uses": facts.observed_remaining_uses,
+                    "native_effect_count": facts.native_effect_count,
                 },
             ),
             observed_resources=(),

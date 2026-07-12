@@ -4,15 +4,22 @@
 from __future__ import annotations
 
 import inspect
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Any
 
-from .canonical.contracts import TargetRef
+from .action_runner import ActionPreflight, ActionRunner
+from .canonical.contracts import (
+    ActionExpectation,
+    StateRequirement,
+    TabSummary,
+    TargetRef,
+)
 from .contracts import BrowserAPIContract
 from .contracts import iter_browser_api_contracts
 from .governance.errors import BrowserObservationRequired
 from .governance.errors import BrowserSDKError
 from .governance.errors import BrowserTargetResolutionError
+from .runtime.session_owner import BrowserRequestBinding
 
 
 class BrowserContractRuntime:
@@ -35,6 +42,34 @@ class BrowserContractRuntime:
             result = await result
         self._apply_postconditions(resolved, owner)
         return result
+
+    async def preflight_action(
+        self,
+        runner: ActionRunner,
+        *,
+        contract: BrowserAPIContract,
+        binding: BrowserRequestBinding,
+        receiver_tab: TabSummary | None,
+        ordered_targets: tuple[tuple[str, TargetRef], ...],
+        arguments: Mapping[str, object],
+        expectation: ActionExpectation | None,
+        state: StateRequirement | None,
+    ) -> ActionPreflight:
+        """Delegate Canonical mutation preflight to the sole ActionRunner."""
+        if not isinstance(runner, ActionRunner):
+            raise BrowserSDKError(
+                "Canonical ActionRunner is unavailable",
+                code="action_runner_missing",
+            )
+        return await runner.preflight(
+            contract=contract,
+            binding=binding,
+            receiver_tab=receiver_tab,
+            ordered_targets=ordered_targets,
+            arguments=arguments,
+            expectation=expectation,
+            state=state,
+        )
 
     def _resolve_contract(
         self,

@@ -34,9 +34,13 @@ def case_report(
                     "fake_native_object_effect_log"
                     if case.family.value == "TargetControl"
                     else (
-                        "virtual_clock_raw_probe_event_log"
-                        if case.family.value == "Synchronize"
-                        else "controller_owned_events"
+                        "approval_request_grant_attempt_log"
+                        if case.family.value == "StateApprovalEffect"
+                        else (
+                            "virtual_clock_raw_probe_event_log"
+                            if case.family.value == "Synchronize"
+                            else "controller_owned_events"
+                        )
                     )
                 )
             ),
