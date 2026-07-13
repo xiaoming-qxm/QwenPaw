@@ -128,6 +128,7 @@ def _control_bind_canonical_target(
     visual_context_ref: str | None,
     allowed_actions: tuple[str, ...],
     effect_ceiling: tuple[str, ...],
+    single_use: bool = False,
 ) -> str:
     """Store native authority outside the LEGACY ref namespace."""
     if len(owner_key) != 2 or not all(str(item).strip() for item in owner_key):
@@ -153,6 +154,8 @@ def _control_bind_canonical_target(
         "visual_context_ref": visual_context_ref,
         "allowed_actions": tuple(allowed_actions),
         "effect_ceiling": tuple(effect_ceiling),
+        "single_use": bool(single_use),
+        "use_state": "FRESH",
     }
     return token
 
@@ -168,6 +171,8 @@ def _control_canonical_binding_status(
 ) -> CanonicalBindingStatus:
     """Compare exact owner/receiver/native generations without rebinding."""
     binding = _require_canonical_binding(state, token)
+    if bool(binding.get("single_use")) and binding.get("use_state") != "FRESH":
+        return "STALE"
     if tuple(binding.get("owner_key", ())) != tuple(owner_key):
         raise BrowserSDKError(
             "canonical target owner mismatch",

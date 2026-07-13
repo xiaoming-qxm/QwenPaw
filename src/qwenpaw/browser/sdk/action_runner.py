@@ -577,6 +577,11 @@ class ActionPreview:
         repr=False,
         compare=False,
     )
+    effect_proof_ref: str | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+    )
 
     def with_origin(self, origin: str) -> "ActionPreview":
         return _rehash(replace(self, origin=str(origin)))
@@ -668,6 +673,11 @@ class DispatchContext:
     _registry: BrowserSessionOwnerRegistry = field(repr=False, compare=False)
     _owner_binding: BrowserRequestBinding = field(repr=False, compare=False)
     _receiver_tab_key: str = field(repr=False, compare=False)
+    effect_proof_ref: str | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+    )
 
     @property
     def lease_generation(self) -> int:
@@ -729,10 +739,12 @@ class ActionRunner:
         registry: BrowserSessionOwnerRegistry,
         clock: Callable[[], float] = monotonic,
         verifier_catalog: tuple[TrustedStateVerifier, ...] = (),
+        approval_requester: object | None = None,
     ) -> None:
         self._registry = registry
         self._clock = clock
         self._verifier_catalog = tuple(verifier_catalog)
+        self._approval_requester = approval_requester
 
     @staticmethod
     def prompt_response_effect_delta(
@@ -946,6 +958,19 @@ class ActionRunner:
             expectation=expectation,
             state=state,
         )
+        if preflight.needs_exact_approval and approval_grant is None:
+            request_exact = getattr(
+                self._approval_requester,
+                "request_exact",
+                None,
+            )
+            if callable(request_exact) and preflight.preview is not None:
+                resolution = await request_exact(preflight.preview)
+                candidate_grant = getattr(resolution, "grant", None)
+                if isinstance(candidate_grant, ApprovalGrant):
+                    approval_grant = candidate_grant
+            if approval_grant is None:
+                return _blocked_run_result(preflight, contract)
         if (
             preflight.preview is not None
             and expectation is not None
@@ -1122,6 +1147,10 @@ class ActionRunner:
                     "final revalidator returned an invalid decision",
                     code="final_revalidation_invalid",
                 )
+            dispatch_grant = approval_grant or issue_exact_grant(
+                preview,
+                now=self._clock(),
+            )
             command_payload: dict[str, object] = {
                 "arguments": dict(arguments),
                 "root_task_id": binding.root_task_id,
@@ -1129,11 +1158,7 @@ class ActionRunner:
                 "session_id": binding.root_session_id,
                 "owner_lease_generation": binding.lease_generation,
                 "binding_hash": preview.binding_hash,
-                "approval_grant_id": (
-                    approval_grant.grant_id
-                    if approval_grant is not None
-                    else None
-                ),
+                "approval_grant_id": dispatch_grant.grant_id,
             }
             sealed_operation = getattr(
                 getattr(watch, "_request", None),
@@ -1161,16 +1186,20 @@ class ActionRunner:
                 command_payload,
             )
             _emit(event_hook, "command_fact_persisted")
-            dispatch_context = None
-            if approval_grant is not None:
-                dispatch_context = preflight.dispatch_context(
-                    approval_grant,
-                    command=command,
+            dispatch_context = preflight.dispatch_context(
+                dispatch_grant,
+                command=command,
+            )
+            await self._registry.consume_grant_for_dispatch(
+                dispatch_context,
+            )
+            _emit(event_hook, "grant_consumed")
+            for _, target in ordered_targets:
+                self._registry.consume_single_use_target(
+                    target,
+                    receiver_tab=dispatch_context._receiver_tab_key,
+                    owner=binding,
                 )
-                await self._registry.consume_grant_for_dispatch(
-                    dispatch_context,
-                )
-                _emit(event_hook, "grant_consumed")
             _emit(event_hook, "dispatch")
             dispatch_fact = await dispatcher(
                 command=command,
@@ -1274,6 +1303,16 @@ class ActionRunner:
             state_revision = resolved_tab.state_revision
             layout_revision = resolved_tab.layout_revision
 
+        if expectation is not None:
+            requested_action = contract.api_id.rsplit(".", 1)[-1]
+            for _label, target in ordered_targets:
+                self._registry.bind_trusted_surface_action(
+                    target,
+                    receiver_tab=receiver_key,
+                    owner=binding,
+                    action=requested_action,
+                    expectation=expectation,
+                )
         logical_targets, target_facts = self._resolve_targets(
             ordered_targets,
             receiver_key=receiver_key,
@@ -1326,6 +1365,20 @@ class ActionRunner:
             classification,
             arguments,
         )
+        surface_facts = tuple(
+            fact for fact in target_facts if fact.kind == "trusted_surface"
+        )
+        if any(
+            not set(classification.categories).issubset(
+                set(fact.effect_ceiling),
+            )
+            for fact in surface_facts
+        ):
+            return ActionPreflight(
+                decision=PreflightDecision.HANDOFF,
+                reason="trusted_surface_effect_ceiling_exceeded",
+                preview=preview,
+            )
         if handoff:
             return ActionPreflight(
                 decision=PreflightDecision.HANDOFF,
@@ -1342,6 +1395,19 @@ class ActionRunner:
             return ActionPreflight(
                 decision=PreflightDecision.EXACT_APPROVAL,
                 reason="single_use_exact_approval_required",
+                preview=preview,
+                needs_exact_approval=True,
+            )
+        if surface_facts:
+            if expectation is None:
+                return ActionPreflight(
+                    decision=PreflightDecision.HANDOFF,
+                    reason="trusted_surface_expectation_required",
+                    preview=preview,
+                )
+            return ActionPreflight(
+                decision=PreflightDecision.EXACT_APPROVAL,
+                reason="trusted_surface_exact_approval_required",
                 preview=preview,
                 needs_exact_approval=True,
             )
@@ -1373,22 +1439,57 @@ class ActionRunner:
                     "ordered target is not Runtime-issued",
                     code="runtime_issued_value",
                 )
-            self._registry.resolve_target(
+            target_binding = self._registry.resolve_target(
                 target,
                 receiver_tab=receiver_key,
                 owner=owner,
             )
+            if not target_binding.allowed_actions:
+                raise BrowserSDKError(
+                    "target has no executable action authority",
+                    code="target_action_forbidden",
+                )
+            if (
+                bool(getattr(target, "single_use", False))
+                and target_binding.use_state != "FRESH"
+            ):
+                raise BrowserSDKError(
+                    "single-use target was already consumed",
+                    code="target_consumed",
+                )
             labels.add(normalized_label)
             logical.append((normalized_label, str(target.ref)))
-            facts.append(
-                TargetFact(
-                    kind=(
-                        "semantic_link"
-                        if str(getattr(target, "observed_url", "") or "")
-                        else "generic"
+            if target_binding.surface_policy_proof:
+                try:
+                    ceiling = tuple(
+                        EffectCategory(item)
+                        for item in target_binding.effect_ceiling
+                    )
+                except ValueError as exc:
+                    raise BrowserSDKError(
+                        "trusted surface effect ceiling is invalid",
+                        code="effect_proof_invalid",
+                    ) from exc
+                facts.append(
+                    TargetFact(
+                        kind="trusted_surface",
+                        proof_ref=target_binding.surface_policy_proof,
+                        effect_ceiling=ceiling,
+                        replaces_unknown=True,
                     ),
-                ),
-            )
+                )
+            else:
+                facts.append(
+                    TargetFact(
+                        kind=(
+                            "semantic_link"
+                            if str(
+                                getattr(target, "observed_url", "") or "",
+                            )
+                            else "generic"
+                        ),
+                    ),
+                )
         return tuple(logical), tuple(facts)
 
 
@@ -2126,6 +2227,7 @@ def _dispatch_context(
         _registry=preview._registry,
         _owner_binding=owner,
         _receiver_tab_key=preview._receiver_tab_key,
+        effect_proof_ref=preview.effect_proof_ref,
     )
     preview._registry.bind_dispatch_context(
         owner,
@@ -2160,6 +2262,7 @@ def _dispatch_command_fingerprint(
             "approval_grant_id": grant.grant_id,
             "expectation_digest": preview.expectation_digest,
             "classified_effects": preview.effects,
+            "effect_proof_ref": preview.effect_proof_ref,
         },
     )
 
@@ -2206,6 +2309,7 @@ def _new_preview(
         _registry=registry,
         _owner_binding=binding,
         _receiver_tab_key=receiver_tab_key,
+        effect_proof_ref=classification.proof_ref,
     )
     return _rehash(preview)
 
@@ -2221,6 +2325,7 @@ def _rehash(preview: ActionPreview) -> ActionPreview:
         "state_binding_digest": preview.state_binding_digest,
         "critical_arguments": preview._critical_arguments,
         "effects": preview.effects,
+        "effect_proof_ref": preview.effect_proof_ref,
         "expectation_digest": preview.expectation_digest,
         "expires_at": preview.expires_at,
     }

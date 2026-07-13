@@ -73,7 +73,21 @@ class Browser:
 
             target_registry = _OWNER_REGISTRY
             owner_binding = execution_binding(execution)
-            action_runner = ActionRunner(registry=_OWNER_REGISTRY)
+            approval_requester = getattr(self.session, "_policy", None)
+            trusted_surface_policy = getattr(
+                approval_requester,
+                "trusted_surface_policy",
+                None,
+            )
+            if trusted_surface_policy is not None:
+                _OWNER_REGISTRY.install_trusted_surface_policy(
+                    owner_binding,
+                    trusted_surface_policy,
+                )
+            action_runner = ActionRunner(
+                registry=_OWNER_REGISTRY,
+                approval_requester=approval_requester,
+            )
         self.tabs = BrowserTabs(
             _session=self.session,
             _resources=store,

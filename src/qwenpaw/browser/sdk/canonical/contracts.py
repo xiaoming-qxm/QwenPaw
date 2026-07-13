@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+from enum import StrEnum
 from typing import Any, Literal, TypeAlias, cast
 from uuid import uuid4
 
@@ -64,6 +65,16 @@ class EvidenceRef(_OpaqueRuntimeValue):
 
 class VisualContextRef(_OpaqueRuntimeValue):
     """Opaque visual context reference."""
+
+
+class Grounding(StrEnum):
+    """Closed VisualRegion-to-semantic-target outcome."""
+
+    EXACT = "EXACT"
+    MULTIPLE = "MULTIPLE"
+    NO_MATCH = "NO_MATCH"
+    STALE = "STALE"
+    UNAVAILABLE = "UNAVAILABLE"
 
 
 class TargetRef(_OpaqueRuntimeValue):
@@ -298,6 +309,8 @@ class VisualRegion:
         values = (x, y, width, height)
         if any(not 0.0 <= value <= 1.0 for value in values):
             raise ValueError("VisualRegion bounds must be normalized")
+        if width <= 0.0 or height <= 0.0:
+            raise ValueError("VisualRegion width and height must be positive")
         if x + width > 1.0 or y + height > 1.0:
             raise ValueError("VisualRegion must fit within its context")
         if not isinstance(visual_context, VisualContextRef):
@@ -1454,10 +1467,24 @@ class SnapshotResult(_TerminalFields):
     model_text: str = ""
     targets: tuple[TargetSummary, ...] = ()
     regions: tuple[RegionSummary, ...] = ()
-    grounding: object | None = None
+    grounding: Grounding | None = None
     source_summary: str = ""
 
     def __post_init__(self) -> None:
+        if self.grounding is Grounding.EXACT and len(self.targets) != 1:
+            raise ResultContractError("EXACT grounding requires one target")
+        if self.grounding is Grounding.MULTIPLE and len(self.targets) < 2:
+            raise ResultContractError(
+                "MULTIPLE grounding requires multiple targets",
+            )
+        if self.grounding in {
+            Grounding.NO_MATCH,
+            Grounding.STALE,
+            Grounding.UNAVAILABLE,
+        } and self.targets:
+            raise ResultContractError(
+                "negative grounding cannot contain targets",
+            )
         validate_result_contract(self)
 
 
@@ -2267,6 +2294,7 @@ PUBLIC_CONSTRUCTOR_NAMES = (
     "TargetQuery",
     "CurrentSurface",
     "FrameScope",
+    "Grounding",
     "RegionScope",
     "VisualRegion",
     "PageCondition",

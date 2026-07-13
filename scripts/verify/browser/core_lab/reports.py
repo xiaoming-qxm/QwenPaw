@@ -44,34 +44,7 @@ def case_report(
         "validation_evidence": (f"{case.case_id}@{fingerprints['build']}"),
         "build_fingerprints": fingerprints,
         "oracle": {
-            "provenance": (
-                "native_transfer_effect_and_stored_byte_log"
-                if case.family is CapabilityFamily.RESOURCE_FILE
-                else (
-                    "fixture_ax_dom_native_call_log"
-                    if case.family.value == "ObserveRead"
-                    else (
-                        "fake_native_object_effect_log"
-                        if case.family.value == "TargetControl"
-                        else (
-                            (
-                                "native_dispatch_effect_receipt_cleanup_log"
-                                if case.case_id.startswith("action.fault.")
-                                else "approval_request_grant_attempt_log"
-                            )
-                            if case.family.value == "StateApprovalEffect"
-                            else (
-                                "virtual_clock_raw_probe_event_log"
-                                if case.family.value == "Synchronize"
-                                and not case.case_id.startswith(
-                                    "synchronize.surface-",
-                                )
-                                else "controller_native_event_log"
-                            )
-                        )
-                    )
-                )
-            ),
+            "provenance": _oracle_provenance(case),
             "expected": result.expected,
             "observed": result.observed,
             "diff": result.diff,
@@ -82,6 +55,29 @@ def case_report(
             "--report /tmp/browser-core-replay.json"
         ),
     }
+
+
+def _oracle_provenance(case: LabCase) -> str:
+    if case.family is CapabilityFamily.RESOURCE_FILE:
+        return "native_transfer_effect_and_stored_byte_log"
+    if case.family is CapabilityFamily.VISUAL_CANVAS:
+        return "fixture_hit_event_and_target_identity_log"
+    if case.family is CapabilityFamily.OBSERVE_READ:
+        return "fixture_ax_dom_native_call_log"
+    if case.family is CapabilityFamily.TARGET_CONTROL:
+        return "fake_native_object_effect_log"
+    if case.family is CapabilityFamily.STATE_APPROVAL_EFFECT:
+        return (
+            "native_dispatch_effect_receipt_cleanup_log"
+            if case.case_id.startswith("action.fault.")
+            else "approval_request_grant_attempt_log"
+        )
+    if (
+        case.family is CapabilityFamily.SYNCHRONIZE
+        and not case.case_id.startswith("synchronize.surface-")
+    ):
+        return "virtual_clock_raw_probe_event_log"
+    return "controller_native_event_log"
 
 
 def write_report(path: str | Path, payload: dict[str, Any]) -> None:
@@ -400,6 +396,119 @@ def update_s8_support_from_report(
     )
 
 
+def update_s9_support_from_report(
+    report: dict[str, Any],
+    *,
+    manifest_path: str | Path,
+) -> None:
+    """Keep required generic visual evidence separate from policy action."""
+    if str(report.get("family") or "") != CapabilityFamily.VISUAL_CANVAS.value:
+        return
+    cases = {
+        str(item["case_id"]): item
+        for item in report.get("cases", ())
+        if item.get("family") == CapabilityFamily.VISUAL_CANVAS.value
+    }
+    required = {
+        "visual.viewport_grounding": (
+            "visual.viewport-grounding-exact",
+            "visual.icon-only-exact",
+            "visual.repeated-targets-multiple",
+            "visual.overlapping-candidates-multiple",
+            "visual.frame-target-exact",
+            "visual.open-shadow-target-exact",
+            "visual.closed-shadow-host-exact",
+            "visual.full-page-evidence-only",
+        ),
+        "visual.occlusion_revalidation": (
+            "visual.ref-churn-stale",
+            "visual.resize-stale",
+            "visual.overlay-occluded-no-send",
+            "visual.scroll-stale",
+            "visual.zoom-stale",
+            "visual.dpr-stale",
+            "visual.layout-change-stale",
+            *_VISUAL_FAULT_EVIDENCE,
+        ),
+        "visual.opaque_canvas_handoff": (
+            "visual.canvas-no-policy-handoff",
+            "visual.map-no-policy-handoff",
+        ),
+    }
+    if any(
+        case_id not in cases or cases[case_id].get("outcome") != "PASS"
+        for case_ids in required.values()
+        for case_id in case_ids
+    ):
+        return
+    policy_case = cases.get("visual.policy-low-risk-action")
+    target = Path(manifest_path)
+    manifest = json.loads(target.read_text(encoding="utf-8"))
+    replaced = set(required) | {"visual.policy_scoped_low_risk_action"}
+    retained = [
+        row
+        for row in manifest["capabilities"]
+        if row["capability_id"] not in replaced
+    ]
+    rows = [
+        {
+            "capability_id": capability_id,
+            "family": CapabilityFamily.VISUAL_CANVAS.value,
+            "requirement": "REQUIRED",
+            "status": "READY",
+            "limits": {},
+            "required_blocks": [],
+            "validation_evidence": [
+                cases[case_id]["validation_evidence"]
+                for case_id in case_ids
+            ],
+        }
+        for capability_id, case_ids in required.items()
+    ]
+    rows.append(
+        {
+            "capability_id": "visual.policy_scoped_low_risk_action",
+            "family": CapabilityFamily.VISUAL_CANVAS.value,
+            "requirement": "OPTIONAL",
+            "status": (
+                "READY"
+                if policy_case is not None
+                and policy_case.get("outcome") == "PASS"
+                else "BLOCKED"
+            ),
+            "limits": {
+                "effect_ceiling": ["PRESENTATION", "SESSION_STATE"],
+                "single_use": True,
+            },
+            "required_blocks": [],
+            "validation_evidence": (
+                [policy_case["validation_evidence"]]
+                if policy_case is not None
+                else []
+            ),
+        },
+    )
+    manifest["capabilities"] = retained + rows
+    target.write_text(
+        json.dumps(manifest, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
+_VISUAL_FAULT_EVIDENCE = (
+    "visual.fault.before-screenshot",
+    "visual.fault.after-screenshot",
+    "visual.fault.after-binding-issue",
+    "visual.fault.after-hit-test",
+    "visual.fault.after-ref-storage",
+    "visual.fault.after-preflight",
+    "visual.fault.after-final-revalidation",
+    "visual.fault.after-input-send",
+    "visual.fault.after-receipt",
+    "visual.fault.after-postcondition",
+)
+
+
 def _blocked_support_row(
     capability_id: str,
     family: str,
@@ -423,5 +532,6 @@ __all__ = [
     "update_s6_support_from_report",
     "update_s7_support_from_report",
     "update_s8_support_from_report",
+    "update_s9_support_from_report",
     "write_report",
 ]

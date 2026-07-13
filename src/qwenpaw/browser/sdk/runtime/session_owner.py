@@ -9,25 +9,31 @@ import asyncio
 from hashlib import sha256
 import json
 import secrets
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from time import monotonic
 from typing import Callable, Literal, Protocol, TypeAlias
 from uuid import uuid4
 
 from ..canonical.contracts import (
+    ActionExpectation,
     BrowserPrompt,
     ContextVersion,
     EvidenceRef,
     StateRequirement,
     TabSummary,
     TargetRef,
+    VisualContextRef,
     _issue_context_version,
     _issue_opaque_value,
     _issue_target_ref,
     _RUNTIME_VALUE_ISSUER,
 )
 from ..governance.errors import BrowserSDKError
+from ..governance.policy import (
+    TrustedSurfacePolicy,
+    trusted_surface_rule_fingerprint,
+)
 from ..primitives.matching import canonicalize_http_url
 
 
@@ -155,6 +161,36 @@ class TargetBinding:
     effect_ceiling: tuple[str, ...]
     use_state: str
     expires_at: float
+    bridge_token: str = ""
+    surface_origin: str = ""
+    surface_identity: str = ""
+    surface_policy_revision: str = ""
+    surface_policy_evidence: str = ""
+    surface_policy_proof: str = ""
+    surface_policy_expires_at: float = 0.0
+
+
+@dataclass(frozen=True)
+class VisualContextBinding:
+    """Private same-epoch facts behind one opaque visual context."""
+
+    root_task_id: str
+    browser_owner_id: str
+    session_id: str
+    backend_id: str
+    receiver_tab_key: str
+    context: ContextVersion
+    viewport: tuple[int, int]
+    scroll: tuple[float, float]
+    zoom: float
+    device_pixel_ratio: float
+    layout: tuple[int, int]
+    capture_epoch: int
+    image_sha256: str
+    resource_id: str
+    generation: str
+    expires_at: float
+    actionable: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -200,6 +236,7 @@ class BrowserOwnerRegistryError(RuntimeError):
 @dataclass(slots=True)
 class _OwnerState:
     binding: BrowserRequestBinding
+    trusted_surface_policy: TrustedSurfacePolicy | None = None
     lease_active: bool = True
     retained_until: float | None = None
     attachment: BrowserOwnerAttachment | None = None
@@ -207,6 +244,9 @@ class _OwnerState:
         default_factory=dict,
     )
     targets: dict[TargetRef, TargetBinding] = field(default_factory=dict)
+    visual_contexts: dict[VisualContextRef, VisualContextBinding] = field(
+        default_factory=dict,
+    )
     tabs: dict[TabSummary, "_TabState"] = field(default_factory=dict)
     selected_tab: TabSummary | None = None
     initial_selection_captured: bool = False
@@ -448,6 +488,7 @@ class BrowserSessionOwnerRegistry:
         *,
         clock: Callable[[], float] = monotonic,
         modes: SessionContractModeRegistry | None = None,
+        trusted_surface_policy: TrustedSurfacePolicy | None = None,
         pending_action_capacity: int = 128,
         pending_action_ttl_seconds: float = 300.0,
     ) -> None:
@@ -457,6 +498,7 @@ class BrowserSessionOwnerRegistry:
             raise ValueError("pending_action_ttl_seconds must be positive")
         self._clock = clock
         self._modes = modes or SessionContractModeRegistry()
+        self._default_trusted_surface_policy = trusted_surface_policy
         self._pending_action_capacity = int(pending_action_capacity)
         self._pending_action_ttl_seconds = float(
             pending_action_ttl_seconds,
@@ -464,6 +506,27 @@ class BrowserSessionOwnerRegistry:
         self._owners: dict[tuple[str, str], _OwnerState] = {}
         self._tokens: dict[str, _TokenState] = {}
         self._lock = asyncio.Lock()
+
+    def install_trusted_surface_policy(
+        self,
+        owner: BrowserRequestBinding,
+        policy: TrustedSurfacePolicy,
+    ) -> None:
+        """Bind one immutable host-reviewed policy to an exact owner."""
+        if not isinstance(policy, TrustedSurfacePolicy):
+            raise BrowserSDKError(
+                "trusted surface policy is invalid",
+                code="surface_policy_invalid",
+            )
+        state = self._require_owner(owner)
+        if state.trusted_surface_policy is None:
+            state.trusted_surface_policy = policy
+            return
+        if state.trusted_surface_policy is not policy:
+            raise BrowserSDKError(
+                "trusted surface policy is already installed",
+                code="surface_policy_invalid",
+            )
 
     async def begin_request(
         self,
@@ -496,7 +559,10 @@ class BrowserSessionOwnerRegistry:
             lease_generation=1,
         )
         async with self._lock:
-            self._owners[binding.owner_key] = _OwnerState(binding=binding)
+            self._owners[binding.owner_key] = _OwnerState(
+                binding=binding,
+                trusted_surface_policy=self._default_trusted_surface_policy,
+            )
         return binding
 
     async def bind_owner_attachment(
@@ -1236,6 +1302,100 @@ class BrowserSessionOwnerRegistry:
             )
         return stored.native
 
+    def issue_visual_context(
+        self,
+        owner: BrowserRequestBinding,
+        *,
+        receiver_tab: str,
+        backend_id: str,
+        context: ContextVersion,
+        viewport: tuple[int, int],
+        scroll: tuple[float, float],
+        zoom: float,
+        device_pixel_ratio: float,
+        layout: tuple[int, int],
+        capture_epoch: int,
+        image_sha256: str,
+        resource_id: str,
+        generation: str,
+        expires_at: float,
+        actionable: bool,
+    ) -> VisualContextRef:
+        """Issue one owner-scoped same-epoch viewport binding."""
+        receiver = _require_handle_text(receiver_tab, "receiver_tab")
+        self.resolve_context(context, owner=owner, receiver_tab=receiver)
+        if (
+            min(*viewport, *layout) <= 0
+            or zoom <= 0
+            or device_pixel_ratio <= 0
+            or capture_epoch < 0
+            or len(image_sha256) != 64
+        ):
+            raise BrowserSDKError(
+                "visual context invariant is invalid",
+                code="visual_context_invalid",
+            )
+        state = self._require_owner(owner)
+        visual = _issue_opaque_value(
+            VisualContextRef,
+            _RUNTIME_VALUE_ISSUER,
+            id=_new_handle_token("visual"),
+        )
+        assert isinstance(visual, VisualContextRef)
+        state.visual_contexts[visual] = VisualContextBinding(
+            root_task_id=owner.root_task_id,
+            browser_owner_id=owner.browser_owner_id,
+            session_id=owner.root_session_id,
+            backend_id=_require_handle_text(backend_id, "backend_id"),
+            receiver_tab_key=receiver,
+            context=context,
+            viewport=(int(viewport[0]), int(viewport[1])),
+            scroll=(float(scroll[0]), float(scroll[1])),
+            zoom=float(zoom),
+            device_pixel_ratio=float(device_pixel_ratio),
+            layout=(int(layout[0]), int(layout[1])),
+            capture_epoch=int(capture_epoch),
+            image_sha256=str(image_sha256),
+            resource_id=_require_handle_text(resource_id, "resource_id"),
+            generation=_require_handle_text(generation, "generation"),
+            expires_at=float(expires_at),
+            actionable=bool(actionable),
+        )
+        return visual
+
+    def resolve_visual_context(
+        self,
+        visual: VisualContextRef,
+        *,
+        owner: BrowserRequestBinding,
+        receiver_tab: str,
+    ) -> VisualContextBinding:
+        """Resolve one fresh visual binding for its exact owner and tab."""
+        if not isinstance(visual, VisualContextRef):
+            raise BrowserSDKError(
+                "visual context has the wrong type",
+                code="runtime_issued_value",
+            )
+        state = self._require_owner(owner)
+        binding = state.visual_contexts.get(visual)
+        if binding is None:
+            raise BrowserSDKError(
+                "visual context is not registered to this owner",
+                code="runtime_issued_value",
+            )
+        receiver = _require_handle_text(receiver_tab, "receiver_tab")
+        if binding.receiver_tab_key != receiver:
+            raise BrowserSDKError(
+                "visual context receiver mismatch",
+                code="visual_context_wrong_receiver",
+            )
+        if self._clock() > binding.expires_at:
+            raise BrowserSDKError(
+                "visual context binding expired",
+                code="visual_context_expired",
+            )
+        return binding
+
     def issue_target(
         self,
         binding: TargetBinding,
@@ -1278,6 +1438,281 @@ class BrowserSessionOwnerRegistry:
         )
         state.targets[target] = binding
         return target
+
+    def issue_trusted_surface_target(
+        self,
+        owner: BrowserRequestBinding,
+        *,
+        candidate: TargetBinding,
+        receiver_tab: str,
+        origin: str,
+        surface_identity: str,
+        action: str,
+        expectation: ActionExpectation | None,
+        policy: TrustedSurfacePolicy | None,
+    ) -> TargetRef | None:
+        """Issue one exact low-risk surface target or preserve handoff."""
+        if policy is None:
+            return None
+        if not isinstance(expectation, ActionExpectation):
+            raise BrowserSDKError(
+                "trusted surface action requires a typed expectation",
+                code="surface_expectation_required",
+            )
+        if not isinstance(candidate, TargetBinding):
+            raise BrowserSDKError(
+                "trusted surface binding is invalid",
+                code="target_binding_invalid",
+            )
+        receiver = _require_handle_text(receiver_tab, "receiver_tab")
+        if (
+            candidate.root_task_id != owner.root_task_id
+            or candidate.browser_owner_id != owner.browser_owner_id
+            or candidate.session_id != owner.root_session_id
+            or candidate.receiver_tab_key != receiver
+        ):
+            raise BrowserSDKError(
+                "trusted surface owner binding is invalid",
+                code="target_wrong_owner",
+            )
+        if (
+            candidate.use_state != "FRESH"
+            or self._clock() > candidate.expires_at
+            or not candidate.visual_context_ref
+            or not candidate.geometry_digest
+            or not candidate.native_identity
+        ):
+            raise BrowserSDKError(
+                "trusted surface binding is stale",
+                code="target_stale",
+            )
+        state = self._require_owner(owner)
+        tab_binding = next(
+            (
+                item
+                for item in state.tabs.values()
+                if item.receiver_tab_key == receiver
+                and self._clock() <= item.expires_at
+            ),
+            None,
+        )
+        normalized_origin = canonicalize_http_url(origin).value.rstrip("/")
+        if (
+            tab_binding is None
+            or canonicalize_http_url(tab_binding.origin).value.rstrip("/")
+            != normalized_origin
+        ):
+            return None
+        context_current = any(
+            context_state.receiver_tab_key == receiver
+            and self._clock() <= context_state.expires_at
+            and str(context.version_ref) == candidate.context_ref
+            for context, context_state in state.contexts.items()
+        )
+        if not context_current:
+            raise BrowserSDKError(
+                "trusted surface context is stale",
+                code="target_stale",
+            )
+        rule = policy.authorize(
+            origin=normalized_origin,
+            surface_identity=surface_identity,
+            action=action,
+            now=self._clock(),
+        )
+        if rule is None:
+            return None
+        policy_proof = trusted_surface_rule_fingerprint(
+            origin=rule.origin,
+            surface_identity=rule.surface_identity,
+            action=str(action),
+            revision=rule.revision,
+            evidence_ref=rule.evidence_ref,
+            effect_ceiling=rule.effect_ceiling,
+            expires_at=rule.expires_at,
+        )
+        binding = replace(
+            candidate,
+            allowed_actions=(str(action),),
+            effect_ceiling=tuple(str(item) for item in rule.effect_ceiling),
+            use_state="FRESH",
+            surface_origin=rule.origin,
+            surface_identity=rule.surface_identity,
+            surface_policy_revision=rule.revision,
+            surface_policy_evidence=rule.evidence_ref,
+            surface_policy_proof=policy_proof,
+            surface_policy_expires_at=float(rule.expires_at),
+        )
+        return self.issue_target(
+            binding,
+            safe_role="canvas",
+            safe_name="Reviewed visual surface",
+            single_use=True,
+        )
+
+    def issue_trusted_surface_candidate(
+        self,
+        owner: BrowserRequestBinding,
+        *,
+        candidate: TargetBinding,
+        receiver_tab: str,
+        origin: str,
+        surface_identity: str,
+    ) -> TargetRef | None:
+        """Issue a reviewed candidate whose exact action is sealed later."""
+        state = self._require_owner(owner)
+        policy = state.trusted_surface_policy
+        if policy is None:
+            return None
+        if not isinstance(candidate, TargetBinding):
+            raise BrowserSDKError(
+                "trusted surface binding is invalid",
+                code="target_binding_invalid",
+            )
+        receiver = _require_handle_text(receiver_tab, "receiver_tab")
+        if (
+            candidate.root_task_id != owner.root_task_id
+            or candidate.browser_owner_id != owner.browser_owner_id
+            or candidate.session_id != owner.root_session_id
+            or candidate.receiver_tab_key != receiver
+        ):
+            raise BrowserSDKError(
+                "trusted surface owner binding is invalid",
+                code="target_wrong_owner",
+            )
+        if (
+            candidate.use_state != "FRESH"
+            or self._clock() > candidate.expires_at
+            or not candidate.visual_context_ref
+            or not candidate.geometry_digest
+            or not candidate.native_identity
+        ):
+            raise BrowserSDKError(
+                "trusted surface binding is stale",
+                code="target_stale",
+            )
+        tab_binding = next(
+            (
+                item
+                for item in state.tabs.values()
+                if item.receiver_tab_key == receiver
+                and self._clock() <= item.expires_at
+            ),
+            None,
+        )
+        normalized_origin = canonicalize_http_url(origin).value.rstrip("/")
+        if (
+            tab_binding is None
+            or canonicalize_http_url(tab_binding.origin).value.rstrip("/")
+            != normalized_origin
+        ):
+            return None
+        context_current = any(
+            context_state.receiver_tab_key == receiver
+            and self._clock() <= context_state.expires_at
+            and str(context.version_ref) == candidate.context_ref
+            for context, context_state in state.contexts.items()
+        )
+        if not context_current:
+            raise BrowserSDKError(
+                "trusted surface context is stale",
+                code="target_stale",
+            )
+        rule = policy.match(
+            origin=normalized_origin,
+            surface_identity=surface_identity,
+            now=self._clock(),
+        )
+        if rule is None:
+            return None
+        binding = replace(
+            candidate,
+            allowed_actions=tuple(rule.allowed_actions),
+            effect_ceiling=tuple(str(item) for item in rule.effect_ceiling),
+            use_state="FRESH",
+            surface_origin=rule.origin,
+            surface_identity=rule.surface_identity,
+            surface_policy_revision=rule.revision,
+            surface_policy_evidence=rule.evidence_ref,
+            surface_policy_proof="",
+            surface_policy_expires_at=float(rule.expires_at),
+        )
+        return self.issue_target(
+            binding,
+            safe_role="canvas",
+            safe_name="Reviewed visual surface",
+            single_use=True,
+        )
+
+    def bind_trusted_surface_action(
+        self,
+        target: TargetRef,
+        *,
+        receiver_tab: str,
+        owner: BrowserRequestBinding,
+        action: str,
+        expectation: ActionExpectation,
+    ) -> TargetBinding:
+        """Seal one staged surface candidate to a typed expected action."""
+        if not isinstance(expectation, ActionExpectation):
+            raise BrowserSDKError(
+                "trusted surface action requires a typed expectation",
+                code="surface_expectation_required",
+            )
+        binding = self.resolve_target(
+            target,
+            receiver_tab=receiver_tab,
+            owner=owner,
+        )
+        if binding.surface_policy_proof:
+            if binding.allowed_actions != (str(action),):
+                raise BrowserSDKError(
+                    "trusted surface target is sealed to another action",
+                    code="target_action_forbidden",
+                )
+            return binding
+        if not binding.surface_identity or not binding.surface_origin:
+            return binding
+        state = self._require_owner(owner)
+        policy = state.trusted_surface_policy
+        rule = (
+            policy.authorize(
+                origin=binding.surface_origin,
+                surface_identity=binding.surface_identity,
+                action=action,
+                now=self._clock(),
+            )
+            if policy is not None
+            else None
+        )
+        if (
+            rule is None
+            or rule.revision != binding.surface_policy_revision
+            or rule.evidence_ref != binding.surface_policy_evidence
+            or tuple(str(item) for item in rule.effect_ceiling)
+            != binding.effect_ceiling
+            or float(rule.expires_at) != binding.surface_policy_expires_at
+        ):
+            raise BrowserSDKError(
+                "trusted surface policy no longer matches",
+                code="surface_policy_invalid",
+            )
+        proof = trusted_surface_rule_fingerprint(
+            origin=rule.origin,
+            surface_identity=rule.surface_identity,
+            action=str(action),
+            revision=rule.revision,
+            evidence_ref=rule.evidence_ref,
+            effect_ceiling=rule.effect_ceiling,
+            expires_at=rule.expires_at,
+        )
+        sealed = replace(
+            binding,
+            allowed_actions=(str(action),),
+            surface_policy_proof=proof,
+        )
+        state.targets[target] = sealed
+        return sealed
 
     def resolve_target(
         self,
@@ -1325,7 +1760,38 @@ class BrowserSessionOwnerRegistry:
                 "target binding expired",
                 code="target_expired",
             )
+        if (
+            binding.surface_policy_expires_at > 0
+            and self._clock() >= binding.surface_policy_expires_at
+        ):
+            raise BrowserSDKError(
+                "trusted surface policy expired",
+                code="surface_policy_expired",
+            )
         return binding
+
+    def consume_single_use_target(
+        self,
+        target: TargetRef,
+        *,
+        receiver_tab: str,
+        owner: BrowserRequestBinding,
+    ) -> None:
+        """Consume visual/canvas authority once immediately before send."""
+        binding = self.resolve_target(
+            target,
+            receiver_tab=receiver_tab,
+            owner=owner,
+        )
+        if not bool(getattr(target, "single_use", False)):
+            return
+        if binding.use_state != "FRESH":
+            raise BrowserSDKError(
+                "single-use target was already consumed",
+                code="target_consumed",
+            )
+        state = self._require_owner(owner)
+        state.targets[target] = replace(binding, use_state="CONSUMED")
 
     def target_context_status(
         self,

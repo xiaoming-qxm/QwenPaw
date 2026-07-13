@@ -9,6 +9,7 @@ from qwenpaw.browser.sdk.runtime.responses import (
     _tool_response,
     _tool_response_with_blocks,
 )
+from qwenpaw.browser.sdk.runtime.snapshot import ObservationBudget
 from ..network_settle import _network_quiescence_wait
 from ..observation import (
     _click_effect_check,
@@ -34,6 +35,11 @@ from ..state import ControlState
 from ..state_verification import _control_state_verification_payload
 from ..tab_manager import _control_ensure_tab_available, _control_page_id
 from ..navigation import _control_tab_id
+from ..targets import (
+    canonical_visual_candidate_backend_ids,
+    canonical_visual_geometry_in_region,
+    canonical_visual_target_is_current_hit,
+)
 from .protocol import ActionMeta
 
 
@@ -73,7 +79,17 @@ class SnapshotHandler:
                 grace_ms=50.0,
             )
         if contract_mode == "CANONICAL":
-            capture = await build_canonical_snapshot(session)
+            visual_region = kwargs.get("visual_region")
+            budget = None
+            if isinstance(visual_region, dict):
+                raw_budget = visual_region.get("budget")
+                if isinstance(raw_budget, dict):
+                    budget = ObservationBudget(
+                        capture_nodes=int(raw_budget["capture_nodes"]),
+                        output_targets=int(raw_budget["output_targets"]),
+                        hard_maximum=int(raw_budget["hard_maximum"]),
+                    )
+            capture = await build_canonical_snapshot(session, budget=budget)
             _control_clear_observation_required(state, tab_id)
             _control_clear_visual_observation(state, tab_id)
             payload = _canonical_snapshot_payload(
@@ -87,6 +103,13 @@ class SnapshotHandler:
                     {},
                 ),
             )
+            if isinstance(visual_region, dict):
+                payload = await _canonical_visual_grounding_payload(
+                    session,
+                    state=state,
+                    payload=payload,
+                    request=visual_region,
+                )
             return _tool_response(
                 json.dumps(payload, ensure_ascii=False, indent=2),
             )
@@ -188,8 +211,12 @@ def _canonical_snapshot_payload(
             ),
             geometry_digest="",
             visual_context_ref=None,
-            allowed_actions=("click",) if target.executable else (),
-            effect_ceiling=("DOM_INPUT",) if target.executable else (),
+            allowed_actions=("click", "hover", "drag") if target.executable else (),
+            effect_ceiling=(
+                ("PRESENTATION", "SESSION_STATE", "UNKNOWN")
+                if target.executable
+                else ()
+            ),
         )
         binding = state.canonical_target_bindings[token]
         trusted_bindings[token] = {
@@ -234,8 +261,182 @@ def _canonical_snapshot_payload(
         ],
         "context": dict(context),
         "targets": targets,
+        "regions": [
+            {
+                "kind": region.kind,
+                "owner": region.owner,
+                "owner_chain": list(region.owner_chain),
+                "boundary": region.boundary,
+                "accessible": region.accessible,
+                "native_identity": region.native_identity,
+            }
+            for region in capture.regions
+        ],
         "_trusted_bindings": trusted_bindings,
     }
+
+
+async def _canonical_visual_grounding_payload(
+    session: Any,
+    *,
+    state: ControlState,
+    payload: dict[str, Any],
+    request: dict[str, Any],
+) -> dict[str, Any]:
+    """Keep every bounded hit candidate without proximity selection."""
+    if payload.get("coverage") != "COMPLETE":
+        return {
+            **payload,
+            "targets": [],
+            "_trusted_bindings": {},
+            "_trusted_surface_candidates": {},
+        }
+    grounding_state, _surface_backend_ids = await canonical_visual_candidate_backend_ids(
+        session,
+        request,
+    )
+    if grounding_state in {"STALE", "UNAVAILABLE"}:
+        return {
+            **payload,
+            "coverage": grounding_state,
+            "targets": [],
+            "_trusted_bindings": {},
+            "_trusted_surface_candidates": {},
+        }
+    trusted = payload.get("_trusted_bindings")
+    targets = payload.get("targets")
+    if not isinstance(trusted, dict) or not isinstance(targets, list):
+        return {**payload, "coverage": "UNAVAILABLE", "targets": []}
+    selected: list[dict[str, Any]] = []
+    selected_bindings: dict[str, dict[str, Any]] = {}
+    surface_candidates: dict[str, dict[str, Any]] = {}
+    surface_regions: list[dict[str, Any]] = []
+    for target in targets:
+        if not isinstance(target, dict):
+            continue
+        token = str(target.get("binding_token") or "")
+        binding = trusted.get(token)
+        if not isinstance(binding, dict):
+            continue
+        native_id = _binding_backend_node_id(binding)
+        geometry = await canonical_visual_geometry_in_region(
+            session,
+            native_id,
+            request,
+        )
+        if geometry is None:
+            continue
+        executable = bool(target.get("executable"))
+        if not await canonical_visual_target_is_current_hit(
+            session,
+            backend_id=native_id,
+            point=geometry[1],
+        ):
+            continue
+        action_state = dict(binding.get("action_state") or ())
+        action_state.update(
+            visible=True,
+            stable=True,
+            enabled=True,
+        )
+        enriched = {
+            **binding,
+            "action_state": tuple(action_state.items()),
+            "geometry_digest": geometry[0],
+            "visual_context_ref": str(
+                request.get("visual_context_ref") or "",
+            ),
+            "visual_generation": str(request.get("generation") or ""),
+            "visual_viewport": tuple(request.get("viewport") or ()),
+            "visual_scroll": tuple(request.get("scroll") or ()),
+            "visual_zoom": float(request.get("zoom") or 0),
+            "visual_device_pixel_ratio": float(
+                request.get("device_pixel_ratio") or 0,
+            ),
+            "visual_layout": tuple(request.get("layout") or ()),
+            "single_use": True,
+            "use_state": "FRESH",
+        }
+        if not executable:
+            role = str(target.get("role") or "").lower()
+            if role not in {"canvas", "map"} or native_id not in _surface_backend_ids:
+                continue
+            surface_identity = (
+                f"{role}:{str(target.get('owner') or 'main')}:{native_id}"
+            )
+            enriched = {
+                **enriched,
+                "surface_origin": str(
+                    request.get("_canonical_current_origin") or "",
+                ),
+                "surface_identity": surface_identity,
+                "allowed_actions": (),
+                "effect_ceiling": (),
+            }
+            surface_candidates[token] = enriched
+            state.canonical_target_bindings[token] = enriched
+            surface_regions.append(
+                {
+                    "kind": "CONTENT",
+                    "owner": str(target.get("owner") or "main"),
+                    "owner_chain": [str(target.get("owner") or "main")],
+                    "boundary": "DEFAULT",
+                    "accessible": False,
+                    "native_identity": surface_identity,
+                },
+            )
+            continue
+        selected.append(target)
+        selected_bindings[token] = enriched
+        state.canonical_target_bindings[token] = enriched
+    if len(selected) != 1:
+        selected_bindings = {
+            token: {
+                **binding,
+                "allowed_actions": (),
+                "effect_ceiling": (),
+            }
+            for token, binding in selected_bindings.items()
+        }
+    for token, binding in selected_bindings.items():
+        state.canonical_target_bindings[token] = binding
+    if selected:
+        surface_candidates = {}
+        surface_regions = []
+    gaps = list(payload.get("gaps") or [])
+    regions = list(payload.get("regions") or [])
+    if not selected and surface_regions:
+        regions.extend(surface_regions)
+        gaps.append(
+            {
+                "stage": "CAPTURE",
+                "source": "DOM",
+                "reason": "SOURCE_UNAVAILABLE",
+                "frontier": "semantic-child",
+                "examined": len(surface_regions),
+                "omitted": len(surface_regions),
+            },
+        )
+    return {
+        **payload,
+        "targets": selected,
+        "regions": regions,
+        "gaps": gaps,
+        "_trusted_bindings": selected_bindings,
+        "_trusted_surface_candidates": surface_candidates,
+    }
+
+
+def _binding_backend_node_id(binding: dict[str, Any]) -> int | None:
+    for item in binding.get("native_identity", ()):
+        if (
+            isinstance(item, (list, tuple))
+            and len(item) == 2
+            and item[0] == "backendNodeId"
+            and isinstance(item[1], int)
+        ):
+            return item[1]
+    return None
 
 
 def _canonical_native_identity(

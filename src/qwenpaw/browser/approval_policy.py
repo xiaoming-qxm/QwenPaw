@@ -16,6 +16,7 @@ from qwenpaw.browser.sdk.action_runner import (
     ApprovalGrant,
     issue_exact_grant,
 )
+from qwenpaw.browser.sdk.governance.policy import TrustedSurfacePolicy
 from qwenpaw.browser.sdk.governance.error_codes import BrowserErrorCode
 from qwenpaw.browser.sdk.telemetry.trace import record_browser_trace_event
 from qwenpaw.browser.sdk.primitives.types import (
@@ -162,11 +163,13 @@ class QwenPawBrowserApprovalPolicy:
         approval_cache: BrowserApprovalCache | None = None,
         now: Callable[[], float] | None = None,
         grant_clock: Callable[[], float] | None = None,
+        trusted_surface_policy: TrustedSurfacePolicy | None = None,
         cache_ttl_seconds: float = _DEFAULT_CACHE_TTL_SECONDS,
     ) -> None:
         self._approval_service = approval_service
         self._now = now or time.time
         self._grant_clock = grant_clock or monotonic
+        self.trusted_surface_policy = trusted_surface_policy
         self._approval_cache = approval_cache or BrowserApprovalCache(
             now=self._now,
             ttl_seconds=cache_ttl_seconds,

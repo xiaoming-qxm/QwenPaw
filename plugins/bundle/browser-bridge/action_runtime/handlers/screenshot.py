@@ -267,6 +267,7 @@ async def _canonical_screenshot_invariant(
         {
             "expression": (
                 "({x:Number(window.scrollX||0),y:Number(window.scrollY||0),"
+                "dpr:Number(window.devicePixelRatio||1),"
                 "focusedBackendNode:null})"
             ),
             "returnByValue": True,
@@ -353,6 +354,8 @@ async def _canonical_screenshot_invariant(
             int(content.get("height") or 0),
         ],
         "event_watermark": watermark,
+        "zoom": float(visual.get("scale") or 1.0),
+        "device_pixel_ratio": float(value.get("dpr") or 1.0),
     }
 
 

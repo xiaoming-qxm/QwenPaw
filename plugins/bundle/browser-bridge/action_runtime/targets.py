@@ -54,6 +54,372 @@ _CANONICAL_ACTIONABLE_ROLES = {
 }
 
 
+async def canonical_visual_candidate_backend_ids(
+    session: Any,
+    request: dict[str, Any],
+) -> tuple[str, tuple[int, ...]]:
+    """Hit-test bounded region samples after exact viewport revalidation."""
+    try:
+        frame_tree = await session.send("Page.getFrameTree")
+        metrics = await session.send("Page.getLayoutMetrics")
+        runtime = await session.send(
+            "Runtime.evaluate",
+            {
+                "expression": (
+                    "({x:Number(window.scrollX||0),"
+                    "y:Number(window.scrollY||0),"
+                    "dpr:Number(window.devicePixelRatio||1),"
+                    "origin:String(window.location.origin||'')})"
+                ),
+                "returnByValue": True,
+                "awaitPromise": False,
+            },
+        )
+        frame = frame_tree.get("frameTree", {}).get("frame", {})
+        visual = metrics.get("cssVisualViewport", {})
+        content = metrics.get("cssContentSize", {})
+        value = runtime.get("result", {}).get("value", {})
+        viewport = (
+            int(visual.get("clientWidth") or visual.get("width") or 0),
+            int(visual.get("clientHeight") or visual.get("height") or 0),
+        )
+        current = {
+            "generation": str(frame.get("loaderId") or ""),
+            "viewport": viewport,
+            "scroll": (
+                float(value.get("x") or 0),
+                float(value.get("y") or 0),
+            ),
+            "zoom": float(visual.get("scale") or 1.0),
+            "device_pixel_ratio": float(value.get("dpr") or 1.0),
+            "origin": str(value.get("origin") or ""),
+            "layout": (
+                int(content.get("width") or 0),
+                int(content.get("height") or 0),
+            ),
+        }
+    except (AttributeError, KeyError, TypeError, ValueError, RuntimeError):
+        return "UNAVAILABLE", ()
+    if any(
+        current[key] != _visual_request_value(request, key)
+        for key in (
+            "generation",
+            "viewport",
+            "scroll",
+            "zoom",
+            "device_pixel_ratio",
+            "layout",
+        )
+    ):
+        return "STALE", ()
+    request["_canonical_current_origin"] = current["origin"]
+    width, height = viewport
+    x0 = float(request.get("x") or 0) * width
+    y0 = float(request.get("y") or 0) * height
+    x1 = x0 + float(request.get("width") or 0) * width
+    y1 = y0 + float(request.get("height") or 0) * height
+    points = (
+        ((x0 + x1) / 2, (y0 + y1) / 2),
+        (x0 + 1, y0 + 1),
+        (x1 - 1, y0 + 1),
+        (x0 + 1, y1 - 1),
+        (x1 - 1, y1 - 1),
+    )
+    candidates: list[int] = []
+    try:
+        for x, y in points:
+            hit = await session.send(
+                "DOM.getNodeForLocation",
+                {
+                    "x": max(0, int(x)),
+                    "y": max(0, int(y)),
+                    "includeUserAgentShadowDOM": True,
+                    "ignorePointerEventsNone": False,
+                },
+            )
+            backend_id = hit.get("backendNodeId")
+            if isinstance(backend_id, int) and backend_id not in candidates:
+                candidates.append(backend_id)
+    except (AttributeError, TypeError, ValueError, RuntimeError):
+        return "UNAVAILABLE", ()
+    return "AVAILABLE", tuple(candidates)
+
+
+def _visual_request_value(request: dict[str, Any], key: str) -> object:
+    value = request.get(key)
+    if key in {"viewport", "scroll", "layout"} and isinstance(
+        value,
+        (list, tuple),
+    ):
+        return tuple(value)
+    return value
+
+
+def _canonical_geometry_digest(quad: tuple[float, ...]) -> str:
+    return sha256(
+        json.dumps(quad, separators=(",", ":")).encode(),
+    ).hexdigest()
+
+
+async def canonical_visual_geometry(
+    session: Any,
+    backend_id: int,
+) -> tuple[str, tuple[float, float]] | None:
+    """Read one exact native quad and its internal injection point."""
+    quad = await _canonical_visual_quad(session, backend_id)
+    if quad is None:
+        return None
+    point = (
+        sum(quad[index] for index in (0, 2, 4, 6)) / 4,
+        sum(quad[index] for index in (1, 3, 5, 7)) / 4,
+    )
+    return _canonical_geometry_digest(quad), point
+
+
+async def canonical_visual_geometry_in_region(
+    session: Any,
+    backend_id: int,
+    request: dict[str, Any],
+) -> tuple[str, tuple[float, float]] | None:
+    """Return exact geometry only when its quad intersects VisualRegion."""
+    quad = await _canonical_visual_quad(session, backend_id)
+    if quad is None:
+        return None
+    viewport = _visual_request_value(request, "viewport")
+    if (
+        not isinstance(viewport, tuple)
+        or len(viewport) != 2
+        or not all(isinstance(item, (int, float)) for item in viewport)
+    ):
+        return None
+    width, height = float(viewport[0]), float(viewport[1])
+    if width <= 0 or height <= 0:
+        return None
+    region_left = float(request.get("x") or 0) * width
+    region_top = float(request.get("y") or 0) * height
+    region_right = region_left + float(request.get("width") or 0) * width
+    region_bottom = region_top + float(request.get("height") or 0) * height
+    quad_left = min(quad[0::2])
+    quad_right = max(quad[0::2])
+    quad_top = min(quad[1::2])
+    quad_bottom = max(quad[1::2])
+    if (
+        quad_right <= region_left
+        or quad_left >= region_right
+        or quad_bottom <= region_top
+        or quad_top >= region_bottom
+    ):
+        return None
+    point = (
+        sum(quad[index] for index in (0, 2, 4, 6)) / 4,
+        sum(quad[index] for index in (1, 3, 5, 7)) / 4,
+    )
+    return _canonical_geometry_digest(quad), point
+
+
+async def canonical_visual_target_is_current_hit(
+    session: Any,
+    *,
+    backend_id: int,
+    point: tuple[float, float],
+) -> bool:
+    """Prove issuance-time visibility and exact hit ancestry."""
+    try:
+        hit = await session.send(
+            "DOM.getNodeForLocation",
+            {
+                "x": max(0, int(point[0])),
+                "y": max(0, int(point[1])),
+                "includeUserAgentShadowDOM": True,
+                "ignorePointerEventsNone": False,
+            },
+        )
+    except (AttributeError, TypeError, ValueError, RuntimeError):
+        return False
+    hit_backend_id = hit.get("backendNodeId")
+    return isinstance(
+        hit_backend_id,
+        int,
+    ) and await _canonical_hit_is_target_or_descendant(
+        session,
+        hit_backend_id=hit_backend_id,
+        target_backend_id=backend_id,
+    )
+
+
+async def _canonical_visual_quad(
+    session: Any,
+    backend_id: int,
+) -> tuple[float, ...] | None:
+    """Read one bounded native content quad without page-derived ranking."""
+    try:
+        payload = await session.send(
+            "DOM.getContentQuads",
+            {"backendNodeId": int(backend_id)},
+        )
+        quads = payload.get("quads")
+        if not isinstance(quads, list) or not quads:
+            return None
+        raw = quads[0]
+        if not isinstance(raw, (tuple, list)) or len(raw) != 8:
+            return None
+        quad = tuple(float(item) for item in raw)
+    except (AttributeError, TypeError, ValueError, RuntimeError):
+        return None
+    return quad
+
+
+async def _canonical_current_visual_metrics(
+    session: Any,
+) -> dict[str, object] | None:
+    try:
+        frame_tree = await session.send("Page.getFrameTree")
+        metrics = await session.send("Page.getLayoutMetrics")
+        runtime = await session.send(
+            "Runtime.evaluate",
+            {
+                "expression": (
+                    "({x:Number(window.scrollX||0),"
+                    "y:Number(window.scrollY||0),"
+                    "dpr:Number(window.devicePixelRatio||1),"
+                    "origin:String(window.location.origin||'')})"
+                ),
+                "returnByValue": True,
+                "awaitPromise": False,
+            },
+        )
+        frame = frame_tree.get("frameTree", {}).get("frame", {})
+        visual = metrics.get("cssVisualViewport", {})
+        content = metrics.get("cssContentSize", {})
+        value = runtime.get("result", {}).get("value", {})
+        return {
+            "generation": str(frame.get("loaderId") or ""),
+            "viewport": (
+                int(visual.get("clientWidth") or visual.get("width") or 0),
+                int(visual.get("clientHeight") or visual.get("height") or 0),
+            ),
+            "scroll": (
+                float(value.get("x") or 0),
+                float(value.get("y") or 0),
+            ),
+            "zoom": float(visual.get("scale") or 1.0),
+            "device_pixel_ratio": float(value.get("dpr") or 1.0),
+            "origin": str(value.get("origin") or ""),
+            "layout": (
+                int(content.get("width") or 0),
+                int(content.get("height") or 0),
+            ),
+        }
+    except (AttributeError, KeyError, TypeError, ValueError, RuntimeError):
+        return None
+
+
+def _canonical_binding_backend_id(
+    binding: dict[str, object],
+) -> int | None:
+    identity = binding.get("native_identity")
+    if not isinstance(identity, (tuple, list)):
+        return None
+    for item in identity:
+        if (
+            isinstance(item, (tuple, list))
+            and len(item) == 2
+            and item[0] == "backendNodeId"
+            and isinstance(item[1], int)
+        ):
+            return item[1]
+    return None
+
+
+async def canonical_live_target_point(
+    session: Any,
+    binding: dict[str, object],
+) -> tuple[float, float] | None:
+    """Revalidate visual epoch, native quad, and hit receiver in one session."""
+    if bool(binding.get("visual_context_ref")):
+        current = await _canonical_current_visual_metrics(session)
+        expected = {
+            "generation": binding.get("visual_generation"),
+            "viewport": binding.get("visual_viewport"),
+            "scroll": binding.get("visual_scroll"),
+            "zoom": binding.get("visual_zoom"),
+            "device_pixel_ratio": binding.get(
+                "visual_device_pixel_ratio",
+            ),
+            "layout": binding.get("visual_layout"),
+        }
+        if current is None or any(
+            current[key] != expected[key] for key in expected
+        ):
+            return None
+        surface_origin = str(binding.get("surface_origin") or "")
+        if surface_origin and current.get("origin") != surface_origin:
+            return None
+    backend_id = _canonical_binding_backend_id(binding)
+    if backend_id is None:
+        return None
+    geometry = await canonical_visual_geometry(session, backend_id)
+    if geometry is None:
+        return None
+    geometry_digest, point = geometry
+    expected_digest = str(binding.get("geometry_digest") or "")
+    if expected_digest and geometry_digest != expected_digest:
+        return None
+    try:
+        hit = await session.send(
+            "DOM.getNodeForLocation",
+            {
+                "x": max(0, int(point[0])),
+                "y": max(0, int(point[1])),
+                "includeUserAgentShadowDOM": True,
+                "ignorePointerEventsNone": False,
+            },
+        )
+    except (AttributeError, TypeError, ValueError, RuntimeError):
+        return None
+    hit_backend_id = hit.get("backendNodeId")
+    if not isinstance(hit_backend_id, int) or not await _canonical_hit_is_target_or_descendant(
+        session,
+        hit_backend_id=hit_backend_id,
+        target_backend_id=backend_id,
+    ):
+        return None
+    return point
+
+
+async def _canonical_hit_is_target_or_descendant(
+    session: Any,
+    *,
+    hit_backend_id: int,
+    target_backend_id: int,
+) -> bool:
+    """Prove exact native ancestry for icon descendants, never proximity."""
+    if hit_backend_id == target_backend_id:
+        return True
+    try:
+        described = await session.send(
+            "DOM.describeNode",
+            {"backendNodeId": int(hit_backend_id), "depth": 0, "pierce": True},
+        )
+        node = described.get("node")
+        for _depth in range(64):
+            if not isinstance(node, dict):
+                return False
+            if node.get("backendNodeId") == target_backend_id:
+                return True
+            parent_id = node.get("parentId")
+            if not isinstance(parent_id, int):
+                return False
+            described = await session.send(
+                "DOM.describeNode",
+                {"nodeId": parent_id, "depth": 0, "pierce": True},
+            )
+            node = described.get("node")
+    except (AttributeError, KeyError, TypeError, ValueError, RuntimeError):
+        return False
+    return False
+
+
 def canonical_probe_nodes_from_ax(
     payload: dict[str, Any],
 ) -> tuple[ProbeNode, ...]:
@@ -71,6 +437,8 @@ def canonical_probe_nodes_from_ax(
         role = _canonical_ax_value(raw.get("role")).lower()
         if not role:
             continue
+        disabled = _canonical_ax_boolean_property(raw, "disabled")
+        enabled = _canonical_ax_boolean_property(raw, "enabled")
         nodes.append(
             ProbeNode(
                 source="AX",
@@ -78,7 +446,11 @@ def canonical_probe_nodes_from_ax(
                 owner=str(raw.get("frameId") or "main"),
                 role=role,
                 name=_canonical_ax_value(raw.get("name")),
-                actionable=role in _CANONICAL_ACTIONABLE_ROLES,
+                actionable=(
+                    role in _CANONICAL_ACTIONABLE_ROLES
+                    and disabled is not True
+                    and enabled is not False
+                ),
                 states=_canonical_ax_states(raw),
             ),
         )
@@ -253,6 +625,31 @@ def _canonical_ax_states(raw: dict[str, Any]) -> tuple[str, ...]:
         if name and value:
             states.append(f"{name}:{value}")
     return tuple(states)
+
+
+def _canonical_ax_boolean_property(
+    raw: dict[str, Any],
+    property_name: str,
+) -> bool | None:
+    properties = raw.get("properties")
+    if not isinstance(properties, list):
+        return None
+    for item in properties:
+        if not isinstance(item, dict) or item.get("name") != property_name:
+            continue
+        value = item.get("value")
+        if isinstance(value, dict):
+            value = value.get("value")
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized == "true":
+                return True
+            if normalized == "false":
+                return False
+        return None
+    return None
 
 
 def _canonical_dom_attributes(value: Any) -> dict[str, str]:
@@ -1865,6 +2262,10 @@ class _PrivateNativeTargetBoundary:
             required["editable"] = True
         if any(live.get(key) != value for key, value in required.items()):
             return None
+        if bool(binding.get("single_use")):
+            if binding.get("use_state") != "FRESH":
+                return None
+            binding["use_state"] = "CONSUMED"
         return _PreparedNativeInjection(
             token=command.token,
             action=command.action,
@@ -1940,4 +2341,8 @@ __all__ = [
     "canonical_probe_nodes_from_ax",
     "canonical_probe_nodes_from_dom",
     "canonical_probe_surface_from_dom",
+    "canonical_visual_candidate_backend_ids",
+    "canonical_visual_geometry",
+    "canonical_visual_geometry_in_region",
+    "canonical_live_target_point",
 ]

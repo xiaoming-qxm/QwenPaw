@@ -54,6 +54,8 @@ class ScreenshotInvariant:
     viewport: tuple[int, int]
     layout: tuple[int, int]
     event_watermark: int
+    zoom: float = 1.0
+    device_pixel_ratio: float = 1.0
 
 
 @dataclass(frozen=True, slots=True)

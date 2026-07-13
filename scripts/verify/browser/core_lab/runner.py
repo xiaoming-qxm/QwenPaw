@@ -8,6 +8,8 @@ from __future__ import annotations
 import asyncio
 import hashlib
 from importlib import import_module
+from types import SimpleNamespace
+from typing import TypedDict
 
 from qwenpaw.browser.sdk.primitives.matching import (
     match_page_url,
@@ -26,6 +28,7 @@ from .model import (
     StateApprovalFacts,
     SynchronizeFacts,
     TargetControlFacts,
+    VisualCanvasFacts,
 )
 from .oracle import IndependentOracle
 
@@ -78,6 +81,54 @@ _RESOURCE_FAULT_CASES = {
     "resource.cleanup.artifact-expiry-failure": (
         FaultCutPoint.DURING_ARTIFACT_EXPIRY
     ),
+}
+
+_VISUAL_FAULT_CASES = {
+    "visual.fault.before-screenshot": FaultCutPoint.VISUAL_BEFORE_SCREENSHOT,
+    "visual.fault.after-screenshot": FaultCutPoint.VISUAL_AFTER_SCREENSHOT,
+    "visual.fault.after-binding-issue": (
+        FaultCutPoint.VISUAL_AFTER_BINDING_ISSUE
+    ),
+    "visual.fault.after-hit-test": FaultCutPoint.VISUAL_AFTER_HIT_TEST,
+    "visual.fault.after-ref-storage": FaultCutPoint.VISUAL_AFTER_REF_STORAGE,
+    "visual.fault.after-preflight": FaultCutPoint.VISUAL_AFTER_PREFLIGHT,
+    "visual.fault.after-final-revalidation": (
+        FaultCutPoint.VISUAL_AFTER_FINAL_REVALIDATION
+    ),
+    "visual.fault.after-input-send": FaultCutPoint.VISUAL_AFTER_INPUT_SEND,
+    "visual.fault.after-receipt": FaultCutPoint.VISUAL_AFTER_RECEIPT,
+    "visual.fault.after-postcondition": (
+        FaultCutPoint.VISUAL_AFTER_POSTCONDITION
+    ),
+}
+
+_VISUAL_TRANSFORMATIONS = {
+    "visual.viewport-grounding-exact": (
+        "rename_ids",
+        "rename_classes",
+        "rename_text",
+        "wrap_containers",
+    ),
+    "visual.icon-only-exact": ("rename_text", "wrap_containers"),
+    "visual.repeated-targets-multiple": ("reorder_repeated_candidates",),
+    "visual.overlapping-candidates-multiple": (
+        "reorder_repeated_candidates",
+        "wrap_containers",
+    ),
+    "visual.ref-churn-stale": ("replace_nodes_change_identity",),
+    "visual.frame-target-exact": ("rename_ids", "wrap_containers"),
+    "visual.open-shadow-target-exact": ("rename_classes",),
+    "visual.closed-shadow-host-exact": ("replace_nodes_preserve_identity",),
+    "visual.canvas-no-policy-handoff": ("rename_ids", "rename_classes"),
+    "visual.map-no-policy-handoff": ("rename_text",),
+    "visual.resize-stale": ("alter_viewport",),
+    "visual.overlay-occluded-no-send": ("delay_layout",),
+    "visual.scroll-stale": ("alter_viewport",),
+    "visual.zoom-stale": ("alter_zoom",),
+    "visual.dpr-stale": ("alter_dpr",),
+    "visual.layout-change-stale": ("delay_layout",),
+    "visual.full-page-evidence-only": ("alter_viewport",),
+    "visual.policy-low-risk-action": ("replace_nodes_preserve_identity",),
 }
 
 
@@ -160,6 +211,20 @@ def build_case(
             seed=int(seed),
             transformations=(case_id.split(".", 1)[-1],),
             fault=_RESOURCE_FAULT_CASES.get(case_id),
+            replay=ReplayDescriptor(family, case_id, int(seed)),
+            prerequisites=(CapabilityFamily.TARGET_CONTROL,),
+        )
+    if family is CapabilityFamily.VISUAL_CANVAS:
+        return LabCase(
+            case_id=case_id,
+            family=family,
+            base_flow="fixture_visual_epoch_hit_event_log",
+            seed=int(seed),
+            transformations=_VISUAL_TRANSFORMATIONS.get(
+                case_id,
+                (case_id.split(".", 2)[-1],),
+            ),
+            fault=_VISUAL_FAULT_CASES.get(case_id),
             replay=ReplayDescriptor(family, case_id, int(seed)),
             prerequisites=(CapabilityFamily.TARGET_CONTROL,),
         )
@@ -372,6 +437,28 @@ def registered_case_ids(family: CapabilityFamily) -> tuple[str, ...]:
             "resource.cleanup.transient-failure",
             "resource.cleanup.artifact-expiry-failure",
         )
+    if family is CapabilityFamily.VISUAL_CANVAS:
+        return (
+            "visual.viewport-grounding-exact",
+            "visual.icon-only-exact",
+            "visual.repeated-targets-multiple",
+            "visual.overlapping-candidates-multiple",
+            "visual.ref-churn-stale",
+            "visual.frame-target-exact",
+            "visual.open-shadow-target-exact",
+            "visual.closed-shadow-host-exact",
+            "visual.canvas-no-policy-handoff",
+            "visual.map-no-policy-handoff",
+            "visual.resize-stale",
+            "visual.overlay-occluded-no-send",
+            "visual.scroll-stale",
+            "visual.zoom-stale",
+            "visual.dpr-stale",
+            "visual.layout-change-stale",
+            "visual.full-page-evidence-only",
+            "visual.policy-low-risk-action",
+            *_VISUAL_FAULT_CASES.keys(),
+        )
     return ()
 
 
@@ -452,6 +539,10 @@ def run_case(case: LabCase):
         return IndependentOracle().evaluate_resource_file(
             _resource_file_facts(case),
         )
+    if case.family is CapabilityFamily.VISUAL_CANVAS:
+        return IndependentOracle().evaluate_visual_canvas(
+            _visual_canvas_facts(case),
+        )
     if case.family in {
         CapabilityFamily.CONTEXT_NAVIGATE,
         CapabilityFamily.SURFACES_WIDGETS,
@@ -475,6 +566,683 @@ def run_case(case: LabCase):
         observed_resources=(),
         observed_blocks=(),
     )
+
+
+def _visual_canvas_facts(case: LabCase) -> VisualCanvasFacts:
+    """Compare fixture truth with the real Bridge/User native path."""
+    case_id = case.case_id
+    fixture_identities: tuple[str, ...] = ("fixture-target-41",)
+    expected_hits: tuple[str, ...] = fixture_identities
+    grounding = "EXACT"
+    expected_effect_count = 1
+    expected_approval_count = 1
+    binding_current = True
+    occluded = False
+    handoff_visible = False
+
+    if case_id in {
+        "visual.repeated-targets-multiple",
+        "visual.overlapping-candidates-multiple",
+    }:
+        fixture_identities = ("fixture-target-41", "fixture-target-42")
+        expected_hits = fixture_identities
+        grounding = "MULTIPLE"
+        expected_effect_count = 0
+        expected_approval_count = 0
+    elif case_id in {
+        "visual.canvas-no-policy-handoff",
+        "visual.map-no-policy-handoff",
+    }:
+        fixture_identities = ("fixture-target-88",)
+        expected_hits = fixture_identities
+        grounding = "NO_MATCH"
+        expected_effect_count = 0
+        expected_approval_count = 0
+        handoff_visible = True
+    elif case_id in {
+        "visual.ref-churn-stale",
+        "visual.resize-stale",
+        "visual.scroll-stale",
+        "visual.zoom-stale",
+        "visual.dpr-stale",
+        "visual.layout-change-stale",
+    }:
+        expected_hits = ()
+        grounding = "STALE"
+        expected_effect_count = 0
+        expected_approval_count = 0
+        binding_current = False
+    elif case_id == "visual.icon-only-exact":
+        fixture_identities = (
+            "fixture-target-41",
+            "fixture-target-99",
+        )
+        expected_hits = ("fixture-target-41",)
+    elif case_id == "visual.overlay-occluded-no-send":
+        expected_effect_count = 0
+        occluded = True
+    elif case_id == "visual.full-page-evidence-only":
+        expected_hits = ()
+        grounding = "UNAVAILABLE"
+        expected_effect_count = 0
+        expected_approval_count = 0
+        handoff_visible = True
+    elif case_id == "visual.policy-low-risk-action":
+        fixture_identities = ("fixture-target-88",)
+        expected_hits = fixture_identities
+
+    early_faults = {
+        FaultCutPoint.VISUAL_BEFORE_SCREENSHOT,
+        FaultCutPoint.VISUAL_AFTER_SCREENSHOT,
+        FaultCutPoint.VISUAL_AFTER_BINDING_ISSUE,
+    }
+    pre_send_faults = early_faults | {
+        FaultCutPoint.VISUAL_AFTER_HIT_TEST,
+        FaultCutPoint.VISUAL_AFTER_REF_STORAGE,
+        FaultCutPoint.VISUAL_AFTER_PREFLIGHT,
+        FaultCutPoint.VISUAL_AFTER_FINAL_REVALIDATION,
+    }
+    if case.fault in early_faults:
+        expected_hits = ()
+        grounding = "UNAVAILABLE"
+        handoff_visible = True
+    if case.fault in pre_send_faults:
+        expected_effect_count = 0
+    if case.fault in {
+        *early_faults,
+        FaultCutPoint.VISUAL_AFTER_HIT_TEST,
+        FaultCutPoint.VISUAL_AFTER_REF_STORAGE,
+    }:
+        expected_approval_count = 0
+
+    observed = asyncio.run(
+        _run_visual_canvas_production(case),
+    )
+    return VisualCanvasFacts(
+        primary_family=case.family,
+        fixture_target_identities=fixture_identities,
+        expected_native_hit_identities=expected_hits,
+        native_hit_identities=observed["native_hit_identities"],
+        expected_grounding=grounding,
+        controller_grounding=observed["grounding"],
+        expected_native_effect_count=expected_effect_count,
+        native_event_target_identities=observed["event_target_identities"],
+        expected_binding_current=binding_current,
+        binding_current=observed["binding_current"],
+        expected_occluded=occluded,
+        occluded=observed["occluded"],
+        expected_handoff_visible=handoff_visible,
+        handoff_visible=observed["handoff_visible"],
+        expected_failure_visible=case.fault is not None,
+        failure_visible=observed["failure_visible"],
+        policy_scoped=case_id == "visual.policy-low-risk-action",
+        required_readiness=case_id != "visual.policy-low-risk-action",
+        expected_approval_count=expected_approval_count,
+        approval_request_count=observed["approval_request_count"],
+        approval_grant_count=observed["approval_grant_count"],
+        proximity_choice_count=observed["proximity_choice_count"],
+        raw_coordinate_dispatch_count=observed["raw_coordinate_dispatch_count"],
+        duplicate_action_count=observed["duplicate_action_count"],
+        false_success=observed["false_success"],
+    )
+
+
+class _VisualFaultController:
+    """Controller-owned fault log that records only reached cut points."""
+
+    def __init__(self, configured: FaultCutPoint | None) -> None:
+        self.configured = configured
+        self.events: list[str] = []
+
+    def trip(self, point: FaultCutPoint) -> bool:
+        if self.configured is not point:
+            return False
+        self.events.append(point.value)
+        return True
+
+    def raise_at(self, point: FaultCutPoint) -> None:
+        if self.trip(point):
+            raise RuntimeError(point.value)
+
+
+class _VisualLabSession:
+    """Fake CDP transport whose logs are the Lab's observed truth."""
+
+    def __init__(self, case: LabCase) -> None:
+        self.case = case
+        self.holder_id = "visual-lab-holder"
+        self.lease_version = 1
+        self._closed = False
+        self.hit_calls = 0
+        self.hit_identities: list[int] = []
+        self.geometry_queries: list[int] = []
+        self.input_commands: list[dict[str, object]] = []
+        self.native_event_target_identities: list[int] = []
+        self.faults = _VisualFaultController(case.fault)
+        self.dispatch_count = 0
+        self.raw_coordinate_dispatch_count = 0
+        self.proximity_choice_count = 0
+        self.ancestry_verified = False
+        self.approval_request_count = 0
+        self.approval_grant_count = 0
+        self.last_hit_query: tuple[int, int, int] | None = None
+
+    def record_hit(self, params: dict[str, object], backend_id: int) -> None:
+        self.hit_identities.append(backend_id)
+        self.last_hit_query = (
+            int(params.get("x") or 0),
+            int(params.get("y") or 0),
+            backend_id,
+        )
+
+    async def send(self, method: str, params=None):
+        params = params or {}
+        case_id = self.case.case_id
+        stale_loader = case_id == "visual.ref-churn-stale"
+        if method == "Page.getFrameTree":
+            return {
+                "frameTree": {
+                    "frame": {
+                        "loaderId": "loader-stale" if stale_loader else "loader-1",
+                    },
+                },
+            }
+        if method == "Page.getLayoutMetrics":
+            viewport_width = 900 if case_id == "visual.resize-stale" else 800
+            layout_width = (
+                1200 if case_id == "visual.layout-change-stale" else 1000
+            )
+            zoom = 1.25 if case_id == "visual.zoom-stale" else 1.0
+            return {
+                "cssVisualViewport": {
+                    "clientWidth": viewport_width,
+                    "clientHeight": 600,
+                    "scale": zoom,
+                },
+                "cssContentSize": {"width": layout_width, "height": 1400},
+            }
+        if method == "Runtime.evaluate":
+            return {
+                "result": {
+                    "value": {
+                        "x": 20.0 if case_id == "visual.scroll-stale" else 0.0,
+                        "y": 0.0,
+                        "dpr": 2.5 if case_id == "visual.dpr-stale" else 2.0,
+                        "origin": "https://canvas.test",
+                    },
+                },
+            }
+        if method == "DOM.getNodeForLocation":
+            self.hit_calls += 1
+            if case_id in {
+                "visual.canvas-no-policy-handoff",
+                "visual.map-no-policy-handoff",
+                "visual.policy-low-risk-action",
+            }:
+                backend_id = 88
+                self.record_hit(params, backend_id)
+                return {"backendNodeId": backend_id}
+            if case_id in {
+                "visual.repeated-targets-multiple",
+                "visual.overlapping-candidates-multiple",
+            }:
+                backend_id = 41 + self.hit_calls % 2
+                self.record_hit(params, backend_id)
+                return {"backendNodeId": backend_id}
+            if case_id == "visual.overlay-occluded-no-send" and self.hit_calls > 6:
+                self.record_hit(params, 99)
+                return {"backendNodeId": 99}
+            if case_id == "visual.icon-only-exact" and self.hit_calls > 5:
+                self.record_hit(params, 99)
+                return {"backendNodeId": 99}
+            self.record_hit(params, 41)
+            return {"backendNodeId": 41}
+        if method == "DOM.getContentQuads":
+            backend_id = int(params["backendNodeId"])
+            self.geometry_queries.append(backend_id)
+            left = 100.0 if backend_id in {41, 88} else 220.0
+            return {
+                "quads": [
+                    [left, 100.0, left + 100.0, 100.0, left + 100.0, 160.0, left, 160.0],
+                ],
+            }
+        if method == "DOM.describeNode":
+            if case_id == "visual.icon-only-exact":
+                if params.get("backendNodeId") == 99:
+                    return {"node": {"backendNodeId": 99, "parentId": 7}}
+                if params.get("nodeId") == 7:
+                    self.ancestry_verified = True
+                    return {"node": {"backendNodeId": 41}}
+            return {"node": {"backendNodeId": 99}}
+        if method == "Input.dispatchMouseEvent":
+            self.input_commands.append(dict(params))
+            if params.get("type") == "mousePressed":
+                self.dispatch_count += 1
+                if self.last_hit_query is None:
+                    self.raw_coordinate_dispatch_count += 1
+                else:
+                    hit_x, hit_y, backend_id = self.last_hit_query
+                    self.native_event_target_identities.append(backend_id)
+                    if (
+                        int(params.get("x") or 0) != hit_x
+                        or int(params.get("y") or 0) != hit_y
+                    ):
+                        self.proximity_choice_count += 1
+            return {}
+        raise AssertionError(method)
+
+
+class _VisualLabBridge:
+    connected = True
+
+    async def request(self, _method: str, _params: dict[str, object]):
+        return {}
+
+
+class _VisualProductionObservation(TypedDict):
+    native_hit_identities: tuple[str, ...]
+    grounding: str
+    event_target_identities: tuple[str, ...]
+    binding_current: bool
+    occluded: bool
+    handoff_visible: bool
+    failure_visible: bool
+    approval_request_count: int
+    approval_grant_count: int
+    proximity_choice_count: int
+    raw_coordinate_dispatch_count: int
+    duplicate_action_count: int
+    false_success: bool
+    action_status: str
+    action_error: str
+
+
+async def _run_visual_canvas_production(
+    case: LabCase,
+) -> _VisualProductionObservation:
+    """Execute actual snapshot, User promotion, and Bridge input seams."""
+    contracts = import_module("qwenpaw.browser.sdk.canonical.contracts")
+    condition_runtime = import_module(
+        "qwenpaw.browser.sdk.condition_evaluator",
+    )
+    snapshot_runtime = import_module("qwenpaw.browser.sdk.runtime.snapshot")
+    owner_runtime = import_module("qwenpaw.browser.sdk.runtime.session_owner")
+    policy_runtime = import_module("qwenpaw.browser.sdk.governance.policy")
+    action_runtime = import_module("qwenpaw.browser.sdk.action_runner")
+    api_contracts = import_module("qwenpaw.browser.sdk.contracts")
+    snapshot_handler = import_module(
+        "plugins.bundle.browser-bridge.action_runtime.handlers.snapshot",
+    )
+    state_runtime = import_module(
+        "plugins.bundle.browser-bridge.action_runtime.state",
+    )
+    user_runtime = import_module("plugins.bundle.browser-bridge.backend.user")
+    engine_runtime = import_module(
+        "plugins.bundle.browser-bridge.engine_impl",
+    )
+    primitives_runtime = import_module("qwenpaw.browser.sdk.primitives.types")
+    kernel_runtime = import_module("qwenpaw.browser.sdk.runtime.kernel")
+    coordinator_runtime = import_module("qwenpaw.runtime.root_request_coordinator")
+    from time import monotonic
+
+    now = monotonic()
+    policy = None
+    if case.case_id == "visual.policy-low-risk-action":
+        policy = policy_runtime.TrustedSurfacePolicy(
+            (
+                policy_runtime.TrustedSurfaceRule(
+                    origin="https://canvas.test",
+                    surface_identity="canvas:main:88",
+                    allowed_actions=("click",),
+                    effect_ceiling=("PRESENTATION", "SESSION_STATE"),
+                    revision="visual-lab-policy-r1",
+                    evidence_ref="visual-lab-review-r1",
+                    expires_at=now + 300.0,
+                ),
+            ),
+        )
+    registry = owner_runtime.BrowserSessionOwnerRegistry(
+        clock=lambda: now,
+        trusted_surface_policy=policy,
+    )
+    owner = await registry.begin_request(
+        root_session_id=f"visual-lab-{case.case_id}",
+        source="lab",
+        rollout_default=owner_runtime.ContractMode.CANONICAL,
+    )
+    tab = registry.issue_tab_summary(
+        owner,
+        receiver_tab="11",
+        origin="https://canvas.test",
+        state_revision="loader-1",
+        layout_revision="layout-1",
+    )
+    role = "button"
+    executable = True
+    identities: tuple[int, ...] = (41,)
+    if case.case_id in {
+        "visual.repeated-targets-multiple",
+        "visual.overlapping-candidates-multiple",
+    }:
+        identities = (41, 42)
+    elif case.case_id in {
+        "visual.canvas-no-policy-handoff",
+        "visual.policy-low-risk-action",
+    }:
+        role, executable, identities = "canvas", False, (88,)
+    elif case.case_id == "visual.map-no-policy-handoff":
+        role, executable, identities = "map", False, (88,)
+    owner_name = "main"
+    if case.case_id == "visual.frame-target-exact":
+        owner_name = "frame:child"
+    elif case.case_id == "visual.open-shadow-target-exact":
+        owner_name = "shadow:open:1"
+    capture = snapshot_runtime.SnapshotCapture(
+        context=contracts._issue_opaque_value(
+            contracts.ContextVersion,
+            contracts._RUNTIME_VALUE_ISSUER,
+            id=f"context-{case.case_id}",
+        ),
+        scope=contracts.CurrentSurface(),
+        generation="loader-1",
+        coverage="COMPLETE",
+        gaps=(),
+        sources=(snapshot_runtime.SourceOutcome("DOM", True, len(identities)),),
+        targets=tuple(
+            snapshot_runtime.SnapshotTarget(
+                native_identity=f"backend:{identity}",
+                owner=owner_name,
+                owner_chain=(owner_name,),
+                role=role,
+                name=f"Fixture {identity}",
+                states=(),
+                sources=("DOM",),
+                identity_conflict=False,
+                executable=executable,
+            )
+            for identity in identities
+        ),
+    )
+    state = state_runtime.ControlState()
+    payload = snapshot_handler._canonical_snapshot_payload(
+        state,
+        tab_id=11,
+        request_context={
+            "root_task_id": owner.root_task_id,
+            "browser_owner_id": owner.browser_owner_id,
+            "session_id": owner.root_session_id,
+        },
+        capture=capture,
+    )
+    session = _VisualLabSession(case)
+    request = {
+        "x": 0.1,
+        "y": 0.1,
+        "width": 0.3,
+        "height": 0.3,
+        "generation": "loader-1",
+        "viewport": (800, 600),
+        "scroll": (0.0, 0.0),
+        "zoom": 1.0,
+        "device_pixel_ratio": 2.0,
+        "layout": (1000, 1400),
+        "visual_context_ref": f"visual-{case.case_id}",
+    }
+    early_failure = (
+        session.faults.trip(FaultCutPoint.VISUAL_BEFORE_SCREENSHOT)
+        or session.faults.trip(FaultCutPoint.VISUAL_AFTER_SCREENSHOT)
+        or session.faults.trip(FaultCutPoint.VISUAL_AFTER_BINDING_ISSUE)
+    )
+    if early_failure or case.case_id == "visual.full-page-evidence-only":
+        grounded = {**payload, "coverage": "UNAVAILABLE", "targets": [], "_trusted_bindings": {}}
+    else:
+        grounded = await snapshot_handler._canonical_visual_grounding_payload(
+            session,
+            state=state,
+            payload=payload,
+            request=request,
+        )
+    converted = user_runtime._canonical_capture_from_payload(
+        grounded,
+        registry=registry,
+        owner=owner,
+        receiver_tab="11",
+        expires_at=now + 120.0,
+        scope=contracts.CurrentSurface(),
+    )
+    if converted.coverage == "STALE":
+        grounding = "STALE"
+    elif converted.coverage == "UNAVAILABLE":
+        grounding = "UNAVAILABLE"
+    elif not converted.targets:
+        grounding = "NO_MATCH"
+    elif len(converted.targets) == 1:
+        grounding = "EXACT"
+    else:
+        grounding = "MULTIPLE"
+
+    after_hit_failure = session.faults.trip(
+        FaultCutPoint.VISUAL_AFTER_HIT_TEST,
+    )
+    action_attempted = False
+    action_succeeded = False
+    action_status = "NOT_ATTEMPTED"
+    action_error = ""
+    after_ref_failure = session.faults.trip(
+        FaultCutPoint.VISUAL_AFTER_REF_STORAGE,
+    )
+    pre_runner_failure = (
+        early_failure or after_hit_failure or after_ref_failure
+    )
+    if len(converted.targets) == 1 and not pre_runner_failure:
+        target = converted.targets[0].ref
+        expectation = contracts.ActionExpectation.final(
+            contracts.BrowserCondition.all(
+                contracts.PageCondition.url("https://canvas.test/changed"),
+            ),
+        )
+        state.sessions["11"] = session
+        bridge = _VisualLabBridge()
+
+        class ApprovalRequester:
+            async def request_exact(self, preview):
+                session.approval_request_count += 1
+                grant = action_runtime.issue_exact_grant(
+                    preview,
+                    now=now,
+                )
+                session.approval_grant_count += 1
+                return SimpleNamespace(grant=grant)
+
+        approval_requester = ApprovalRequester()
+
+        class BridgeManager:
+            def get_connection(self):
+                return bridge
+
+        actual_user_session = user_runtime.ChromeExtensionBrowserSession(
+            bridge=bridge,
+            session_id=owner.root_session_id,
+            request_scope_key=owner.root_task_id,
+            context=primitives_runtime.ResolvedBrowserContext(
+                requested="user",
+                selected="user",
+                reason="visual_lab",
+                requires_user_state=True,
+                backend_id="user.chrome_extension",
+            ),
+            policy=approval_requester,
+            control_engine=engine_runtime.ControlEngineImpl(
+                bridge_manager=BridgeManager(),
+            ),
+            ownership_context=primitives_runtime.BrowserOwnershipContext(
+                protocol_version=2,
+                session_id=owner.root_session_id,
+                root_session_id=owner.root_session_id,
+                request_scope_key=owner.root_task_id,
+                owner_id=owner.browser_owner_id,
+                workspace_id=f"workspace-{owner.root_task_id}",
+                retention="clean",
+            ),
+        )
+        session.holder_id = owner.browser_owner_id
+        actual_user_session._state.update(
+            state_runtime.control_state_to_mapping(state),
+        )
+
+        class Evaluator:
+            async def arm(
+                self,
+                receiver,
+                condition,
+                *,
+                probe,
+                baseline=None,
+            ):
+                del probe
+                return SimpleNamespace(
+                    owner_key=receiver.owner_key,
+                    receiver_fingerprint=receiver.fingerprint,
+                    condition_fingerprint=(
+                        condition_runtime._condition_fingerprint(condition)
+                    ),
+                    baseline_fingerprint=(
+                        baseline.fingerprint
+                        if baseline is not None
+                        else "none"
+                    ),
+                    watermark=1,
+                )
+
+            async def evaluate(self, *args, armed=None, **kwargs):
+                del args, kwargs
+                assert armed is not None
+                session.faults.raise_at(
+                    FaultCutPoint.VISUAL_AFTER_POSTCONDITION,
+                )
+                return condition_runtime.ConditionEvaluation(
+                    status="SUCCEEDED",
+                    outcome="SATISFIED",
+                    evidence=None,
+                    matched_atoms=(),
+                    last_observed=None,
+                    elapsed_ms=0,
+                )
+
+        async def dispatch(*, command, dispatch_context):
+            del command
+            result = await actual_user_session.dispatch_targeted_interaction(
+                "11",
+                action="click",
+                targets=(("target", target),),
+                dispatch_context=dispatch_context,
+                command_payload={},
+            )
+            session.faults.raise_at(FaultCutPoint.VISUAL_AFTER_INPUT_SEND)
+            session.faults.raise_at(FaultCutPoint.VISUAL_AFTER_RECEIPT)
+            return result
+
+        async def final_revalidator(**_kwargs):
+            return "VALID"
+
+        def event_hook(event: str) -> None:
+            if event == "pending_saved":
+                session.faults.raise_at(
+                    FaultCutPoint.VISUAL_AFTER_PREFLIGHT,
+                )
+            if event == "final_revalidation":
+                session.faults.raise_at(
+                    FaultCutPoint.VISUAL_AFTER_FINAL_REVALIDATION,
+                )
+
+        action_attempted = True
+        previous_registry = coordinator_runtime._OWNER_REGISTRY
+        coordinator_runtime._OWNER_REGISTRY = registry
+        execution_token = kernel_runtime.set_current_execution_context(
+            kernel_runtime.BrowserExecutionContext(
+                session_id=owner.root_session_id,
+                context="user",
+                root_session_id=owner.root_session_id,
+                root_task_id=owner.root_task_id,
+                browser_owner_id=owner.browser_owner_id,
+                contract_mode=owner.contract_mode,
+                lease_generation=owner.lease_generation,
+            ),
+        )
+        try:
+            result = await action_runtime.ActionRunner(
+                registry=registry,
+                clock=lambda: now,
+                approval_requester=approval_requester,
+            ).run(
+                binding=owner,
+                receiver_tab=tab,
+                contract=api_contracts.BrowserAPIContract(
+                    api_id="tab.actions.click",
+                    kind="action",
+                    visibility="default",
+                    mutates=True,
+                    requires_observation=False,
+                    satisfies_observation=False,
+                    invalidates_observation=True,
+                ),
+                ordered_targets=(("target", target),),
+                arguments={},
+                expectation=expectation,
+                condition_evaluator=Evaluator(),
+                condition_receiver=SimpleNamespace(
+                    owner_key=owner.owner_key,
+                    fingerprint="visual-lab-receiver",
+                ),
+                condition_probe=object(),
+                final_revalidator=final_revalidator,
+                dispatcher=dispatch,
+                event_hook=event_hook,
+            )
+            action_status = result.status
+            action_succeeded = result.status == "SUCCEEDED"
+        except Exception as exc:  # observed typed production failure
+            action_error = str(getattr(exc, "code", type(exc).__name__))
+            action_status = "ERROR"
+        finally:
+            kernel_runtime.reset_current_execution_context(execution_token)
+            coordinator_runtime._OWNER_REGISTRY = previous_registry
+
+    queried = tuple(
+        f"fixture-target-{identity}"
+        for identity in dict.fromkeys(session.geometry_queries)
+        if identity in {41, 42, 88}
+    )
+    event_targets = tuple(
+        f"fixture-target-{identity}"
+        for identity in session.native_event_target_identities
+    )
+    occluded = (
+        action_attempted
+        and not session.input_commands
+        and "target_stale" in action_error
+    )
+    return {
+        "native_hit_identities": queried,
+        "grounding": grounding,
+        "event_target_identities": event_targets,
+        "binding_current": converted.coverage != "STALE",
+        "occluded": occluded,
+        "handoff_visible": grounding in {"NO_MATCH", "UNAVAILABLE"},
+        "failure_visible": bool(session.faults.events),
+        "approval_request_count": session.approval_request_count,
+        "approval_grant_count": session.approval_grant_count,
+        "proximity_choice_count": session.proximity_choice_count,
+        "raw_coordinate_dispatch_count": session.raw_coordinate_dispatch_count,
+        "duplicate_action_count": max(0, session.dispatch_count - 1),
+        "false_success": (
+            action_attempted
+            and action_succeeded
+            and session.dispatch_count == 0
+        ),
+        "action_status": action_status,
+        "action_error": action_error,
+    }
 
 
 def _s7_family_facts(case: LabCase) -> S7FamilyFacts:

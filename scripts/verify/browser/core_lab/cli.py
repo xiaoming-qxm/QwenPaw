@@ -16,6 +16,7 @@ from .reports import (
     update_s6_support_from_report,
     update_s7_support_from_report,
     update_s8_support_from_report,
+    update_s9_support_from_report,
     write_report,
 )
 from .runner import build_case, registered_case_ids, run_case
@@ -93,6 +94,13 @@ def _run(args: argparse.Namespace) -> int:
         CapabilityFamily.RESULT_DELIVERY,
     }:
         update_s8_support_from_report(
+            payload,
+            manifest_path=(
+                "src/qwenpaw/browser/sdk/generated/browser-support.json"
+            ),
+        )
+    if family is CapabilityFamily.VISUAL_CANVAS:
+        update_s9_support_from_report(
             payload,
             manifest_path=(
                 "src/qwenpaw/browser/sdk/generated/browser-support.json"

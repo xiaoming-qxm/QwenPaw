@@ -7,11 +7,15 @@ from __future__ import annotations
 
 import json
 from collections.abc import Awaitable, Callable, Mapping
+from time import monotonic
 from typing import Any
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlsplit
 
 from qwenpaw.browser.sdk.action_runner import DispatchContext
 from qwenpaw.browser.sdk.governance.errors import BrowserSDKError
+from qwenpaw.browser.sdk.governance.policy import (
+    trusted_surface_rule_fingerprint,
+)
 from qwenpaw.browser.sdk.runtime.responses import _tool_response
 from .navigation import (
     _control_remember_approved_navigation,
@@ -56,6 +60,7 @@ from .tab_manager import (
     _control_tab_url,
 )
 from .targets import (
+    canonical_live_target_point,
     _control_click_at,
     _control_press_key,
     _control_prepare_silent_new_context_at_point,
@@ -177,10 +182,11 @@ async def _canonical_execute_interaction(
         )
     target_tokens = kwargs.get("_canonical_target_tokens")
     native_facts = kwargs.get("_canonical_native_facts")
+    surface_policy_facts = kwargs.get("_canonical_surface_policy_facts", {})
     if not isinstance(target_tokens, Mapping) or not isinstance(
         native_facts,
         Mapping,
-    ):
+    ) or not isinstance(surface_policy_facts, Mapping):
         raise BrowserSDKError(
             "Canonical native target facts are unavailable",
             code="target_binding_invalid",
@@ -216,6 +222,7 @@ async def _canonical_execute_interaction(
             owner_key=owner_key,
             receiver_tab=receiver_tab,
             current_native_identity=native_identity,
+            visual=bool(binding.get("visual_context_ref")),
         )
         if status != "VALID":
             raise BrowserSDKError(
@@ -223,8 +230,25 @@ async def _canonical_execute_interaction(
                 code="target_stale",
             )
         _validate_canonical_surface(binding)
-        _validate_canonical_actionability(binding, normalized_action)
-        _validate_canonical_effect_ceiling(binding, context)
+        surface_policy = _validated_surface_policy_facts(
+            surface_policy_facts.get(label),
+            context=context,
+            action=normalized_action,
+        )
+        _validate_canonical_actionability(
+            binding,
+            normalized_action,
+            policy_authorized=surface_policy is not None,
+        )
+        _validate_canonical_effect_ceiling(
+            binding,
+            context,
+            ceiling_override=(
+                surface_policy.get("effect_ceiling")
+                if surface_policy is not None
+                else None
+            ),
+        )
         prepared.append(
             {
                 "label": label,
@@ -233,6 +257,21 @@ async def _canonical_execute_interaction(
                 "native_identity": tuple(native_identity),
                 "geometry_digest": str(
                     binding.get("geometry_digest") or "",
+                ),
+                "surface_origin": (
+                    str(surface_policy.get("origin") or "")
+                    if surface_policy is not None
+                    else ""
+                ),
+                "surface_identity": (
+                    str(surface_policy.get("surface_identity") or "")
+                    if surface_policy is not None
+                    else ""
+                ),
+                "surface_policy_revision": (
+                    str(surface_policy.get("revision") or "")
+                    if surface_policy is not None
+                    else ""
                 ),
             },
         )
@@ -245,6 +284,7 @@ async def _canonical_execute_interaction(
             "request_context",
             "_canonical_target_tokens",
             "_canonical_native_facts",
+            "_canonical_surface_policy_facts",
         }
         and key not in _CANONICAL_FORBIDDEN_TARGET_KEYS
     }
@@ -286,6 +326,8 @@ def _validate_canonical_surface(binding: Mapping[str, object]) -> None:
 def _validate_canonical_actionability(
     binding: Mapping[str, object],
     action: str,
+    *,
+    policy_authorized: bool = False,
 ) -> None:
     raw_allowed = binding.get("allowed_actions", ())
     if not isinstance(raw_allowed, (tuple, list)):
@@ -300,7 +342,7 @@ def _validate_canonical_actionability(
         "set_checked": "click",
     }
     accepted = {action, aliases.get(action, action)}
-    if allowed and not accepted.intersection(allowed):
+    if not accepted.intersection(allowed) and not policy_authorized:
         raise BrowserSDKError(
             "Canonical action is not allowed by the target binding",
             code="target_action_forbidden",
@@ -327,8 +369,14 @@ def _validate_canonical_actionability(
 def _validate_canonical_effect_ceiling(
     binding: Mapping[str, object],
     context: DispatchContext,
+    *,
+    ceiling_override: object = None,
 ) -> None:
-    raw_ceiling = binding.get("effect_ceiling", ())
+    raw_ceiling = (
+        binding.get("effect_ceiling", ())
+        if ceiling_override is None
+        else ceiling_override
+    )
     if not isinstance(raw_ceiling, (tuple, list)):
         raise BrowserSDKError(
             "Canonical effect ceiling binding is invalid",
@@ -341,6 +389,90 @@ def _validate_canonical_effect_ceiling(
             "Canonical target effect ceiling is insufficient",
             code="effect_ceiling_mismatch",
         )
+
+
+def _validated_surface_policy_facts(
+    raw: object,
+    *,
+    context: DispatchContext,
+    action: str,
+) -> dict[str, object] | None:
+    proof_refs = tuple(
+        item
+        for item in str(context.effect_proof_ref or "").split("|")
+        if item
+    )
+    if raw is None:
+        if proof_refs:
+            raise BrowserSDKError(
+                "Canonical surface policy facts are unavailable",
+                code="effect_proof_invalid",
+            )
+        return None
+    if not isinstance(raw, Mapping):
+        raise BrowserSDKError(
+            "Canonical surface policy facts are invalid",
+            code="effect_proof_invalid",
+        )
+    origin = str(raw.get("origin") or "")
+    surface_identity = str(raw.get("surface_identity") or "")
+    revision = str(raw.get("revision") or "")
+    evidence_ref = str(raw.get("evidence_ref") or "")
+    ceiling = raw.get("effect_ceiling")
+    expires_at = raw.get("expires_at")
+    parsed = urlsplit(origin)
+    if (
+        parsed.scheme not in {"http", "https"}
+        or not parsed.hostname
+        or parsed.path not in {"", "/"}
+        or parsed.query
+        or parsed.fragment
+        or not surface_identity
+        or not revision
+        or not isinstance(ceiling, (tuple, list))
+        or not ceiling
+        or any(
+            str(item) not in {"PRESENTATION", "SESSION_STATE"}
+            for item in ceiling
+        )
+    ):
+        raise BrowserSDKError(
+            "Canonical surface policy proof does not match",
+            code="effect_proof_invalid",
+        )
+    try:
+        fingerprint = trusted_surface_rule_fingerprint(
+            origin=origin.rstrip("/"),
+            surface_identity=surface_identity,
+            action=action,
+            revision=revision,
+            evidence_ref=evidence_ref,
+            effect_ceiling=tuple(str(item) for item in ceiling),
+            expires_at=float(expires_at),
+        )
+    except BrowserSDKError as exc:
+        raise BrowserSDKError(
+            "Canonical surface policy proof does not match",
+            code="effect_proof_invalid",
+        ) from exc
+    if fingerprint not in proof_refs:
+        raise BrowserSDKError(
+            "Canonical surface policy proof does not match",
+            code="effect_proof_invalid",
+        )
+    if monotonic() >= float(expires_at):
+        raise BrowserSDKError(
+            "Canonical surface policy proof expired",
+            code="surface_policy_expired",
+        )
+    return {
+        "origin": origin.rstrip("/"),
+        "surface_identity": surface_identity,
+        "revision": revision,
+        "evidence_ref": evidence_ref,
+        "effect_ceiling": tuple(str(item) for item in ceiling),
+        "expires_at": float(expires_at),
+    }
 
 
 async def _canonical_set_checked_decision(
@@ -376,6 +508,197 @@ async def canonical_interaction_control(
         injector=injector,
     )
     return _json_response(result)
+
+
+async def canonical_native_interaction_control(
+    state: ControlState,
+    *,
+    holder_id: str,
+    bridge: Any,
+    action: str,
+    target_labels: tuple[str, ...],
+    kwargs: dict[str, Any],
+):
+    """Own live target revalidation and pointer injection in one handler."""
+    request_context = kwargs.get("request_context")
+    context = (
+        request_context.get("canonical_dispatch_context")
+        if isinstance(request_context, Mapping)
+        else None
+    )
+    if not isinstance(context, DispatchContext):
+        raise BrowserSDKError(
+            "Canonical interaction requires a trusted DispatchContext",
+            code="canonical_dispatch_context_missing",
+        )
+    try:
+        tab_id = int(context._receiver_tab_key)
+    except (TypeError, ValueError) as exc:
+        raise BrowserSDKError(
+            "Canonical receiver tab is invalid",
+            code="target_wrong_receiver",
+        ) from exc
+    await _control_ensure_tab_available(bridge, tab_id)
+    session = await _control_get_session(
+        state,
+        tab_id=tab_id,
+        holder_id=holder_id,
+        bridge=bridge,
+        request_context=request_context,
+    )
+
+    async def inject(
+        prepared: tuple[dict[str, object], ...],
+        arguments: dict[str, object],
+    ) -> object:
+        points: list[tuple[float, float]] = []
+        bindings: list[dict[str, Any]] = []
+        for item in prepared:
+            binding = _require_canonical_binding(
+                state,
+                str(item.get("token") or ""),
+            )
+            live_binding = dict(binding)
+            surface_origin = str(item.get("surface_origin") or "")
+            if surface_origin:
+                live_binding["surface_origin"] = surface_origin
+                live_binding["surface_identity"] = str(
+                    item.get("surface_identity") or "",
+                )
+                live_binding["surface_policy_revision"] = str(
+                    item.get("surface_policy_revision") or "",
+                )
+            point = await canonical_live_target_point(session, live_binding)
+            if point is None:
+                raise BrowserSDKError(
+                    "Canonical target changed before native input",
+                    code="target_stale",
+                )
+            points.append(point)
+            bindings.append(binding)
+        for binding in bindings:
+            if bool(binding.get("single_use")):
+                if binding.get("use_state") != "FRESH":
+                    raise BrowserSDKError(
+                        "Canonical target was already consumed",
+                        code="target_stale",
+                    )
+                binding["use_state"] = "CONSUMED"
+        await _dispatch_canonical_pointer(
+            session,
+            action=action,
+            points=tuple(points),
+            arguments=arguments,
+        )
+        return {"tab_id": tab_id}
+
+    result = await _canonical_execute_interaction(
+        state,
+        action=action,
+        target_labels=target_labels,
+        kwargs=kwargs,
+        injector=inject,
+    )
+    return _json_response(result)
+
+
+async def _dispatch_canonical_pointer(
+    session: Any,
+    *,
+    action: str,
+    points: tuple[tuple[float, float], ...],
+    arguments: dict[str, object],
+) -> None:
+    if action == "hover" and len(points) == 1:
+        await session.send(
+            "Input.dispatchMouseEvent",
+            {
+                "type": "mouseMoved",
+                "x": points[0][0],
+                "y": points[0][1],
+                "button": "none",
+            },
+        )
+        return
+    if action == "drag" and len(points) == 2:
+        source, destination = points
+        await session.send(
+            "Input.dispatchMouseEvent",
+            {
+                "type": "mousePressed",
+                "x": source[0],
+                "y": source[1],
+                "button": "left",
+                "clickCount": 1,
+            },
+        )
+        await session.send(
+            "Input.dispatchMouseEvent",
+            {
+                "type": "mouseMoved",
+                "x": destination[0],
+                "y": destination[1],
+                "button": "left",
+                "buttons": 1,
+            },
+        )
+        await session.send(
+            "Input.dispatchMouseEvent",
+            {
+                "type": "mouseReleased",
+                "x": destination[0],
+                "y": destination[1],
+                "button": "left",
+                "clickCount": 1,
+            },
+        )
+        return
+    if action != "click" or len(points) != 1:
+        raise BrowserSDKError(
+            "Canonical pointer action shape is invalid",
+            code="interaction_action_invalid",
+        )
+    buttons = {
+        "primary": "left",
+        "secondary": "right",
+        "middle": "middle",
+    }
+    button = buttons.get(str(arguments.get("button") or "primary"))
+    count = arguments.get("count", 1)
+    if button is None or count not in {1, 2}:
+        raise BrowserSDKError(
+            "Canonical click arguments are invalid",
+            code="interaction_action_invalid",
+        )
+    modifiers = _canonical_modifier_mask(arguments.get("modifiers"))
+    for event_type in ("mousePressed", "mouseReleased"):
+        await session.send(
+            "Input.dispatchMouseEvent",
+            {
+                "type": event_type,
+                "x": points[0][0],
+                "y": points[0][1],
+                "button": button,
+                "clickCount": int(count),
+                "modifiers": modifiers,
+            },
+        )
+
+
+def _canonical_modifier_mask(raw: object) -> int:
+    values = tuple(raw) if isinstance(raw, (tuple, list)) else ()
+    if len(set(values)) != len(values):
+        raise BrowserSDKError(
+            "Canonical click modifiers are invalid",
+            code="interaction_action_invalid",
+        )
+    bits = {"alt": 1, "control": 2, "meta": 4, "shift": 8}
+    if any(value not in bits for value in values):
+        raise BrowserSDKError(
+            "Canonical click modifiers are invalid",
+            code="interaction_action_invalid",
+        )
+    return sum(bits[value] for value in values)
 
 
 async def canonical_paste_control(

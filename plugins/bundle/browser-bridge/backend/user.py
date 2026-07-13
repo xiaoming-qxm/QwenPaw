@@ -19,7 +19,9 @@ from qwenpaw.browser.sdk.action_runner import DispatchContext
 from qwenpaw.browser.sdk.canonical.contracts import (
     ActionResult,
     BrowserPrompt,
+    CaptureGap,
     ContextVersion,
+    CoverageGap,
     Coverage,
     CurrentSurface,
     EvidenceRef,
@@ -28,6 +30,7 @@ from qwenpaw.browser.sdk.canonical.contracts import (
     Problem,
     TabSummary,
     TargetRef,
+    VisualRegion,
     _RUNTIME_VALUE_ISSUER,
     _issue_opaque_value,
     issue_operation_id,
@@ -95,6 +98,7 @@ from qwenpaw.browser.sdk.runtime.session_owner import (
     TargetBinding,
 )
 from qwenpaw.browser.sdk.runtime.snapshot import (
+    RegionSummary as SnapshotRegionSummary,
     SnapshotCapture,
     SnapshotTarget,
     SourceOutcome,
@@ -1010,7 +1014,7 @@ class ChromeExtensionBrowserSession:
         budget: Any,
     ) -> SnapshotCapture:
         """Return a registry-issued Canonical capture from trusted payload."""
-        del scope, budget
+        del budget
         payload = await self._bridge_or_engine_action("snapshot", tab_id)
         if not isinstance(payload, dict):
             raise BrowserSDKError(
@@ -1041,6 +1045,74 @@ class ChromeExtensionBrowserSession:
             owner=owner,
             receiver_tab=str(tab_id),
             expires_at=monotonic() + 30.0,
+            scope=scope,
+        )
+
+    async def capture_visual_snapshot(
+        self,
+        tab_id: str,
+        *,
+        scope: VisualRegion,
+        budget: Any,
+    ) -> SnapshotCapture:
+        """Ground one registry-bound viewport region through the Bridge."""
+        from qwenpaw.browser.sdk.runtime.kernel import (
+            get_current_execution_context,
+        )
+        from qwenpaw.runtime.root_request_coordinator import _OWNER_REGISTRY
+
+        execution = get_current_execution_context()
+        if execution is None:
+            raise BrowserSDKError(
+                "Canonical visual owner is unavailable.",
+                code="browser_ownership_context_missing",
+            )
+        owner = BrowserRequestBinding(
+            root_session_id=execution.root_session_id,
+            root_task_id=execution.root_task_id,
+            browser_owner_id=execution.browser_owner_id,
+            contract_mode=execution.contract_mode,
+            lease_generation=execution.lease_generation,
+        )
+        binding = _OWNER_REGISTRY.resolve_visual_context(
+            scope.visual_context,
+            owner=owner,
+            receiver_tab=str(tab_id),
+        )
+        payload = await self._bridge_or_engine_action(
+            "snapshot",
+            tab_id,
+            visual_region={
+                "x": scope.x,
+                "y": scope.y,
+                "width": scope.width,
+                "height": scope.height,
+                "generation": binding.generation,
+                "viewport": binding.viewport,
+                "scroll": binding.scroll,
+                "zoom": binding.zoom,
+                "device_pixel_ratio": binding.device_pixel_ratio,
+                "layout": binding.layout,
+                "visual_context_ref": str(scope.visual_context.id),
+                "budget": {
+                    "capture_nodes": int(budget.capture_nodes),
+                    "output_targets": int(budget.output_targets),
+                    "hard_maximum": int(budget.hard_maximum),
+                },
+            },
+        )
+        if not isinstance(payload, dict):
+            raise BrowserSDKError(
+                "Canonical visual snapshot returned invalid payload.",
+                code="snapshot_payload_invalid",
+            )
+        return _canonical_capture_from_payload(
+            payload,
+            registry=_OWNER_REGISTRY,
+            owner=owner,
+            receiver_tab=str(tab_id),
+            expires_at=monotonic() + 30.0,
+            scope=scope,
         )
 
     async def screenshot(self, tab_id: str) -> BrowserScreenshot:
@@ -1441,6 +1513,65 @@ class ChromeExtensionBrowserSession:
             _canonical_paste_content=content,
         )
 
+    async def dispatch_targeted_interaction(
+        self,
+        tab_id: str,
+        *,
+        action: Literal["click", "hover", "drag"],
+        targets: tuple[tuple[str, TargetRef], ...],
+        dispatch_context: DispatchContext,
+        command_payload: Mapping[str, object],
+    ) -> object:
+        """Dispatch exact Runtime targets through the owning Bridge session."""
+        if action not in {"click", "hover", "drag"}:
+            raise BrowserSDKError(
+                "Canonical interaction action is invalid",
+                code="interaction_action_invalid",
+            )
+        target_tokens: dict[str, str] = {}
+        native_facts: dict[str, tuple[tuple[str, str | int], ...]] = {}
+        surface_policy_facts: dict[str, dict[str, object]] = {}
+        for label, target in targets:
+            binding = dispatch_context._registry.resolve_target(
+                target,
+                receiver_tab=str(tab_id),
+                owner=dispatch_context._owner_binding,
+            )
+            token = str(binding.bridge_token or getattr(target, "ref", ""))
+            if not token:
+                raise BrowserSDKError(
+                    "Canonical Bridge target token is unavailable",
+                    code="target_binding_invalid",
+                )
+            target_tokens[str(label)] = token
+            native_facts[str(label)] = binding.native_identity
+            if binding.surface_policy_proof:
+                proof_refs = set(
+                    str(dispatch_context.effect_proof_ref or "").split("|"),
+                )
+                if binding.surface_policy_proof not in proof_refs:
+                    raise BrowserSDKError(
+                        "trusted surface policy proof is not sealed",
+                        code="effect_proof_invalid",
+                    )
+                surface_policy_facts[str(label)] = {
+                    "origin": binding.surface_origin,
+                    "surface_identity": binding.surface_identity,
+                    "revision": binding.surface_policy_revision,
+                    "evidence_ref": binding.surface_policy_evidence,
+                    "effect_ceiling": binding.effect_ceiling,
+                    "expires_at": binding.surface_policy_expires_at,
+                }
+        return await self.action(
+            tab_id,
+            action,
+            dispatch_context=dispatch_context,
+            command_payload=command_payload,
+            _canonical_target_tokens=target_tokens,
+            _canonical_native_facts=native_facts,
+            _canonical_surface_policy_facts=surface_policy_facts,
+        )
+
     async def handle_dialog(
         self,
         tab_id: str,
@@ -1497,7 +1628,7 @@ class ChromeExtensionBrowserSession:
                     command_payload,
                     EffectClassification(
                         categories=dispatch_context.effects,
-                        proof_ref=None,
+                        proof_ref=dispatch_context.effect_proof_ref,
                     ),
                 )
                 envelope = _issue_trusted_command_envelope(
@@ -1538,7 +1669,7 @@ class ChromeExtensionBrowserSession:
                 kwargs,
                 EffectClassification(
                     categories=dispatch_context.effects,
-                    proof_ref=None,
+                    proof_ref=dispatch_context.effect_proof_ref,
                 ),
             )
             await _OWNER_REGISTRY.consume_grant_for_dispatch(
@@ -2033,6 +2164,7 @@ def _canonical_capture_from_payload(
     owner: BrowserRequestBinding,
     receiver_tab: str,
     expires_at: float,
+    scope: Any = None,
 ) -> SnapshotCapture:
     """Convert trusted Bridge side-channel facts into owner-issued handles."""
     context_payload = payload.get("context")
@@ -2132,6 +2264,7 @@ def _canonical_capture_from_payload(
             ),
             use_state="FRESH",
             expires_at=float(expires_at),
+            bridge_token=token,
         )
         ref = registry.issue_target(
             target_binding,
@@ -2142,6 +2275,7 @@ def _canonical_capture_from_payload(
                 if raw.get("observed_url") is not None
                 else None
             ),
+            single_use=bool(binding_payload.get("single_use")),
         )
         targets.append(
             SnapshotTarget(
@@ -2157,6 +2291,83 @@ def _canonical_capture_from_payload(
                 ref=ref,
             ),
         )
+    surface_candidates = payload.get("_trusted_surface_candidates", {})
+    if not isinstance(surface_candidates, dict):
+        raise BrowserSDKError(
+            "Canonical surface bindings are invalid.",
+            code="snapshot_payload_invalid",
+        )
+    for token, binding_payload in surface_candidates.items():
+        if not str(token).startswith("target_") or not isinstance(
+            binding_payload,
+            dict,
+        ):
+            raise BrowserSDKError(
+                "Canonical surface token is not trusted.",
+                code="runtime_issued_value",
+            )
+        _require_canonical_payload_owner(
+            binding_payload,
+            owner=owner,
+            receiver_tab=receiver_tab,
+        )
+        native_identity = _binding_pairs(
+            binding_payload.get("native_identity"),
+            value_type=(str, int),
+        )
+        action_state = _binding_pairs(
+            binding_payload.get("action_state"),
+            value_type=bool,
+        )
+        candidate = TargetBinding(
+            root_task_id=owner.root_task_id,
+            browser_owner_id=owner.browser_owner_id,
+            session_id=owner.root_session_id,
+            backend_id=str(binding_payload.get("backend_id") or BACKEND_ID),
+            receiver_tab_key=receiver_tab,
+            frame_key=str(binding_payload.get("frame_key") or ""),
+            context_ref=str(context.version_ref),
+            native_identity=cast(Any, native_identity),
+            action_state=cast(Any, action_state),
+            geometry_digest=str(binding_payload.get("geometry_digest") or ""),
+            visual_context_ref=str(
+                binding_payload.get("visual_context_ref") or "",
+            ),
+            allowed_actions=(),
+            effect_ceiling=(),
+            use_state="FRESH",
+            expires_at=float(expires_at),
+            bridge_token=str(token),
+            surface_origin=str(binding_payload.get("surface_origin") or ""),
+            surface_identity=str(
+                binding_payload.get("surface_identity") or "",
+            ),
+        )
+        ref = registry.issue_trusted_surface_candidate(
+            owner,
+            candidate=candidate,
+            receiver_tab=receiver_tab,
+            origin=candidate.surface_origin,
+            surface_identity=candidate.surface_identity,
+        )
+        if ref is None:
+            continue
+        targets.append(
+            SnapshotTarget(
+                native_identity=str(token),
+                owner=str(binding_payload.get("frame_key") or "main"),
+                owner_chain=(
+                    str(binding_payload.get("frame_key") or "main"),
+                ),
+                role="canvas",
+                name="Reviewed visual surface",
+                states=("visible",),
+                sources=("DOM",),
+                identity_conflict=False,
+                executable=True,
+                ref=ref,
+            ),
+        )
     sources = tuple(
         SourceOutcome(
             source=cast(Any, str(item.get("source") or "AX")),
@@ -2167,14 +2378,56 @@ def _canonical_capture_from_payload(
         for item in payload.get("sources", ())
         if isinstance(item, dict)
     )
+    gaps = tuple(
+        CoverageGap(
+            stage=cast(Any, str(item.get("stage") or "CAPTURE")),
+            detail=CaptureGap(
+                source=cast(Any, str(item.get("source") or "DOM")),
+                reason=cast(
+                    Any,
+                    str(item.get("reason") or "SOURCE_UNAVAILABLE"),
+                ),
+                frontier=(
+                    str(item["frontier"])
+                    if item.get("frontier") is not None
+                    else None
+                ),
+                examined=int(item.get("examined") or 0),
+                omitted=int(item.get("omitted") or 0),
+            ),
+        )
+        for item in payload.get("gaps", ())
+        if isinstance(item, dict) and item.get("stage") == "CAPTURE"
+    )
+    regions = tuple(
+        SnapshotRegionSummary(
+            kind=cast(Any, str(item.get("kind") or "CONTENT")),
+            owner=str(item.get("owner") or "main"),
+            owner_chain=tuple(
+                str(part) for part in item.get("owner_chain", ("main",))
+            ),
+            boundary=cast(Any, str(item.get("boundary") or "DEFAULT")),
+            accessible=bool(item.get("accessible")),
+            native_identity=str(item.get("native_identity") or ""),
+        )
+        for item in payload.get("regions", ())
+        if isinstance(item, dict) and item.get("native_identity")
+    )
+    coverage = cast(
+        Coverage,
+        str(payload.get("coverage") or "UNAVAILABLE"),
+    )
+    if coverage == "COMPLETE" and gaps:
+        coverage = "PARTIAL"
     return SnapshotCapture(
         context=context,
-        scope=CurrentSurface(),
+        scope=scope or CurrentSurface(),
         generation=str(payload.get("generation") or ""),
-        coverage=cast(Coverage, str(payload.get("coverage") or "UNAVAILABLE")),
-        gaps=(),
+        coverage=coverage,
+        gaps=gaps,
         sources=sources,
         targets=tuple(targets),
+        regions=regions,
     )
 
 
@@ -2503,6 +2756,8 @@ def _screenshot_invariant_from_payload(value: Any) -> ScreenshotInvariant:
             else (0, 0)
         ),
         event_watermark=int(payload.get("event_watermark") or 0),
+        zoom=float(payload.get("zoom") or 1.0),
+        device_pixel_ratio=float(payload.get("device_pixel_ratio") or 1.0),
     )
 
 

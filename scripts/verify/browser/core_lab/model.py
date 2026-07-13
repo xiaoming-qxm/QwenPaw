@@ -58,6 +58,16 @@ class FaultCutPoint(StrEnum):
     DURING_FINAL_ENVELOPE = "DURING_FINAL_ENVELOPE"
     DURING_TRANSIENT_CLEANUP = "DURING_TRANSIENT_CLEANUP"
     DURING_ARTIFACT_EXPIRY = "DURING_ARTIFACT_EXPIRY"
+    VISUAL_BEFORE_SCREENSHOT = "visual.before_screenshot"
+    VISUAL_AFTER_SCREENSHOT = "visual.after_screenshot"
+    VISUAL_AFTER_BINDING_ISSUE = "visual.after_binding_issue"
+    VISUAL_AFTER_HIT_TEST = "visual.after_hit_test"
+    VISUAL_AFTER_REF_STORAGE = "visual.after_ref_storage"
+    VISUAL_AFTER_PREFLIGHT = "visual.after_preflight"
+    VISUAL_AFTER_FINAL_REVALIDATION = "visual.after_final_revalidation"
+    VISUAL_AFTER_INPUT_SEND = "visual.after_input_send"
+    VISUAL_AFTER_RECEIPT = "visual.after_receipt"
+    VISUAL_AFTER_POSTCONDITION = "visual.after_postcondition"
 
 
 @dataclass(frozen=True, slots=True)
@@ -207,6 +217,37 @@ class ResourceFileFacts:
     false_success: bool
 
 
+@dataclass(frozen=True, slots=True)
+class VisualCanvasFacts:
+    """Fixture-owned visual truth and native hit/input event logs."""
+
+    primary_family: CapabilityFamily
+    fixture_target_identities: tuple[str, ...]
+    expected_native_hit_identities: tuple[str, ...]
+    native_hit_identities: tuple[str, ...]
+    expected_grounding: str
+    controller_grounding: str
+    expected_native_effect_count: int
+    native_event_target_identities: tuple[str, ...]
+    expected_binding_current: bool
+    binding_current: bool
+    expected_occluded: bool
+    occluded: bool
+    expected_handoff_visible: bool
+    handoff_visible: bool
+    expected_failure_visible: bool
+    failure_visible: bool
+    policy_scoped: bool
+    required_readiness: bool
+    expected_approval_count: int
+    approval_request_count: int
+    approval_grant_count: int
+    proximity_choice_count: int
+    raw_coordinate_dispatch_count: int
+    duplicate_action_count: int
+    false_success: bool
+
+
 __all__ = [
     "CapabilityFamily",
     "ActionFaultFacts",
@@ -221,4 +262,5 @@ __all__ = [
     "SynchronizeFacts",
     "StateApprovalFacts",
     "TargetControlFacts",
+    "VisualCanvasFacts",
 ]

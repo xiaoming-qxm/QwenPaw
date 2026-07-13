@@ -53,10 +53,12 @@ from .contracts import (
     BrowserCondition,
     BrowserPrompt,
     CaptureGap,
+    Coverage,
     CoverageGap,
     CurrentSurface,
     EvidenceRef,
     FrameScope,
+    Grounding,
     ObservationScope,
     OptionChoice,
     PagePdfOptions,
@@ -290,6 +292,10 @@ class TabActions:
             expectation=expect,
             state=state,
             timeout_ms=timeout_ms,
+            dispatcher=self._interaction_dispatcher(
+                "click",
+                (("target", target),),
+            ),
         )
 
     async def hover(
@@ -307,6 +313,10 @@ class TabActions:
             arguments={},
             expectation=expect,
             timeout_ms=timeout_ms,
+            dispatcher=self._interaction_dispatcher(
+                "hover",
+                (("target", target),),
+            ),
         )
 
     async def drag(
@@ -331,7 +341,52 @@ class TabActions:
             expectation=expect,
             state=state,
             timeout_ms=timeout_ms,
+            dispatcher=self._interaction_dispatcher(
+                "drag",
+                (
+                    ("source", source),
+                    ("destination", destination),
+                ),
+            ),
         )
+
+    def _interaction_dispatcher(
+        self,
+        action: Literal["click", "hover", "drag"],
+        targets: tuple[tuple[str, TargetRef], ...],
+    ) -> Dispatch:
+        async def dispatch_interaction(
+            *,
+            command: object,
+            dispatch_context: object,
+        ) -> object:
+            dispatch = getattr(
+                self._session,
+                "dispatch_targeted_interaction",
+                None,
+            )
+            if not callable(dispatch):
+                raise BrowserSDKError(
+                    "Canonical interaction dispatcher is unavailable",
+                    code="interaction_dispatcher_missing",
+                )
+            command_payload = getattr(command, "_payload", None)
+            if not isinstance(command_payload, Mapping):
+                raise BrowserSDKError(
+                    "Canonical interaction command is invalid",
+                    code="interaction_command_invalid",
+                )
+            dispatch_call = cast(Callable[..., Awaitable[object]], dispatch)
+            return await _invoke_async(
+                dispatch_call,
+                self._receiver_tab,
+                action=action,
+                targets=targets,
+                dispatch_context=dispatch_context,
+                command_payload=command_payload,
+            )
+
+        return dispatch_interaction
 
     async def scroll(
         self,
@@ -1131,23 +1186,7 @@ class Tab:
         """Capture neutral bounded evidence for this exact Tab receiver."""
         requested_scope = scope or CurrentSurface()
         if isinstance(requested_scope, VisualRegion):
-            return _record_snapshot_result(
-                SnapshotResult(
-                    operation_id=issue_operation_id(),
-                    status="BLOCKED",
-                    retry="AFTER_OBSERVATION",
-                    problem=Problem(
-                        code="capability_unavailable",
-                        phase="PREFLIGHT",
-                        safe_message=(
-                            "VisualRegion snapshot is not available in S2."
-                        ),
-                        details=CapabilityProblemDetails(
-                            capability="tab.snapshot.visual_region",
-                        ),
-                    ),
-                ),
-            )
+            return await self._snapshot_visual_region(requested_scope)
         if self._session is None or self._observations is None:
             raise _capability_blocked("tab.snapshot")
         owner_chain = _scope_owner_chain(
@@ -1281,6 +1320,144 @@ class Tab:
             ),
         )
         return _record_snapshot_result(result)
+
+    async def _snapshot_visual_region(
+        self,
+        scope: VisualRegion,
+    ) -> SnapshotResult:
+        """Ground one fresh viewport region without coordinate authority."""
+        if (
+            self._session is None
+            or self._observations is None
+            or self._target_registry is None
+            or self._owner_binding is None
+        ):
+            raise _capability_blocked("tab.snapshot.visual_region")
+        try:
+            visual_binding = self._target_registry.resolve_visual_context(
+                scope.visual_context,
+                owner=self._owner_binding,
+                receiver_tab=self.id,
+            )
+        except BrowserSDKError:
+            return self._visual_grounding_result(
+                scope,
+                coverage="STALE",
+                targets=(),
+                sources="visual-binding:stale",
+            )
+        if (
+            not visual_binding.actionable
+            or visual_binding.context is not self._observations.context
+        ):
+            return self._visual_grounding_result(
+                scope,
+                coverage="STALE",
+                targets=(),
+                sources="visual-binding:stale",
+            )
+        capture_visual = getattr(
+            self._session,
+            "capture_visual_snapshot",
+            None,
+        )
+        if not callable(capture_visual):
+            return self._visual_grounding_result(
+                scope,
+                coverage="UNAVAILABLE",
+                targets=(),
+                sources="visual-hit-test:unavailable",
+            )
+        capture_call = cast(Callable[..., Awaitable[object]], capture_visual)
+        capture = await capture_call(
+            self.id,
+            scope=scope,
+            budget=ObservationBudget(
+                capture_nodes=512,
+                output_targets=32,
+                hard_maximum=512,
+            ),
+        )
+        if not isinstance(capture, SnapshotCapture):
+            raise BrowserSDKGap(
+                "Visual grounding returned invalid capture facts.",
+                action="tab.snapshot.visual_region",
+            )
+        targets = tuple(capture.targets)
+        if capture.coverage != "COMPLETE":
+            targets = ()
+        return self._visual_grounding_result(
+            scope,
+            coverage=capture.coverage,
+            targets=targets,
+            regions=tuple(capture.regions),
+            gaps=tuple(capture.gaps),
+            sources=",".join(
+                f"{item.source}:{'ok' if item.available else 'unavailable'}"
+                for item in capture.sources
+            ),
+        )
+
+    def _visual_grounding_result(
+        self,
+        scope: VisualRegion,
+        *,
+        coverage: Coverage,
+        targets: tuple[SnapshotTarget, ...],
+        sources: str,
+        regions: tuple[Any, ...] = (),
+        gaps: tuple[CoverageGap, ...] = (),
+    ) -> SnapshotResult:
+        assert self._observations is not None
+        grounding = (
+            Grounding.STALE
+            if coverage == "STALE"
+            else (
+                Grounding.UNAVAILABLE
+                if coverage in {"UNAVAILABLE", "PARTIAL"}
+                else (
+                    Grounding.NO_MATCH
+                    if not targets
+                    else (
+                        Grounding.EXACT
+                        if len(targets) == 1
+                        else Grounding.MULTIPLE
+                    )
+                )
+            )
+        )
+        observation = self._observations.issue_evidence(
+            kind="SNAPSHOT",
+            scope=scope,
+            coverage=coverage,
+            gaps=gaps,
+        )
+        summaries = tuple(
+            _target_summary(target, index)
+            for index, target in enumerate(targets, start=1)
+        )
+        region_summaries = tuple(
+            _region_summary(self._observations, region)
+            for region in regions
+        )
+        status, retry, problem = _snapshot_terminal(coverage)
+        return _record_snapshot_result(
+            SnapshotResult(
+                operation_id=issue_operation_id(),
+                status=status,
+                retry=retry,
+                problem=problem,
+                evidence=observation.ref,
+                observation=observation,
+                model_text=(
+                    f"grounding={grounding.value}; candidates={len(summaries)}"
+                ),
+                targets=summaries,
+                regions=region_summaries,
+                grounding=grounding,
+                source_summary=sources,
+            ),
+        )
 
     async def read(
         self,
@@ -1419,6 +1596,14 @@ class Tab:
             )
             record_browser_result(result)
             return result
+        if scope == "viewport" and (
+            self._target_registry is None
+            or self._owner_binding is None
+            or self._observations is None
+        ):
+            raise _capability_blocked(
+                "tab.screenshot.viewport.visual_context",
+            )
         handle = await self._resources.ingest_output(
             TrustedOutputSource.from_bytes(captured.data),
             media_type=captured.media_type,
@@ -1453,18 +1638,32 @@ class Tab:
             evidence = issued_evidence
         visual_context: VisualContextRef | None = None
         if scope == "viewport":
-            issued_visual_context = _issue_opaque_value(
-                VisualContextRef,
-                _RUNTIME_VALUE_ISSUER,
-                id=f"visual-{handle.id}",
-                tab_id=self.id,
-                width=captured.width,
-                height=captured.height,
-                viewport=captured.before.viewport,
-                layout=captured.before.layout,
-            )
-            assert isinstance(issued_visual_context, VisualContextRef)
-            visual_context = issued_visual_context
+            if (
+                self._target_registry is not None
+                and self._owner_binding is not None
+                and self._observations is not None
+            ):
+                visual_context = self._target_registry.issue_visual_context(
+                    self._owner_binding,
+                    receiver_tab=self.id,
+                    backend_id=str(
+                        getattr(self._session, "backend_id", "canonical"),
+                    ),
+                    context=self._observations.context,
+                    viewport=captured.before.viewport,
+                    scroll=captured.before.scroll_offset,
+                    zoom=captured.before.zoom,
+                    device_pixel_ratio=(
+                        captured.before.device_pixel_ratio
+                    ),
+                    layout=captured.before.layout,
+                    capture_epoch=captured.before.event_watermark,
+                    image_sha256=str(handle.sha256),
+                    resource_id=str(handle.id),
+                    generation=captured.before.generation,
+                    expires_at=monotonic() + 30.0,
+                    actionable=not bool(invariant_gap),
+                )
         status: TerminalStatus = "PARTIAL" if invariant_gap else "SUCCEEDED"
         problem = (
             Problem(

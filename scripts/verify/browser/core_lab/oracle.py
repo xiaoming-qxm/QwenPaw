@@ -21,6 +21,7 @@ from .model import (
     StateApprovalFacts,
     SynchronizeFacts,
     TargetControlFacts,
+    VisualCanvasFacts,
 )
 
 
@@ -285,6 +286,71 @@ class IndependentOracle:
             "path_free": facts.path_free,
             "clipboard_access_count": facts.clipboard_access_count,
             "cleanup_failure_visible": facts.cleanup_failure_visible,
+            "false_success": facts.false_success,
+        }
+        return self.evaluate(
+            expected_facts=expected,
+            observed_events=(observed,),
+            observed_resources=(),
+            observed_blocks=(),
+        )
+
+    def evaluate_visual_canvas(
+        self,
+        facts: VisualCanvasFacts,
+    ) -> OracleResult:
+        """Evaluate only fixture target truth and native hit/input logs."""
+        fixture_identities = set(facts.fixture_target_identities)
+        event_targets_match_fixture = all(
+            identity in fixture_identities
+            for identity in facts.native_event_target_identities
+        )
+        expected = {
+            "primary_family": "VisualCanvas",
+            "native_hit_identities": sorted(
+                facts.expected_native_hit_identities,
+            ),
+            "grounding": facts.expected_grounding,
+            "native_effect_count": facts.expected_native_effect_count,
+            "effect_count_at_most_one": True,
+            "event_targets_match_fixture": True,
+            "binding_current": facts.expected_binding_current,
+            "occluded": facts.expected_occluded,
+            "handoff_visible": facts.expected_handoff_visible,
+            "failure_visible": facts.expected_failure_visible,
+            "policy_scoped": facts.policy_scoped,
+            "required_readiness": facts.required_readiness,
+            "approval_request_count": facts.expected_approval_count,
+            "approval_grant_count": facts.expected_approval_count,
+            "proximity_choice_count": 0,
+            "raw_coordinate_dispatch_count": 0,
+            "duplicate_action_count": 0,
+            "false_success": False,
+        }
+        observed = {
+            "primary_family": facts.primary_family.value,
+            "native_hit_identities": sorted(facts.native_hit_identities),
+            "grounding": facts.controller_grounding,
+            "native_effect_count": len(
+                facts.native_event_target_identities,
+            ),
+            "effect_count_at_most_one": (
+                len(facts.native_event_target_identities) <= 1
+            ),
+            "event_targets_match_fixture": event_targets_match_fixture,
+            "binding_current": facts.binding_current,
+            "occluded": facts.occluded,
+            "handoff_visible": facts.handoff_visible,
+            "failure_visible": facts.failure_visible,
+            "policy_scoped": facts.policy_scoped,
+            "required_readiness": facts.required_readiness,
+            "approval_request_count": facts.approval_request_count,
+            "approval_grant_count": facts.approval_grant_count,
+            "proximity_choice_count": facts.proximity_choice_count,
+            "raw_coordinate_dispatch_count": (
+                facts.raw_coordinate_dispatch_count
+            ),
+            "duplicate_action_count": facts.duplicate_action_count,
             "false_success": facts.false_success,
         }
         return self.evaluate(

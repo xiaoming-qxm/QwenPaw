@@ -129,6 +129,8 @@ class TargetFact:
     kind: str
     trusted_effects: tuple[EffectCategory, ...] = ()
     proof_ref: str | None = None
+    effect_ceiling: tuple[EffectCategory, ...] = ()
+    replaces_unknown: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -193,6 +195,7 @@ def classify_effects(
     operation = _operation(api_id)
     categories = list(minimum_effects(operation, arguments))
     targets = tuple(target_facts)
+    proof_refs: list[str] = []
     if operation == "tab.actions.click" and any(
         fact.kind == "semantic_link" for fact in targets
     ):
@@ -206,6 +209,28 @@ def classify_effects(
                     code="effect_proof_invalid",
                 )
             categories.extend(_concrete_categories(fact.trusted_effects))
+        if fact.replaces_unknown:
+            proof = str(fact.proof_ref or "").strip()
+            ceiling = _concrete_categories(fact.effect_ceiling)
+            concrete_floor = {
+                item for item in categories if item is not UNKNOWN
+            }
+            if (
+                fact.kind != "trusted_surface"
+                or not proof
+                or not ceiling
+                or any(
+                    item not in {PRESENTATION, SESSION_STATE}
+                    for item in ceiling
+                )
+                or not concrete_floor.issubset(set(ceiling))
+            ):
+                raise BrowserSDKError(
+                    "trusted surface UNKNOWN closure proof is invalid",
+                    code="effect_proof_invalid",
+                )
+            categories = [item for item in categories if item is not UNKNOWN]
+            proof_refs.append(proof)
         if fact.kind == "unconstrained_handler":
             categories.append(UNKNOWN)
         if fact.kind == "destructive_target":
@@ -223,7 +248,7 @@ def classify_effects(
     if args.get("declared_variant") is False:
         categories.append(UNKNOWN)
 
-    proof_ref: str | None = None
+    proof_ref: str | None = "|".join(dict.fromkeys(proof_refs)) or None
     if trusted_proof is not None:
         proof_ref = str(trusted_proof.evidence_ref or "").strip()
         concrete = _concrete_categories(trusted_proof.categories)

@@ -10,7 +10,7 @@ from typing import Any
 from ..errors import BrowserBridgeRecoverableError
 from ..interactions import (
     _canonical_runner_request,
-    canonical_interaction_control,
+    canonical_native_interaction_control,
 )
 from ..navigation import _control_tab_id
 from ..session_manager import _control_get_session
@@ -44,8 +44,10 @@ class HoverHandler:
         try:
             request_context = kwargs.get("request_context") or {}
             if _canonical_runner_request(request_context):
-                return await canonical_interaction_control(
+                return await canonical_native_interaction_control(
                     state,
+                    holder_id=holder_id,
+                    bridge=bridge,
                     action="hover",
                     target_labels=("target",),
                     kwargs=kwargs,
