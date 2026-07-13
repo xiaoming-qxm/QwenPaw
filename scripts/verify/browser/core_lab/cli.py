@@ -12,8 +12,10 @@ from typing import Sequence
 from .model import CapabilityFamily, CaseOutcome
 from .reports import (
     case_report,
+    current_build_fingerprints,
     update_s6_support_from_report,
     update_s7_support_from_report,
+    update_s8_support_from_report,
     write_report,
 )
 from .runner import build_case, registered_case_ids, run_case
@@ -56,7 +58,10 @@ def _run(args: argparse.Namespace) -> int:
         )
     payload = {
         "schema_version": "browser-core-lab-v1",
-        "build": os.environ.get("QWENPAW_BUILD", "working-tree"),
+        "build": os.environ.get(
+            "QWENPAW_BUILD",
+            current_build_fingerprints()["build"],
+        ),
         "gate": args.gate,
         "family": family.value,
         "release_dir": args.release_dir,
@@ -77,6 +82,17 @@ def _run(args: argparse.Namespace) -> int:
         CapabilityFamily.USER_CHROME_LIFECYCLE,
     }:
         update_s7_support_from_report(
+            payload,
+            manifest_path=(
+                "src/qwenpaw/browser/sdk/generated/browser-support.json"
+            ),
+        )
+    if family in {
+        CapabilityFamily.RESOURCE_FILE,
+        CapabilityFamily.SYNCHRONIZE,
+        CapabilityFamily.RESULT_DELIVERY,
+    }:
+        update_s8_support_from_report(
             payload,
             manifest_path=(
                 "src/qwenpaw/browser/sdk/generated/browser-support.json"

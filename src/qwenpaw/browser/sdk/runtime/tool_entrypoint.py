@@ -3,10 +3,17 @@
 
 from __future__ import annotations
 
+import base64
 from typing import Any
 from typing import cast
 
-from agentscope.message import DataBlock, TextBlock, ToolResultState, URLSource
+from agentscope.message import (
+    Base64Source,
+    DataBlock,
+    TextBlock,
+    ToolResultState,
+    URLSource,
+)
 from agentscope.tool import ToolChunk
 from pydantic import AnyUrl
 
@@ -34,7 +41,16 @@ from .kernel import (
     _current_core_lab_fault,
     get_default_kernel_manager,
 )
-from .result_delivery import BrowserResultProjector
+from .result_delivery import (
+    BrowserExecutionEnvelope,
+    BrowserResultProjector,
+    current_provider_block_profile,
+)
+from .resources import (
+    ResourceStoreError,
+    resolve_promoted_handle_bytes,
+)
+from ..canonical.contracts import ResourceHandle
 from .session_owner import ContractMode
 
 register_isolated_backend_once()
@@ -223,10 +239,32 @@ async def browser(
         metadata,
         trace_events=trace_events,
     ).to_dict()
+    summary_kwargs: dict[str, object] = {
+        "type": "text",
+        "text": _summary_text(result, progress_decision),
+    }
+    if result.envelope is not None:
+        summary_kwargs["id"] = "qwenpaw-browser-terminal"
     content: list[TextBlock | DataBlock] = [
-        TextBlock(type="text", text=_summary_text(result, progress_decision)),
+        TextBlock(**summary_kwargs),  # type: ignore[arg-type]
     ]
-    content.extend(_artifact_blocks(result))
+    try:
+        if result.envelope is not None:
+            _validate_canonical_prepared_blocks(result.envelope)
+            content.extend(_canonical_artifact_blocks(result.envelope))
+        else:
+            content.extend(_artifact_blocks(result))
+    except (ResourceStoreError, TypeError, ValueError):
+        ok = False
+        content.append(
+            TextBlock(
+                type="text",
+                text=(
+                    "FAILED TRANSPORT: required Browser artifact could not "
+                    "be mapped"
+                ),
+            ),
+        )
     return ToolChunk(
         content=content,
         state=ToolResultState.SUCCESS if ok else ToolResultState.ERROR,
@@ -451,6 +489,63 @@ def _artifact_blocks(result: BrowserKernelResult) -> list[DataBlock]:
             ),
         )
     return blocks
+
+
+def _canonical_artifact_blocks(
+    envelope: BrowserExecutionEnvelope,
+) -> list[DataBlock]:
+    """Map protected promoted handles without a host locator."""
+    blocks: list[DataBlock] = []
+    for record in envelope.records:
+        for required in record.required_blocks:
+            if required.kind != "artifact":
+                continue
+            handle = required.payload
+            if (
+                not isinstance(handle, ResourceHandle)
+                or str(handle.id) != required.resource_id
+                or str(handle.media_type) != required.media_type
+            ):
+                raise ValueError("required artifact binding is invalid")
+            data = resolve_promoted_handle_bytes(handle)
+            blocks.append(
+                DataBlock(
+                    source=Base64Source(
+                        data=base64.b64encode(data).decode(),
+                        media_type=str(handle.media_type),
+                    ),
+                    name=str(handle.name),
+                ),
+            )
+    return blocks
+
+
+def _validate_canonical_prepared_blocks(
+    envelope: BrowserExecutionEnvelope,
+) -> None:
+    """Require final formatter preparation to preserve every block."""
+    from qwenpaw.agents.provider_blocks import (
+        ProviderBlockProfile,
+        prepare_required_blocks,
+    )
+
+    profile = current_provider_block_profile()
+    if not isinstance(profile, ProviderBlockProfile):
+        raise ValueError("provider block profile is unavailable")
+    projected = BrowserResultProjector().project(envelope, profile=profile)
+    required_count = sum(
+        len(record.required_blocks) for record in envelope.records
+    )
+    projected_required = sum(1 for block in projected if block.kind != "text")
+    if projected_required != required_count:
+        raise ValueError("required Browser block was dropped")
+    prepared = prepare_required_blocks(
+        projected,
+        profile,
+        profile.formatter,
+    )
+    if not prepared.ok:
+        raise ValueError("required Browser block preparation failed")
 
 
 def _summary_text(

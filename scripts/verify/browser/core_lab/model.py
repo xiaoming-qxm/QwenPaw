@@ -47,6 +47,17 @@ class FaultCutPoint(StrEnum):
     DROP_REQUIRED_RESOURCE_BLOCK = "DROP_REQUIRED_RESOURCE_BLOCK"
     BRIDGE_OR_EXTENSION_LOSS = "BRIDGE_OR_EXTENSION_LOSS"
     CLEANUP_FAILURE = "CLEANUP_FAILURE"
+    AFTER_PRE_ARM = "AFTER_PRE_ARM"
+    DOWNLOAD_PROGRESS_PARTIAL = "DOWNLOAD_PROGRESS_PARTIAL"
+    DOWNLOAD_PROGRESS_COMPLETED = "DOWNLOAD_PROGRESS_COMPLETED"
+    BEFORE_BYTE_STABILITY = "BEFORE_BYTE_STABILITY"
+    DURING_HASH = "DURING_HASH"
+    DURING_INGEST = "DURING_INGEST"
+    DURING_PROMOTION = "DURING_PROMOTION"
+    DURING_FORMATTER_PREPARE = "DURING_FORMATTER_PREPARE"
+    DURING_FINAL_ENVELOPE = "DURING_FINAL_ENVELOPE"
+    DURING_TRANSIENT_CLEANUP = "DURING_TRANSIENT_CLEANUP"
+    DURING_ARTIFACT_EXPIRY = "DURING_ARTIFACT_EXPIRY"
 
 
 @dataclass(frozen=True, slots=True)
@@ -171,6 +182,31 @@ class S7FamilyFacts:
     false_success: bool
 
 
+@dataclass(frozen=True, slots=True)
+class ResourceFileFacts:
+    """Controller/native/resource facts independent of SDK result claims."""
+
+    operation_kind: str
+    expected_native_effect_count: int
+    observed_native_effect_count: int
+    selected_count: int
+    transferred_count: int
+    accepted_count: int | None
+    owner_bound: bool
+    operation_bound: bool
+    command_bound: bool
+    native_transfer_bound: bool
+    byte_stable: bool
+    expected_sha256: str
+    stored_sha256: str
+    exact_metadata: bool
+    context_unchanged: bool
+    path_free: bool
+    clipboard_access_count: int
+    cleanup_failure_visible: bool
+    false_success: bool
+
+
 __all__ = [
     "CapabilityFamily",
     "ActionFaultFacts",
@@ -180,6 +216,7 @@ __all__ = [
     "OracleResult",
     "ObserveReadFacts",
     "ReplayDescriptor",
+    "ResourceFileFacts",
     "S7FamilyFacts",
     "SynchronizeFacts",
     "StateApprovalFacts",

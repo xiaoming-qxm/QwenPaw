@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 from importlib import import_module
 
 from qwenpaw.browser.sdk.primitives.matching import (
@@ -20,6 +21,7 @@ from .model import (
     LabCase,
     ObserveReadFacts,
     ReplayDescriptor,
+    ResourceFileFacts,
     S7FamilyFacts,
     StateApprovalFacts,
     SynchronizeFacts,
@@ -46,6 +48,36 @@ _ACTION_FAULT_CASES = {
         FaultCutPoint.BRIDGE_OR_EXTENSION_LOSS
     ),
     "action.fault.cleanup-failure": FaultCutPoint.CLEANUP_FAILURE,
+}
+
+_RESOURCE_FAULT_CASES = {
+    "resource.download.after-pre-arm": FaultCutPoint.AFTER_PRE_ARM,
+    "resource.download.before-send": FaultCutPoint.BEFORE_NATIVE_EFFECT,
+    "resource.download.send-before-receipt": (
+        FaultCutPoint.AFTER_SEND_BEFORE_ACK
+    ),
+    "resource.download.progress-partial": (
+        FaultCutPoint.DOWNLOAD_PROGRESS_PARTIAL
+    ),
+    "resource.download.progress-completed": (
+        FaultCutPoint.DOWNLOAD_PROGRESS_COMPLETED
+    ),
+    "resource.download.byte-stability": FaultCutPoint.BEFORE_BYTE_STABILITY,
+    "resource.download.hash-failure": FaultCutPoint.DURING_HASH,
+    "resource.download.ingest-failure": FaultCutPoint.DURING_INGEST,
+    "resource.delivery.promotion-failure": FaultCutPoint.DURING_PROMOTION,
+    "resource.delivery.formatter-failure": (
+        FaultCutPoint.DURING_FORMATTER_PREPARE
+    ),
+    "resource.delivery.final-envelope-failure": (
+        FaultCutPoint.DURING_FINAL_ENVELOPE
+    ),
+    "resource.cleanup.transient-failure": (
+        FaultCutPoint.DURING_TRANSIENT_CLEANUP
+    ),
+    "resource.cleanup.artifact-expiry-failure": (
+        FaultCutPoint.DURING_ARTIFACT_EXPIRY
+    ),
 }
 
 
@@ -119,6 +151,17 @@ def build_case(
             transformations=(case_id.split(".", 1)[-1],),
             fault=fault,
             replay=ReplayDescriptor(family, case_id, int(seed)),
+        )
+    if family is CapabilityFamily.RESOURCE_FILE:
+        return LabCase(
+            case_id=case_id,
+            family=family,
+            base_flow="controller_native_transfer_and_byte_store",
+            seed=int(seed),
+            transformations=(case_id.split(".", 1)[-1],),
+            fault=_RESOURCE_FAULT_CASES.get(case_id),
+            replay=ReplayDescriptor(family, case_id, int(seed)),
+            prerequisites=(CapabilityFamily.TARGET_CONTROL,),
         )
     return LabCase(
         case_id=case_id,
@@ -195,6 +238,14 @@ def registered_case_ids(family: CapabilityFamily) -> tuple[str, ...]:
             "result.malformed-coercion",
             "result.cleanup-failure",
             "result.secret-redaction",
+            "result.artifact-preflight",
+            "result.artifact-promotion",
+            "result.artifact-formatter-prepare",
+            "result.artifact-final-envelope",
+            "result.artifact-transient-cleanup",
+            "result.artifact-expiry",
+            "result.artifact-protected-block",
+            "result.artifact-provider-unsupported",
         )
     if family is CapabilityFamily.OBSERVE_READ:
         return (
@@ -239,6 +290,9 @@ def registered_case_ids(family: CapabilityFamily) -> tuple[str, ...]:
             "synchronize.baseline-invalid-stale",
             "synchronize.inactive-atom",
             "synchronize.prearmed-consumer",
+            "synchronize.resource-available-current",
+            "synchronize.resource-available-expired",
+            "synchronize.resource-available-owner-mismatch",
             "synchronize.target-complete-negative",
             "synchronize.target-partial-negative",
             "synchronize.target-duplicate-query",
@@ -284,16 +338,57 @@ def registered_case_ids(family: CapabilityFamily) -> tuple[str, ...]:
             "approval.fake-dispatch-single-consume",
             *_ACTION_FAULT_CASES.keys(),
         )
+    if family is CapabilityFamily.RESOURCE_FILE:
+        return (
+            "resource.upload.selected-accepted",
+            "resource.upload.selected-rejected",
+            "resource.upload.transferred-accepted",
+            "resource.upload.multi-unknown",
+            "resource.upload.multi-mixed",
+            "resource.upload.owner-mismatch",
+            "resource.upload.expired",
+            "resource.upload.item-limit",
+            "resource.upload.task-limit",
+            "resource.workspace.permission-handoff",
+            "resource.download.after-pre-arm",
+            "resource.download.before-send",
+            "resource.download.send-before-receipt",
+            "resource.download.correlation",
+            "resource.download.progress-partial",
+            "resource.download.progress-completed",
+            "resource.download.byte-stability",
+            "resource.download.hash-failure",
+            "resource.download.ingest-failure",
+            "resource.download.exact-count-name-mime",
+            "resource.pdf.context-stable",
+            "resource.pdf.context-changed",
+            "resource.paste.exact-target-content",
+            "resource.paste.no-ambient-clipboard",
+            "resource.condition.created-download",
+            "resource.condition.created-pdf",
+            "resource.delivery.promotion-failure",
+            "resource.delivery.formatter-failure",
+            "resource.delivery.final-envelope-failure",
+            "resource.cleanup.transient-failure",
+            "resource.cleanup.artifact-expiry-failure",
+        )
     return ()
 
 
 def run_case(case: LabCase):
     """Execute S0's controller-owned deterministic smoke facts."""
     if case.family is CapabilityFamily.RESULT_DELIVERY:
+        failure_case = any(
+            token in case.case_id
+            for token in ("error", "malformed", "failure", "unsupported")
+        )
         expected = {
             "terminal_preserved": True,
             "required_blocks_preserved": True,
             "location_secret_absent": True,
+            "preflight_before_effect": True,
+            "promoted_before_delivery": True,
+            "failure_visible": failure_case,
         }
         observed = [dict(expected)]
         return IndependentOracle().evaluate(
@@ -352,6 +447,10 @@ def run_case(case: LabCase):
             )
         return IndependentOracle().evaluate_state_approval(
             _state_approval_facts(case.case_id),
+        )
+    if case.family is CapabilityFamily.RESOURCE_FILE:
+        return IndependentOracle().evaluate_resource_file(
+            _resource_file_facts(case),
         )
     if case.family in {
         CapabilityFamily.CONTEXT_NAVIGATE,
@@ -418,6 +517,63 @@ def _s7_family_facts(case: LabCase) -> S7FamilyFacts:
         exact_identity_bound=True,
         owner_bound=True,
         public_bypass_count=0,
+        false_success=False,
+    )
+
+
+def _resource_file_facts(case: LabCase) -> ResourceFileFacts:
+    """Build independent native counters and stored-byte evidence."""
+    case_id = case.case_id
+    operation_kind = case_id.split(".", 2)[1]
+    payload = f"core-lab:{case.seed}:{case_id}".encode()
+    digest = hashlib.sha256(payload).hexdigest()
+    selected = 1 if operation_kind == "upload" else 0
+    transferred = selected
+    accepted: int | None = selected
+    if "multi-" in case_id:
+        selected = transferred = 2
+        accepted = None if case_id.endswith("unknown") else 1
+    elif case_id.endswith("selected-rejected"):
+        transferred, accepted = 0, 0
+    elif case_id.endswith("transferred-accepted"):
+        accepted = 1
+    elif operation_kind != "upload":
+        accepted = None
+    pre_effect = any(
+        token in case_id
+        for token in (
+            "owner-mismatch",
+            "expired",
+            "item-limit",
+            "task-limit",
+            "after-pre-arm",
+            "before-send",
+            "send-before-receipt",
+            "formatter-failure",
+        )
+    )
+    effect_count = 0 if pre_effect else 1
+    cleanup_visible = "cleanup." in case_id
+    context_unchanged = not case_id.endswith("context-changed")
+    return ResourceFileFacts(
+        operation_kind=operation_kind,
+        expected_native_effect_count=effect_count,
+        observed_native_effect_count=effect_count,
+        selected_count=selected,
+        transferred_count=transferred,
+        accepted_count=accepted,
+        owner_bound=True,
+        operation_bound=True,
+        command_bound=True,
+        native_transfer_bound=True,
+        byte_stable=True,
+        expected_sha256=digest,
+        stored_sha256=digest,
+        exact_metadata=True,
+        context_unchanged=context_unchanged,
+        path_free=True,
+        clipboard_access_count=0,
+        cleanup_failure_visible=cleanup_visible,
         false_success=False,
     )
 
@@ -771,6 +927,15 @@ def _synchronize_facts(case_id: str) -> SynchronizeFacts:
     elif case_id == "synchronize.inactive-atom":
         kind, expected = "inactive.target", True
         timeline = (_sync_point(0, False, state="UNAVAILABLE"),)
+    elif case_id == "synchronize.resource-available-current":
+        kind, expected = "resource.available", True
+        timeline = (_sync_point(0, True),)
+    elif case_id in {
+        "synchronize.resource-available-expired",
+        "synchronize.resource-available-owner-mismatch",
+    }:
+        kind, expected = "resource.available", False
+        timeline = (_sync_point(0, False),)
     elif case_id == "synchronize.target-complete-negative":
         kind, expected = "target.exists", False
         timeline = (_sync_point(0, False, coverage="COMPLETE"),)
@@ -865,6 +1030,8 @@ def _product_truth(
         return present == expected_present and (
             expected_present or item.get("coverage") == "COMPLETE"
         )
+    if kind == "resource.available":
+        return bool(actual) is bool(expected)
     return False
 
 

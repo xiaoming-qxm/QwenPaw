@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from contextvars import ContextVar, Token
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, cast
 
 from ..canonical.contracts import (
     ActionResult,
@@ -16,6 +16,7 @@ from ..canonical.contracts import (
     issue_operation_id,
     validate_result_contract,
 )
+from ..governance.errors import BrowserSDKError
 
 if TYPE_CHECKING:
     from qwenpaw.agents.provider_blocks import ProviderBlockProfile
@@ -233,6 +234,70 @@ _CURRENT_COLLECTOR: ContextVar[BrowserExecutionCollector | None] = ContextVar(
     "qwenpaw_browser_result_collector",
     default=None,
 )
+_CURRENT_PROVIDER_BLOCK_PROFILE: ContextVar[object | None] = ContextVar(
+    "qwenpaw_browser_provider_block_profile",
+    default=None,
+)
+
+
+def set_provider_block_profile(profile: object) -> Token[object | None]:
+    """Install the immutable request profile around one tool call."""
+    return _CURRENT_PROVIDER_BLOCK_PROFILE.set(profile)
+
+
+def reset_provider_block_profile(token: Token[object | None]) -> None:
+    """Restore the prior request profile."""
+    _CURRENT_PROVIDER_BLOCK_PROFILE.reset(token)
+
+
+def current_provider_block_profile() -> object | None:
+    """Return the immutable profile inside the current tool call."""
+    return _CURRENT_PROVIDER_BLOCK_PROFILE.get()
+
+
+def require_artifact_delivery_preflight(media_type: str) -> None:
+    """Fail before effects when artifact transport cannot be preserved."""
+    profile = _CURRENT_PROVIDER_BLOCK_PROFILE.get()
+    raw_allowed: object = getattr(
+        cast("ProviderBlockProfile", profile),
+        "artifact_media_types",
+        frozenset(),
+    )
+    allowed: frozenset[str] = (
+        frozenset(str(item) for item in raw_allowed)
+        if isinstance(raw_allowed, (set, frozenset, tuple, list))
+        else frozenset()
+    )
+    if (
+        profile is None
+        or not bool(getattr(profile, "artifact", False))
+        or (allowed and media_type not in allowed)
+    ):
+        raise BrowserSDKError(
+            "Provider cannot preserve the required PDF artifact block.",
+            code="artifact_delivery_preflight_failed",
+            action="tab.print_to_pdf",
+        )
+    from qwenpaw.agents.provider_blocks import prepare_required_blocks
+
+    prepared = prepare_required_blocks(
+        (
+            ProjectedBlock(
+                kind="artifact",
+                operation_id="artifact-preflight",
+                resource_id="artifact-preflight",
+                media_type=media_type,
+            ),
+        ),
+        cast("ProviderBlockProfile", profile),
+        getattr(profile, "formatter", None),
+    )
+    if not prepared.ok:
+        raise BrowserSDKError(
+            "Formatter cannot preserve the required PDF artifact block.",
+            code="artifact_delivery_preflight_failed",
+            action="tab.print_to_pdf",
+        )
 
 
 def install_result_collector(

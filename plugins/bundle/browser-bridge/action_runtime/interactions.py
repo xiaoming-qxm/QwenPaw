@@ -378,6 +378,26 @@ async def canonical_interaction_control(
     return _json_response(result)
 
 
+async def canonical_paste_control(
+    state: ControlState,
+    *,
+    kwargs: dict[str, Any],
+    injector: Callable[
+        [tuple[dict[str, object], ...], dict[str, object]],
+        Awaitable[object],
+    ],
+):
+    """Final-revalidate and inject one controlled target paste."""
+    result = await _canonical_execute_interaction(
+        state,
+        action="paste",
+        target_labels=("target",),
+        kwargs=kwargs,
+        injector=injector,
+    )
+    return _json_response(result)
+
+
 def _control_link_href(target: dict[str, Any], base_url: str) -> str:
     role = str(target.get("role") or "").strip().lower()
     href = str(target.get("href") or "").strip()

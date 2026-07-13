@@ -5,7 +5,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Literal,
+    Mapping,
+    Protocol,
+    runtime_checkable,
+)
 
 from ..condition_evaluator import ConditionProbe
 from ..runtime.session_owner import (
@@ -28,6 +35,7 @@ from ..primitives.types import (
 if TYPE_CHECKING:
     from ..canonical.contracts import (
         BrowserPrompt,
+        ContextVersion,
         OptionChoice,
         TabSummary,
         TargetRef,
@@ -218,6 +226,18 @@ class BrowserSession(Protocol):
     ) -> BrowserActionResult:
         """Upload files through a target."""
 
+    async def upload_resources(
+        self,
+        tab_id: str,
+        target: "TargetRef",
+        *,
+        resource_ids: tuple[str, ...],
+        private_paths: tuple[str, ...],
+        dispatch_context: object,
+        command_payload: Mapping[str, object],
+    ) -> object:
+        """Dispatch already validated resources through the private seam."""
+
     async def download_file(
         self,
         tab_id: str,
@@ -226,6 +246,29 @@ class BrowserSession(Protocol):
         timeout_ms: int = 30000,
     ) -> BrowserActionResult:
         """Download a file from a tab."""
+
+    async def print_to_pdf_resource(
+        self,
+        tab_id: str,
+        *,
+        options: object,
+        context_before: "ContextVersion",
+        operation: object,
+        dispatch_context: object,
+        command_payload: Mapping[str, object],
+    ) -> object:
+        """Capture private PDF bytes under one trusted command."""
+
+    async def paste_controlled(
+        self,
+        tab_id: str,
+        target: "TargetRef",
+        *,
+        content: str,
+        dispatch_context: object,
+        command_payload: Mapping[str, object],
+    ) -> object:
+        """Insert bounded caller content through the private seam."""
 
     async def handle_dialog(
         self,

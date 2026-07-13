@@ -645,6 +645,147 @@
       "visibility": "default"
     },
     {
+      "api_id": "tab.actions.upload_file",
+      "callable_path": "qwenpaw.browser.sdk.canonical.tabs:TabActions.upload_file",
+      "invalidates_observation": false,
+      "kind": "action",
+      "mutates": true,
+      "parameters": [
+        {
+          "annotation": "TargetRef",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "target",
+          "required": true
+        },
+        {
+          "annotation": "ResourceHandle | Sequence[ResourceHandle]",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "resources",
+          "required": true
+        },
+        {
+          "annotation": "ActionExpectation | None",
+          "default": null,
+          "kind": "KEYWORD_ONLY",
+          "name": "expect",
+          "required": false
+        },
+        {
+          "annotation": "StateRequirement | None",
+          "default": null,
+          "kind": "KEYWORD_ONLY",
+          "name": "state",
+          "required": false
+        },
+        {
+          "annotation": "int | None",
+          "default": null,
+          "kind": "KEYWORD_ONLY",
+          "name": "timeout_ms",
+          "required": false
+        }
+      ],
+      "public_name": "tab.actions.upload_file",
+      "requires_observation": false,
+      "return_type": "ActionResult",
+      "satisfies_observation": false,
+      "signature": "async upload_file(target: TargetRef, resources: ResourceHandle | Sequence[ResourceHandle], *, expect=None, state=None, timeout_ms=None) -> ActionResult",
+      "summary": "Select current task-owned resources on one exact target.",
+      "visibility": "default"
+    },
+    {
+      "api_id": "tab.actions.download_file",
+      "callable_path": "qwenpaw.browser.sdk.canonical.tabs:TabActions.download_file",
+      "invalidates_observation": false,
+      "kind": "action",
+      "mutates": true,
+      "parameters": [
+        {
+          "annotation": "TargetRef",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "target",
+          "required": true
+        },
+        {
+          "annotation": "ActionExpectation | None",
+          "default": null,
+          "kind": "KEYWORD_ONLY",
+          "name": "expect",
+          "required": false
+        },
+        {
+          "annotation": "StateRequirement | None",
+          "default": null,
+          "kind": "KEYWORD_ONLY",
+          "name": "state",
+          "required": false
+        },
+        {
+          "annotation": "int | None",
+          "default": null,
+          "kind": "KEYWORD_ONLY",
+          "name": "timeout_ms",
+          "required": false
+        }
+      ],
+      "public_name": "tab.actions.download_file",
+      "requires_observation": false,
+      "return_type": "ActionResult",
+      "satisfies_observation": false,
+      "signature": "async download_file(target: TargetRef, *, expect=None, state=None, timeout_ms=None) -> ActionResult",
+      "summary": "Download once from one exact target into ResourceStore.",
+      "visibility": "default"
+    },
+    {
+      "api_id": "tab.actions.paste",
+      "callable_path": "qwenpaw.browser.sdk.canonical.tabs:TabActions.paste",
+      "invalidates_observation": false,
+      "kind": "action",
+      "mutates": true,
+      "parameters": [
+        {
+          "annotation": "TargetRef",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "target",
+          "required": true
+        },
+        {
+          "annotation": "str",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "content",
+          "required": true
+        },
+        {
+          "annotation": "ActionExpectation | None",
+          "default": null,
+          "kind": "KEYWORD_ONLY",
+          "name": "expect",
+          "required": false
+        },
+        {
+          "annotation": "StateRequirement | None",
+          "default": null,
+          "kind": "KEYWORD_ONLY",
+          "name": "state",
+          "required": false
+        },
+        {
+          "annotation": "int | None",
+          "default": null,
+          "kind": "KEYWORD_ONLY",
+          "name": "timeout_ms",
+          "required": false
+        }
+      ],
+      "public_name": "tab.actions.paste",
+      "requires_observation": false,
+      "return_type": "ActionResult",
+      "satisfies_observation": false,
+      "signature": "async paste(target: TargetRef, content: str, *, expect=None, state=None, timeout_ms=None) -> ActionResult",
+      "summary": "Insert bounded caller-provided content into one target.",
+      "visibility": "default"
+    },
+    {
       "api_id": "tab.close",
       "callable_path": "qwenpaw.browser.sdk.canonical.tabs:Tab.close",
       "invalidates_observation": false,
@@ -716,7 +857,7 @@
       "return_type": "PagePdfResult",
       "satisfies_observation": false,
       "signature": "async print_to_pdf(*, options: PagePdfOptions | None = None) -> PagePdfResult",
-      "summary": "Route page PDF through ActionRunner before S8.",
+      "summary": "Capture one context-bound PDF through ActionRunner.",
       "visibility": "default"
     },
     {
@@ -849,6 +990,65 @@
       "satisfies_observation": true,
       "signature": "async wait_for(condition: BrowserCondition, *, timeout_ms: int, stable_ms: int = 0) -> WaitResult",
       "summary": "Wait for one bounded flat typed condition.",
+      "visibility": "default"
+    },
+    {
+      "api_id": "browser.resources.list",
+      "callable_path": "qwenpaw.browser.sdk.canonical.facade:BrowserResources.list",
+      "invalidates_observation": false,
+      "kind": "primitive",
+      "mutates": false,
+      "parameters": [],
+      "public_name": "browser.resources.list",
+      "requires_observation": false,
+      "return_type": "list[ResourceHandle]",
+      "satisfies_observation": false,
+      "signature": "list() -> list[ResourceHandle]",
+      "summary": "List current task-owned resource handles.",
+      "visibility": "default"
+    },
+    {
+      "api_id": "browser.resources.require",
+      "callable_path": "qwenpaw.browser.sdk.canonical.facade:BrowserResources.require",
+      "invalidates_observation": false,
+      "kind": "primitive",
+      "mutates": false,
+      "parameters": [
+        {
+          "annotation": "str",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "resource_id",
+          "required": true
+        }
+      ],
+      "public_name": "browser.resources.require",
+      "requires_observation": false,
+      "return_type": "ResourceHandle",
+      "satisfies_observation": false,
+      "signature": "require(resource_id: str) -> ResourceHandle",
+      "summary": "Resolve one current task-owned resource handle.",
+      "visibility": "default"
+    },
+    {
+      "api_id": "browser.resources.from_workspace",
+      "callable_path": "qwenpaw.browser.sdk.canonical.facade:BrowserResources.from_workspace",
+      "invalidates_observation": false,
+      "kind": "primitive",
+      "mutates": false,
+      "parameters": [
+        {
+          "annotation": "str",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "path",
+          "required": true
+        }
+      ],
+      "public_name": "browser.resources.from_workspace",
+      "requires_observation": false,
+      "return_type": "ResourceHandle",
+      "satisfies_observation": false,
+      "signature": "from_workspace(path: str) -> ResourceHandle",
+      "summary": "Authorize one workspace file as a resource handle.",
       "visibility": "default"
     }
   ],

@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, cast
 
 from qwenpaw.browser.sdk.canonical.contracts import (
@@ -26,6 +26,7 @@ class ProviderBlockProfile:
     artifact_media_types: frozenset[str]
     model_fingerprint: str
     formatter_fingerprint: str
+    formatter: Any = field(repr=False, compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,6 +67,7 @@ def build_provider_block_profile(
             getattr(formatter, "formatter_fingerprint", "")
             or type(formatter).__qualname__,
         ),
+        formatter=formatter,
     )
 
 

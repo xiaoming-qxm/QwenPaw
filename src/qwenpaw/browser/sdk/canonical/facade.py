@@ -14,7 +14,6 @@ from ..condition_evaluator import ConditionEvaluator
 from ..governance.errors import (
     BrowserContextUnavailable,
     BrowserSDKError,
-    BrowserSDKGap,
 )
 from ..governance.resolver import BrowserContextResolver
 from ..primitives.types import BrowserOwnershipContext, ResolvedBrowserContext
@@ -38,12 +37,7 @@ class BrowserResources:
         return self._store.require(resource_id)
 
     def from_workspace(self, path: str) -> ResourceHandle:
-        del path
-        raise BrowserSDKGap(
-            "Workspace resource ingress is not available in S1.",
-            action="browser.resources.from_workspace",
-            metadata={"capability": "resource.workspace_ingress"},
-        )
+        return self._store.ingest_workspace_file(path)
 
 
 @dataclass(slots=True)
@@ -103,10 +97,8 @@ class Browser:
             or execution.contract_mode is not ContractMode.CANONICAL
         ):
             raise BrowserSDKError(
-                (
-                    "Canonical Browser requires trusted CANONICAL "
-                    "execution context."
-                ),
+                "Canonical Browser requires trusted "
+                + "CANONICAL execution context.",
                 code="browser_ownership_context_missing",
                 action="browser.connect",
             )

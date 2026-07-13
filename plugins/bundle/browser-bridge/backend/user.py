@@ -19,6 +19,7 @@ from qwenpaw.browser.sdk.action_runner import DispatchContext
 from qwenpaw.browser.sdk.canonical.contracts import (
     ActionResult,
     BrowserPrompt,
+    ContextVersion,
     Coverage,
     CurrentSurface,
     EvidenceRef,
@@ -26,6 +27,9 @@ from qwenpaw.browser.sdk.canonical.contracts import (
     RegionRef,
     Problem,
     TabSummary,
+    TargetRef,
+    _RUNTIME_VALUE_ISSUER,
+    _issue_opaque_value,
     issue_operation_id,
 )
 from qwenpaw.browser.sdk.condition_evaluator import (
@@ -78,6 +82,8 @@ from qwenpaw.browser.sdk.primitives.types import (
     BrowserScreenshot,
 )
 from qwenpaw.browser.sdk.runtime.resources import (
+    DownloadCapture,
+    PagePdfCapture,
     ScreenshotCapture,
     ScreenshotInvariant,
 )
@@ -1237,6 +1243,27 @@ class ChromeExtensionBrowserSession:
             file_path=file_path,
         )
 
+    async def upload_resources(
+        self,
+        tab_id: str,
+        target: TargetRef,
+        *,
+        resource_ids: tuple[str, ...],
+        private_paths: tuple[str, ...],
+        dispatch_context: DispatchContext,
+        command_payload: Mapping[str, object],
+    ) -> object:
+        """Forward private locators with trusted target context."""
+        return await self.action(
+            tab_id,
+            "upload",
+            dispatch_context=dispatch_context,
+            command_payload=command_payload,
+            target=target,
+            _canonical_resource_ids=resource_ids,
+            _canonical_resource_paths=private_paths,
+        )
+
     async def download_file(
         self,
         tab_id: str,
@@ -1248,6 +1275,171 @@ class ChromeExtensionBrowserSession:
         if target is not None:
             kwargs["target"] = target
         return await self.action(tab_id, "download", **kwargs)
+
+    async def download_resource(
+        self,
+        tab_id: str,
+        target: TargetRef,
+        *,
+        operation: Any,
+        dispatch_context: DispatchContext,
+        command_payload: Mapping[str, object],
+    ) -> DownloadCapture:
+        """Return private bytes for one exact trusted download command."""
+        binding = dispatch_context._registry.resolve_target(
+            target,
+            receiver_tab=str(tab_id),
+            owner=dispatch_context._owner_binding,
+        )
+        target_token = str(getattr(target, "ref", "") or "")
+        if not target_token:
+            raise BrowserSDKError(
+                "Canonical download target token is unavailable",
+                code="target_binding_invalid",
+            )
+        result = await self.action(
+            tab_id,
+            "download",
+            dispatch_context=dispatch_context,
+            command_payload=command_payload,
+            _canonical_target_tokens={"target": target_token},
+            _canonical_native_facts={"target": binding.native_identity},
+        )
+        payload = (
+            result.data if isinstance(result, BrowserActionResult) else {}
+        )
+        raw_capture = payload.get("capture")
+        if not isinstance(raw_capture, Mapping):
+            raise BrowserSDKError(
+                "Canonical download capture is unavailable",
+                code="download_capture_invalid",
+            )
+        try:
+            data = base64.b64decode(
+                str(raw_capture.get("bytes_base64") or ""),
+                validate=True,
+            )
+            return DownloadCapture(
+                data=data,
+                media_type=str(raw_capture.get("media_type") or ""),
+                name=str(raw_capture.get("name") or ""),
+                complete=bool(raw_capture.get("complete")),
+                native_guid=str(raw_capture.get("native_guid") or ""),
+                operation_id=str(operation.operation_id),
+                operation_fingerprint=str(
+                    operation.operation_fingerprint,
+                ),
+                command_id=str(operation.command_id),
+                owner_key=operation.owner_key,
+                tab_id=str(operation.tab_id),
+                pre_arm_watermark=int(operation.pre_arm_watermark),
+            )
+        except (TypeError, ValueError) as exc:
+            raise BrowserSDKError(
+                "Canonical download capture is invalid",
+                code="download_capture_invalid",
+            ) from exc
+
+    async def print_to_pdf_resource(
+        self,
+        tab_id: str,
+        *,
+        options: Any,
+        context_before: ContextVersion,
+        operation: Any,
+        dispatch_context: DispatchContext,
+        command_payload: Mapping[str, object],
+    ) -> PagePdfCapture:
+        """Return private PDF bytes with one-version context evidence."""
+        if not isinstance(context_before, ContextVersion):
+            raise BrowserSDKError(
+                "Canonical page PDF context is unavailable",
+                code="page_pdf_context_invalid",
+            )
+        result = await self.action(
+            tab_id,
+            "page_pdf",
+            dispatch_context=dispatch_context,
+            command_payload=command_payload,
+            _canonical_pdf_options={
+                "paper": options.paper,
+                "landscape": options.landscape,
+                "print_background": options.print_background,
+                "margins": options.margins,
+            },
+        )
+        payload = (
+            result.data if isinstance(result, BrowserActionResult) else {}
+        )
+        raw_capture = payload.get("capture")
+        if not isinstance(raw_capture, Mapping):
+            raise BrowserSDKError(
+                "Canonical page PDF capture is unavailable",
+                code="page_pdf_capture_invalid",
+            )
+        try:
+            data = base64.b64decode(
+                str(raw_capture.get("bytes_base64") or ""),
+                validate=True,
+            )
+            context_after = context_before
+            if not bool(raw_capture.get("context_same")):
+                context_after = _issue_opaque_value(
+                    ContextVersion,
+                    _RUNTIME_VALUE_ISSUER,
+                    id=f"context-changed-{operation.command_id}",
+                )
+            assert isinstance(context_after, ContextVersion)
+            return PagePdfCapture(
+                data=data,
+                context_before=context_before,
+                context_after=context_after,
+                complete=bool(raw_capture.get("complete")),
+                operation_id=str(operation.operation_id),
+                operation_fingerprint=str(
+                    operation.operation_fingerprint,
+                ),
+                command_id=str(operation.command_id),
+                owner_key=operation.owner_key,
+                tab_id=str(operation.tab_id),
+                pre_arm_watermark=int(operation.pre_arm_watermark),
+            )
+        except (TypeError, ValueError) as exc:
+            raise BrowserSDKError(
+                "Canonical page PDF capture is invalid",
+                code="page_pdf_capture_invalid",
+            ) from exc
+
+    async def paste_controlled(
+        self,
+        tab_id: str,
+        target: TargetRef,
+        *,
+        content: str,
+        dispatch_context: DispatchContext,
+        command_payload: Mapping[str, object],
+    ) -> object:
+        """Insert caller content through one trusted target dispatch."""
+        binding = dispatch_context._registry.resolve_target(
+            target,
+            receiver_tab=str(tab_id),
+            owner=dispatch_context._owner_binding,
+        )
+        target_token = str(getattr(target, "ref", "") or "")
+        if not target_token:
+            raise BrowserSDKError(
+                "Canonical paste target token is unavailable",
+                code="target_binding_invalid",
+            )
+        return await self.action(
+            tab_id,
+            "paste",
+            dispatch_context=dispatch_context,
+            command_payload=command_payload,
+            _canonical_target_tokens={"target": target_token},
+            _canonical_native_facts={"target": binding.native_identity},
+            _canonical_paste_content=content,
+        )
 
     async def handle_dialog(
         self,
@@ -1314,11 +1506,17 @@ class ChromeExtensionBrowserSession:
                     command_payload=command_payload,
                 )
                 bridge_action = cast(Any, self._bridge_or_engine_action)
+                private_dispatch = {
+                    key: value
+                    for key, value in kwargs.items()
+                    if str(key).startswith("_canonical_")
+                }
                 payload = await bridge_action(
                     name,
                     tab_id,
                     trusted_envelope=envelope,
                     **dict(command_payload),
+                    **private_dispatch,
                 )
                 if isinstance(payload, BrowserActionResult):
                     return payload

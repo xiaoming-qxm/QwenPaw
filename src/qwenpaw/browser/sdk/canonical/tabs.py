@@ -3,7 +3,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field, replace
 from hashlib import sha256
 from time import monotonic
 from typing import Any, Awaitable, Callable, Literal, cast
@@ -15,13 +16,17 @@ from ..condition_evaluator import (
     ConditionEvaluation,
     ConditionEvaluator,
     ConditionReceiver,
+    ResourceOperationBinding,
     TargetFacts,
 )
 from ..contract_runtime import canonical_mutation_contract
 from ..governance.errors import BrowserSDKError, BrowserSDKGap
 from ..primitives.matching import normalize_visible_text
 from ..runtime.resources import (
+    DownloadCapture,
+    PagePdfCapture,
     ResourceStore,
+    ResourceStoreError,
     ScreenshotCapture,
     TrustedOutputSource,
 )
@@ -63,6 +68,7 @@ from .contracts import (
     RegionScope,
     RegionSummary,
     ResourceCondition,
+    ResourceHandle,
     SelectionGap,
     ScreenshotResult,
     SnapshotResult,
@@ -71,6 +77,7 @@ from .contracts import (
     TabSummary,
     RetryDirective,
     TargetQuery,
+    TargetCondition,
     TargetRef,
     TargetSummary,
     TerminalStatus,
@@ -83,8 +90,15 @@ from .contracts import (
     issue_operation_id,
 )
 
-
 Dispatch = Callable[..., Awaitable[Any]]
+
+
+async def _invoke_async(
+    callback: Callable[..., Awaitable[object]],
+    *args: object,
+    **kwargs: object,
+) -> object:
+    return await callback(*args, **kwargs)
 
 
 @dataclass(slots=True)
@@ -106,6 +120,17 @@ class TabActions:
         default=None,
         repr=False,
     )
+    _resources: ResourceStore | None = field(default=None, repr=False)
+    _session: Any = field(default=None, repr=False)
+    _condition_evaluator: ConditionEvaluator | Any | None = field(
+        default=None,
+        repr=False,
+    )
+    _condition_receiver: ConditionReceiver | None = field(
+        default=None,
+        repr=False,
+    )
+    _max_paste_chars: int = field(default=100_000, repr=False)
 
     async def navigate(
         self,
@@ -125,6 +150,52 @@ class TabActions:
             state=state,
             timeout_ms=timeout_ms,
         )
+
+    def _download_dispatcher(self, target: TargetRef) -> Dispatch:
+        async def dispatch_download(
+            *,
+            command: object,
+            dispatch_context: object,
+        ) -> object:
+            if self._resources is None:
+                raise BrowserSDKError(
+                    "Canonical ResourceStore is unavailable",
+                    code="resource_store_unavailable",
+                )
+            download = getattr(self._session, "download_resource", None)
+            if not callable(download):
+                raise BrowserSDKError(
+                    "Canonical download dispatcher is unavailable",
+                    code="download_dispatcher_missing",
+                )
+            download_call = cast(Callable[..., Awaitable[object]], download)
+            command_payload = getattr(command, "_payload", None)
+            operation = _resource_operation_from_payload(command_payload)
+            if getattr(command, "command_id", "") != operation.command_id:
+                raise BrowserSDKError(
+                    "Canonical download command identity is invalid",
+                    code="download_command_invalid",
+                )
+            capture = await _invoke_async(
+                download_call,
+                self._receiver_tab,
+                target,
+                operation=operation,
+                dispatch_context=dispatch_context,
+                command_payload=command_payload,
+            )
+            if not isinstance(capture, DownloadCapture):
+                raise BrowserSDKError(
+                    "Canonical download capture is invalid",
+                    code="download_capture_invalid",
+                )
+            handle = await self._resources.ingest_correlated_download(
+                capture,
+                operation,
+            )
+            return {"download": {"resources": (handle,), "count": 1}}
+
+        return dispatch_download
 
     async def back(
         self,
@@ -398,6 +469,178 @@ class TabActions:
             timeout_ms=timeout_ms,
         )
 
+    async def upload_file(
+        self,
+        target: TargetRef,
+        resources: ResourceHandle | Sequence[ResourceHandle],
+        *,
+        expect: ActionExpectation | None = None,
+        state: StateRequirement | None = None,
+        timeout_ms: int | None = None,
+    ) -> ActionResult:
+        """Select an exact ordered group of current owner resources."""
+        self._require_target(target)
+        if self._resources is None:
+            raise BrowserSDKError(
+                "Canonical ResourceStore is unavailable",
+                code="resource_store_unavailable",
+            )
+        requested: tuple[ResourceHandle, ...]
+        if isinstance(resources, ResourceHandle):
+            requested = (resources,)
+        elif isinstance(resources, Sequence) and not isinstance(
+            resources,
+            (str, bytes, bytearray),
+        ):
+            requested = tuple(resources)
+        else:
+            raise TypeError("resources must contain ResourceHandle values")
+        if not requested:
+            raise ValueError("at least one upload resource is required")
+        if not all(isinstance(item, ResourceHandle) for item in requested):
+            raise TypeError("resources must contain ResourceHandle values")
+        resource_ids = tuple(str(item.id) for item in requested)
+        if len(set(resource_ids)) != len(resource_ids):
+            raise ValueError("duplicate upload resource id")
+        validated = tuple(
+            self._resources.require(resource_id)
+            for resource_id in resource_ids
+        )
+        return await self._run_mutation(
+            "tab.actions.upload_file",
+            ordered_targets=(("target", target),),
+            arguments={"resources": validated},
+            expectation=expect,
+            state=state,
+            timeout_ms=timeout_ms,
+            dispatcher=self._upload_dispatcher(
+                target=target,
+                resources=validated,
+            ),
+        )
+
+    def _upload_dispatcher(
+        self,
+        *,
+        target: TargetRef,
+        resources: tuple[ResourceHandle, ...],
+    ) -> Dispatch:
+        async def dispatch_upload(
+            *,
+            command: object,
+            dispatch_context: object,
+        ) -> object:
+            if self._resources is None:
+                raise BrowserSDKError(
+                    "Canonical ResourceStore is unavailable",
+                    code="resource_store_unavailable",
+                )
+            upload = getattr(self._session, "upload_resources", None)
+            if not callable(upload):
+                raise BrowserSDKError(
+                    "Canonical upload dispatcher is unavailable",
+                    code="upload_dispatcher_missing",
+                )
+            upload_call = cast(Callable[..., Awaitable[object]], upload)
+            command_payload = getattr(command, "_payload", None)
+            if not isinstance(command_payload, Mapping):
+                raise BrowserSDKError(
+                    "Canonical upload command payload is invalid",
+                    code="upload_command_invalid",
+                )
+            private_paths = self._resources.resolve_upload_paths(resources)
+            return await _invoke_async(
+                upload_call,
+                self._receiver_tab,
+                target,
+                resource_ids=tuple(str(handle.id) for handle in resources),
+                private_paths=private_paths,
+                dispatch_context=dispatch_context,
+                command_payload=command_payload,
+            )
+
+        return dispatch_upload
+
+    async def download_file(
+        self,
+        target: TargetRef,
+        *,
+        expect: ActionExpectation | None = None,
+        state: StateRequirement | None = None,
+        timeout_ms: int | None = None,
+    ) -> ActionResult:
+        """Download once from one exact target into ResourceStore."""
+        self._require_target(target)
+        return await self._run_mutation(
+            "tab.actions.download_file",
+            ordered_targets=(("target", target),),
+            arguments={},
+            expectation=expect,
+            state=state,
+            timeout_ms=timeout_ms,
+            dispatcher=self._download_dispatcher(target),
+        )
+
+    async def paste(
+        self,
+        target: TargetRef,
+        content: str,
+        *,
+        expect: ActionExpectation | None = None,
+        state: StateRequirement | None = None,
+        timeout_ms: int | None = None,
+    ) -> ActionResult:
+        """Insert bounded caller-provided content into one exact target."""
+        self._require_target(target)
+        if not isinstance(content, str):
+            raise TypeError("content must be a string")
+        if not content:
+            raise ValueError("content must not be empty")
+        if len(content) > self._max_paste_chars:
+            raise ValueError("content exceeds the paste limit")
+        expectation = expect or ActionExpectation.final(
+            BrowserCondition.all(TargetCondition.value(target, content)),
+        )
+        return await self._run_mutation(
+            "tab.actions.paste",
+            ordered_targets=(("target", target),),
+            arguments={"content": content},
+            expectation=expectation,
+            state=state,
+            timeout_ms=timeout_ms,
+            dispatcher=self._paste_dispatcher(target, content),
+        )
+
+    def _paste_dispatcher(self, target: TargetRef, content: str) -> Dispatch:
+        async def dispatch_paste(
+            *,
+            command: object,
+            dispatch_context: object,
+        ) -> object:
+            paste = getattr(self._session, "paste_controlled", None)
+            if not callable(paste):
+                raise BrowserSDKError(
+                    "Canonical paste dispatcher is unavailable",
+                    code="paste_dispatcher_missing",
+                )
+            paste_call = cast(Callable[..., Awaitable[object]], paste)
+            command_payload = getattr(command, "_payload", None)
+            if not isinstance(command_payload, Mapping):
+                raise BrowserSDKError(
+                    "Canonical paste command payload is invalid",
+                    code="paste_command_invalid",
+                )
+            return await _invoke_async(
+                paste_call,
+                self._receiver_tab,
+                target,
+                content=content,
+                dispatch_context=dispatch_context,
+                command_payload=command_payload,
+            )
+
+        return dispatch_paste
+
     async def respond_prompt(
         self,
         prompt: BrowserPrompt,
@@ -438,6 +681,7 @@ class TabActions:
         expectation: ActionExpectation | None = None,
         state: StateRequirement | None = None,
         timeout_ms: int | None = None,
+        dispatcher: Dispatch | None = None,
     ) -> ActionResult:
         if self._action_runner is None:
             raise BrowserSDKError(
@@ -454,6 +698,16 @@ class TabActions:
             expectation=expectation,
             state=state,
             deadline=_deadline(timeout_ms),
+            dispatcher=dispatcher,
+            condition_evaluator=self._condition_evaluator,
+            condition_receiver=self._condition_receiver,
+            condition_probe=(
+                self._session.condition_probe(self._receiver_tab)
+                if self._condition_evaluator is not None
+                and self._condition_receiver is not None
+                and callable(getattr(self._session, "condition_probe", None))
+                else None
+            ),
         )
         return cast(ActionResult, result)
 
@@ -514,6 +768,20 @@ class Tab:
     )
 
     def __post_init__(self) -> None:
+        condition_receiver = None
+        if self._observations is not None and self._resources is not None:
+            condition_receiver = ConditionReceiver(
+                owner_key=self._observations.owner_key,
+                root_session_id=self._observations.root_session_id,
+                tab_id=self.id,
+                context=self._observations.context,
+                generation=self._observations.generation,
+                observation_store=self._observations,
+                resource_store=self._resources,
+                target_registry=self._target_registry,
+                owner_binding=self._owner_binding,
+                target_facts=self._target_facts,
+            )
         self.actions = TabActions(
             dispatch=self.actions.dispatch,
             _target_registry=self._target_registry,
@@ -521,6 +789,16 @@ class Tab:
             _receiver_tab=self.id,
             _receiver_summary=self._tab_summary,
             _action_runner=self._action_runner,
+            _resources=self._resources,
+            _session=self._session,
+            _condition_evaluator=self._condition_evaluator,
+            _condition_receiver=condition_receiver,
+            _max_paste_chars=int(
+                (self._profile.hard_limits if self._profile else {}).get(
+                    "max_paste_chars",
+                    100_000,
+                ),
+            ),
         )
 
     async def close(self) -> ActionResult:
@@ -582,12 +860,122 @@ class Tab:
         *,
         options: PagePdfOptions | None = None,
     ) -> PagePdfResult:
-        """Route page PDF through the runner before S8 native support."""
+        """Capture one context-bound PDF through the sole ActionRunner."""
+        if options is not None and not isinstance(options, PagePdfOptions):
+            raise TypeError("options must be PagePdfOptions or None")
         result = await self._run_mutation(
             "tab.print_to_pdf",
             arguments={"options": options},
+            dispatcher=self._pdf_dispatcher(options or PagePdfOptions()),
         )
-        return cast(PagePdfResult, result)
+        typed = cast(PagePdfResult, result)
+        if typed.status in {"SUCCEEDED", "PARTIAL"}:
+            resource = typed.resource
+            assert resource is not None
+            if self._resources is None:
+                typed = replace(
+                    typed,
+                    status="FAILED",
+                    retry="FORBIDDEN",
+                    problem=Problem(
+                        code="artifact_promotion_failed",
+                        phase="TRANSPORT",
+                        safe_message=(
+                            "Required PDF artifact storage is unavailable."
+                        ),
+                    ),
+                )
+            else:
+                try:
+                    await self._resources.promote_required((resource,))
+                except ResourceStoreError:
+                    typed = replace(
+                        typed,
+                        status="FAILED",
+                        retry="FORBIDDEN",
+                        problem=Problem(
+                            code="artifact_promotion_failed",
+                            phase="TRANSPORT",
+                            safe_message=(
+                                "Required PDF artifact promotion failed."
+                            ),
+                        ),
+                    )
+        required_blocks = (
+            (
+                RequiredBlock(
+                    kind="artifact",
+                    resource_id=str(typed.resource.id),
+                    media_type=str(typed.resource.media_type),
+                    payload=typed.resource,
+                ),
+            )
+            if typed.status in {"SUCCEEDED", "PARTIAL"}
+            and typed.resource is not None
+            else ()
+        )
+        record_browser_result(typed, required_blocks=required_blocks)
+        return typed
+
+    def _pdf_dispatcher(self, options: PagePdfOptions) -> Dispatch:
+        async def dispatch_pdf(
+            *,
+            command: object,
+            dispatch_context: object,
+        ) -> object:
+            if self._resources is None:
+                raise BrowserSDKError(
+                    "Canonical ResourceStore is unavailable",
+                    code="resource_store_unavailable",
+                )
+            capture_pdf = getattr(self._session, "print_to_pdf_resource", None)
+            if not callable(capture_pdf):
+                raise BrowserSDKError(
+                    "Canonical page PDF dispatcher is unavailable",
+                    code="page_pdf_dispatcher_missing",
+                )
+            capture_pdf_call = cast(
+                Callable[..., Awaitable[object]],
+                capture_pdf,
+            )
+            command_payload = getattr(command, "_payload", None)
+            operation = _resource_operation_from_payload(command_payload)
+            if getattr(command, "command_id", "") != operation.command_id:
+                raise BrowserSDKError(
+                    "Canonical page PDF command identity is invalid",
+                    code="page_pdf_command_invalid",
+                )
+            capture = await _invoke_async(
+                capture_pdf_call,
+                self.id,
+                options=options,
+                context_before=(
+                    self._observations.context
+                    if self._observations is not None
+                    else None
+                ),
+                operation=operation,
+                dispatch_context=dispatch_context,
+                command_payload=command_payload,
+            )
+            if not isinstance(capture, PagePdfCapture):
+                raise BrowserSDKError(
+                    "Canonical page PDF capture is invalid",
+                    code="page_pdf_capture_invalid",
+                )
+            handle = await self._resources.ingest_correlated_page_pdf(
+                capture,
+                operation,
+            )
+            return {
+                "page_pdf": {
+                    "resource": handle,
+                    "context_before": capture.context_before,
+                    "context_after": capture.context_after,
+                },
+            }
+
+        return dispatch_pdf
 
     async def _run_mutation(
         self,
@@ -595,6 +983,7 @@ class Tab:
         *,
         arguments: dict[str, object] | None = None,
         expectation: ActionExpectation | None = None,
+        dispatcher: Dispatch | None = None,
     ) -> ActionResult | PagePdfResult:
         if self._action_runner is None:
             raise BrowserSDKError(
@@ -602,6 +991,7 @@ class Tab:
                 code="action_runner_missing",
                 action=api_id,
             )
+        receiver = self._condition_receiver_for_action()
         return await self._action_runner.run(
             binding=cast(BrowserRequestBinding, self._owner_binding),
             receiver_tab=self._tab_summary,
@@ -611,6 +1001,32 @@ class Tab:
             expectation=expectation,
             state=None,
             deadline=None,
+            dispatcher=dispatcher,
+            condition_evaluator=self._condition_evaluator,
+            condition_receiver=receiver,
+            condition_probe=(
+                self._session.condition_probe(self.id)
+                if receiver is not None
+                and self._condition_evaluator is not None
+                and callable(getattr(self._session, "condition_probe", None))
+                else None
+            ),
+        )
+
+    def _condition_receiver_for_action(self) -> ConditionReceiver | None:
+        if self._observations is None or self._resources is None:
+            return None
+        return ConditionReceiver(
+            owner_key=self._observations.owner_key,
+            root_session_id=self._observations.root_session_id,
+            tab_id=self.id,
+            context=self._observations.context,
+            generation=self._observations.generation,
+            observation_store=self._observations,
+            resource_store=self._resources,
+            target_registry=self._target_registry,
+            owner_binding=self._owner_binding,
+            target_facts=self._target_facts,
         )
 
     async def wait_for(
@@ -634,10 +1050,7 @@ class Tab:
         unsupported = tuple(
             atom
             for atom in condition.atoms
-            if isinstance(
-                atom,
-                (SurfaceCondition, ResourceCondition),
-            )
+            if isinstance(atom, SurfaceCondition)
         )
         if unsupported:
             observation = self._observations.issue_evidence(
@@ -676,10 +1089,22 @@ class Tab:
             context=self._observations.context,
             generation=self._observations.generation,
             observation_store=self._observations,
+            resource_store=self._resources,
             target_registry=self._target_registry,
             owner_binding=self._owner_binding,
             target_facts=self._target_facts,
         )
+        armed = None
+        has_resource_atom = any(
+            isinstance(atom, ResourceCondition) for atom in condition.atoms
+        )
+        if has_resource_atom:
+            armed = await self._condition_evaluator.arm(
+                receiver,
+                condition,
+                probe=probe,
+                baseline=None,
+            )
         evaluation = await self._condition_evaluator.evaluate(
             receiver,
             condition,
@@ -687,7 +1112,7 @@ class Tab:
             timeout_ms=timeout_ms,
             stable_ms=stable_ms,
             baseline=None,
-            armed=None,
+            armed=armed,
         )
         if not isinstance(evaluation, ConditionEvaluation):
             raise BrowserSDKGap(
@@ -1301,6 +1726,50 @@ def _deadline(timeout_ms: int | None) -> float | None:
     if timeout_ms <= 0:
         raise ValueError("timeout_ms must be positive")
     return monotonic() + timeout_ms / 1000
+
+
+def _resource_operation_from_payload(
+    payload: object,
+) -> ResourceOperationBinding:
+    if not isinstance(payload, Mapping):
+        raise BrowserSDKError(
+            "Canonical resource command payload is invalid",
+            code="resource_operation_binding_invalid",
+        )
+    raw = payload.get("resource_operation")
+    if not isinstance(raw, Mapping):
+        raise BrowserSDKError(
+            "Canonical resource operation binding is missing",
+            code="resource_operation_binding_invalid",
+        )
+    owner_key = raw.get("owner_key")
+    watermark = raw.get("pre_arm_watermark")
+    if (
+        not isinstance(owner_key, tuple)
+        or len(owner_key) != 2
+        or not isinstance(watermark, int)
+        or isinstance(watermark, bool)
+    ):
+        raise BrowserSDKError(
+            "Canonical resource operation owner is invalid",
+            code="resource_operation_binding_invalid",
+        )
+    try:
+        return ResourceOperationBinding(
+            operation_id=str(raw.get("operation_id") or ""),
+            operation_fingerprint=str(
+                raw.get("operation_fingerprint") or "",
+            ),
+            command_id=str(raw.get("command_id") or ""),
+            owner_key=(str(owner_key[0]), str(owner_key[1])),
+            tab_id=str(raw.get("tab_id") or ""),
+            pre_arm_watermark=int(watermark),
+        )
+    except (TypeError, ValueError) as exc:
+        raise BrowserSDKError(
+            "Canonical resource operation binding is invalid",
+            code="resource_operation_binding_invalid",
+        ) from exc
 
 
 def _capability_blocked(capability: str) -> BrowserSDKGap:

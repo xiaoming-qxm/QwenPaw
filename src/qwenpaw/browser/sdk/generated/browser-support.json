@@ -32,21 +32,6 @@
       ]
     },
     {
-      "capability_id": "result.artifact_delivery",
-      "family": "ResultDelivery",
-      "requirement": "REQUIRED",
-      "status": "READY",
-      "limits": {
-        "max_artifact_bytes": 20971520
-      },
-      "required_blocks": [
-        "artifact"
-      ],
-      "validation_evidence": [
-        "result.required-artifact@build-1"
-      ]
-    },
-    {
       "capability_id": "observe.snapshot",
       "family": "ObserveRead",
       "requirement": "REQUIRED",
@@ -352,6 +337,162 @@
         "chrome.cleanup-task-created@build-1",
         "chrome.cleanup-borrowed@build-1",
         "chrome.cleanup-beforeunload-incomplete@build-1"
+      ]
+    },
+    {
+      "capability_id": "browser.resources",
+      "family": "ResourceFile",
+      "requirement": "REQUIRED",
+      "status": "READY",
+      "limits": {},
+      "required_blocks": [],
+      "validation_evidence": [
+        "resource.upload.selected-accepted@build-1",
+        "resource.upload.selected-rejected@build-1",
+        "resource.upload.transferred-accepted@build-1",
+        "resource.upload.multi-unknown@build-1",
+        "resource.upload.multi-mixed@build-1",
+        "resource.upload.owner-mismatch@build-1",
+        "resource.upload.expired@build-1",
+        "resource.upload.item-limit@build-1",
+        "resource.upload.task-limit@build-1"
+      ]
+    },
+    {
+      "capability_id": "tab.actions.upload_file",
+      "family": "ResourceFile",
+      "requirement": "REQUIRED",
+      "status": "READY",
+      "limits": {},
+      "required_blocks": [],
+      "validation_evidence": [
+        "resource.upload.selected-accepted@build-1",
+        "resource.upload.selected-rejected@build-1",
+        "resource.upload.transferred-accepted@build-1",
+        "resource.upload.multi-unknown@build-1",
+        "resource.upload.multi-mixed@build-1",
+        "resource.upload.owner-mismatch@build-1",
+        "resource.upload.expired@build-1",
+        "resource.upload.item-limit@build-1",
+        "resource.upload.task-limit@build-1"
+      ]
+    },
+    {
+      "capability_id": "tab.actions.download_file",
+      "family": "ResourceFile",
+      "requirement": "REQUIRED",
+      "status": "READY",
+      "limits": {},
+      "required_blocks": [],
+      "validation_evidence": [
+        "resource.download.after-pre-arm@build-1",
+        "resource.download.before-send@build-1",
+        "resource.download.send-before-receipt@build-1",
+        "resource.download.correlation@build-1",
+        "resource.download.progress-partial@build-1",
+        "resource.download.progress-completed@build-1",
+        "resource.download.byte-stability@build-1",
+        "resource.download.hash-failure@build-1",
+        "resource.download.ingest-failure@build-1",
+        "resource.download.exact-count-name-mime@build-1",
+        "resource.condition.created-download@build-1"
+      ]
+    },
+    {
+      "capability_id": "tab.print_to_pdf",
+      "family": "ResourceFile",
+      "requirement": "REQUIRED",
+      "status": "READY",
+      "limits": {},
+      "required_blocks": [],
+      "validation_evidence": [
+        "resource.pdf.context-stable@build-1",
+        "resource.pdf.context-changed@build-1",
+        "resource.condition.created-pdf@build-1"
+      ]
+    },
+    {
+      "capability_id": "tab.actions.paste",
+      "family": "ResourceFile",
+      "requirement": "REQUIRED",
+      "status": "READY",
+      "limits": {},
+      "required_blocks": [],
+      "validation_evidence": [
+        "resource.paste.exact-target-content@build-1",
+        "resource.paste.no-ambient-clipboard@build-1"
+      ]
+    },
+    {
+      "capability_id": "resource.upload.os_picker",
+      "family": "ResourceFile",
+      "requirement": "OPTIONAL",
+      "status": "BLOCKED",
+      "limits": {},
+      "required_blocks": [],
+      "validation_evidence": []
+    },
+    {
+      "capability_id": "resource.print.physical",
+      "family": "ResourceFile",
+      "requirement": "OPTIONAL",
+      "status": "BLOCKED",
+      "limits": {},
+      "required_blocks": [],
+      "validation_evidence": []
+    },
+    {
+      "capability_id": "resource.workspace.permission",
+      "family": "ResourceFile",
+      "requirement": "OPTIONAL",
+      "status": "BLOCKED",
+      "limits": {},
+      "required_blocks": [],
+      "validation_evidence": [
+        "resource.workspace.permission-handoff@build-1"
+      ]
+    },
+    {
+      "capability_id": "synchronize.resource.available",
+      "family": "Synchronize",
+      "requirement": "REQUIRED",
+      "status": "READY",
+      "limits": {},
+      "required_blocks": [],
+      "validation_evidence": [
+        "synchronize.resource-available-current@build-1",
+        "synchronize.resource-available-expired@build-1",
+        "synchronize.resource-available-owner-mismatch@build-1"
+      ]
+    },
+    {
+      "capability_id": "result.artifact_delivery",
+      "family": "ResultDelivery",
+      "requirement": "REQUIRED",
+      "status": "READY",
+      "limits": {},
+      "required_blocks": [
+        "artifact"
+      ],
+      "validation_evidence": [
+        "result.artifact-preflight@build-1",
+        "result.artifact-promotion@build-1",
+        "result.artifact-formatter-prepare@build-1",
+        "result.artifact-final-envelope@build-1",
+        "result.artifact-transient-cleanup@build-1",
+        "result.artifact-expiry@build-1",
+        "result.artifact-protected-block@build-1"
+      ]
+    },
+    {
+      "capability_id": "result.artifact_delivery.unsupported_provider",
+      "family": "ResultDelivery",
+      "requirement": "OPTIONAL",
+      "status": "BLOCKED",
+      "limits": {},
+      "required_blocks": [],
+      "validation_evidence": [
+        "result.artifact-provider-unsupported@build-1"
       ]
     }
   ]

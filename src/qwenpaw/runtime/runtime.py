@@ -56,6 +56,7 @@ class Runtime:
         """8-phase lifecycle orchestration."""
         request = self._normalize(request)
         ctx = self._build_context(request, trusted_root=trusted_root)
+        await _register_browser_attachments(ctx)
         hooks = self.workspace.plugins.hook_registry
 
         envelope = Envelope(session_id=ctx.session_id)
@@ -226,7 +227,8 @@ class Runtime:
         root_session_id = binding.root_session_id
         root_agent_id = getattr(request, "root_agent_id", "") or agent_id
 
-        return HookContext(
+        trusted_attachments: list[Any] = []
+        context = HookContext(
             request=request,
             session_id=session_id,
             agent_id=agent_id,
@@ -239,8 +241,13 @@ class Runtime:
             workspace_dir=workspace_dir,
             workspace=self.workspace,
             app_services=self.app_services,
-            input_msgs=_request_input_to_msgs(request.input),
+            input_msgs=_request_input_to_msgs(
+                request.input,
+                trusted_attachments=trusted_attachments,
+            ),
         )
+        context.extras["_trusted_browser_attachments"] = trusted_attachments
+        return context
 
     @staticmethod
     def _apply_context_injections(ctx: HookContext) -> None:
@@ -285,6 +292,33 @@ class Runtime:
                 "runtime: failed to inject context: %d items",
                 len(parts),
             )
+
+
+async def _register_browser_attachments(ctx: Any) -> None:
+    """Publish only host-issued attachment descriptors under this owner."""
+    from qwenpaw.browser.sdk.runtime.resources import (
+        get_or_create_resource_store,
+    )
+    from qwenpaw.runtime.message_convert import TrustedAttachmentDescriptor
+
+    descriptors = tuple(
+        getattr(ctx, "extras", {}).pop("_trusted_browser_attachments", ()),
+    )
+    if not descriptors:
+        return
+    owner_key = (
+        str(getattr(ctx, "root_task_id", "")),
+        str(getattr(ctx, "browser_owner_id", "")),
+    )
+    store = get_or_create_resource_store(owner_key)
+    for descriptor in descriptors:
+        if not isinstance(descriptor, TrustedAttachmentDescriptor):
+            continue
+        store.ingest_trusted_attachment(
+            descriptor.location,
+            name=descriptor.name,
+            media_type=descriptor.media_type,
+        )
 
 
 __all__ = ["Runtime"]

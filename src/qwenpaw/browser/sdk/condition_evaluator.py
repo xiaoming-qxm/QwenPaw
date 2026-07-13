@@ -25,6 +25,8 @@ from .canonical.contracts import (
     PageCondition,
     RegionCondition,
     RegionRef,
+    ResourceCondition,
+    ResourceHandle,
     SurfaceCondition,
     TabSummary,
     TargetCondition,
@@ -36,6 +38,7 @@ from .canonical.contracts import (
 from .governance.errors import BrowserSDKError
 from .primitives.matching import match_page_url, normalize_visible_text
 from .runtime.observation_store import ObservationStore, ObservationStoreError
+from .runtime.resources import ResourceStore, ResourceStoreError
 from .runtime.session_owner import (
     BrowserRequestBinding,
     BrowserSessionOwnerRegistry,
@@ -89,6 +92,7 @@ class ConditionReceiver:
     context: ContextVersion
     generation: int
     observation_store: ObservationStore | None = None
+    resource_store: ResourceStore | None = None
     target_registry: BrowserSessionOwnerRegistry | None = None
     owner_binding: BrowserRequestBinding | None = None
     target_facts: tuple["TargetFacts", ...] = ()
@@ -122,6 +126,7 @@ class ConditionReceiver:
                 self.tab_id,
                 context_id,
                 self.generation,
+                id(self.resource_store),
             ),
         )
         return sha256(raw.encode()).hexdigest()
@@ -218,12 +223,44 @@ class ProbeObservation:
 
 
 @dataclass(frozen=True, slots=True)
+class ResourceOperationBinding:
+    """Private PendingAction identity required by `created` atoms."""
+
+    operation_id: str
+    operation_fingerprint: str
+    command_id: str
+    owner_key: OwnerKey
+    tab_id: str
+    pre_arm_watermark: int | None = None
+
+    def __post_init__(self) -> None:
+        if not all(
+            (
+                self.operation_id,
+                self.operation_fingerprint,
+                self.command_id,
+                self.tab_id,
+            ),
+        ):
+            raise ValueError("resource operation binding is incomplete")
+        if (
+            not isinstance(self.owner_key, tuple)
+            or len(self.owner_key) != 2
+            or not all(self.owner_key)
+        ):
+            raise ValueError("resource operation owner is invalid")
+        if self.pre_arm_watermark is not None and self.pre_arm_watermark < 0:
+            raise ValueError("resource operation watermark is invalid")
+
+
+@dataclass(frozen=True, slots=True)
 class ProbeRequest:
     """Exact receiver and closed condition requested from a raw probe."""
 
     receiver: ConditionReceiver
     condition: BrowserCondition
     baseline: ConditionBaseline | None = None
+    operation: ResourceOperationBinding | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -313,9 +350,10 @@ class ConditionEvaluator:
         *,
         probe: ConditionProbe,
         baseline: ConditionBaseline | None = None,
+        operation: ResourceOperationBinding | None = None,
     ) -> ConditionWatch:
         """Check immediately, then atomically arm a single-use watch."""
-        request = ProbeRequest(receiver, condition, baseline)
+        request = ProbeRequest(receiver, condition, baseline, operation)
         watch = _issue_watch(
             request=request,
             probe=probe,
@@ -325,6 +363,7 @@ class ConditionEvaluator:
             armed_at=self._clock.now(),
         )
         try:
+            _validate_resource_operation(receiver, condition, operation)
             _validate_baseline_shape(receiver, condition, baseline)
             watch._observation = await probe.check(request)
         except _StaleBaseline as exc:
@@ -345,6 +384,14 @@ class ConditionEvaluator:
         try:
             if watch._observation.state == "AVAILABLE":
                 watch._subscription = await probe.subscribe(request)
+                if request.operation is not None:
+                    watch._request = replace(
+                        request,
+                        operation=replace(
+                            request.operation,
+                            pre_arm_watermark=(watch._subscription.watermark),
+                        ),
+                    )
         except Exception as exc:  # pylint: disable=broad-exception-caught
             watch._startup_error = f"subscribe:{type(exc).__name__}"
         return watch
@@ -359,6 +406,7 @@ class ConditionEvaluator:
         stable_ms: int = 0,
         baseline: ConditionBaseline | None = None,
         armed: ConditionWatch | None = None,
+        operation: ResourceOperationBinding | None = None,
     ) -> ConditionEvaluation:
         """Consume one watch through race-close and bounded rechecks."""
         started = self._clock.now()
@@ -369,6 +417,7 @@ class ConditionEvaluator:
             condition,
             probe=probe,
             baseline=baseline,
+            operation=operation,
         )
         mismatch = _consume_watch(
             watch,
@@ -429,6 +478,7 @@ class ConditionEvaluator:
             watch._request.condition,
             observation,
             watch._request.receiver,
+            watch._request.operation,
         )
         if (
             _condition_true(watch._request.condition, matched)
@@ -468,6 +518,7 @@ class ConditionEvaluator:
                 watch._request.condition,
                 observation,
                 watch._request.receiver,
+                watch._request.operation,
             )
             truth = _condition_true(watch._request.condition, matched)
             now = self._clock.now()
@@ -596,6 +647,28 @@ def _baseline_fingerprint(baseline: ConditionBaseline | None) -> str:
     return baseline.fingerprint if baseline is not None else "none"
 
 
+def _validate_resource_operation(
+    receiver: ConditionReceiver,
+    condition: BrowserCondition,
+    operation: ResourceOperationBinding | None,
+) -> None:
+    created = any(
+        isinstance(atom, ResourceCondition) and atom.kind == "created"
+        for atom in condition.atoms
+    )
+    if not created:
+        if operation is not None:
+            raise ValueError("resource operation binding is unexpected")
+        return
+    if operation is None:
+        raise ValueError("resource operation binding required")
+    if (
+        operation.owner_key != receiver.owner_key
+        or operation.tab_id != receiver.tab_id
+    ):
+        raise ValueError("resource operation receiver mismatch")
+
+
 def _opaque_id(value: object | None) -> str:
     if value is None:
         return ""
@@ -667,9 +740,14 @@ def _matched_atoms(
     condition: BrowserCondition,
     observation: ProbeObservation,
     receiver: ConditionReceiver,
+    operation: ResourceOperationBinding | None = None,
 ) -> tuple[ConditionAtom, ...]:
     matched: list[ConditionAtom] = []
     for atom in condition.atoms:
+        if isinstance(atom, ResourceCondition):
+            if _resource_condition_matches(atom, receiver, operation):
+                matched.append(atom)
+            continue
         if isinstance(atom, TargetCondition):
             target_refs = _target_matches(atom, observation, receiver)
             if target_refs is not None:
@@ -689,6 +767,47 @@ def _matched_atoms(
         if _atom_matches(atom, observation):
             matched.append(atom)
     return tuple(matched)
+
+
+def _resource_condition_matches(
+    atom: ResourceCondition,
+    receiver: ConditionReceiver | object,
+    operation: ResourceOperationBinding | None = None,
+) -> bool:
+    """Read only fresh complete store facts under the exact binding."""
+    store = getattr(receiver, "resource_store", None)
+    owner_key = getattr(receiver, "owner_key", None)
+    if not isinstance(store, ResourceStore) or owner_key != store.owner_key:
+        return False
+    if atom.kind == "created":
+        if operation is None or operation.owner_key != owner_key:
+            return False
+        if not isinstance(atom.subject, tuple) or len(atom.subject) != 4:
+            return False
+        kind, count, media_type, name = atom.subject
+        if kind not in {"download", "page_pdf"}:
+            return False
+        try:
+            created_handles = store.created_for(operation)
+        except ResourceStoreError:
+            return False
+        matched = tuple(
+            handle
+            for handle in created_handles
+            if (media_type is None or handle.media_type == media_type)
+            and (name is None or handle.name == name)
+        )
+        return len(matched) == count
+    if atom.kind != "available" or not isinstance(
+        atom.subject,
+        ResourceHandle,
+    ):
+        return False
+    try:
+        current = store.require(str(atom.subject.id))
+    except ResourceStoreError:
+        return False
+    return current is atom.subject
 
 
 def _surface_condition_matches(

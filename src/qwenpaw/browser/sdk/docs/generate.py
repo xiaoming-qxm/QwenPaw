@@ -30,7 +30,10 @@ def build_api_catalog(
     if mode == "canonical":
         from ..canonical.contracts import canonical_api_catalog
 
-        return canonical_api_catalog()
+        payload = canonical_api_catalog()
+        payload["apis"].extend(_canonical_resource_entries())
+        _validate_canonical_resource_surface(payload)
+        return payload
     return {
         "version": 1,
         "source": "browser_api",
@@ -227,6 +230,99 @@ def _api_catalog_entry(func: Callable[..., Any]) -> dict[str, Any]:
     }
     entry.pop("backend_op", None)
     return entry
+
+
+def _canonical_resource_entries() -> list[dict[str, Any]]:
+    """Describe the task-owned Browser.resources handle boundary."""
+    common = {
+        "kind": "primitive",
+        "mutates": False,
+        "requires_observation": False,
+        "satisfies_observation": False,
+        "invalidates_observation": False,
+        "visibility": "default",
+    }
+    return [
+        {
+            **common,
+            "api_id": "browser.resources.list",
+            "public_name": "browser.resources.list",
+            "callable_path": (
+                "qwenpaw.browser.sdk.canonical.facade:BrowserResources.list"
+            ),
+            "signature": "list() -> list[ResourceHandle]",
+            "parameters": [],
+            "return_type": "list[ResourceHandle]",
+            "summary": "List current task-owned resource handles.",
+        },
+        {
+            **common,
+            "api_id": "browser.resources.require",
+            "public_name": "browser.resources.require",
+            "callable_path": (
+                "qwenpaw.browser.sdk.canonical.facade:BrowserResources.require"
+            ),
+            "signature": "require(resource_id: str) -> ResourceHandle",
+            "parameters": [
+                {
+                    "name": "resource_id",
+                    "kind": "POSITIONAL_OR_KEYWORD",
+                    "required": True,
+                    "annotation": "str",
+                },
+            ],
+            "return_type": "ResourceHandle",
+            "summary": "Resolve one current task-owned resource handle.",
+        },
+        {
+            **common,
+            "api_id": "browser.resources.from_workspace",
+            "public_name": "browser.resources.from_workspace",
+            "callable_path": (
+                "qwenpaw.browser.sdk.canonical.facade:"
+                "BrowserResources.from_workspace"
+            ),
+            "signature": "from_workspace(path: str) -> ResourceHandle",
+            "parameters": [
+                {
+                    "name": "path",
+                    "kind": "POSITIONAL_OR_KEYWORD",
+                    "required": True,
+                    "annotation": "str",
+                },
+            ],
+            "return_type": "ResourceHandle",
+            "summary": "Authorize one workspace file as a resource handle.",
+        },
+    ]
+
+
+def _validate_canonical_resource_surface(payload: dict[str, Any]) -> None:
+    """Fail generation if S8 public resource contracts regress."""
+    entries = {item["api_id"]: item for item in payload["apis"]}
+    required = {
+        "browser.resources.list",
+        "browser.resources.require",
+        "browser.resources.from_workspace",
+        "tab.actions.upload_file",
+        "tab.actions.download_file",
+        "tab.actions.paste",
+        "tab.print_to_pdf",
+    }
+    if not required <= entries.keys():
+        raise ValueError("canonical resource surface is incomplete")
+    upload = str(entries["tab.actions.upload_file"]["signature"])
+    download = str(entries["tab.actions.download_file"]["signature"])
+    paste = str(entries["tab.actions.paste"]["signature"])
+    if "ResourceHandle" not in upload or "path" in upload.lower():
+        raise ValueError("upload must accept only resource handles")
+    if "target: TargetRef" not in download or "TargetRef | None" in download:
+        raise ValueError("download target must be mandatory")
+    if "target: TargetRef, content: str" not in paste:
+        raise ValueError("paste must bind exact target and caller content")
+    serialized = json.dumps(payload).lower()
+    if "file://" in serialized or "navigator.clipboard" in serialized:
+        raise ValueError("canonical resource surface leaks a forbidden API")
 
 
 def _contract_for(func: Callable[..., Any]) -> BrowserAPIContract:

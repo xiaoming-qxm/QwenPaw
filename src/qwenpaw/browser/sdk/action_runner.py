@@ -19,24 +19,32 @@ from urllib.parse import urlsplit
 from .canonical.contracts import (
     ActionExpectation,
     ActionResult,
+    BrowserCondition,
     BrowserPrompt,
+    ContextVersion,
     PagePdfResult,
     Problem,
     RetryDirective,
+    ResourceCondition,
+    ResourceHandle,
     StateRequirement,
     TabSummary,
     TargetRef,
     TerminalStatus,
+    UploadItemOutcome,
+    UploadOutcome,
     _serialize_browser_condition,
     issue_operation_id,
 )
 from .contracts import BrowserAPIContract
 from .condition_evaluator import (
     ConditionBaseline,
+    ConditionEvaluation,
     ConditionEvaluator,
     ConditionProbe,
     ConditionReceiver,
     ConditionWatch,
+    ResourceOperationBinding,
     _condition_fingerprint,
 )
 from .governance.boundary import canonical_preflight_handoff_reason
@@ -56,6 +64,7 @@ from .runtime.session_owner import (
     StateFactStatus,
     TrustedStateVerifier,
 )
+from .runtime.result_delivery import require_artifact_delivery_preflight
 
 
 class PreflightDecision(StrEnum):
@@ -94,6 +103,180 @@ class PostconditionFact(StrEnum):
     PASSED = "PASSED"
     FAILED = "FAILED"
     UNKNOWN = "UNKNOWN"
+
+
+def _classify_upload_outcome(
+    items: tuple[UploadItemOutcome, ...],
+) -> Literal["POSITIVE", "NEGATIVE", "PARTIAL", "UNKNOWN"]:
+    """Aggregate only closed per-item facts without optimistic inference."""
+    if not items or not all(
+        isinstance(item, UploadItemOutcome) for item in items
+    ):
+        raise TypeError("upload items must be a non-empty closed tuple")
+    if any(
+        "UNKNOWN" in (item.selection, item.transfer, item.acceptance)
+        for item in items
+    ):
+        return "UNKNOWN"
+    positive = {
+        ("SELECTED", "COMPLETED", "ACCEPTED"),
+    }
+    negative = {
+        ("NOT_SELECTED", "NOT_COMPLETED", "REJECTED"),
+    }
+    facts = {
+        (item.selection, item.transfer, item.acceptance) for item in items
+    }
+    if facts <= positive:
+        return "POSITIVE"
+    if facts <= negative:
+        return "NEGATIVE"
+    return "PARTIAL"
+
+
+def _upload_terminal_mapping(
+    aggregate: str,
+) -> tuple[TerminalStatus, RetryDirective]:
+    """Map upload truth without making a possibly disclosed group retryable."""
+    mapping: dict[str, tuple[TerminalStatus, RetryDirective]] = {
+        "POSITIVE": ("SUCCEEDED", "NONE"),
+        "PARTIAL": ("PARTIAL", "FORBIDDEN"),
+        "UNKNOWN": ("UNCERTAIN", "RECONCILE_ONLY"),
+        "NEGATIVE": ("FAILED", "FORBIDDEN"),
+    }
+    try:
+        return mapping[aggregate]
+    except KeyError as exc:
+        raise ValueError("invalid upload aggregate") from exc
+
+
+def _required_resource_expectation(
+    api_id: str,
+    caller: ActionExpectation | None,
+) -> ActionExpectation | None:
+    """Add the one operation-created resource atom owned by ActionRunner."""
+    resource_kind = {
+        "tab.actions.download_file": "download",
+        "tab.print_to_pdf": "page_pdf",
+    }.get(api_id)
+    if resource_kind is None:
+        return caller
+    required = ResourceCondition.created(
+        kind=cast(Literal["download", "page_pdf"], resource_kind),
+        count=1,
+    )
+    atoms = caller.condition.atoms if caller is not None else ()
+    if required not in atoms:
+        atoms = (*atoms, required)
+    return ActionExpectation.transition(
+        BrowserCondition.all(*atoms),
+        stable_ms=caller.stable_ms if caller is not None else 0,
+    )
+
+
+def _download_terminal_projection(
+    expectation: ActionExpectation,
+    dispatch: object,
+    evaluation_outcome: object,
+) -> tuple[TerminalStatus, RetryDirective, tuple[ResourceHandle, ...]]:
+    """Project only known correlated resource facts into terminal truth."""
+    if not isinstance(dispatch, Mapping):
+        return ("UNCERTAIN", "RECONCILE_ONLY", ())
+    payload = dispatch.get("download")
+    if not isinstance(payload, Mapping):
+        return ("UNCERTAIN", "RECONCILE_ONLY", ())
+    raw_resources = payload.get("resources")
+    if not isinstance(raw_resources, (tuple, list)) or not all(
+        isinstance(item, ResourceHandle) for item in raw_resources
+    ):
+        return ("UNCERTAIN", "RECONCILE_ONLY", ())
+    current = tuple(cast(ResourceHandle, item) for item in raw_resources)
+    if not current:
+        if payload.get("count") == 0:
+            return ("FAILED", "FORBIDDEN", ())
+        return ("UNCERTAIN", "RECONCILE_ONLY", ())
+    required = next(
+        (
+            atom
+            for atom in expectation.condition.atoms
+            if isinstance(atom, ResourceCondition)
+            and atom.kind == "created"
+            and isinstance(atom.subject, tuple)
+            and atom.subject[0] == "download"
+        ),
+        None,
+    )
+    if required is None:
+        return ("UNCERTAIN", "RECONCILE_ONLY", current)
+    _, count, media_type, name = cast(
+        tuple[object, object, object, object],
+        required.subject,
+    )
+    if (
+        not isinstance(count, int)
+        or isinstance(count, bool)
+        or not isinstance(media_type, (str, type(None)))
+        or not isinstance(name, (str, type(None)))
+    ):
+        return ("UNCERTAIN", "RECONCILE_ONLY", current)
+    exact = len(current) == count and all(
+        (media_type is None or item.media_type == media_type)
+        and (name is None or item.name == name)
+        for item in current
+    )
+    if not exact:
+        return ("PARTIAL", "FORBIDDEN", current)
+    if evaluation_outcome == "SATISFIED":
+        return ("SUCCEEDED", "NONE", current)
+    return ("UNCERTAIN", "RECONCILE_ONLY", current)
+
+
+def _page_pdf_terminal_projection(
+    dispatch: object,
+    evaluation_outcome: object,
+) -> tuple[
+    TerminalStatus,
+    RetryDirective,
+    ResourceHandle | None,
+    ContextVersion | None,
+    ContextVersion | None,
+    str,
+]:
+    """Preserve complete PDF facts without claiming one-version truth."""
+    if not isinstance(dispatch, Mapping):
+        return ("UNCERTAIN", "RECONCILE_ONLY", None, None, None, "UNKNOWN")
+    payload = dispatch.get("page_pdf")
+    if not isinstance(payload, Mapping):
+        return ("UNCERTAIN", "RECONCILE_ONLY", None, None, None, "UNKNOWN")
+    resource = payload.get("resource")
+    before = payload.get("context_before")
+    after = payload.get("context_after")
+    if not isinstance(resource, ResourceHandle):
+        return ("UNCERTAIN", "RECONCILE_ONLY", None, None, None, "UNKNOWN")
+    if not isinstance(before, ContextVersion) or not isinstance(
+        after,
+        ContextVersion,
+    ):
+        return (
+            "UNCERTAIN",
+            "RECONCILE_ONLY",
+            resource,
+            None,
+            None,
+            "UNKNOWN",
+        )
+    if before is not after:
+        return ("PARTIAL", "FORBIDDEN", resource, before, after, "CHANGED")
+    if evaluation_outcome == "SATISFIED":
+        return ("SUCCEEDED", "NONE", resource, before, after, "SAME")
+    return (
+        "UNCERTAIN",
+        "RECONCILE_ONLY",
+        resource,
+        before,
+        after,
+        "UNKNOWN",
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -155,9 +338,14 @@ class PendingAction:
     command_fingerprints: dict[str, str] = field(default_factory=dict)
     command_facts: dict[str, CommandFact] = field(default_factory=dict)
     commands: dict[str, PendingCommand] = field(default_factory=dict)
-    _status_query: (
-        Callable[["PendingAction"], Awaitable[object]] | None
-    ) = field(default=None, repr=False, compare=False)
+    _status_query: Callable[
+        ["PendingAction"],
+        Awaitable[object],
+    ] | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+    )
     _reconcile_evaluator: ConditionEvaluator | Any | None = field(
         default=None,
         repr=False,
@@ -743,6 +931,12 @@ class ActionRunner:
         ) = None,
     ) -> ActionResult | PagePdfResult:
         """Enter the sole bounded Canonical mutation attempt."""
+        if contract.api_id == "tab.print_to_pdf":
+            require_artifact_delivery_preflight("application/pdf")
+        expectation = _required_resource_expectation(
+            contract.api_id,
+            expectation,
+        )
         preflight = await self.preflight(
             contract=contract,
             binding=binding,
@@ -802,10 +996,9 @@ class ActionRunner:
         approval_grant: ApprovalGrant | None,
         dispatcher: Callable[..., Awaitable[object]],
         event_hook: Callable[[str], None] | None,
-        receipt_status_query: (
-            Callable[[PendingAction], Awaitable[object]] | None
-        ),
-    ) -> ActionResult:
+        receipt_status_query: Callable[[PendingAction], Awaitable[object]]
+        | None,
+    ) -> ActionResult | PagePdfResult:
         """Run the pre-armed, final-revalidated single attempt."""
         preview = preflight.preview
         assert preview is not None
@@ -825,19 +1018,21 @@ class ActionRunner:
             operation_fingerprint=preview.operation_fingerprint,
         )
         _emit(event_hook, "pending_saved")
-        if receipt_status_query is not None:
-            pending.configure_reconcile(
-                status_query=receipt_status_query,
-                evaluator=evaluator,
-                receiver=condition_receiver,
-                probe=condition_probe,
-                expectation=expectation,
-                baseline=baseline,
-            )
-        watch = await evaluator.arm(
-            condition_receiver,
-            expectation.condition,
+        _configure_pending_reconcile(
+            pending,
+            status_query=receipt_status_query,
+            evaluator=evaluator,
+            receiver=condition_receiver,
             probe=condition_probe,
+            expectation=expectation,
+            baseline=baseline,
+        )
+        resource_operation, watch = await _arm_condition_watch(
+            pending=pending,
+            evaluator=evaluator,
+            receiver=condition_receiver,
+            probe=condition_probe,
+            expectation=expectation,
             baseline=baseline,
         )
         _emit(event_hook, "watcher_prearmed")
@@ -927,21 +1122,43 @@ class ActionRunner:
                     "final revalidator returned an invalid decision",
                     code="final_revalidation_invalid",
                 )
-            command = pending.issue_command(
-                "INITIAL",
-                {
-                    "arguments": dict(arguments),
-                    "root_task_id": binding.root_task_id,
-                    "browser_owner_id": binding.browser_owner_id,
-                    "session_id": binding.root_session_id,
-                    "owner_lease_generation": binding.lease_generation,
-                    "binding_hash": preview.binding_hash,
-                    "approval_grant_id": (
-                        approval_grant.grant_id
-                        if approval_grant is not None
-                        else None
+            command_payload: dict[str, object] = {
+                "arguments": dict(arguments),
+                "root_task_id": binding.root_task_id,
+                "browser_owner_id": binding.browser_owner_id,
+                "session_id": binding.root_session_id,
+                "owner_lease_generation": binding.lease_generation,
+                "binding_hash": preview.binding_hash,
+                "approval_grant_id": (
+                    approval_grant.grant_id
+                    if approval_grant is not None
+                    else None
+                ),
+            }
+            sealed_operation = getattr(
+                getattr(watch, "_request", None),
+                "operation",
+                None,
+            )
+            if isinstance(sealed_operation, ResourceOperationBinding):
+                command_payload["resource_operation"] = {
+                    "operation_id": sealed_operation.operation_id,
+                    "operation_fingerprint": (
+                        sealed_operation.operation_fingerprint
                     ),
-                },
+                    "command_id": sealed_operation.command_id,
+                    "owner_key": sealed_operation.owner_key,
+                    "tab_id": sealed_operation.tab_id,
+                    "pre_arm_watermark": (sealed_operation.pre_arm_watermark),
+                }
+            command = pending.issue_command_with_id(
+                (
+                    resource_operation.command_id
+                    if resource_operation is not None
+                    else f"browser-command-{secrets.token_urlsafe(24)}"
+                ),
+                "INITIAL",
+                command_payload,
             )
             _emit(event_hook, "command_fact_persisted")
             dispatch_context = None
@@ -969,24 +1186,17 @@ class ActionRunner:
                 baseline=baseline,
                 armed=watch,
             )
-            if evaluation.outcome != "SATISFIED":
-                self._registry.fence_uncertain_action(
-                    binding,
-                    pending.operation_id,
-                )
-                return await reconcile_pending(
-                    binding=binding,
-                    pending=pending,
-                    deadline=(deadline or pending.expires_at),
-                )
-            return ActionResult(
-                operation_id=pending.operation_id,
-                status="SUCCEEDED",
-                retry="NONE",
-                effect_facts=(evaluation,),
-                commands=(pending.command_facts[command.command_id],),
-                dispatch=dispatch_fact,
-                postcondition=evaluation,
+            return await _project_armed_terminal(
+                registry=self._registry,
+                binding=binding,
+                pending=pending,
+                contract=contract,
+                expectation=expectation,
+                receiver_tab=receiver_tab,
+                dispatch_fact=dispatch_fact,
+                evaluation=evaluation,
+                command_id=command.command_id,
+                deadline=deadline,
             )
         finally:
             if not watch_consumed:
@@ -1041,12 +1251,6 @@ class ActionRunner:
                 binding,
                 unresolved.operation_id,
             )
-        if contract.api_id == "tab.print_to_pdf":
-            return ActionPreflight(
-                decision=PreflightDecision.BLOCKED,
-                reason="capability_unavailable_pdf",
-            )
-
         if receiver_tab is None:
             receiver_key = ""
             tab_ref = None
@@ -1188,6 +1392,185 @@ class ActionRunner:
         return tuple(logical), tuple(facts)
 
 
+def _upload_outcome_from_dispatch(value: object) -> UploadOutcome | None:
+    """Read only closed trusted upload facts from one dispatcher result."""
+    if not isinstance(value, Mapping):
+        return None
+    payload = value.get("upload", value)
+    if not isinstance(payload, Mapping):
+        return None
+    raw_items = payload.get("items")
+    if not isinstance(raw_items, (tuple, list)) or not raw_items:
+        return None
+    items: list[UploadItemOutcome] = []
+    try:
+        for raw in raw_items:
+            if not isinstance(raw, Mapping):
+                return None
+            items.append(
+                UploadItemOutcome(
+                    resource_id=str(raw.get("resource_id") or ""),
+                    selection=cast(
+                        Literal["SELECTED", "NOT_SELECTED", "UNKNOWN"],
+                        str(raw.get("selection") or "UNKNOWN"),
+                    ),
+                    transfer=cast(
+                        Literal["COMPLETED", "NOT_COMPLETED", "UNKNOWN"],
+                        str(raw.get("transfer") or "UNKNOWN"),
+                    ),
+                    acceptance=cast(
+                        Literal["ACCEPTED", "REJECTED", "UNKNOWN"],
+                        str(raw.get("acceptance") or "UNKNOWN"),
+                    ),
+                ),
+            )
+    except (TypeError, ValueError):
+        return None
+    closed = tuple(items)
+    return UploadOutcome(
+        items=closed,
+        aggregate=_classify_upload_outcome(closed),
+    )
+
+
+async def _project_armed_terminal(
+    *,
+    registry: BrowserSessionOwnerRegistry,
+    binding: BrowserRequestBinding,
+    pending: PendingAction,
+    contract: BrowserAPIContract,
+    expectation: ActionExpectation,
+    receiver_tab: TabSummary | None,
+    dispatch_fact: object,
+    evaluation: ConditionEvaluation,
+    command_id: str,
+    deadline: float | None,
+) -> ActionResult | PagePdfResult:
+    """Project a consumed watch outside the dispatch state machine."""
+    if contract.api_id == "tab.print_to_pdf":
+        (
+            status,
+            retry,
+            resource,
+            context_before,
+            context_after,
+            context_outcome,
+        ) = _page_pdf_terminal_projection(dispatch_fact, evaluation.outcome)
+        if status in {"SUCCEEDED", "PARTIAL"} and receiver_tab is None:
+            status, retry, context_outcome = (
+                "UNCERTAIN",
+                "RECONCILE_ONLY",
+                "UNKNOWN",
+            )
+        if status == "UNCERTAIN":
+            registry.fence_uncertain_action(binding, pending.operation_id)
+        return PagePdfResult(
+            operation_id=pending.operation_id,
+            status=status,
+            retry=retry,
+            problem=(
+                None
+                if status == "SUCCEEDED"
+                else Problem(
+                    code=(
+                        "page_pdf_context_changed"
+                        if context_outcome == "CHANGED"
+                        else "page_pdf_outcome_incomplete"
+                    ),
+                    phase="VERIFY",
+                    safe_message=(
+                        "Page PDF context truth could not be fully proven."
+                    ),
+                )
+            ),
+            classified_effects=tuple(
+                item.value for item in pending.classified_effects
+            ),
+            effect_facts=(evaluation,),
+            commands=(pending.command_facts[command_id],),
+            context_before=context_before,
+            context_after=context_after,
+            context_outcome=context_outcome,
+            dispatch=dispatch_fact,
+            postcondition=evaluation,
+            resource=resource,
+            page_info=receiver_tab,
+        )
+    if contract.api_id == "tab.actions.download_file":
+        status, retry, resources = _download_terminal_projection(
+            expectation,
+            dispatch_fact,
+            evaluation.outcome,
+        )
+        if status == "UNCERTAIN":
+            registry.fence_uncertain_action(binding, pending.operation_id)
+        return ActionResult(
+            operation_id=pending.operation_id,
+            status=status,
+            retry=retry,
+            problem=(
+                None
+                if status == "SUCCEEDED"
+                else Problem(
+                    code="download_outcome_incomplete",
+                    phase="VERIFY",
+                    safe_message=(
+                        "Download completion could not be fully proven."
+                    ),
+                )
+            ),
+            effect_facts=(evaluation,),
+            commands=(pending.command_facts[command_id],),
+            dispatch=dispatch_fact,
+            postcondition=evaluation,
+            resources=resources,
+        )
+    if evaluation.outcome != "SATISFIED":
+        registry.fence_uncertain_action(binding, pending.operation_id)
+        return await reconcile_pending(
+            binding=binding,
+            pending=pending,
+            deadline=(deadline or pending.expires_at),
+        )
+    upload = (
+        _upload_outcome_from_dispatch(dispatch_fact)
+        if contract.api_id == "tab.actions.upload_file"
+        else None
+    )
+    if upload is not None:
+        status, retry = _upload_terminal_mapping(upload.aggregate)
+        return ActionResult(
+            operation_id=pending.operation_id,
+            status=status,
+            retry=retry,
+            problem=(
+                None
+                if status == "SUCCEEDED"
+                else Problem(
+                    code="upload_outcome_incomplete",
+                    phase="VERIFY",
+                    safe_message=(
+                        "Upload acceptance could not be fully proven."
+                    ),
+                )
+            ),
+            effect_facts=(evaluation,),
+            commands=(pending.command_facts[command_id],),
+            dispatch=dispatch_fact,
+            postcondition=evaluation,
+            upload=upload,
+        )
+    return ActionResult(
+        operation_id=pending.operation_id,
+        status="SUCCEEDED",
+        retry="NONE",
+        effect_facts=(evaluation,),
+        commands=(pending.command_facts[command_id],),
+        dispatch=dispatch_fact,
+        postcondition=evaluation,
+    )
+
+
 def project_action_truth(
     *,
     operation_id: str,
@@ -1252,9 +1635,11 @@ def project_action_truth(
                 code=(
                     "action_truth_uncertain"
                     if status == "UNCERTAIN"
-                    else "action_postcondition_failed"
-                    if status == "FAILED"
-                    else "action_not_dispatched"
+                    else (
+                        "action_postcondition_failed"
+                        if status == "FAILED"
+                        else "action_not_dispatched"
+                    )
                 ),
                 phase=(
                     "VERIFY" if dispatch is DispatchFact.SENT else "PREFLIGHT"
@@ -1346,9 +1731,11 @@ async def reconcile_pending(
         postcondition = (
             PostconditionFact.PASSED
             if evaluation.outcome == "SATISFIED"
-            else PostconditionFact.FAILED
-            if evaluation.outcome == "TIMED_OUT"
-            else PostconditionFact.UNKNOWN
+            else (
+                PostconditionFact.FAILED
+                if evaluation.outcome == "TIMED_OUT"
+                else PostconditionFact.UNKNOWN
+            )
         )
     return project_action_truth(
         operation_id=pending.operation_id,
@@ -1520,6 +1907,19 @@ def _validate_armed_watch(
     expected_baseline = (
         baseline.fingerprint if baseline is not None else "none"
     )
+    created = any(
+        isinstance(atom, ResourceCondition) and atom.kind == "created"
+        for atom in expectation.condition.atoms
+    )
+    operation = getattr(request, "operation", None)
+    operation_valid = not created or (
+        isinstance(operation, ResourceOperationBinding)
+        and operation.operation_id == pending.operation_id
+        and operation.operation_fingerprint == pending.operation_fingerprint
+        and operation.owner_key == owner_key
+        and operation.tab_id == str(getattr(receiver, "tab_id", ""))
+        and operation.pre_arm_watermark == watermark
+    )
     valid = (
         owner_key == getattr(receiver, "owner_key", None)
         and owner_key is not None
@@ -1530,12 +1930,84 @@ def _validate_armed_watch(
         and isinstance(watermark, int)
         and watermark >= 0
         and pending.expectation_digest == _expectation_digest(expectation)
+        and operation_valid
     )
     if not valid:
         raise BrowserSDKError(
             "armed condition watch does not match the pending action",
             code="condition_watch_binding_mismatch",
         )
+
+
+def _resource_operation_binding(
+    pending: PendingAction,
+    receiver: ConditionReceiver | Any,
+    expectation: ActionExpectation,
+) -> ResourceOperationBinding | None:
+    created = any(
+        isinstance(atom, ResourceCondition) and atom.kind == "created"
+        for atom in expectation.condition.atoms
+    )
+    if not created:
+        return None
+    owner_key = getattr(receiver, "owner_key", None)
+    tab_id = str(getattr(receiver, "tab_id", "") or "")
+    return ResourceOperationBinding(
+        operation_id=pending.operation_id,
+        operation_fingerprint=pending.operation_fingerprint,
+        command_id=f"browser-command-{secrets.token_urlsafe(24)}",
+        owner_key=cast(tuple[str, str], owner_key),
+        tab_id=tab_id,
+    )
+
+
+def _configure_pending_reconcile(
+    pending: PendingAction,
+    *,
+    status_query: Callable[[PendingAction], Awaitable[object]] | None,
+    evaluator: ConditionEvaluator | Any,
+    receiver: ConditionReceiver | Any,
+    probe: ConditionProbe | Any,
+    expectation: ActionExpectation,
+    baseline: ConditionBaseline | None,
+) -> None:
+    if status_query is not None:
+        pending.configure_reconcile(
+            status_query=status_query,
+            evaluator=evaluator,
+            receiver=receiver,
+            probe=probe,
+            expectation=expectation,
+            baseline=baseline,
+        )
+
+
+async def _arm_condition_watch(
+    *,
+    pending: PendingAction,
+    evaluator: ConditionEvaluator | Any,
+    receiver: ConditionReceiver | Any,
+    probe: ConditionProbe | Any,
+    expectation: ActionExpectation,
+    baseline: ConditionBaseline | None,
+) -> tuple[ResourceOperationBinding | None, ConditionWatch]:
+    operation = _resource_operation_binding(pending, receiver, expectation)
+    if operation is not None:
+        watch = await evaluator.arm(
+            receiver,
+            expectation.condition,
+            probe=probe,
+            baseline=baseline,
+            operation=operation,
+        )
+    else:
+        watch = await evaluator.arm(
+            receiver,
+            expectation.condition,
+            probe=probe,
+            baseline=baseline,
+        )
+    return operation, watch
 
 
 def issue_exact_grant(

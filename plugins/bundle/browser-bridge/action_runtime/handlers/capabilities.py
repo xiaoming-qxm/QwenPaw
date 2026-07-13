@@ -1,16 +1,18 @@
 # -*- coding: utf-8 -*-
 """Generic Browser SDK capability handlers for Browser Bridge."""
+
 # pylint: disable=too-many-arguments,too-many-locals
 
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import mimetypes
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from qwenpaw.browser.sdk.backends.protocols import BackendProfile
 from qwenpaw.browser.sdk.runtime.responses import (
@@ -29,6 +31,7 @@ from ..errors import (
     DownloadTimeout,
     TargetResolutionFailed,
 )
+from ..interactions import _canonical_execute_interaction
 from ..navigation import _control_tab_id
 from ..ref_scope import _control_current_snapshot_ref
 from ..session_manager import _control_get_session
@@ -46,6 +49,145 @@ _FILE_CLICK_FUNCTION = (
     "return true; "
     "}"
 )
+
+
+@dataclass(frozen=True)
+class DownloadCorrelation:
+    """Trusted identity required before accepting one native download."""
+
+    operation_id: str
+    command_id: str
+    owner_key: tuple[str, str]
+    tab_id: int
+    pre_arm_watermark: int
+
+
+def _download_event_matches(
+    event: dict[str, Any],
+    expected: DownloadCorrelation,
+) -> bool:
+    """Reject ambient, pre-arm, or differently-owned download events."""
+    if not isinstance(event, dict):
+        return False
+    try:
+        tab_id = int(event.get("tabId", event.get("tab_id")))
+        sequence = int(event.get("sequence"))
+    except (TypeError, ValueError):
+        return False
+    params = event.get("params")
+    if not isinstance(params, dict):
+        return False
+    owner_key = params.get("ownerKey", params.get("owner_key"))
+    return (
+        tab_id == expected.tab_id
+        and sequence > expected.pre_arm_watermark
+        and str(params.get("operationId") or "") == expected.operation_id
+        and str(params.get("commandId") or "") == expected.command_id
+        and isinstance(owner_key, (tuple, list))
+        and tuple(str(item) for item in owner_key) == expected.owner_key
+        and bool(str(params.get("guid") or ""))
+    )
+
+
+def _stable_download_bytes(path: Path) -> bytes:
+    """Read one completed file only when identity and bytes stay stable."""
+    if path.name.endswith(".crdownload") or path.is_symlink():
+        raise ValueError("Download bytes are incomplete")
+    try:
+        resolved = path.resolve(strict=True)
+        before = resolved.stat()
+        data = resolved.read_bytes()
+        after = resolved.stat()
+    except OSError as exc:
+        raise ValueError("Download bytes are unavailable") from exc
+    if (
+        not data
+        or before.st_size != len(data)
+        or after.st_size != before.st_size
+        or after.st_mtime_ns != before.st_mtime_ns
+    ):
+        raise ValueError("Download bytes are unstable")
+    return data
+
+
+def _download_correlation(
+    kwargs: Mapping[str, Any],
+    *,
+    tab_id: int,
+) -> DownloadCorrelation:
+    raw = kwargs.get("resource_operation")
+    request_context = kwargs.get("request_context")
+    context = (
+        request_context.get("canonical_dispatch_context")
+        if isinstance(request_context, Mapping)
+        else None
+    )
+    if not isinstance(raw, Mapping) or context is None:
+        raise ValueError("Download operation correlation is unavailable")
+    owner_key = raw.get("owner_key")
+    if not isinstance(owner_key, (tuple, list)) or len(owner_key) != 2:
+        raise ValueError("Download operation owner is invalid")
+    try:
+        correlation = DownloadCorrelation(
+            operation_id=str(raw.get("operation_id") or ""),
+            command_id=str(raw.get("command_id") or ""),
+            owner_key=(str(owner_key[0]), str(owner_key[1])),
+            tab_id=int(tab_id),
+            pre_arm_watermark=int(raw.get("pre_arm_watermark")),
+        )
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Download operation correlation is invalid") from exc
+    if (
+        correlation.operation_id != str(getattr(context, "operation_id", ""))
+        or correlation.command_id != str(getattr(context, "command_id", ""))
+        or correlation.owner_key
+        != (
+            str(getattr(context, "root_task_id", "")),
+            str(getattr(context, "browser_owner_id", "")),
+        )
+    ):
+        raise ValueError("Download operation correlation mismatch")
+    return correlation
+
+
+def _page_pdf_options(raw: object) -> dict[str, object]:
+    if not isinstance(raw, Mapping):
+        raise ValueError("Page PDF options are invalid")
+    paper = str(raw.get("paper") or "")
+    sizes = {
+        "a4": (8.27, 11.69),
+        "letter": (8.5, 11.0),
+        "legal": (8.5, 14.0),
+    }
+    if paper not in sizes:
+        raise ValueError("Page PDF paper is invalid")
+    margins = str(raw.get("margins") or "")
+    if margins not in {"default", "none"}:
+        raise ValueError("Page PDF margins are invalid")
+    width, height = sizes[paper]
+    options: dict[str, object] = {
+        "paperWidth": width,
+        "paperHeight": height,
+        "landscape": bool(raw.get("landscape")),
+        "printBackground": bool(raw.get("print_background")),
+        "preferCSSPageSize": False,
+    }
+    if margins == "none":
+        options.update(
+            {
+                "marginTop": 0,
+                "marginBottom": 0,
+                "marginLeft": 0,
+                "marginRight": 0,
+            },
+        )
+    return options
+
+
+def _frame_tree_identity(value: object) -> str:
+    if not isinstance(value, Mapping):
+        return ""
+    return json.dumps(value.get("frameTree"), sort_keys=True, default=str)
 
 
 def backend_profile() -> BackendProfile:
@@ -82,6 +224,30 @@ class UploadHandler:
         **kwargs: Any,
     ):
         try:
+            request_context = kwargs.get("request_context")
+            if isinstance(request_context, dict) and bool(
+                request_context.get("canonical_dispatch_context"),
+            ):
+                paths, resource_ids = _resolve_canonical_upload_paths(kwargs)
+                injector = kwargs.get("_canonical_native_injector")
+                if not callable(injector):
+                    raise ValueError(
+                        "Canonical upload injector is unavailable",
+                    )
+                canonical_kwargs = dict(kwargs)
+                canonical_kwargs["_canonical_resource_paths"] = paths
+                canonical_kwargs["_canonical_resource_ids"] = resource_ids
+                result = await _canonical_execute_interaction(
+                    state,
+                    action="upload_file",
+                    target_labels=("target",),
+                    kwargs=canonical_kwargs,
+                    injector=injector,
+                )
+                result.pop("path", None)
+                result.pop("paths", None)
+                result["upload"] = _canonical_upload_outcome(resource_ids)
+                return _json_response(result)
             files = _resolve_upload_paths(kwargs.get("file_path"))
             tab_id, session = await _tab_session(
                 state,
@@ -148,20 +314,69 @@ class DownloadHandler:
                 },
             )
             timeout_seconds = _timeout_seconds(kwargs.get("timeout_ms"))
+            request_context = kwargs.get("request_context")
+            canonical = isinstance(request_context, dict) and bool(
+                request_context.get("canonical_dispatch_context"),
+            )
+            correlation = (
+                _download_correlation(kwargs, tab_id=tab_id)
+                if canonical
+                else None
+            )
             waiter = asyncio.create_task(
                 _wait_for_download(
                     bridge,
                     tab_id=tab_id,
                     timeout_seconds=timeout_seconds,
+                    correlation=correlation,
                 ),
             )
             try:
-                if _has_target(kwargs):
+                if canonical:
+
+                    async def inject(prepared, arguments):
+                        del arguments
+                        await _click_prepared_target(session, prepared)
+                        return {}
+
+                    await _canonical_execute_interaction(
+                        state,
+                        action="download_file",
+                        target_labels=("target",),
+                        kwargs=kwargs,
+                        injector=inject,
+                    )
+                elif _has_target(kwargs):
                     await _click_target(session, state, tab_id, kwargs)
                 event = await waiter
             finally:
                 if not waiter.done():
                     waiter.cancel()
+            if correlation is not None:
+                name = _safe_download_filename(
+                    event.get("suggestedFilename")
+                    or event.get("suggested_filename")
+                    or event.get("guid")
+                    or "download",
+                )
+                data = _stable_download_bytes(output_dir / name)
+                media_type = (
+                    mimetypes.guess_type(name)[0] or "application/octet-stream"
+                )
+                return _json_response(
+                    {
+                        "ok": True,
+                        "mode": "control",
+                        "tab_id": tab_id,
+                        "capture": {
+                            "bytes_base64": base64.b64encode(data).decode(),
+                            "media_type": media_type,
+                            "name": name,
+                            "complete": True,
+                            "native_guid": str(event.get("guid") or ""),
+                        },
+                    },
+                )
             artifact = _download_artifact(output_dir, event)
             return _json_response(
                 {
@@ -184,6 +399,57 @@ class DownloadHandler:
             )
         except (BrowserBridgeRecoverableError, OSError, ValueError) as exc:
             return _capability_error_response("download", str(exc))
+
+
+@dataclass(frozen=True)
+class PagePdfHandler:
+    """Capture one PDF with before/after document identity evidence."""
+
+    meta: ActionMeta = ActionMeta(True, False, False)
+
+    async def execute(
+        self,
+        state: ControlState,
+        *,
+        holder_id: str,
+        bridge: Any,
+        **kwargs: Any,
+    ):
+        try:
+            tab_id, session = await _tab_session(
+                state,
+                holder_id=holder_id,
+                bridge=bridge,
+                kwargs=kwargs,
+            )
+            request_context = kwargs.get("request_context")
+            if not isinstance(request_context, Mapping) or not bool(
+                request_context.get("canonical_dispatch_context"),
+            ):
+                raise ValueError("Page PDF requires Canonical dispatch")
+            options = _page_pdf_options(kwargs.get("_canonical_pdf_options"))
+            before = await session.send("Page.getFrameTree", {})
+            printed = await session.send("Page.printToPDF", options)
+            after = await session.send("Page.getFrameTree", {})
+            data = printed.get("data") if isinstance(printed, Mapping) else ""
+            if not isinstance(data, str) or not data:
+                raise ValueError("Page.printToPDF returned no complete bytes")
+            base64.b64decode(data, validate=True)
+            return _json_response(
+                {
+                    "ok": True,
+                    "mode": "control",
+                    "tab_id": tab_id,
+                    "capture": {
+                        "bytes_base64": data,
+                        "complete": True,
+                        "context_same": _frame_tree_identity(before)
+                        == _frame_tree_identity(after),
+                    },
+                },
+            )
+        except (BrowserBridgeRecoverableError, OSError, ValueError) as exc:
+            return _capability_error_response("page_pdf", str(exc))
 
 
 @dataclass(frozen=True)
@@ -323,6 +589,46 @@ async def _click_target(
     )
 
 
+async def _click_prepared_target(
+    session: Any,
+    prepared: tuple[dict[str, object], ...],
+) -> None:
+    """Inject one click from the just-revalidated native identity."""
+    if len(prepared) != 1:
+        raise TargetResolutionFailed("Download target is unavailable")
+    raw_identity = prepared[0].get("native_identity")
+    if not isinstance(raw_identity, tuple):
+        raise TargetResolutionFailed("Download target identity is invalid")
+    identity = {str(key): value for key, value in raw_identity}
+    node_params = _control_node_params(identity)
+    if node_params is None and len(identity) == 1:
+        native_value = next(iter(identity.values()))
+        if isinstance(native_value, int):
+            node_params = {"backendNodeId": native_value}
+    if node_params is None:
+        raise TargetResolutionFailed("Download target identity is invalid")
+    resolved = await session.send("DOM.resolveNode", node_params)
+    remote_object = (
+        resolved.get("object") if isinstance(resolved, dict) else {}
+    )
+    object_id = (
+        remote_object.get("objectId")
+        if isinstance(remote_object, dict)
+        else ""
+    )
+    if not object_id:
+        raise TargetResolutionFailed("Unable to resolve download target")
+    await session.send(
+        "Runtime.callFunctionOn",
+        {
+            "objectId": object_id,
+            "functionDeclaration": _FILE_CLICK_FUNCTION,
+            "returnByValue": True,
+            "awaitPromise": False,
+        },
+    )
+
+
 def _has_target(kwargs: dict[str, Any]) -> bool:
     return bool(
         kwargs.get("ref")
@@ -336,6 +642,7 @@ async def _wait_for_download(
     *,
     tab_id: int,
     timeout_seconds: float,
+    correlation: DownloadCorrelation | None = None,
 ) -> dict[str, Any]:
     add_listener = getattr(bridge, "add_event_listener", None)
     remove_listener = getattr(bridge, "remove_event_listener", None)
@@ -355,19 +662,27 @@ async def _wait_for_download(
             future.set_exception(ValueError(message))
 
     async def on_event(event: dict[str, Any]) -> None:
-        if not isinstance(event, dict):
+        normalized = _download_event_payload(event, tab_id=tab_id)
+        if normalized is None:
             return
-        event_tab_id = event.get("tabId", event.get("tab_id"))
-        if event_tab_id is None or int(event_tab_id) != int(tab_id):
-            return
-        params = event.get("params")
-        if not isinstance(params, dict):
-            params = {}
-        method = str(event.get("method") or "")
+        method, params = normalized
         if method == "Page.downloadWillBegin":
+            if correlation is not None and not _download_event_matches(
+                event,
+                correlation,
+            ):
+                return
             details.update(params)
+            details["sequence"] = event.get("sequence")
             return
         if method != "Page.downloadProgress":
+            return
+        if correlation is not None and not _download_progress_matches(
+            event,
+            params=params,
+            details=details,
+            correlation=correlation,
+        ):
             return
         state = str(params.get("state") or "")
         details.update(params)
@@ -385,6 +700,42 @@ async def _wait_for_download(
         ) from exc
     finally:
         remove_listener("cdp.event", on_event)
+
+
+def _download_event_payload(
+    event: object,
+    *,
+    tab_id: int,
+) -> tuple[str, dict[str, Any]] | None:
+    if not isinstance(event, dict):
+        return None
+    event_tab_id = event.get("tabId", event.get("tab_id"))
+    if event_tab_id is None or int(event_tab_id) != int(tab_id):
+        return None
+    params = event.get("params")
+    return (
+        str(event.get("method") or ""),
+        params if isinstance(params, dict) else {},
+    )
+
+
+def _download_progress_matches(
+    event: dict[str, Any],
+    *,
+    params: dict[str, Any],
+    details: dict[str, Any],
+    correlation: DownloadCorrelation,
+) -> bool:
+    try:
+        sequence = int(event.get("sequence"))
+    except (TypeError, ValueError):
+        return False
+    expected_guid = str(details.get("guid") or "")
+    return (
+        sequence > correlation.pre_arm_watermark
+        and bool(expected_guid)
+        and str(params.get("guid") or "") == expected_guid
+    )
 
 
 def _download_artifact(
@@ -430,6 +781,52 @@ def _resolve_upload_paths(raw_value: Any) -> list[str]:
     if not files:
         raise ValueError("file_path required for upload")
     return files
+
+
+def _resolve_canonical_upload_paths(
+    kwargs: dict[str, Any],
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    raw_paths = kwargs.get("_canonical_resource_paths")
+    raw_ids = kwargs.get("_canonical_resource_ids")
+    if not isinstance(raw_paths, (tuple, list)) or not isinstance(
+        raw_ids,
+        (tuple, list),
+    ):
+        raise ValueError("Canonical upload resources are unavailable")
+    paths = tuple(str(path) for path in raw_paths)
+    resource_ids = tuple(str(resource_id) for resource_id in raw_ids)
+    if not paths or len(paths) != len(resource_ids):
+        raise ValueError("Canonical upload resource binding is invalid")
+    if len(set(resource_ids)) != len(resource_ids):
+        raise ValueError("Canonical upload resource binding is duplicated")
+    for raw_path in paths:
+        try:
+            path = Path(raw_path).resolve(strict=True)
+        except OSError as exc:
+            raise ValueError(
+                "Canonical upload resource is unavailable",
+            ) from exc
+        if not path.is_file():
+            raise ValueError("Canonical upload resource is unavailable")
+    return paths, resource_ids
+
+
+def _canonical_upload_outcome(
+    resource_ids: tuple[str, ...],
+) -> dict[str, object]:
+    """Selection is known; transfer and page acceptance remain unknown."""
+    return {
+        "items": [
+            {
+                "resource_id": resource_id,
+                "selection": "SELECTED",
+                "transfer": "UNKNOWN",
+                "acceptance": "UNKNOWN",
+            }
+            for resource_id in resource_ids
+        ],
+        "aggregate": "UNKNOWN",
+    }
 
 
 def _enforce_file_guard(path: str) -> None:
@@ -523,6 +920,7 @@ def _json_response(payload: dict[str, Any]):
 
 UPLOAD_HANDLER = UploadHandler()
 DOWNLOAD_HANDLER = DownloadHandler()
+PAGE_PDF_HANDLER = PagePdfHandler()
 DIALOG_HANDLER = DialogHandler()
 
 __all__ = [
@@ -530,6 +928,8 @@ __all__ = [
     "DOWNLOAD_HANDLER",
     "DialogHandler",
     "DownloadHandler",
+    "PAGE_PDF_HANDLER",
+    "PagePdfHandler",
     "UPLOAD_HANDLER",
     "UploadHandler",
     "backend_profile",

@@ -1548,6 +1548,53 @@ class WaitResult(_TerminalFields):
         validate_result_contract(self)
 
 
+@dataclass(frozen=True, slots=True)
+class UploadItemOutcome:
+    """Closed selection, transfer, and acceptance truth for one resource."""
+
+    resource_id: str
+    selection: Literal["SELECTED", "NOT_SELECTED", "UNKNOWN"]
+    transfer: Literal["COMPLETED", "NOT_COMPLETED", "UNKNOWN"]
+    acceptance: Literal["ACCEPTED", "REJECTED", "UNKNOWN"]
+
+    def __post_init__(self) -> None:
+        _require_string(self.resource_id, "resource_id")
+        _require_choice(
+            self.selection,
+            {"SELECTED", "NOT_SELECTED", "UNKNOWN"},
+            "upload selection",
+        )
+        _require_choice(
+            self.transfer,
+            {"COMPLETED", "NOT_COMPLETED", "UNKNOWN"},
+            "upload transfer",
+        )
+        _require_choice(
+            self.acceptance,
+            {"ACCEPTED", "REJECTED", "UNKNOWN"},
+            "upload acceptance",
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class UploadOutcome:
+    """Conservative aggregate over an exact ordered upload group."""
+
+    items: tuple[UploadItemOutcome, ...]
+    aggregate: Literal["POSITIVE", "NEGATIVE", "PARTIAL", "UNKNOWN"]
+
+    def __post_init__(self) -> None:
+        if not self.items or not all(
+            isinstance(item, UploadItemOutcome) for item in self.items
+        ):
+            raise TypeError("upload items must be a non-empty closed tuple")
+        _require_choice(
+            self.aggregate,
+            {"POSITIVE", "NEGATIVE", "PARTIAL", "UNKNOWN"},
+            "upload aggregate",
+        )
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ActionResult(_TerminalFields):
     target: TargetRef | None = None
@@ -1571,6 +1618,11 @@ class ActionResult(_TerminalFields):
     prompt: BrowserPrompt | None = None
 
     def __post_init__(self) -> None:
+        if self.upload is not None and not isinstance(
+            self.upload,
+            UploadOutcome,
+        ):
+            raise TypeError("upload must be an UploadOutcome")
         validate_result_contract(self)
 
 
@@ -1950,6 +2002,43 @@ def canonical_api_catalog() -> dict[str, Any]:
                 ],
                 "Select one exact OptionChoice on a target.",
             ),
+            _canonical_action_entry(
+                "upload_file",
+                (
+                    "async upload_file(target: TargetRef, resources: "
+                    "ResourceHandle | Sequence[ResourceHandle], *, "
+                    "expect=None, state=None, timeout_ms=None) -> ActionResult"
+                ),
+                [
+                    _catalog_parameter("target", "TargetRef"),
+                    _catalog_parameter(
+                        "resources",
+                        "ResourceHandle | Sequence[ResourceHandle]",
+                    ),
+                ],
+                "Select current task-owned resources on one exact target.",
+            ),
+            _canonical_action_entry(
+                "download_file",
+                (
+                    "async download_file(target: TargetRef, *, expect=None, "
+                    "state=None, timeout_ms=None) -> ActionResult"
+                ),
+                [_catalog_parameter("target", "TargetRef")],
+                "Download once from one exact target into ResourceStore.",
+            ),
+            _canonical_action_entry(
+                "paste",
+                (
+                    "async paste(target: TargetRef, content: str, *, "
+                    "expect=None, state=None, timeout_ms=None) -> ActionResult"
+                ),
+                [
+                    _catalog_parameter("target", "TargetRef"),
+                    _catalog_parameter("content", "str"),
+                ],
+                "Insert bounded caller-provided content into one target.",
+            ),
             _entry(
                 "tab.close",
                 "qwenpaw.browser.sdk.canonical.tabs:Tab.close",
@@ -1995,7 +2084,7 @@ def canonical_api_catalog() -> dict[str, Any]:
                 mutates=True,
                 kind="primitive",
                 return_type="PagePdfResult",
-                summary="Route page PDF through ActionRunner before S8.",
+                summary="Capture one context-bound PDF through ActionRunner.",
                 parameters=[
                     {
                         "name": "options",
@@ -2271,6 +2360,8 @@ __all__ = [
     "TargetSummary",
     "TerminalStatus",
     "TransportProblemDetails",
+    "UploadItemOutcome",
+    "UploadOutcome",
     "ValidationProblemDetails",
     "VisualContextRef",
     "VisualRegion",

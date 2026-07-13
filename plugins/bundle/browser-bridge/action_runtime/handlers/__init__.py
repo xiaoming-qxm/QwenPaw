@@ -8,7 +8,12 @@ from typing import Any
 
 from agentscope.tool import ToolChunk
 
-from .capabilities import DIALOG_HANDLER, DOWNLOAD_HANDLER, UPLOAD_HANDLER
+from .capabilities import (
+    DIALOG_HANDLER,
+    DOWNLOAD_HANDLER,
+    PAGE_PDF_HANDLER,
+    UPLOAD_HANDLER,
+)
 from .claim_tab import CLAIM_TAB_HANDLER
 from .click import CLICK_HANDLER
 from .dispatcher import register_handler
@@ -20,6 +25,7 @@ from .misc import (
 from .navigate import NAVIGATE_HANDLER
 from .navigate_back import NAVIGATE_BACK_HANDLER, NAVIGATE_FORWARD_HANDLER
 from .open import OPEN_HANDLER
+from .paste import PASTE_HANDLER
 from .press_key import PRESS_KEY_HANDLER
 from .release_tab import RELEASE_TAB_HANDLER
 from .reload import RELOAD_HANDLER
@@ -58,6 +64,8 @@ register_handler("drag", DRAG_HANDLER)
 register_handler("set_checked", SET_CHECKED_HANDLER)
 register_handler("upload", UPLOAD_HANDLER)
 register_handler("download", DOWNLOAD_HANDLER)
+register_handler("page_pdf", PAGE_PDF_HANDLER)
+register_handler("paste", PASTE_HANDLER)
 register_handler("dialog", DIALOG_HANDLER)
 register_handler("snapshot", SNAPSHOT_HANDLER)
 register_handler("screenshot", SCREENSHOT_HANDLER)
@@ -86,6 +94,8 @@ ACTION_HANDLERS: dict[str, ActionHandler] = {
     "set_checked": SET_CHECKED_HANDLER.execute,
     "upload": UPLOAD_HANDLER.execute,
     "download": DOWNLOAD_HANDLER.execute,
+    "page_pdf": PAGE_PDF_HANDLER.execute,
+    "paste": PASTE_HANDLER.execute,
     "dialog": DIALOG_HANDLER.execute,
     "screenshot": SCREENSHOT_HANDLER.execute,
     "wait_for": WAIT_FOR_HANDLER.execute,

@@ -385,6 +385,15 @@ def _get_text(block: Any) -> str:
 
 
 def _is_protected(block: Any) -> bool:
+    block_id = (
+        block.get("id", "")
+        if isinstance(block, dict)
+        else getattr(block, "id", "")
+    )
+    if str(block_id).startswith("qwenpaw-browser-terminal"):
+        return True
+    if not _is_text_block(block):
+        return True
     if isinstance(block, dict):
         return block.get("protected") is True
     return getattr(block, "protected", False) is True

@@ -16,6 +16,7 @@ from .model import (
     FaultCutPoint,
     ObserveReadFacts,
     OracleResult,
+    ResourceFileFacts,
     S7FamilyFacts,
     StateApprovalFacts,
     SynchronizeFacts,
@@ -239,6 +240,60 @@ class IndependentOracle:
             observed_blocks=(),
         )
 
+    def evaluate_resource_file(
+        self,
+        facts: ResourceFileFacts,
+    ) -> OracleResult:
+        """Evaluate controller logs and stored bytes, never SDK claims."""
+        expected = {
+            "operation_kind": facts.operation_kind,
+            "native_effect_count": facts.expected_native_effect_count,
+            "effect_count_at_most_one": True,
+            "selected_count": facts.selected_count,
+            "transferred_count": facts.transferred_count,
+            "accepted_count": facts.accepted_count,
+            "owner_bound": True,
+            "operation_bound": True,
+            "command_bound": True,
+            "native_transfer_bound": True,
+            "byte_stable": True,
+            "stored_sha256": facts.expected_sha256,
+            "exact_metadata": True,
+            "context_unchanged": facts.context_unchanged,
+            "path_free": True,
+            "clipboard_access_count": 0,
+            "cleanup_failure_visible": facts.cleanup_failure_visible,
+            "false_success": False,
+        }
+        observed = {
+            "operation_kind": facts.operation_kind,
+            "native_effect_count": facts.observed_native_effect_count,
+            "effect_count_at_most_one": (
+                facts.observed_native_effect_count <= 1
+            ),
+            "selected_count": facts.selected_count,
+            "transferred_count": facts.transferred_count,
+            "accepted_count": facts.accepted_count,
+            "owner_bound": facts.owner_bound,
+            "operation_bound": facts.operation_bound,
+            "command_bound": facts.command_bound,
+            "native_transfer_bound": facts.native_transfer_bound,
+            "byte_stable": facts.byte_stable,
+            "stored_sha256": facts.stored_sha256,
+            "exact_metadata": facts.exact_metadata,
+            "context_unchanged": facts.context_unchanged,
+            "path_free": facts.path_free,
+            "clipboard_access_count": facts.clipboard_access_count,
+            "cleanup_failure_visible": facts.cleanup_failure_visible,
+            "false_success": facts.false_success,
+        }
+        return self.evaluate(
+            expected_facts=expected,
+            observed_events=(observed,),
+            observed_resources=(),
+            observed_blocks=(),
+        )
+
     def evaluate_s7_family(self, facts: S7FamilyFacts) -> OracleResult:
         """Evaluate only controller/native logs for an S7 primary case."""
         return self.evaluate(
@@ -310,6 +365,8 @@ def _oracle_atom_truth(
         return present == expected_present and (
             expected_present or item.get("coverage") == "COMPLETE"
         )
+    if kind == "resource.available":
+        return bool(actual) is bool(expected)
     return False
 
 
