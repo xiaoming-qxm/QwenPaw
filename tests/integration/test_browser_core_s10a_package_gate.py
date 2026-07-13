@@ -78,6 +78,9 @@ def test_release_wheel_imports_canonical_and_authenticated_endpoint(
     tmp_path: Path,
 ) -> None:
     wheel = _release_wheel()
+    installed_dir = tmp_path / "installed"
+    with zipfile.ZipFile(wheel) as archive:
+        archive.extractall(installed_dir)
     working_dir = tmp_path / "package-working"
     working_dir.mkdir()
     script = r"""
@@ -85,8 +88,8 @@ import json
 from pathlib import Path
 import sys
 
-wheel = Path(sys.argv[1]).resolve()
-sys.path.insert(0, str(wheel))
+installed_dir = Path(sys.argv[1]).resolve()
+sys.path.insert(0, str(installed_dir))
 import qwenpaw
 from qwenpaw.browser.sdk import Browser
 from qwenpaw.browser.sdk.canonical.facade import Browser as CanonicalBrowser
@@ -94,7 +97,7 @@ from qwenpaw.config.config import Config
 from qwenpaw.app.routers.browser_core import router
 
 module_path = Path(qwenpaw.__file__).as_posix()
-assert module_path.startswith(wheel.as_posix() + "/")
+assert module_path.startswith(installed_dir.as_posix() + "/")
 assert Browser is CanonicalBrowser
 config = Config()
 assert config.browser_contract_rollout.revision == 1
@@ -120,7 +123,7 @@ print(json.dumps({"module_path": module_path, "route": route.path}))
         "PYTHONNOUSERSITE": "1",
     }
     result = subprocess.run(
-        [sys.executable, "-I", "-c", script, str(wheel)],
+        [sys.executable, "-I", "-c", script, str(installed_dir)],
         cwd=tmp_path,
         env=environment,
         capture_output=True,
@@ -129,5 +132,5 @@ print(json.dumps({"module_path": module_path, "route": route.path}))
     )
     assert result.returncode == 0, result.stderr
     evidence = json.loads(result.stdout.strip().splitlines()[-1])
-    assert evidence["module_path"].startswith(str(wheel) + "/")
+    assert evidence["module_path"].startswith(str(installed_dir) + "/")
     assert evidence["route"] == "/browser-core/retirement-evidence"
