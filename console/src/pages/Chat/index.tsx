@@ -43,6 +43,7 @@ import ChatHeaderTitle from "./components/ChatHeaderTitle";
 import ChatSessionInitializer from "./components/ChatSessionInitializer";
 import { ApprovalCard } from "../../components/ApprovalCard/ApprovalCard";
 import { commandsApi } from "../../api/modules/commands";
+import { type ApprovalBrief } from "../../api/modules/console";
 import { useApprovalContext } from "../../contexts/ApprovalContext";
 import {
   useChatScalarSnapshot,
@@ -68,6 +69,7 @@ interface ApprovalMessageData {
   findingsCount: number;
   findingsSummary: string;
   toolParams: Record<string, unknown>;
+  approvalBrief?: ApprovalBrief;
   createdAt: number;
   timeoutSeconds: number;
   // Approval-scope choice (console-only). When isGeneralized is true the
@@ -1470,6 +1472,7 @@ export default function ChatPage() {
         findingsCount: approval.findings_count,
         findingsSummary: approval.findings_summary,
         toolParams: approval.tool_params,
+        approvalBrief: approval.approval_brief,
         createdAt: approval.created_at,
         timeoutSeconds: approval.timeout_seconds,
         isGeneralized: approval.is_generalized,
@@ -3112,6 +3115,7 @@ export default function ChatPage() {
               findingsCount={request.findingsCount}
               findingsSummary={request.findingsSummary}
               toolParams={request.toolParams}
+              approvalBrief={request.approvalBrief}
               createdAt={request.createdAt}
               timeoutSeconds={request.timeoutSeconds}
               sessionId={request.sessionId}

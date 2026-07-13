@@ -44,6 +44,25 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _apply_final_message_override(
+    final_msg: Msg,
+    stop_result: StopHandlerResult,
+) -> Msg:
+    """Replace assistant final text when a gate supplies final_message."""
+
+    final_text = str(stop_result.final_message or "")
+    if not final_text:
+        return final_msg
+    return Msg(
+        name=final_msg.name,
+        role=final_msg.role,
+        content=[
+            TextBlock(type="text", text=final_text),
+        ],
+        metadata=getattr(final_msg, "metadata", None),
+    )
+
+
 class QwenPawAgent(CodingModeMixin, Agent):
     """QwenPaw Agent with integrated tools, skills, and memory management.
 
@@ -421,7 +440,11 @@ class QwenPawAgent(CodingModeMixin, Agent):
 
         pending_stop = check_pending_gates(self)
         if pending_stop is not None:
-            stop_text = pending_stop.reason or "Stopped by loop gate."
+            stop_text = (
+                pending_stop.final_message
+                or pending_stop.reason
+                or "Stopped by loop gate."
+            )
             block_id = uuid.uuid4().hex
             yield TextBlockStartEvent(
                 reply_id=self.state.reply_id,
@@ -475,6 +498,11 @@ class QwenPawAgent(CodingModeMixin, Agent):
         except Exception as e:
             if not self._is_bad_request_or_media_error(e):
                 raise
+            if self._has_protected_media_blocks():
+                raise RuntimeError(
+                    "Protected Browser media requires explicit "
+                    "TRANSPORT failure",
+                ) from e
 
             model_key = self._get_model_key()
             if model_key:
@@ -548,7 +576,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
             )
             return  # outer loop continues
 
-        yield final_msg
+        yield _apply_final_message_override(final_msg, stop_result)
 
     @staticmethod
     def _is_content_safety_error(exc: Exception) -> bool:
@@ -678,7 +706,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
         ):
             mgr.hooks.register(name, default_timeout_secs=20.0)
         mgr.hooks.register(
-            "browser_use",
+            "browser",
             max_internal_timeout_secs=3600.0,
         )
 
@@ -761,7 +789,11 @@ class QwenPawAgent(CodingModeMixin, Agent):
             new_content = []
             stripped_this_message = 0
             for block in msg.content:
-                if self._is_media_block(block):
+                if self._is_media_block(
+                    block,
+                ) and not self._is_protected_block(
+                    block,
+                ):
                     total_stripped += 1
                     stripped_this_message += 1
                     continue
@@ -782,6 +814,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
                             item
                             for item in output
                             if not self._is_media_block(item)
+                            or self._is_protected_block(item)
                         ]
                         stripped_count = len(output) - len(filtered)
                         total_stripped += stripped_count
@@ -806,3 +839,40 @@ class QwenPawAgent(CodingModeMixin, Agent):
             msg.content = new_content
 
         return total_stripped
+
+    def _has_protected_media_blocks(self) -> bool:
+        """Return whether current context contains required Browser media."""
+        for msg in self.state.context:
+            if not isinstance(msg.content, list):
+                continue
+            for block in msg.content:
+                if self._is_media_block(block) and self._is_protected_block(
+                    block,
+                ):
+                    return True
+                block_type = (
+                    block.get("type")
+                    if isinstance(block, dict)
+                    else getattr(block, "type", None)
+                )
+                if block_type != "tool_result":
+                    continue
+                output = (
+                    block.get("output")
+                    if isinstance(block, dict)
+                    else getattr(block, "output", None)
+                )
+                if isinstance(output, list) and any(
+                    self._is_media_block(item)
+                    and self._is_protected_block(item)
+                    for item in output
+                ):
+                    return True
+        return False
+
+    @staticmethod
+    def _is_protected_block(block: Any) -> bool:
+        """Return whether block removal would erase required Browser truth."""
+        if isinstance(block, dict):
+            return block.get("protected") is True
+        return getattr(block, "protected", False) is True

@@ -103,13 +103,28 @@ async def post_approval_approve(
             detail="Root session mismatch: cannot approve other session trees",
         )
 
-    # Parse the approval scope. Unknown / omitted values fall back to None,
-    # which the governance consumer treats as EXACT (least-privilege).
+    # Parse only after loading the pending record so source-specific scope
+    # policy cannot be bypassed by generic fallback behavior.
     scope: ApprovalScope | None = None
-    if body.scope:
+    requested_scope = str(body.scope or "").strip().lower()
+    exact_only = (
+        pending.source_type == "browser_core_action"
+        and pending.scope_policy == "exact_only"
+    )
+    if exact_only and requested_scope not in {"", ApprovalScope.EXACT.value}:
+        raise HTTPException(
+            status_code=422,
+            detail="Canonical Browser approvals accept exact scope only",
+        )
+    if requested_scope:
         try:
-            scope = ApprovalScope(body.scope.strip().lower())
-        except ValueError:
+            scope = ApprovalScope(requested_scope)
+        except ValueError as exc:
+            if exact_only:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Canonical Browser approvals accept exact only",
+                ) from exc
             logger.info(
                 "Approval approve: unknown scope %r, defaulting to exact",
                 body.scope,
@@ -122,6 +137,11 @@ async def post_approval_approve(
         ApprovalDecision.APPROVED,
         scope=scope,
     )
+    if resolved is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Approval request not found: {body.request_id[:16]}",
+        )
 
     logger.info(
         "Approval approved: request_id=%s session=%s tool=%s",
@@ -192,6 +212,11 @@ async def post_approval_deny(
         body.request_id,
         ApprovalDecision.DENIED,
     )
+    if resolved is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Approval request not found: {body.request_id[:16]}",
+        )
 
     logger.info(
         "Approval denied: request_id=%s session=%s tool=%s",

@@ -5,6 +5,8 @@ This provides agent isolation by injecting agentId into request.state,
 allowing downstream APIs to access the correct agent context.
 """
 
+from typing import Any, cast
+
 from fastapi import APIRouter, Request
 from starlette.middleware.base import (
     BaseHTTPMiddleware,
@@ -50,10 +52,13 @@ class AgentContextMiddleware(BaseHTTPMiddleware):
         # Extract X-Root-Session-Id header for cross-session approval routing
         root_session_id = request.headers.get("X-Root-Session-Id")
         if root_session_id:
+            request_with_context = cast(Any, request)
             # Inject into request.request_context for runner access
-            if not hasattr(request, "request_context"):
-                request.request_context = {}
-            request.request_context["root_session_id"] = root_session_id
+            if not hasattr(request_with_context, "request_context"):
+                request_with_context.request_context = {}
+            request_with_context.request_context[
+                "root_session_id"
+            ] = root_session_id
             logger.debug(
                 "AgentContextMiddleware: root_session_id=%s from "
                 "X-Root-Session-Id header",

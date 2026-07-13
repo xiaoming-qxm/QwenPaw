@@ -25,6 +25,7 @@ from .executor import AgentExecutor
 from .hooks import HookAction, HookContext
 from .message_convert import _get_last_user_text, _request_input_to_msgs
 from .phases import Phase
+from .root_request_coordinator import RootRequestControl
 
 logger = logging.getLogger(__name__)
 
@@ -49,10 +50,13 @@ class Runtime:
     async def run(  # pylint: disable=too-many-branches,too-many-statements
         self,
         request: Any,
+        *,
+        trusted_root: RootRequestControl,
     ) -> AsyncGenerator[Any, None]:
         """8-phase lifecycle orchestration."""
         request = self._normalize(request)
-        ctx = self._build_context(request)
+        ctx = self._build_context(request, trusted_root=trusted_root)
+        await _register_browser_attachments(ctx)
         hooks = self.workspace.plugins.hook_registry
 
         envelope = Envelope(session_id=ctx.session_id)
@@ -202,6 +206,7 @@ class Runtime:
                         getattr(ctx, "session_id", ""),
                         exc_info=True,
                     )
+            await trusted_root.release_request()
             await hooks.run(Phase.FINALLY, ctx)
 
     # ----------------------------------------------------------------- helpers
@@ -443,14 +448,28 @@ class Runtime:
         from ..schemas import AgentRequest
 
         if isinstance(request, dict):
+            forbidden = {
+                "browser_contract_rollout",
+            }
+            if forbidden.intersection(request):
+                raise ValueError("Browser rollout fields are host-only")
             request = AgentRequest(**request)
+        elif any(
+            hasattr(request, field) for field in ("browser_contract_rollout",)
+        ):
+            raise ValueError("Browser rollout fields are host-only")
         if not getattr(request, "session_id", None):
             request.session_id = uuid.uuid4().hex
         if not getattr(request, "user_id", None):
             request.user_id = request.session_id
         return request
 
-    def _build_context(self, request: Any) -> HookContext:
+    def _build_context(
+        self,
+        request: Any,
+        *,
+        trusted_root: RootRequestControl,
+    ) -> HookContext:
         workspace_dir = getattr(self.workspace, "workspace_dir", None)
         # Prefer the workspace's resolved agent id over a bare "default", so an
         # agent selected by header (no body agent_id) loads its own config.
@@ -460,28 +479,40 @@ class Runtime:
             or "default"
         )
         session_id = request.session_id
-        root_session_id = getattr(request, "root_session_id", "") or session_id
+        binding = trusted_root.binding
+        root_session_id = binding.root_session_id
         root_agent_id = getattr(request, "root_agent_id", "") or agent_id
 
-        return HookContext(
+        trusted_attachments: list[Any] = []
+        context = HookContext(
             request=request,
             session_id=session_id,
             agent_id=agent_id,
             root_session_id=root_session_id,
+            root_task_id=binding.root_task_id,
+            browser_owner_id=binding.browser_owner_id,
+            contract_mode=binding.contract_mode,
+            lease_generation=binding.lease_generation,
             root_agent_id=root_agent_id,
             workspace_dir=workspace_dir,
             workspace=self.workspace,
             app_services=self.app_services,
-            input_msgs=_request_input_to_msgs(request.input),
+            input_msgs=_request_input_to_msgs(
+                request.input,
+                trusted_attachments=trusted_attachments,
+            ),
         )
+        context.extras["_trusted_browser_attachments"] = trusted_attachments
+        return context
 
     @staticmethod
     def _apply_context_injections(ctx: HookContext) -> None:
-        """Merge context_injections into input_msgs as a system hint.
+        """Merge context_injections into input_msgs as a dynamic hint.
 
         Sorts injections by priority (ascending) and prepends a
-        single system-role message so the agent sees the dynamic
-        context in its current turn.
+        single user-role message so the agent sees the dynamic context
+        in its current turn without violating AgentScope input-role
+        validation.
         """
         injections = ctx.context_injections
         if not injections:
@@ -496,13 +527,18 @@ class Runtime:
         try:
             from agentscope.message import Msg, TextBlock
 
+            text = "\n\n".join(parts)
             hint_msg = Msg(
-                name="system",
-                role="system",
+                name="user",
+                role="user",
                 content=[
                     TextBlock(
                         type="text",
-                        text="\n\n".join(parts),
+                        text=(
+                            "<Dynamic Context>\n"
+                            f"{text}\n"
+                            "</Dynamic Context>"
+                        ),
                     ),
                 ],
             )
@@ -512,6 +548,33 @@ class Runtime:
                 "runtime: failed to inject context: %d items",
                 len(parts),
             )
+
+
+async def _register_browser_attachments(ctx: Any) -> None:
+    """Publish only host-issued attachment descriptors under this owner."""
+    from qwenpaw.browser.sdk.runtime.resources import (
+        get_or_create_resource_store,
+    )
+    from qwenpaw.runtime.message_convert import TrustedAttachmentDescriptor
+
+    descriptors = tuple(
+        getattr(ctx, "extras", {}).pop("_trusted_browser_attachments", ()),
+    )
+    if not descriptors:
+        return
+    owner_key = (
+        str(getattr(ctx, "root_task_id", "")),
+        str(getattr(ctx, "browser_owner_id", "")),
+    )
+    store = get_or_create_resource_store(owner_key)
+    for descriptor in descriptors:
+        if not isinstance(descriptor, TrustedAttachmentDescriptor):
+            continue
+        store.ingest_trusted_attachment(
+            descriptor.location,
+            name=descriptor.name,
+            media_type=descriptor.media_type,
+        )
 
 
 __all__ = ["Runtime"]

@@ -29,6 +29,7 @@ from qwenpaw.schemas import (
 )
 from ...utils.logging import LOG_FILE_PATH
 from ..agent_context import get_agent_for_request
+from ..approvals.display import approval_brief_payload
 from ..approvals.display import approval_display_fields
 from ..chats.title_generator import generate_and_update_title
 from ..utils import check_upload_size
@@ -151,6 +152,31 @@ def _extract_session_and_payload(request_data: Union[AgentRequest, dict]):
     return native_payload
 
 
+async def _cleanup_browser_bridge_for_chat(
+    workspace,
+    chat_or_session_id: str,
+) -> dict[str, int]:
+    from ...hooks.browser_bridge_lifecycle import (
+        cleanup_browser_bridge_request_resources,
+    )
+
+    session_id = chat_or_session_id
+    chat_manager = getattr(workspace, "chat_manager", None)
+    if chat_manager is not None:
+        chat = await chat_manager.get_chat(chat_or_session_id)
+        if chat is not None:
+            session_id = chat.session_id
+
+    workspace_dir = getattr(workspace, "workspace_dir", None)
+    workspace_id = Path(workspace_dir).name if workspace_dir else ""
+    return await cleanup_browser_bridge_request_resources(
+        session_id=session_id,
+        root_session_id=session_id,
+        workspace_id=workspace_id,
+        cleanup_reason="console_stop",
+    )
+
+
 def _tail_text_file(
     path: Path,
     *,
@@ -238,7 +264,10 @@ async def post_console_chat(
     if is_reconnect:
         queue = await tracker.attach(chat.id)
         if queue is None:
-            return
+            raise HTTPException(
+                status_code=404,
+                detail="No running chat stream to reconnect.",
+            )
     else:
         queue, _ = await tracker.attach_or_start(
             chat.id,
@@ -282,6 +311,7 @@ async def post_console_chat_stop(
     """Stop the running chat. Only stops when called."""
     logger.debug("[STOP API] Received stop request for chat_id=%s", chat_id)
     workspace = await get_agent_for_request(request)
+    control_cleanup_session_id = chat_id
 
     # Try to stop with the provided chat_id first
     logger.debug(
@@ -311,12 +341,19 @@ async def post_console_chat_stop(
                 stopped = await workspace.task_tracker.request_stop(
                     resolved_chat_id,
                 )
+                control_cleanup_session_id = resolved_chat_id
 
-    logger.debug(
-        "[STOP API] task_tracker.request_stop returned: stopped=%s",
-        stopped,
+    control_cleanup = await _cleanup_browser_bridge_for_chat(
+        workspace,
+        control_cleanup_session_id,
     )
-    return {"stopped": stopped}
+    logger.debug(
+        "[STOP API] task_tracker.request_stop returned: stopped=%s "
+        "control_cleanup=%s",
+        stopped,
+        control_cleanup,
+    )
+    return {"stopped": stopped, "control_cleanup": control_cleanup}
 
 
 @router.post("/upload", response_model=dict, summary="Upload file for chat")
@@ -429,6 +466,7 @@ async def get_push_messages(
             "severity": p.severity,
             "findings_count": p.findings_count,
             "findings_summary": p.result_summary,
+            "approval_brief": approval_brief_payload(p),
             "tool_params": p.extra.get("tool_call", {}).get("input", {}),
             "source_type": p.extra.get("source_type", "tool_guard"),
             "driver": p.extra.get("driver"),

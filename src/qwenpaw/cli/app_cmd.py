@@ -119,7 +119,7 @@ def app_cmd(
         write_last_api(host, port)
     os.environ[LOG_LEVEL_ENV] = log_level
 
-    # Signal reload mode to browser_control.py for Windows
+    # Signal reload mode to browser_bridge.py for Windows
     # compatibility: use sync Playwright + ThreadPool only when reload=True
     if reload:
         os.environ["QWENPAW_RELOAD_MODE"] = "1"

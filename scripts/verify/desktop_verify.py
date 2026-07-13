@@ -238,6 +238,10 @@ class UIDriver(abc.ABC):
         """Navigate to ``url`` and wait until the chat input is visible."""
 
     @abc.abstractmethod
+    def wait_for_input(self) -> None:
+        """Wait until chat input is visible without navigating."""
+
+    @abc.abstractmethod
     def chat_one_round(self, message: str, timeout: int) -> str:
         """Send ``message`` and return the resulting AI bubble's full text."""
 

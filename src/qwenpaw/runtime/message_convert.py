@@ -1,14 +1,30 @@
 # -*- coding: utf-8 -*-
 """Message conversion between AgentRequest and agentscope Msg."""
+
 from __future__ import annotations
 
 import logging
 import mimetypes
-from typing import Any, List
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any, List, Literal, cast
 from urllib.parse import unquote, urlparse
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class TrustedAttachmentDescriptor:
+    """Host-issued local attachment identity kept outside model blocks."""
+
+    name: str
+    media_type: str
+    _location: Path = field(repr=False)
+
+    @property
+    def location(self) -> Path:
+        """Return the private host location to trusted Runtime code only."""
+        return self._location
 
 
 def _media_type_to_block_type(media_type: str | None) -> str:
@@ -59,9 +75,10 @@ def _ensure_url_scheme(url: str) -> str:
     return "file://" + resolved
 
 
-# pylint: disable=too-many-branches
 def _request_input_to_msgs(
     input_list: List[Any],
+    *,
+    trusted_attachments: list[TrustedAttachmentDescriptor] | None = None,
 ) -> List[Any]:
     """Convert ``AgentRequest.input`` (list of 1.x Message) to a list of
     agentscope 2.0 ``Msg`` objects.
@@ -86,80 +103,170 @@ def _request_input_to_msgs(
 
     out: List[Any] = []
     for m in input_list:
-        role = getattr(m, "role", None)
-        if hasattr(role, "value"):
-            role = role.value
-        role = role or "user"
+        role_raw = getattr(m, "role", None)
+        role_value = getattr(role_raw, "value", role_raw) or "user"
+        role = str(role_value)
         if role == "tool":
             role = "assistant"
+        if role not in ("user", "assistant", "system"):
+            role = "user"
+        msg_role = cast(Literal["user", "assistant", "system"], role)
 
         blocks: list = []
         for c in getattr(m, "content", None) or []:
-            ctype = getattr(c, "type", None)
-            if hasattr(ctype, "value"):
-                ctype = ctype.value
-
-            if ctype == "text":
-                text = getattr(c, "text", None) or ""
-                if text:
-                    blocks.append(TextBlock(type="text", text=text))
-
-            elif ctype in _MEDIA_TYPES:
-                url = (
-                    getattr(c, "image_url", None)
-                    or getattr(c, "audio_url", None)
-                    or getattr(c, "video_url", None)
-                    or getattr(c, "url", None)
-                )
-                if url:
-                    url = _ensure_url_scheme(str(url))
-                    url_path = urlparse(url).path
-                    guessed, _ = mimetypes.guess_type(url_path)
-                    if guessed and guessed.startswith(
-                        f"{_MEDIA_TYPES[ctype]}/",
-                    ):
-                        media_type = guessed
-                    else:
-                        fallback_ext = "jpeg" if ctype == "image" else "mpeg"
-                        media_type = f"{_MEDIA_TYPES[ctype]}/{fallback_ext}"
-                    try:
-                        blocks.append(
-                            DataBlock(
-                                source=URLSource(
-                                    url=url,
-                                    media_type=media_type,
-                                ),
-                            ),
-                        )
-                    except Exception:
-                        logger.debug(
-                            "Failed to create DataBlock for %s url=%s",
-                            ctype,
-                            url,
-                        )
-
-            elif ctype == "file":
-                url = getattr(c, "file_url", None) or getattr(c, "url", None)
-                if url:
-                    url = _ensure_url_scheme(str(url))
-                    try:
-                        blocks.append(
-                            DataBlock(
-                                source=URLSource(
-                                    url=url,
-                                    media_type="application/octet-stream",
-                                ),
-                                name=getattr(c, "file_name", None),
-                            ),
-                        )
-                    except Exception:
-                        logger.debug(
-                            "Failed to create DataBlock for file url=%s",
-                            url,
-                        )
+            block = _request_content_block(
+                c,
+                text_block=TextBlock,
+                data_block=DataBlock,
+                url_source=URLSource,
+                media_types=_MEDIA_TYPES,
+                trusted_attachments=trusted_attachments,
+            )
+            if block is not None:
+                blocks.append(block)
 
         if not blocks:
             continue
 
-        out.append(Msg(name=role, role=role, content=blocks))
+        out.append(Msg(name=msg_role, role=msg_role, content=blocks))
     return out
+
+
+def _request_content_block(
+    content: object,
+    *,
+    text_block: Any,
+    data_block: Any,
+    url_source: Any,
+    media_types: dict[str, str],
+    trusted_attachments: list[TrustedAttachmentDescriptor] | None,
+) -> object | None:
+    """Convert one input part and capture only trusted local file facts."""
+    ctype_raw = getattr(content, "type", None)
+    ctype = getattr(ctype_raw, "value", ctype_raw)
+    if ctype == "text":
+        text = getattr(content, "text", None) or ""
+        return text_block(type="text", text=text) if text else None
+    if ctype in media_types:
+        return _media_content_block(
+            content,
+            ctype=str(ctype),
+            media_types=media_types,
+            data_block=data_block,
+            url_source=url_source,
+        )
+    if ctype == "file":
+        return _file_content_block(
+            content,
+            data_block=data_block,
+            url_source=url_source,
+            trusted_attachments=trusted_attachments,
+        )
+    return None
+
+
+def _media_content_block(
+    content: object,
+    *,
+    ctype: str,
+    media_types: dict[str, str],
+    data_block: Any,
+    url_source: Any,
+) -> object | None:
+    url = (
+        getattr(content, "image_url", None)
+        or getattr(content, "audio_url", None)
+        or getattr(content, "video_url", None)
+        or getattr(content, "url", None)
+    )
+    if not url:
+        return None
+    normalized = _ensure_url_scheme(str(url))
+    guessed, _ = mimetypes.guess_type(urlparse(normalized).path)
+    media_kind = media_types[ctype]
+    media_type = (
+        guessed
+        if guessed and guessed.startswith(f"{media_kind}/")
+        else f"{media_kind}/{'jpeg' if ctype == 'image' else 'mpeg'}"
+    )
+    try:
+        return data_block(
+            source=url_source(
+                url=cast(Any, normalized),
+                media_type=media_type,
+            ),
+        )
+    except Exception:
+        logger.debug(
+            "Failed to create DataBlock for %s url=%s",
+            ctype,
+            normalized,
+        )
+        return None
+
+
+def _file_content_block(
+    content: object,
+    *,
+    data_block: Any,
+    url_source: Any,
+    trusted_attachments: list[TrustedAttachmentDescriptor] | None,
+) -> object | None:
+    url = getattr(content, "file_url", None) or getattr(content, "url", None)
+    if not url:
+        return None
+    normalized = _ensure_url_scheme(str(url))
+    filename = (
+        getattr(content, "filename", None)
+        or getattr(content, "file_name", None)
+        or Path(unquote(urlparse(normalized).path)).name
+        or "attachment.bin"
+    )
+    media_type = (
+        mimetypes.guess_type(str(filename))[0] or "application/octet-stream"
+    )
+    try:
+        block = data_block(
+            source=url_source(
+                url=cast(Any, normalized),
+                media_type=media_type,
+            ),
+            name=filename,
+        )
+        descriptor = _trusted_local_attachment(
+            normalized,
+            name=str(filename),
+            media_type=media_type,
+        )
+        if descriptor is not None and trusted_attachments is not None:
+            trusted_attachments.append(descriptor)
+        return block
+    except Exception:
+        logger.debug(
+            "Failed to create DataBlock for file url=%s",
+            normalized,
+        )
+        return None
+
+
+def _trusted_local_attachment(
+    url: str,
+    *,
+    name: str,
+    media_type: str,
+) -> TrustedAttachmentDescriptor | None:
+    """Capture only a typed host-local FileContent source."""
+    parsed = urlparse(url)
+    if parsed.scheme != "file":
+        return None
+    try:
+        location = Path(unquote(parsed.path)).resolve(strict=True)
+    except OSError:
+        return None
+    if not location.is_file():
+        return None
+    return TrustedAttachmentDescriptor(
+        name=Path(name).name or location.name,
+        media_type=media_type,
+        _location=location,
+    )

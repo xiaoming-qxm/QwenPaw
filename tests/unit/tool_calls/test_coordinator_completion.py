@@ -11,6 +11,7 @@ import pytest
 from agentscope.message import TextBlock, ToolResultBlock
 from agentscope.tool import ToolResponse
 
+from qwenpaw.browser.sdk.runtime.session_owner import ContractMode
 from qwenpaw.tool_calls import ToolCoordinator, ToolCoordinatorMiddleware
 from qwenpaw.tool_calls._context import ToolCallContext
 from qwenpaw.tool_calls._entry import ToolCallEntry
@@ -99,6 +100,10 @@ async def test_after_hook_transforms_final_response_and_blocks_caller():
                 session_id="session-1",
                 agent_id="agent-1",
                 root_session_id="root-1",
+                root_task_id="root-task-1",
+                browser_owner_id="browser-owner-1",
+                contract_mode=ContractMode.LEGACY,
+                lease_generation=1,
             ),
         ),
     )
@@ -129,6 +134,10 @@ async def test_middleware_caller_observes_coordinator_response():
                 "session_id": "session-1",
                 "agent_id": "agent-1",
                 "root_session_id": "root-1",
+                "root_task_id": "root-task-1",
+                "browser_owner_id": "browser-owner-1",
+                "contract_mode": ContractMode.LEGACY,
+                "lease_generation": 1,
             },
         },
     )()
@@ -150,7 +159,6 @@ async def test_middleware_caller_observes_coordinator_response():
     assert _tool_response_text_bytes(events[-1]) == 2000
 
 
-@pytest.mark.asyncio
 @pytest.mark.skip(reason="offload globally disabled pending fix")
 async def test_background_completion_emits_hint():
     coordinator = ToolCoordinator(default_timeout_secs=0.001)
@@ -169,6 +177,10 @@ async def test_background_completion_emits_hint():
             session_id="session-bg",
             agent_id="agent-1",
             root_session_id="root-1",
+            root_task_id="root-task-1",
+            browser_owner_id="browser-owner-1",
+            contract_mode=ContractMode.LEGACY,
+            lease_generation=1,
         ),
     )
     hint = await asyncio.wait_for(
@@ -205,6 +217,10 @@ async def test_caller_cancellation_does_not_cancel_background_task():
             session_id="session-cancel",
             agent_id="agent-1",
             root_session_id="root-1",
+            root_task_id="root-task-1",
+            browser_owner_id="browser-owner-1",
+            contract_mode=ContractMode.LEGACY,
+            lease_generation=1,
             started_at=0.0,
             deadline=None,
             cancel_event=asyncio.Event(),

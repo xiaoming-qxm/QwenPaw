@@ -50,6 +50,8 @@ class StopCommandHandler(BaseControlCommandHandler):
         )
 
         workspace = context.workspace
+        if context.channel is None:
+            return "**Error**: Channel context is unavailable."
         channel_id = context.channel.channel
 
         # Scope the lookup to the requesting user so users sharing the same

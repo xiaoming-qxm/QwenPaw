@@ -74,6 +74,17 @@ class QwenPawLocalWorkspace(AgentScopeLocalWorkspace):
             allowed=allowed,
             denied=denied,
         )
+        blocked = _request_blocked_tool_names(request_context)
+        if blocked:
+            blocked_folded = {name.casefold() for name in blocked}
+            blocked_keys = {_tool_name_key(name) for name in blocked}
+            descs = [
+                desc
+                for desc in descs
+                if desc.name not in blocked
+                and desc.name.casefold() not in blocked_folded
+                and _tool_name_key(desc.name) not in blocked_keys
+            ]
 
         return [
             PolicyGuardedTool(
@@ -114,6 +125,33 @@ class QwenPawLocalWorkspace(AgentScopeLocalWorkspace):
         if plugin_opt_ins:
             return defaults | explicit_enabled, denied
         return None, denied
+
+
+def _request_blocked_tool_names(
+    request_context: dict[str, Any] | None,
+) -> set[str]:
+    if not isinstance(request_context, dict):
+        return set()
+
+    raw = request_context.get("blocked_tool_names")
+    if raw is None:
+        raw = request_context.get("deny_tool_names")
+    if raw is None:
+        raw = request_context.get("disabled_tool_names")
+
+    values: list[Any]
+    if isinstance(raw, str):
+        values = raw.replace(";", ",").split(",")
+    elif isinstance(raw, (list, tuple, set, frozenset)):
+        values = list(raw)
+    else:
+        return set()
+
+    return {str(value).strip() for value in values if str(value).strip()}
+
+
+def _tool_name_key(name: str) -> str:
+    return "".join(ch for ch in str(name).casefold() if ch.isalnum())
 
 
 __all__ = ["QwenPawLocalWorkspace"]

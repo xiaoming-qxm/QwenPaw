@@ -12,7 +12,7 @@ import tempfile
 import urllib.request
 import zipfile
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, Request, UploadFile, File
 from fastapi.responses import FileResponse
@@ -37,37 +37,45 @@ def _list_plugins_from_disk() -> list[dict]:
     """
     from ...config.utils import get_plugins_dir
 
-    plugins_dir: Path = get_plugins_dir()
-    if not plugins_dir.exists():
-        return []
+    bundled_dir = Path(__file__).resolve().parents[4] / "plugins" / "bundle"
+    plugin_roots = [bundled_dir, get_plugins_dir()]
 
     from ...plugins.loader import _is_disabled_plugin_dir
 
-    result: list[dict] = []
-    for item in sorted(plugins_dir.iterdir()):
-        if not item.is_dir():
-            continue
-        if _is_disabled_plugin_dir(item):
-            continue
-        manifest_path = item / "plugin.json"
-        if not manifest_path.exists():
-            continue
-        try:
-            with open(manifest_path, encoding="utf-8") as f:
-                manifest = json.load(f)
-        except Exception as exc:
-            logger.warning("Failed to read %s: %s", manifest_path, exc)
-            continue
+    from ...plugins.architecture import PluginManifest
+    from ...plugins.state import PluginStateStore
 
-        plugin_id = manifest.get("id", item.name)
-        frontend_entry = manifest.get("entry", {}).get("frontend")
+    result_by_id: dict[str, dict] = {}
+    for plugins_dir in plugin_roots:
+        if not plugins_dir.exists():
+            continue
+        for item in sorted(plugins_dir.iterdir()):
+            if not item.is_dir():
+                continue
+            if _is_disabled_plugin_dir(item):
+                continue
+            manifest_path = item / "plugin.json"
+            if not manifest_path.exists():
+                continue
+            try:
+                with open(manifest_path, encoding="utf-8") as f:
+                    manifest = json.load(f)
+            except Exception as exc:
+                logger.warning("Failed to read %s: %s", manifest_path, exc)
+                continue
 
-        from ...plugins.architecture import PluginManifest
+            plugin_id = manifest.get("id", item.name)
+            meta = manifest.get("meta") or {}
+            default_enabled = bool(meta.get("default_enabled", True))
+            if not PluginStateStore().is_enabled(
+                plugin_id,
+                default=default_enabled,
+            ):
+                continue
+            frontend_entry = manifest.get("entry", {}).get("frontend")
+            disk_manifest = PluginManifest.from_dict(manifest)
 
-        disk_manifest = PluginManifest.from_dict(manifest)
-
-        result.append(
-            {
+            result_by_id[plugin_id] = {
                 "id": plugin_id,
                 "name": manifest.get("name", plugin_id),
                 "version": manifest.get("version", "0.0.0"),
@@ -77,9 +85,8 @@ def _list_plugins_from_disk() -> list[dict]:
                 "loaded": False,
                 "plugin_type": disk_manifest.plugin_type,
                 "frontend_entry": frontend_entry,
-            },
-        )
-    return result
+            }
+    return [result_by_id[key] for key in sorted(result_by_id)]
 
 
 def _safe_extract_zip(
@@ -258,13 +265,14 @@ def _sync_plugin_tools_to_agents(loader, plugin_id: str) -> None:
         for agent_id in config.agents.profiles:
             try:
                 agent_cfg = load_agent_config(agent_id)
+                tools_config = agent_cfg.tools
+                if tools_config is None:
+                    continue
                 changed = False
                 for tool_name in tool_names:
-                    if tool_name in agent_cfg.tools.builtin_tools:
+                    if tool_name in tools_config.builtin_tools:
                         continue
-                    agent_cfg.tools.builtin_tools[
-                        tool_name
-                    ] = BuiltinToolConfig(
+                    tools_config.builtin_tools[tool_name] = BuiltinToolConfig(
                         name=tool_name,
                         enabled=False,
                         config={},
@@ -311,10 +319,13 @@ def _remove_plugin_tools_from_agents(plugin_id: str, meta: dict) -> None:
         for agent_id in config.agents.profiles:
             try:
                 agent_cfg = load_agent_config(agent_id)
+                tools_config = agent_cfg.tools
+                if tools_config is None:
+                    continue
                 changed = False
                 for tool_name in tool_names:
-                    if tool_name in agent_cfg.tools.builtin_tools:
-                        del agent_cfg.tools.builtin_tools[tool_name]
+                    if tool_name in tools_config.builtin_tools:
+                        del tools_config.builtin_tools[tool_name]
                         changed = True
                 if changed:
                     save_agent_config(agent_id, agent_cfg)
@@ -464,6 +475,8 @@ async def list_plugins(request: Request):
 
     result = []
     for _plugin_id, record in loader.get_all_loaded_plugins().items():
+        if not record.enabled:
+            continue
         manifest = record.manifest
         result.append(
             {
@@ -473,13 +486,77 @@ async def list_plugins(request: Request):
                 "description": manifest.description,
                 "author": manifest.author,
                 "enabled": record.enabled,
-                "loaded": True,
+                "loaded": record.instance is not None,
                 "plugin_type": manifest.plugin_type,
                 "frontend_entry": manifest.entry.frontend,
+                "installed": True,
             },
         )
 
     return result
+
+
+def _manifest_payload(manifest) -> dict[str, Any]:
+    """Serialize plugin manifest fields used by console detail pages."""
+    return {
+        "id": manifest.id,
+        "name": manifest.name,
+        "version": manifest.version,
+        "description": manifest.description,
+        "author": manifest.author,
+        "icon": manifest.icon,
+        "capabilities": manifest.capabilities,
+        "setup": manifest.setup,
+        "meta": manifest.meta,
+        "plugin_type": manifest.plugin_type,
+        "entry": manifest.entry.model_dump(),
+        "qwenpaw_version": (
+            manifest.qwenpaw_version.model_dump()
+            if manifest.qwenpaw_version
+            else None
+        ),
+    }
+
+
+async def _runtime_status(record) -> dict[str, Any]:
+    """Return plugin runtime status, falling back for disabled plugins."""
+    instance = record.instance
+    if instance is not None and hasattr(instance, "get_runtime_status"):
+        status = instance.get_runtime_status()
+        if inspect.isawaitable(status):
+            status = await status
+        if isinstance(status, dict):
+            return status
+    return {"installed": record.enabled, "connected": False}
+
+
+def _plugin_summary(record) -> dict[str, Any]:
+    manifest = record.manifest
+    return {
+        "id": manifest.id,
+        "name": manifest.name,
+        "version": manifest.version,
+        "description": manifest.description,
+        "author": manifest.author,
+        "enabled": record.enabled,
+        "loaded": record.instance is not None,
+        "plugin_type": manifest.plugin_type,
+        "frontend_entry": manifest.entry.frontend,
+        "installed": True,
+    }
+
+
+def _chrome_builtin_installed(loader) -> bool:
+    """Return whether builtin Chrome is enabled and loaded."""
+    if loader is None:
+        return False
+    try:
+        record = loader.get_loaded_plugin("chrome")
+    except Exception:
+        return False
+    if record is None:
+        return False
+    return bool(record.enabled and record.instance is not None)
 
 
 @router.get(
@@ -490,11 +567,19 @@ async def list_plugins(request: Request):
         "Marks plugins already installed under the working directory."
     ),
 )
-async def get_plugin_catalog():
+async def get_plugin_catalog(request: Request):
     """Return official plugins from OSS metadata (server-side fetch)."""
-    from ...plugins.download_catalog import fetch_plugin_catalog_async
+    from ...plugins.download_catalog import (
+        fetch_plugin_catalog_async,
+        _with_builtin_chrome_entry,
+    )
 
-    return await fetch_plugin_catalog_async()
+    catalog = await fetch_plugin_catalog_async()
+    loader = getattr(request.app.state, "plugin_loader", None)
+    return _with_builtin_chrome_entry(
+        catalog,
+        chrome_installed=_chrome_builtin_installed(loader),
+    )
 
 
 class InstallPluginRequest(BaseModel):
@@ -502,6 +587,12 @@ class InstallPluginRequest(BaseModel):
 
     source: str
     force: bool = False
+
+
+class UpdatePluginEnabledRequest(BaseModel):
+    """Request body for enabling or disabling a plugin."""
+
+    enabled: bool
 
 
 @router.post(
@@ -732,6 +823,98 @@ async def upload_plugin(
     }
 
 
+@router.get(
+    "/{plugin_id}/detail",
+    summary="Get plugin detail",
+    description="Return manifest metadata and runtime status for one plugin.",
+)
+async def get_plugin_detail(plugin_id: str, request: Request):
+    """Return a plugin detail payload for console plugin pages."""
+    loader = getattr(request.app.state, "plugin_loader", None)
+    if loader is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Plugin loader is not ready yet.",
+        )
+
+    record = loader.get_loaded_plugin(plugin_id)
+    if record is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Plugin '{plugin_id}' not found.",
+        )
+
+    summary = _plugin_summary(record)
+    manifest = _manifest_payload(record.manifest)
+    return {
+        **summary,
+        "icon": record.manifest.icon,
+        "capabilities": record.manifest.capabilities,
+        "setup": record.manifest.setup,
+        "meta": record.manifest.meta,
+        "manifest": manifest,
+        "runtime_status": await _runtime_status(record),
+    }
+
+
+@router.patch(
+    "/{plugin_id}",
+    summary="Enable or disable plugin",
+    description="Persist plugin enabled state and hot-load/unload it.",
+)
+async def update_plugin_enabled(
+    plugin_id: str,
+    body: UpdatePluginEnabledRequest,
+    request: Request,
+):
+    """Enable or disable a plugin without deleting its files."""
+    loader = getattr(request.app.state, "plugin_loader", None)
+    if loader is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Plugin loader is not ready yet.",
+        )
+
+    record = loader.get_loaded_plugin(plugin_id)
+    if record is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Plugin '{plugin_id}' is not loaded.",
+        )
+
+    from ...plugins.architecture import PluginRecord
+    from ...plugins.state import PluginStateStore
+
+    PluginStateStore().set_enabled(plugin_id, body.enabled)
+
+    if not body.enabled:
+        manifest = record.manifest
+        source_path = record.source_path
+        diagnostics = list(record.diagnostics)
+        if record.instance is not None:
+            await loader.unload_plugin(plugin_id, delete_files=False)
+        loader.set_loaded_plugin_record(
+            plugin_id,
+            PluginRecord(
+                manifest=manifest,
+                source_path=source_path,
+                enabled=False,
+                instance=None,
+                diagnostics=diagnostics,
+            ),
+        )
+        return _plugin_summary(loader.get_loaded_plugin(plugin_id))
+
+    if record.instance is None:
+        loader.discard_loaded_plugin_record(plugin_id)
+        record = await loader.load_plugin(record.manifest, record.source_path)
+        await _post_load_setup(request, plugin_id)
+    else:
+        record.enabled = True
+
+    return _plugin_summary(record)
+
+
 @router.delete(
     "/{plugin_id}",
     summary="Uninstall a plugin",
@@ -758,6 +941,53 @@ async def uninstall_plugin(plugin_id: str, request: Request):
         )
 
     meta: dict = record.manifest.meta or {}
+
+    if plugin_id == "chrome" and meta.get("builtin") is True:
+        from ...plugins.architecture import PluginRecord
+        from ...plugins.state import PluginStateStore
+
+        PluginStateStore().set_enabled(plugin_id, False)
+
+        provider_ids, command_names = _collect_plugin_runtime_ids(
+            loader.registry,
+            plugin_id,
+        )
+        manifest = record.manifest
+        source_path = record.source_path
+        diagnostics = list(record.diagnostics)
+
+        try:
+            if record.instance is not None:
+                await loader.unload_plugin(plugin_id, delete_files=False)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except Exception as exc:
+            logger.error(
+                f"Plugin disable failed for '{plugin_id}': {exc}",
+                exc_info=True,
+            )
+            raise HTTPException(
+                status_code=500,
+                detail=f"Plugin disable failed: {exc}",
+            ) from exc
+
+        loader.set_loaded_plugin_record(
+            plugin_id,
+            PluginRecord(
+                manifest=manifest,
+                source_path=source_path,
+                enabled=False,
+                instance=None,
+                diagnostics=diagnostics,
+            ),
+        )
+        _post_unload_cleanup(request, plugin_id, provider_ids, command_names)
+        _remove_plugin_tools_from_agents(plugin_id, meta)
+        _schedule_all_agents_reload(request)
+        return {
+            "id": plugin_id,
+            "message": f"Plugin '{plugin_id}' disabled successfully.",
+        }
 
     # Collect provider / command IDs *before* unload clears the registry
     provider_ids, command_names = _collect_plugin_runtime_ids(

@@ -12,6 +12,7 @@ export interface ToolCallContent {
   name: string;
   serverLabel?: string;
   params: Record<string, unknown>;
+  metadata?: unknown;
   result?: unknown;
   status: ToolCallStatus;
 }

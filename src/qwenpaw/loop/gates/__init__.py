@@ -3,7 +3,7 @@
 
 Public API:
     StopAction, StopGate, LoopGate, FileLoopGate,
-    IterationGate, BudgetGate, DoomLoopGate,
+    IterationGate, BudgetGate, DoomLoopGate, StandaloneRubricGate,
     StopHandler, StopHandlerResult, StopHandlerRegistration,
     RubricStrategy, GoalStatusRubric, RubricVerdict,
     RubricEvaluation, DefaultRubric, SubAgentRubric.

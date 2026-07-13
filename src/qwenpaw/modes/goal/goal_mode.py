@@ -51,6 +51,8 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_MAX_ITERATIONS = 20
 DEFAULT_MAX_TOKENS = 300000
+MIN_MAX_ITERATIONS = 1
+MAX_MAX_ITERATIONS = 100
 
 
 @dataclass
@@ -247,7 +249,10 @@ class GoalMode(AgentMode):
         session_key = self._current_session_key(
             ctx,
         )
-        session = GoalSession(goal=goal_text)
+        session = GoalSession(
+            goal=goal_text,
+            max_iterations=_resolve_goal_max_iterations(ctx),
+        )
         self._sessions[session_key] = session
 
         logger.info(
@@ -334,6 +339,47 @@ class GoalMode(AgentMode):
     ) -> dict[str, GoalSession]:
         """Return all active sessions."""
         return {k: v for k, v in self._sessions.items() if v.active}
+
+
+def _resolve_goal_max_iterations(ctx: Any) -> int:
+    """Resolve optional per-goal iteration budget from request context."""
+    for source in _goal_budget_sources(ctx):
+        if not isinstance(source, dict):
+            continue
+        parsed = _coerce_goal_max_iterations(
+            source.get("goal_max_iterations"),
+        )
+        if parsed is not None:
+            return parsed
+    return DEFAULT_MAX_ITERATIONS
+
+
+def _goal_budget_sources(ctx: Any) -> list[dict[str, Any]]:
+    sources: list[dict[str, Any]] = []
+    extras = getattr(ctx, "extras", None)
+    if isinstance(extras, dict):
+        sources.append(extras)
+    request_context = getattr(ctx, "request_context", None)
+    if isinstance(request_context, dict):
+        sources.append(request_context)
+    request = getattr(ctx, "request", None)
+    nested = getattr(request, "request_context", None)
+    if isinstance(nested, dict):
+        sources.append(nested)
+    if isinstance(ctx, dict):
+        for key in ("extras", "request_context"):
+            value = ctx.get(key)
+            if isinstance(value, dict):
+                sources.append(value)
+    return sources
+
+
+def _coerce_goal_max_iterations(value: Any) -> int | None:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return max(MIN_MAX_ITERATIONS, min(MAX_MAX_ITERATIONS, parsed))
 
 
 __all__ = ["GoalMode", "GoalSession"]

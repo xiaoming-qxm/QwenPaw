@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any
 
 from ...constant import TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS
 from ...security.tool_guard.approval import ApprovalDecision, ApprovalScope
+from .display import approval_brief_notice, approval_brief_to_payload
 from .models import ApprovalRequestSummary
 
 if TYPE_CHECKING:
@@ -56,6 +57,8 @@ class PendingApproval:
     findings_count: int = 0
     severity: str = "medium"  # For frontend display
     extra: dict[str, Any] = field(default_factory=dict)
+    source_type: str = "tool_guard"
+    scope_policy: str = "default"
     # How widely the approved call should be remembered (EXACT vs SIMILAR).
     # Set by ``resolve_request`` from the approve path; ``None`` means the
     # caller didn't choose (IM channels, CLI, non-governance paths) and is
@@ -204,11 +207,15 @@ class ApprovalService:
         """Create a pending approval from a generic summary."""
         request_id = str(uuid.uuid4())
         loop = asyncio.get_running_loop()
+        brief_payload = approval_brief_to_payload(summary.approval_brief)
         merged_extra = {
             "source_type": summary.source_type,
+            "scope_policy": summary.scope_policy,
             **summary.payload,
             **dict(extra or {}),
         }
+        if brief_payload is not None:
+            merged_extra["approval_brief"] = brief_payload
         pending = PendingApproval(
             request_id=request_id,
             session_id=session_id,
@@ -225,6 +232,8 @@ class ApprovalService:
             findings_count=summary.findings_count,
             severity=summary.severity,
             extra=merged_extra,
+            source_type=summary.source_type,
+            scope_policy=summary.scope_policy,
         )
         async with self._lock:
             self._pending[request_id] = pending
@@ -239,6 +248,15 @@ class ApprovalService:
             session_id[:8],
             root_session_id[:8],
         )
+
+        if channel == "console" and brief_payload is not None:
+            from ..console_push_store import append as push_store_append
+
+            await push_store_append(
+                session_id,
+                approval_brief_notice(brief_payload),
+                sticky=True,
+            )
 
         if (
             channel
@@ -267,13 +285,25 @@ class ApprovalService:
                 treated as EXACT. Ignored for non-APPROVED decisions.
         """
         async with self._lock:
-            pending = self._pending.pop(request_id, None)
+            pending = self._pending.get(request_id)
             if pending is None:
                 logger.warning(
                     "Approval request %s not found (already resolved?)",
                     request_id[:8],
                 )
                 return None
+
+            if (
+                decision == ApprovalDecision.APPROVED
+                and pending.source_type == "browser_core_action"
+                and pending.scope_policy == "exact_only"
+                and scope not in {None, ApprovalScope.EXACT}
+            ):
+                raise ValueError(
+                    "exact_only approval rejects non-exact scope",
+                )
+
+            self._pending.pop(request_id, None)
 
             pending.status = decision.value
             pending.resolved_at = time.time()
@@ -505,9 +535,11 @@ class ApprovalService:
             logger.info(
                 "Cancelled %d pending approval(s) for root session %s",
                 cancelled,
-                root_session_id[:8]
-                if len(root_session_id) >= 8
-                else root_session_id,
+                (
+                    root_session_id[:8]
+                    if len(root_session_id) >= 8
+                    else root_session_id
+                ),
             )
         return cancelled
 

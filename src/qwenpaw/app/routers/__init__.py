@@ -77,4 +77,7 @@ def create_agent_scoped_router() -> APIRouter:
     return _create()
 
 
-__all__ = ["router", "create_agent_scoped_router"]
+__all__ = [
+    "create_agent_scoped_router",
+    "router",
+]

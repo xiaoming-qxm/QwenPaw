@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { Tag, Tooltip, Button, Space, Typography } from "antd";
-import { Package, Trash2, CheckCircle, XCircle } from "lucide-react";
+import { Package, Trash2, CheckCircle, XCircle, Download } from "lucide-react";
 import type { PluginType, PluginInfo } from "@/api/modules/plugin";
 import { PluginTypeTag } from "../components/PluginTypeTag";
 
@@ -8,12 +8,16 @@ const { Text } = Typography;
 
 interface UsePluginColumnsOptions {
   uninstallingId: string | null;
+  installingId: string | null;
   onUninstall: (record: PluginInfo) => void;
+  onInstallBundle: (record: PluginInfo) => void;
 }
 
 export function usePluginColumns({
   uninstallingId,
+  installingId,
   onUninstall,
+  onInstallBundle,
 }: UsePluginColumnsOptions) {
   const { t } = useTranslation();
 
@@ -70,8 +74,16 @@ export function usePluginColumns({
       dataIndex: "loaded",
       key: "loaded",
       width: 110,
-      render: (loaded: boolean) =>
-        loaded ? (
+      render: (loaded: boolean, record: PluginInfo) =>
+        record.installed === false ? (
+          <Tag
+            icon={<Download size={12} />}
+            color="processing"
+            style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
+          >
+            {t("pluginManager.statusAvailable", "Available")}
+          </Tag>
+        ) : loaded ? (
           <Tag
             icon={<CheckCircle size={12} />}
             color="success"
@@ -93,18 +105,35 @@ export function usePluginColumns({
       title: "",
       key: "actions",
       width: 100,
-      render: (_: unknown, record: PluginInfo) => (
-        <Tooltip title={t("pluginManager.uninstall")}>
-          <Button
-            type="text"
-            danger
-            size="small"
-            icon={<Trash2 size={14} />}
-            loading={uninstallingId === record.id}
-            onClick={() => onUninstall(record)}
-          />
-        </Tooltip>
-      ),
+      render: (_: unknown, record: PluginInfo) =>
+        record.installed === false ? (
+          <Tooltip title={t("pluginManager.install", "Install")}>
+            <Button
+              type="text"
+              size="small"
+              icon={<Download size={14} />}
+              loading={installingId === record.id}
+              onClick={(event) => {
+                event.stopPropagation();
+                onInstallBundle(record);
+              }}
+            />
+          </Tooltip>
+        ) : (
+          <Tooltip title={t("pluginManager.uninstall")}>
+            <Button
+              type="text"
+              danger
+              size="small"
+              icon={<Trash2 size={14} />}
+              loading={uninstallingId === record.id}
+              onClick={(event) => {
+                event.stopPropagation();
+                onUninstall(record);
+              }}
+            />
+          </Tooltip>
+        ),
     },
   ];
 }

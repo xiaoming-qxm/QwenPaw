@@ -1,0 +1,580 @@
+{
+  "schema_version": "browser-support-v1",
+  "build_fingerprint": "build-1",
+  "contract_fingerprint": "contract-v1",
+  "profile_fingerprint": "profile-v1",
+  "extension_fingerprint": "extension@build-1",
+  "capabilities": [
+    {
+      "capability_id": "result.terminal_delivery",
+      "family": "ResultDelivery",
+      "requirement": "REQUIRED",
+      "status": "READY",
+      "limits": {},
+      "required_blocks": [],
+      "validation_evidence": [
+        "result.terminal-preserved@build-1"
+      ]
+    },
+    {
+      "capability_id": "result.model_image_delivery",
+      "family": "ResultDelivery",
+      "requirement": "REQUIRED",
+      "status": "READY",
+      "limits": {
+        "max_image_bytes": 20971520
+      },
+      "required_blocks": [
+        "image"
+      ],
+      "validation_evidence": [
+        "result.required-image@build-1"
+      ]
+    },
+    {
+      "capability_id": "observe.snapshot",
+      "family": "ObserveRead",
+      "requirement": "REQUIRED",
+      "status": "READY",
+      "limits": {
+        "max_targets": 128
+      },
+      "required_blocks": [],
+      "validation_evidence": [
+        "observe.snapshot-neutral@build-1"
+      ]
+    },
+    {
+      "capability_id": "observe.read",
+      "family": "ObserveRead",
+      "requirement": "REQUIRED",
+      "status": "READY",
+      "limits": {
+        "max_page_segments": 128
+      },
+      "required_blocks": [],
+      "validation_evidence": [
+        "observe.read-immutable@build-1"
+      ]
+    },
+    {
+      "capability_id": "observe.screenshot.viewport",
+      "family": "ObserveRead",
+      "requirement": "REQUIRED",
+      "status": "READY",
+      "limits": {
+        "max_image_bytes": 20971520
+      },
+      "required_blocks": [
+        "image"
+      ],
+      "validation_evidence": [
+        "observe.viewport-invariant@build-1"
+      ]
+    },
+    {
+      "capability_id": "observe.screenshot.full_page",
+      "family": "ObserveRead",
+      "requirement": "REQUIRED",
+      "status": "READY",
+      "limits": {
+        "max_image_bytes": 20971520
+      },
+      "required_blocks": [
+        "image"
+      ],
+      "validation_evidence": [
+        "observe.full-page-invariant@build-1"
+      ]
+    },
+    {
+      "capability_id": "synchronize.page.url",
+      "family": "Synchronize",
+      "requirement": "REQUIRED",
+      "status": "READY",
+      "limits": {
+        "max_wait_ms": 30000,
+        "max_stable_ms": 5000,
+        "max_condition_atoms": 16
+      },
+      "required_blocks": [],
+      "validation_evidence": [
+        "synchronize.page-url@build-1"
+      ]
+    },
+    {
+      "capability_id": "synchronize.page.title",
+      "family": "Synchronize",
+      "requirement": "REQUIRED",
+      "status": "READY",
+      "limits": {
+        "max_wait_ms": 30000,
+        "max_stable_ms": 5000,
+        "max_condition_atoms": 16
+      },
+      "required_blocks": [],
+      "validation_evidence": [
+        "synchronize.page-title@build-1"
+      ]
+    },
+    {
+      "capability_id": "synchronize.page.document_changed",
+      "family": "Synchronize",
+      "requirement": "REQUIRED",
+      "status": "READY",
+      "limits": {
+        "max_wait_ms": 30000,
+        "max_stable_ms": 5000,
+        "max_condition_atoms": 16
+      },
+      "required_blocks": [],
+      "validation_evidence": [
+        "synchronize.page-document-changed@build-1"
+      ]
+    },
+    {
+      "capability_id": "synchronize.page.ready",
+      "family": "Synchronize",
+      "requirement": "REQUIRED",
+      "status": "READY",
+      "limits": {
+        "max_wait_ms": 30000,
+        "max_stable_ms": 5000,
+        "max_condition_atoms": 16
+      },
+      "required_blocks": [],
+      "validation_evidence": [
+        "synchronize.page-ready@build-1"
+      ]
+    },
+    {
+      "capability_id": "synchronize.region.text",
+      "family": "Synchronize",
+      "requirement": "REQUIRED",
+      "status": "READY",
+      "limits": {
+        "max_wait_ms": 30000,
+        "max_stable_ms": 5000,
+        "max_condition_atoms": 16
+      },
+      "required_blocks": [],
+      "validation_evidence": [
+        "synchronize.region-text@build-1"
+      ]
+    },
+    {
+      "capability_id": "synchronize.region.item_count",
+      "family": "Synchronize",
+      "requirement": "REQUIRED",
+      "status": "READY",
+      "limits": {
+        "max_wait_ms": 30000,
+        "max_stable_ms": 5000,
+        "max_condition_atoms": 16
+      },
+      "required_blocks": [],
+      "validation_evidence": [
+        "synchronize.region-item-count@build-1"
+      ]
+    },
+    {
+      "capability_id": "synchronize.region.changed",
+      "family": "Synchronize",
+      "requirement": "REQUIRED",
+      "status": "READY",
+      "limits": {
+        "max_wait_ms": 30000,
+        "max_stable_ms": 5000,
+        "max_condition_atoms": 16
+      },
+      "required_blocks": [],
+      "validation_evidence": [
+        "synchronize.region-changed@build-1"
+      ]
+    },
+    {
+      "capability_id": "result.artifact_delivery",
+      "family": "ResultDelivery",
+      "requirement": "REQUIRED",
+      "status": "READY",
+      "limits": {},
+      "required_blocks": [
+        "artifact"
+      ],
+      "validation_evidence": [
+        "result.artifact-preflight@build-1",
+        "result.artifact-promotion@build-1",
+        "result.artifact-formatter-prepare@build-1",
+        "result.artifact-final-envelope@build-1",
+        "result.artifact-transient-cleanup@build-1",
+        "result.artifact-expiry@build-1",
+        "result.artifact-protected-block@build-1"
+      ]
+    },
+    {
+      "capability_id": "result.artifact_delivery.unsupported_provider",
+      "family": "ResultDelivery",
+      "requirement": "OPTIONAL",
+      "status": "BLOCKED",
+      "limits": {},
+      "required_blocks": [],
+      "validation_evidence": [
+        "result.artifact-provider-unsupported@build-1"
+      ]
+    },
+    {
+      "capability_id": "context.navigate",
+      "family": "ContextNavigate",
+      "requirement": "REQUIRED",
+      "status": "READY",
+      "limits": {},
+      "required_blocks": [],
+      "validation_evidence": [
+        "context.navigate@build-1",
+        "context.back@build-1",
+        "context.forward@build-1",
+        "context.reload@build-1",
+        "context.tabs-open@build-1",
+        "context.tabs-new@build-1",
+        "context.tabs-select@build-1",
+        "context.popup-open@build-1",
+        "context.popup-absent@build-1",
+        "context.selected-tab-close@build-1",
+        "context.unsafe-url@build-1",
+        "context.document-changed@build-1",
+        "context.no-implicit-selection@build-1"
+      ]
+    },
+    {
+      "capability_id": "synchronize.resource.available",
+      "family": "Synchronize",
+      "requirement": "REQUIRED",
+      "status": "READY",
+      "limits": {},
+      "required_blocks": [],
+      "validation_evidence": [
+        "synchronize.resource-available-current@build-1",
+        "synchronize.resource-available-expired@build-1",
+        "synchronize.resource-available-owner-mismatch@build-1"
+      ]
+    },
+    {
+      "capability_id": "target.interactions",
+      "family": "TargetControl",
+      "requirement": "REQUIRED",
+      "status": "READY",
+      "limits": {},
+      "required_blocks": [],
+      "validation_evidence": [
+        "target.interaction-click@build-1",
+        "target.interaction-hover@build-1",
+        "target.interaction-drag@build-1",
+        "target.interaction-scroll@build-1",
+        "target.interaction-fill@build-1",
+        "target.interaction-type-text@build-1",
+        "target.interaction-press-key@build-1",
+        "target.interaction-set-checked@build-1",
+        "target.interaction-select-option@build-1",
+        "target.frame-boundary@build-1",
+        "target.open-shadow-boundary@build-1"
+      ]
+    },
+    {
+      "capability_id": "action.runner",
+      "family": "StateApprovalEffect",
+      "requirement": "REQUIRED",
+      "status": "READY",
+      "limits": {},
+      "required_blocks": [],
+      "validation_evidence": [
+        "action.fault.before-dispatch@build-1",
+        "action.fault.after-effect-before-verify@build-1"
+      ]
+    },
+    {
+      "capability_id": "action.receipt",
+      "family": "StateApprovalEffect",
+      "requirement": "REQUIRED",
+      "status": "READY",
+      "limits": {},
+      "required_blocks": [],
+      "validation_evidence": [
+        "action.fault.after-send-before-ack@build-1",
+        "action.fault.after-ack-before-effect@build-1",
+        "action.fault.bridge-or-extension-loss@build-1"
+      ]
+    },
+    {
+      "capability_id": "action.reconcile",
+      "family": "StateApprovalEffect",
+      "requirement": "REQUIRED",
+      "status": "READY",
+      "limits": {},
+      "required_blocks": [],
+      "validation_evidence": [
+        "action.fault.after-effect-before-verify@build-1",
+        "action.fault.during-result-mapping@build-1",
+        "action.fault.drop-required-resource-block@build-1",
+        "action.fault.cleanup-failure@build-1"
+      ]
+    },
+    {
+      "capability_id": "surfaces.widgets",
+      "family": "SurfacesWidgets",
+      "requirement": "REQUIRED",
+      "status": "READY",
+      "limits": {},
+      "required_blocks": [],
+      "validation_evidence": [
+        "widget.combobox@build-1",
+        "widget.menu@build-1",
+        "widget.tree@build-1",
+        "widget.grid@build-1",
+        "widget.date-picker@build-1",
+        "widget.slider@build-1",
+        "widget.rich-editor@build-1"
+      ]
+    },
+    {
+      "capability_id": "surfaces.prompt",
+      "family": "SurfacesWidgets",
+      "requirement": "REQUIRED",
+      "status": "READY",
+      "limits": {},
+      "required_blocks": [],
+      "validation_evidence": [
+        "prompt.alert-exact@build-1",
+        "prompt.confirm-exact@build-1",
+        "prompt.text-exact@build-1",
+        "prompt.beforeunload-exact@build-1",
+        "prompt.same-message-replay@build-1",
+        "prompt.stale-token@build-1",
+        "prompt.no-default-accept@build-1",
+        "prompt.post-dispatch-required@build-1"
+      ]
+    },
+    {
+      "capability_id": "surfaces.prompt.permission",
+      "family": "SurfacesWidgets",
+      "requirement": "OPTIONAL",
+      "status": "BLOCKED",
+      "limits": {},
+      "required_blocks": [],
+      "validation_evidence": [
+        "prompt.permission-handoff@build-1"
+      ]
+    },
+    {
+      "capability_id": "browser.resources",
+      "family": "ResourceFile",
+      "requirement": "REQUIRED",
+      "status": "READY",
+      "limits": {},
+      "required_blocks": [],
+      "validation_evidence": [
+        "resource.upload.selected-accepted@build-1",
+        "resource.upload.selected-rejected@build-1",
+        "resource.upload.transferred-accepted@build-1",
+        "resource.upload.multi-unknown@build-1",
+        "resource.upload.multi-mixed@build-1",
+        "resource.upload.owner-mismatch@build-1",
+        "resource.upload.expired@build-1",
+        "resource.upload.item-limit@build-1",
+        "resource.upload.task-limit@build-1"
+      ]
+    },
+    {
+      "capability_id": "tab.actions.upload_file",
+      "family": "ResourceFile",
+      "requirement": "REQUIRED",
+      "status": "READY",
+      "limits": {},
+      "required_blocks": [],
+      "validation_evidence": [
+        "resource.upload.selected-accepted@build-1",
+        "resource.upload.selected-rejected@build-1",
+        "resource.upload.transferred-accepted@build-1",
+        "resource.upload.multi-unknown@build-1",
+        "resource.upload.multi-mixed@build-1",
+        "resource.upload.owner-mismatch@build-1",
+        "resource.upload.expired@build-1",
+        "resource.upload.item-limit@build-1",
+        "resource.upload.task-limit@build-1"
+      ]
+    },
+    {
+      "capability_id": "tab.actions.download_file",
+      "family": "ResourceFile",
+      "requirement": "REQUIRED",
+      "status": "READY",
+      "limits": {},
+      "required_blocks": [],
+      "validation_evidence": [
+        "resource.download.after-pre-arm@build-1",
+        "resource.download.before-send@build-1",
+        "resource.download.send-before-receipt@build-1",
+        "resource.download.correlation@build-1",
+        "resource.download.progress-partial@build-1",
+        "resource.download.progress-completed@build-1",
+        "resource.download.byte-stability@build-1",
+        "resource.download.hash-failure@build-1",
+        "resource.download.ingest-failure@build-1",
+        "resource.download.exact-count-name-mime@build-1",
+        "resource.condition.created-download@build-1"
+      ]
+    },
+    {
+      "capability_id": "tab.print_to_pdf",
+      "family": "ResourceFile",
+      "requirement": "REQUIRED",
+      "status": "READY",
+      "limits": {},
+      "required_blocks": [],
+      "validation_evidence": [
+        "resource.pdf.context-stable@build-1",
+        "resource.pdf.context-changed@build-1",
+        "resource.condition.created-pdf@build-1"
+      ]
+    },
+    {
+      "capability_id": "tab.actions.paste",
+      "family": "ResourceFile",
+      "requirement": "REQUIRED",
+      "status": "READY",
+      "limits": {},
+      "required_blocks": [],
+      "validation_evidence": [
+        "resource.paste.exact-target-content@build-1",
+        "resource.paste.no-ambient-clipboard@build-1"
+      ]
+    },
+    {
+      "capability_id": "resource.upload.os_picker",
+      "family": "ResourceFile",
+      "requirement": "OPTIONAL",
+      "status": "BLOCKED",
+      "limits": {},
+      "required_blocks": [],
+      "validation_evidence": []
+    },
+    {
+      "capability_id": "resource.print.physical",
+      "family": "ResourceFile",
+      "requirement": "OPTIONAL",
+      "status": "BLOCKED",
+      "limits": {},
+      "required_blocks": [],
+      "validation_evidence": []
+    },
+    {
+      "capability_id": "resource.workspace.permission",
+      "family": "ResourceFile",
+      "requirement": "OPTIONAL",
+      "status": "BLOCKED",
+      "limits": {},
+      "required_blocks": [],
+      "validation_evidence": [
+        "resource.workspace.permission-handoff@build-1"
+      ]
+    },
+    {
+      "capability_id": "user_chrome.lifecycle",
+      "family": "UserChromeLifecycle",
+      "requirement": "REQUIRED",
+      "status": "READY",
+      "limits": {},
+      "required_blocks": [],
+      "validation_evidence": [
+        "s0.owner-continuity@build-1",
+        "chrome.first-attach@build-1",
+        "chrome.focus-change@build-1",
+        "chrome.reconnect@build-1",
+        "chrome.resume@build-1",
+        "chrome.cleanup-task-created@build-1",
+        "chrome.cleanup-borrowed@build-1",
+        "chrome.cleanup-beforeunload-incomplete@build-1"
+      ]
+    },
+    {
+      "capability_id": "visual.viewport_grounding",
+      "family": "VisualCanvas",
+      "requirement": "REQUIRED",
+      "status": "READY",
+      "limits": {},
+      "required_blocks": [],
+      "validation_evidence": [
+        "visual.viewport-grounding-exact@build-1",
+        "visual.icon-only-exact@build-1",
+        "visual.repeated-targets-multiple@build-1",
+        "visual.overlapping-candidates-multiple@build-1",
+        "visual.frame-target-exact@build-1",
+        "visual.open-shadow-target-exact@build-1",
+        "visual.closed-shadow-host-exact@build-1",
+        "visual.full-page-evidence-only@build-1"
+      ]
+    },
+    {
+      "capability_id": "visual.occlusion_revalidation",
+      "family": "VisualCanvas",
+      "requirement": "REQUIRED",
+      "status": "READY",
+      "limits": {},
+      "required_blocks": [],
+      "validation_evidence": [
+        "visual.ref-churn-stale@build-1",
+        "visual.resize-stale@build-1",
+        "visual.overlay-occluded-no-send@build-1",
+        "visual.scroll-stale@build-1",
+        "visual.zoom-stale@build-1",
+        "visual.dpr-stale@build-1",
+        "visual.layout-change-stale@build-1",
+        "visual.fault.before-screenshot@build-1",
+        "visual.fault.after-screenshot@build-1",
+        "visual.fault.after-binding-issue@build-1",
+        "visual.fault.after-hit-test@build-1",
+        "visual.fault.after-ref-storage@build-1",
+        "visual.fault.after-preflight@build-1",
+        "visual.fault.after-final-revalidation@build-1",
+        "visual.fault.after-input-send@build-1",
+        "visual.fault.after-receipt@build-1",
+        "visual.fault.after-postcondition@build-1"
+      ]
+    },
+    {
+      "capability_id": "visual.opaque_canvas_handoff",
+      "family": "VisualCanvas",
+      "requirement": "REQUIRED",
+      "status": "READY",
+      "limits": {},
+      "required_blocks": [],
+      "validation_evidence": [
+        "visual.canvas-no-policy-handoff@build-1",
+        "visual.map-no-policy-handoff@build-1"
+      ]
+    },
+    {
+      "capability_id": "visual.policy_scoped_low_risk_action",
+      "family": "VisualCanvas",
+      "requirement": "OPTIONAL",
+      "status": "READY",
+      "limits": {
+        "effect_ceiling": [
+          "PRESENTATION",
+          "SESSION_STATE"
+        ],
+        "single_use": true
+      },
+      "required_blocks": [],
+      "validation_evidence": [
+        "visual.policy-low-risk-action@build-1"
+      ]
+    }
+  ],
+  "provider_fingerprint": "provider-v1",
+  "max_retained_state_ttl_seconds": 3600,
+  "max_legacy_token_ttl_seconds": 3600,
+  "legacy_state": "RETIRED",
+  "code_kernel_status": "FUTURE",
+  "execution_isolation_status": "BLOCKED",
+  "isolated_canonical_execution_status": "BLOCKED"
+}

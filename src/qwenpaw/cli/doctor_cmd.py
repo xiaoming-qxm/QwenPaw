@@ -570,7 +570,7 @@ def run_doctor_checks(
                 click.style("OK", fg="green") + " — no skill layout warnings",
             )
 
-        click.echo("\n=== Browser (browser_use / Playwright) ===")
+        click.echo("\n=== Browser (Browser SDK / Playwright) ===")
         br_notes = browser_automation_notes(cfg)
         if br_notes:
             for line in br_notes:
@@ -657,7 +657,7 @@ def run_doctor_checks(
             + _skipped_when_cfg_invalid
             + ". Fix the config file, then re-run `qwenpaw doctor`.",
         )
-        click.echo("\n=== Browser (browser_use / Playwright) ===")
+        click.echo("\n=== Browser (Browser SDK / Playwright) ===")
         br_skip = browser_automation_notes(None)
         if br_skip:
             for line in br_skip:

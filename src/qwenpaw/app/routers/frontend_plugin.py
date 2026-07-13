@@ -42,7 +42,11 @@ async def list_frontend_plugins(request: Request):
 
     result = []
     for _plugin_id, record in loader.get_all_loaded_plugins().items():
+        if not record.enabled:
+            continue
         manifest = record.manifest
+        if not manifest.entry.frontend:
+            continue
         result.append(
             {
                 "id": manifest.id,

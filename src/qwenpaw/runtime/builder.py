@@ -11,6 +11,8 @@ injects all dependencies into the agent constructor.
 from __future__ import annotations
 
 import logging
+import inspect
+from functools import wraps
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -221,6 +223,11 @@ class AgentBuilder:
         # Model + formatter (built before the toolkit so the scroll context
         # strategy, which needs the model for token counting, can wire in).
         model, _formatter = self.build_model(agent_config)
+        from ..agents.model_factory import build_provider_block_profile
+
+        request_context[
+            "provider_block_profile"
+        ] = build_provider_block_profile(model, _formatter)
 
         # Built once and shared: the agent's native offloader, and (when
         # ``offload_dialog`` is on) scroll's optional dialog archive.
@@ -476,7 +483,57 @@ class AgentBuilder:
         )
         if isinstance(_payload_ctx, dict):
             rc.update(_payload_ctx)
+        rc.update(
+            {
+                "root_session_id": getattr(ctx, "root_session_id", "") or "",
+                "root_task_id": getattr(ctx, "root_task_id", "") or "",
+                "browser_owner_id": (
+                    getattr(ctx, "browser_owner_id", "") or ""
+                ),
+                "contract_mode": getattr(ctx, "contract_mode", None),
+                "lease_generation": getattr(ctx, "lease_generation", 0),
+            },
+        )
+        rc.setdefault(
+            "browser_request_scope_key",
+            AgentBuilder._browser_request_scope_key(ctx, rc),
+        )
         return rc
+
+    @staticmethod
+    def _browser_request_scope_key(
+        ctx: Any,
+        request_context: dict[str, Any],
+    ) -> str:
+        root = (
+            str(request_context.get("root_session_id") or "")
+            or str(request_context.get("session_id") or "")
+            or "default"
+        )
+        request = getattr(ctx, "request", None)
+        request_id = AgentBuilder._request_identity(request)
+        return f"{root}:{request_id}"
+
+    @staticmethod
+    def _request_identity(request: Any | None) -> str:
+        if request is None:
+            return "request:default"
+        for attr in ("request_id", "id", "message_id", "event_id"):
+            value = getattr(request, attr, "")
+            if value:
+                return f"request:{value}"
+        metadata = getattr(request, "metadata", None)
+        if isinstance(metadata, dict):
+            for key in (
+                "request_id",
+                "message_id",
+                "event_id",
+                "turn_id",
+            ):
+                value = metadata.get(key)
+                if value:
+                    return f"request:{value}"
+        return f"request:{id(request)}"
 
     @staticmethod
     def _apply_request_coding_project(
@@ -791,6 +848,27 @@ class AgentBuilder:
         governor: Any,
     ) -> Any:
         """Wrap a raw tool fn in the repo's standard guard (policy or tool)."""
+        profile = request_context.get("provider_block_profile")
+        if profile is not None:
+            from ..browser.sdk.runtime.result_delivery import (
+                reset_provider_block_profile,
+                set_provider_block_profile,
+            )
+
+            original = fn
+
+            @wraps(original)
+            async def profile_bound(*args: Any, **kwargs: Any) -> Any:
+                token = set_provider_block_profile(profile)
+                try:
+                    result = original(*args, **kwargs)
+                    if inspect.isawaitable(result):
+                        return await result
+                    return result
+                finally:
+                    reset_provider_block_profile(token)
+
+            fn = profile_bound
         if governor is not None:
             from ..governance import PolicyGuardedTool
 

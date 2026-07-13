@@ -108,6 +108,8 @@ function parseV1Props(v1Props: Record<string, unknown>): {
 
   // Extract result from content[1].data.output
   const result = resultData.output;
+  const metadata =
+    resultItem?.metadata ?? resultData.metadata ?? data.metadata ?? undefined;
 
   // No output content → tool hasn't executed yet → always "calling".
   // Message-level status on *_call messages reflects delivery, not execution.
@@ -125,6 +127,7 @@ function parseV1Props(v1Props: Record<string, unknown>): {
     name: toolName,
     serverLabel: (callData.server_label as string) || undefined,
     params,
+    metadata,
     result: result ?? undefined,
     status,
   };

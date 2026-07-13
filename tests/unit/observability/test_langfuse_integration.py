@@ -64,6 +64,7 @@ def reset_langfuse_context(monkeypatch):
 
 
 def _make_hook_context(**overrides) -> Any:
+    from qwenpaw.browser.sdk.runtime.session_owner import ContractMode
     from qwenpaw.runtime.hooks import HookContext
 
     defaults = {
@@ -71,6 +72,10 @@ def _make_hook_context(**overrides) -> Any:
         "session_id": "sess-1",
         "agent_id": "agent-1",
         "root_session_id": "root-sess-1",
+        "root_task_id": "root-task-1",
+        "browser_owner_id": "browser-owner-1",
+        "contract_mode": ContractMode.LEGACY,
+        "lease_generation": 1,
         "root_agent_id": "root-agent-1",
         "workspace_dir": None,
         "workspace": None,

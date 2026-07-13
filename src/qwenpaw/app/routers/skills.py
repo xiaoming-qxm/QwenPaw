@@ -863,7 +863,7 @@ async def get_pool_builtin_notice() -> BuiltinUpdateNotice:
 async def create_skill(
     request: Request,
     body: CreateSkillRequest,
-) -> dict[str, Any]:
+) -> Any:
     from ..agent_context import get_agent_for_request
 
     workspace = await get_agent_for_request(request)
@@ -901,7 +901,7 @@ async def upload_skill_zip(
     enable: bool = True,
     target_name: str = "",
     rename_map: str = "",
-) -> dict[str, Any]:
+) -> Any:
     from ..agent_context import get_agent_for_request
 
     workspace = await get_agent_for_request(request)
@@ -941,7 +941,9 @@ async def upload_skill_zip(
 
 
 @router.post("/pool/create")
-async def create_pool_skill(body: CreateSkillRequest) -> dict[str, Any]:
+async def create_pool_skill(
+    body: CreateSkillRequest,
+) -> Any:
     try:
         created = SkillPoolService().create_skill(
             name=body.name,
@@ -966,7 +968,9 @@ async def create_pool_skill(body: CreateSkillRequest) -> dict[str, Any]:
 
 
 @router.put("/pool/save")
-async def save_pool_skill(body: SavePoolSkillRequest) -> dict[str, Any]:
+async def save_pool_skill(
+    body: SavePoolSkillRequest,
+) -> Any:
     """Save one pool skill.
 
     ``overwrite`` only matters when the save would replace an existing target
@@ -998,7 +1002,7 @@ async def upload_skill_pool_zip(
     file: UploadFile = File(...),
     target_name: str = "",
     rename_map: str = "",
-) -> dict[str, Any]:
+) -> Any:
     data = await _read_validated_zip_upload(file)
     parsed_rename: dict[str, str] | None = None
     if rename_map.strip():
@@ -1034,7 +1038,7 @@ async def upload_skill_pool_zip(
 @router.post("/pool/import")
 async def import_skill_pool_from_hub(
     body: HubInstallRequest,
-) -> dict[str, Any]:
+) -> Any:
     try:
         result = await import_pool_skill_from_hub(
             bundle_url=body.bundle_url,
@@ -1062,7 +1066,7 @@ async def import_skill_pool_from_hub(
 @router.post("/pool/upload")
 async def upload_workspace_skill_to_pool(
     body: UploadToPoolRequest,
-) -> dict[str, Any]:
+) -> Any:
     workspace_dir = _workspace_dir_for_agent(body.workspace_id)
     try:
         result = SkillPoolService().upload_from_workspace(
@@ -1203,7 +1207,7 @@ def _download_one_or_raise(
 @router.post("/pool/download")
 async def download_pool_skill_to_workspaces(
     body: DownloadFromPoolRequest,
-) -> dict[str, Any]:
+) -> Any:
     """Download one pool skill into one or more workspaces.
 
     All-or-nothing: if any target conflicts, reject everything.
@@ -1515,7 +1519,7 @@ async def disable_skill(
 async def enable_skill(
     request: Request,
     skill_name: str,
-) -> dict[str, Any]:
+) -> Any:
     """Enable one workspace skill after a fresh scan."""
     from ..agent_context import get_agent_for_request
 
@@ -1571,7 +1575,7 @@ async def load_skill_file(
 async def save_workspace_skill(
     request: Request,
     body: SaveSkillRequest,
-) -> dict[str, Any]:
+) -> Any:
     from ..agent_context import get_agent_for_request
 
     workspace = await get_agent_for_request(request)

@@ -21,13 +21,14 @@ from __future__ import annotations
 
 from typing import Callable
 
+from qwenpaw.browser.sdk.runtime.tool_entrypoint import browser
+
 # Each import triggers the @tool_descriptor decorator, which auto-
 # collects the function into the global registry.
 from .file_io import read_file, write_file, edit_file, append_file
 from .file_search import grep_search, glob_search
 from .shell import execute_shell_command
 from .send_file import send_file_to_user
-from .browser_control import browser_use
 from .web_search import web_search, web_fetch
 from .desktop_screenshot import desktop_screenshot
 from .view_media import view_image, view_video
@@ -71,7 +72,7 @@ __all__ = [
     "desktop_screenshot",
     "view_image",
     "view_video",
-    "browser_use",
+    "browser",
     "web_search",
     "web_fetch",
     "get_current_time",

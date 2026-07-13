@@ -76,6 +76,11 @@ class ToolCoordinator:
         session_id: str,
         agent_id: str,
         root_session_id: str,
+        root_task_id: str,
+        browser_owner_id: str,
+        contract_mode: Any,
+        lease_generation: int,
+        request_context: dict[str, Any] | None = None,
         deadline_override: float | None = None,
         background_result_processor: BackgroundResultProcessor | None = None,
     ) -> AsyncGenerator[Any, None]:
@@ -84,6 +89,11 @@ class ToolCoordinator:
             session_id,
             agent_id,
             root_session_id,
+            root_task_id,
+            browser_owner_id,
+            contract_mode,
+            lease_generation,
+            request_context,
             deadline_override,
         )
         ctx = entry.ctx
@@ -143,6 +153,11 @@ class ToolCoordinator:
         session_id: str,
         agent_id: str,
         root_session_id: str,
+        root_task_id: str,
+        browser_owner_id: str,
+        contract_mode: Any,
+        lease_generation: int,
+        request_context: dict[str, Any] | None,
         deadline_override: float | None,
     ) -> ToolCallEntry:
         loop = asyncio.get_running_loop()
@@ -158,9 +173,14 @@ class ToolCoordinator:
             session_id=session_id,
             agent_id=agent_id,
             root_session_id=root_session_id,
+            root_task_id=root_task_id,
+            browser_owner_id=browser_owner_id,
+            contract_mode=contract_mode,
+            lease_generation=lease_generation,
             started_at=now,
             deadline=now + timeout if timeout is not None else None,
             cancel_event=asyncio.Event(),
+            request_context=dict(request_context or {}),
         )
         return ToolCallEntry(
             ctx=ctx,

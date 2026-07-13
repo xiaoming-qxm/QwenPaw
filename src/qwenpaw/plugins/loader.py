@@ -143,6 +143,26 @@ class PluginLoader:
                 continue
 
             logger.info(f"Scanning plugin directory: {plugin_dir}")
+            if (plugin_dir / "plugin.json").exists():
+                if _is_disabled_plugin_dir(plugin_dir):
+                    logger.info(
+                        "Skipping disabled/hidden plugin directory: %s",
+                        plugin_dir.name,
+                    )
+                    continue
+                try:
+                    manifest = self._load_manifest(
+                        plugin_dir / "plugin.json",
+                    )
+                    discovered.append((manifest, plugin_dir))
+                    logger.info(f"Discovered plugin: {manifest.id}")
+                except Exception as e:
+                    logger.error(
+                        f"Failed to load manifest from "
+                        f"{plugin_dir / 'plugin.json'}: {e}",
+                        exc_info=True,
+                    )
+                continue
 
             for item in plugin_dir.iterdir():
                 if not item.is_dir():
@@ -432,7 +452,12 @@ class PluginLoader:
                 "description": manifest.description,
                 "author": manifest.author,
                 "dependencies": manifest.dependencies,
+                "min_version": manifest.min_version,
+                "max_version": manifest.max_version,
                 "qwenpaw_version": qv_dict,
+                "icon": manifest.icon,
+                "capabilities": manifest.capabilities,
+                "setup": manifest.setup,
                 "meta": manifest.meta,
             }
             api = PluginApi(plugin_id, config or {}, manifest_dict)
@@ -552,6 +577,26 @@ class PluginLoader:
                 diagnostics=[compat_msg],
             )
             self._loaded_plugins[plugin_id] = record
+            return record
+
+        from .state import PluginStateStore
+
+        default_enabled = bool(manifest.meta.get("default_enabled", True))
+        if not PluginStateStore().is_enabled(
+            plugin_id,
+            default=default_enabled,
+        ):
+            record = PluginRecord(
+                manifest=manifest,
+                source_path=source_path,
+                enabled=False,
+                instance=None,
+            )
+            self._loaded_plugins[plugin_id] = record
+            logger.info(
+                "Plugin '%s' is disabled; backend not loaded",
+                plugin_id,
+            )
             return record
 
         # Ensure plugin dependencies are installed before loading
@@ -1154,6 +1199,18 @@ class PluginLoader:
             PluginRecord or None if not found
         """
         return self._loaded_plugins.get(plugin_id)
+
+    def set_loaded_plugin_record(
+        self,
+        plugin_id: str,
+        record: PluginRecord,
+    ) -> None:
+        """Set or replace a plugin record without loading its backend."""
+        self._loaded_plugins[plugin_id] = record
+
+    def discard_loaded_plugin_record(self, plugin_id: str) -> None:
+        """Remove a plugin record if it is present."""
+        self._loaded_plugins.pop(plugin_id, None)
 
     def get_all_loaded_plugins(self) -> Dict[str, PluginRecord]:
         """Get all loaded plugin records.

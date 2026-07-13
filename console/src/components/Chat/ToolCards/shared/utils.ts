@@ -7,6 +7,53 @@ import type { TFunction } from "i18next";
 import type { ToolCallContent } from "./types";
 import { chatApi } from "@/api/modules/chat";
 
+export interface BrowserEvidenceArtifact {
+  kind?: string;
+  url?: string;
+  name?: string;
+  media_type?: string;
+}
+
+export interface BrowserTraceEventPreview {
+  phase?: string;
+  api_id?: string;
+  action?: string;
+  status?: string;
+  backend_id?: string;
+  selected_context?: string;
+  requested_context?: string;
+  tab_id?: string;
+  url?: string;
+  domain?: string;
+  title?: string;
+  selector?: string;
+  duration_ms?: number;
+  error_code?: string;
+  approval_state?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface BrowserEvidenceMetadata {
+  requestedContext: string;
+  selectedContext: string;
+  backendId: string;
+  currentTab: string;
+  connectionState: string;
+  approvalState: string;
+  waitingApproval: boolean;
+  blockerReason: string;
+  recoveryHint: string;
+  progressDecision: string;
+  progressLabel: string;
+  cleanupComplete: boolean;
+  cleanupResult: string;
+  eventCount: number;
+  durationMs: number | null;
+  artifacts: BrowserEvidenceArtifact[];
+  trace: BrowserTraceEventPreview[];
+  diagnostics: unknown;
+}
+
 // ---------------------------------------------------------------------------
 // URL helpers
 // ---------------------------------------------------------------------------
@@ -256,6 +303,219 @@ function tryParseJson(text: string): unknown | null {
   } catch {
     return null;
   }
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function toStringValue(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+function toNumberValue(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function parseBrowserEvidenceSource(value: unknown): Record<string, unknown> {
+  if (typeof value === "string") {
+    const parsed = tryParseJson(value);
+    return asRecord(parsed);
+  }
+  return asRecord(value);
+}
+
+function browserTraceEvents(value: unknown): BrowserTraceEventPreview[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => asRecord(item) as BrowserTraceEventPreview);
+}
+
+function browserArtifacts(value: unknown): BrowserEvidenceArtifact[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => asRecord(item) as BrowserEvidenceArtifact);
+}
+
+export function extractBrowserEvidence(
+  content: ToolCallContent,
+): BrowserEvidenceMetadata {
+  const result = parseBrowserEvidenceSource(content.result);
+  const params = asRecord(content.params);
+  const trace = browserTraceEvents(
+    result.browser_trace || params.browser_trace,
+  );
+  const firstContext = trace.find(
+    (event) => event.phase === "context" || event.backend_id,
+  );
+  const progress = asRecord(
+    result.progress_decision || params.progress_decision,
+  );
+  const recovery = asRecord(
+    result.recovery_decision || params.recovery_decision,
+  );
+  const runtime = asRecord(result.runtime_outcome || params.runtime_outcome);
+  const cleanup = asRecord(result.cleanup_summary || params.cleanup_summary);
+  const latestTab = [...trace]
+    .reverse()
+    .find((event) => event.tab_id || event.domain || event.url);
+  const approvalState =
+    toStringValue(result.approval_state) ||
+    toStringValue(recovery.approval_state) ||
+    toStringValue(params.approval_state) ||
+    toStringValue(latestTab?.approval_state) ||
+    "not required";
+  const duration =
+    toNumberValue(result.duration_ms) ??
+    trace.reduce<number | null>(
+      (max, event) =>
+        typeof event.duration_ms === "number"
+          ? Math.max(max ?? 0, event.duration_ms)
+          : max,
+      null,
+    );
+
+  return {
+    requestedContext:
+      toStringValue(result.context) ||
+      toStringValue(result.requested_context) ||
+      toStringValue(firstContext?.requested_context) ||
+      toStringValue(params.context) ||
+      "auto",
+    selectedContext:
+      toStringValue(result.selected_context) ||
+      toStringValue(firstContext?.selected_context) ||
+      "",
+    backendId:
+      toStringValue(result.backend_id) ||
+      toStringValue(firstContext?.backend_id) ||
+      "",
+    currentTab: browserCurrentTabLabel(latestTab, result),
+    connectionState: browserConnectionState(result, runtime),
+    approvalState,
+    waitingApproval:
+      approvalState.toLowerCase() === "pending" ||
+      toStringValue(recovery.action) === "wait_for_approval" ||
+      toStringValue(result.error_code) === "approval_required",
+    blockerReason:
+      toStringValue(result.error_code) ||
+      toStringValue(result.error_outcome) ||
+      toStringValue(recovery.reason) ||
+      toStringValue(progress.reason),
+    recoveryHint:
+      toStringValue(result.recovery_hint) ||
+      toStringValue(params.recovery_hint),
+    progressDecision:
+      toStringValue(progress.status) || toStringValue(progress.reason),
+    progressLabel: browserProgressLabel(progress, recovery, runtime),
+    cleanupComplete: trace.some(
+      (event) => event.phase === "cleanup" && event.status === "ok",
+    ),
+    cleanupResult: browserCleanupResult(cleanup, trace),
+    eventCount: trace.length,
+    durationMs: duration,
+    artifacts: browserArtifacts(result.artifacts || params.artifacts),
+    trace,
+    diagnostics: result,
+  };
+}
+
+function browserCurrentTabLabel(
+  event: BrowserTraceEventPreview | undefined,
+  result: Record<string, unknown>,
+): string {
+  const resultTab = asRecord(result.current_tab);
+  const tabId =
+    toStringValue(resultTab.tab_id) ||
+    toStringValue(result.tab_id) ||
+    toStringValue(event?.tab_id);
+  const domain =
+    toStringValue(resultTab.domain) ||
+    toStringValue(result.domain) ||
+    toStringValue(event?.domain);
+  const url =
+    toStringValue(resultTab.url) ||
+    toStringValue(result.url) ||
+    toStringValue(event?.url);
+  const title =
+    toStringValue(resultTab.title) ||
+    toStringValue(result.title) ||
+    toStringValue(event?.title);
+  const primary = domain || title || url || tabId;
+  if (!primary) return "-";
+  return tabId && primary !== tabId ? `${primary} (${tabId})` : primary;
+}
+
+function browserConnectionState(
+  result: Record<string, unknown>,
+  runtime: Record<string, unknown>,
+): string {
+  return (
+    toStringValue(result.connection_state) ||
+    toStringValue(runtime.status) ||
+    (result.ok === true ? "connected" : "") ||
+    (result.ok === false ? "error" : "") ||
+    "-"
+  );
+}
+
+function browserProgressLabel(
+  progress: Record<string, unknown>,
+  recovery: Record<string, unknown>,
+  runtime: Record<string, unknown>,
+): string {
+  const count = toNumberValue(progress.count);
+  const threshold = toNumberValue(progress.threshold);
+  const budget =
+    count != null && threshold != null ? ` (${count}/${threshold})` : "";
+  const label =
+    toStringValue(progress.recommended_next_action) ||
+    toStringValue(recovery.required_next_step) ||
+    toStringValue(progress.recovery_hint) ||
+    toStringValue(progress.reason) ||
+    toStringValue(runtime.category) ||
+    toStringValue(runtime.status);
+  return label ? `${label}${budget}` : "-";
+}
+
+function browserCleanupResult(
+  cleanup: Record<string, unknown>,
+  trace: BrowserTraceEventPreview[],
+): string {
+  const explicit =
+    toStringValue(cleanup.cleanup_result) ||
+    toStringValue(cleanup.last_cleanup_reason) ||
+    toStringValue(cleanup.status);
+  if (explicit) return explicit;
+  const cleanupEvent = [...trace]
+    .reverse()
+    .find((event) => event.phase === "cleanup");
+  if (!cleanupEvent) return "-";
+  return cleanupEvent.status || cleanupEvent.action || "-";
+}
+
+export function browserRouteSummary(evidence: BrowserEvidenceMetadata): string {
+  if (evidence.selectedContext) {
+    return `${evidence.requestedContext} -> ${evidence.selectedContext}`;
+  }
+  return evidence.requestedContext;
+}
+
+export function browserBlockerSummary(
+  evidence: BrowserEvidenceMetadata,
+): string {
+  if (evidence.blockerReason) {
+    return `Blocked: ${evidence.blockerReason}`;
+  }
+  if (evidence.progressDecision === "no_progress") {
+    return "Blocked: no progress";
+  }
+  return "No blocker";
+}
+
+export function browserDurationLabel(durationMs: number | null): string {
+  if (durationMs == null) return "-";
+  return `${Math.round(durationMs)} ms`;
 }
 
 function isMemorySearchResultItem(

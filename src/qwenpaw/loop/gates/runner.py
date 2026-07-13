@@ -118,6 +118,7 @@ async def run_stop_handlers(
                 return StopHandlerResult(
                     action=StopAction.TERMINATE,
                     reason=result.get("reason", ""),
+                    final_message=result.get("final_message", ""),
                 )
             if action in ("continue", "block"):
                 return StopHandlerResult(
@@ -145,10 +146,13 @@ def apply_stop_result(  # pylint: disable=protected-access
     actions to next iteration.
     """
     if is_tool_call:
-        if stop_result.action == StopAction.TERMINATE and stop_result.reason:
+        if stop_result.action == StopAction.TERMINATE and (
+            stop_result.reason or stop_result.final_message
+        ):
             logger.info(
-                "Gate wants stop (deferred): %s",
+                "Gate wants stop (deferred): %s %s",
                 stop_result.reason,
+                stop_result.final_message,
             )
             agent._gate_pending_stop = stop_result
         elif (
@@ -175,8 +179,9 @@ def check_pending_gates(  # pylint: disable=protected-access
     if pending is not None:
         agent._gate_pending_stop = None
         logger.info(
-            "Gate pending stop applied: %s",
+            "Gate pending stop applied: %s %s",
             pending.reason,
+            pending.final_message,
         )
         return pending
 

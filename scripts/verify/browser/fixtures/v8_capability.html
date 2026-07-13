@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>V8 Browser SDK Capability Fixture</title>
+    <style>
+      body {
+        background: #f8fafc;
+        color: #17202a;
+        font-family:
+          Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        margin: 0;
+      }
+
+      main {
+        max-width: 920px;
+        margin: 0 auto;
+        padding: 28px 20px 44px;
+      }
+
+      section {
+        background: #fff;
+        border: 1px solid #d7dde5;
+        margin-top: 16px;
+        padding: 16px;
+      }
+
+      button,
+      input {
+        font: inherit;
+      }
+
+      button {
+        background: #1769aa;
+        border: 0;
+        color: #fff;
+        cursor: pointer;
+        font-weight: 600;
+        padding: 8px 12px;
+      }
+
+      input {
+        border: 1px solid #bac4d0;
+        padding: 8px;
+      }
+
+      iframe {
+        border: 1px solid #bac4d0;
+        height: 96px;
+        margin-top: 10px;
+        width: 100%;
+      }
+
+      canvas {
+        border: 1px solid #bac4d0;
+        display: block;
+        margin-top: 10px;
+      }
+
+      .status {
+        color: #256d3c;
+        font-weight: 700;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>V8 Browser SDK Capability Fixture</h1>
+
+      <section aria-label="Reset and state">
+        <button
+          data-testid="reset-v8-capability-fixture"
+          id="reset-v8-capability-fixture"
+        >
+          Reset fixture
+        </button>
+        <p class="status" data-testid="capability-mutation-count">
+          Mutations: 0
+        </p>
+      </section>
+
+      <section aria-label="Upload">
+        <h2>Upload</h2>
+        <input
+          data-testid="capability-upload-input"
+          id="capability-upload-input"
+          type="file"
+        />
+        <p class="status" data-testid="capability-upload-status">
+          Upload pending.
+        </p>
+      </section>
+
+      <section aria-label="Download">
+        <h2>Download</h2>
+        <button data-testid="capability-download" id="capability-download">
+          Download report
+        </button>
+        <p class="status" data-testid="capability-download-status">
+          Download pending.
+        </p>
+      </section>
+
+      <section aria-label="Dialog">
+        <h2>Dialog</h2>
+        <button data-testid="capability-open-dialog" id="capability-open-dialog">
+          Open confirm dialog
+        </button>
+        <p class="status" data-testid="capability-dialog-status">
+          Dialog pending.
+        </p>
+        <button data-testid="capability-open-prompt" id="capability-open-prompt">
+          Open prompt dialog
+        </button>
+        <p class="status" data-testid="capability-prompt-status">
+          Prompt pending.
+        </p>
+      </section>
+
+      <section aria-label="Visual fallback">
+        <h2>Visual fallback</h2>
+        <canvas
+          data-testid="capability-visual-canvas"
+          id="capability-visual-canvas"
+          width="320"
+          height="96"
+        ></canvas>
+        <p class="status" data-testid="capability-visual-status">
+          Visual canvas ready.
+        </p>
+      </section>
+
+      <section aria-label="Iframe">
+        <h2>Iframe</h2>
+        <button data-testid="capability-frame-trigger" id="frame-trigger">
+          Ping iframe
+        </button>
+        <p class="status" data-testid="capability-frame-status">
+          Frame waiting.
+        </p>
+        <iframe
+          data-testid="capability-frame"
+          id="capability-frame"
+          title="V8 capability frame"
+          srcdoc="<p data-testid='frame-message' id='frame-message'>Frame ready.</p><script>window.addEventListener('message', function(event) { document.getElementById('frame-message').textContent = 'Frame received capability ping.'; event.source.postMessage('frame-pong', '*'); });</script>"
+        ></iframe>
+      </section>
+
+      <section aria-label="Shadow DOM">
+        <h2>Shadow DOM</h2>
+        <div data-testid="capability-shadow-host" id="shadow-host"></div>
+        <p class="status" data-testid="capability-shadow-status">
+          Shadow pending.
+        </p>
+      </section>
+    </main>
+
+    <script>
+      const state = {
+        mutations: 0,
+      };
+
+      function status(testId, text) {
+        const node = document.querySelector(`[data-testid="${testId}"]`);
+        if (node) {
+          node.textContent = text;
+        }
+      }
+
+      function recordMutation() {
+        state.mutations += 1;
+        status("capability-mutation-count", `Mutations: ${state.mutations}`);
+      }
+
+      function resetFixture() {
+        state.mutations = 0;
+        document.getElementById("capability-upload-input").value = "";
+        status("capability-upload-status", "Upload pending.");
+        status("capability-download-status", "Download pending.");
+        status("capability-dialog-status", "Dialog pending.");
+        status("capability-prompt-status", "Prompt pending.");
+        status("capability-frame-status", "Frame waiting.");
+        status("capability-shadow-status", "Shadow pending.");
+        status("capability-visual-status", "Visual canvas ready.");
+        status("capability-mutation-count", "Mutations: 0");
+        renderShadow(false);
+        renderVisualCanvas();
+      }
+
+      function renderShadow(active) {
+        const host = document.getElementById("shadow-host");
+        const root = host.shadowRoot || host.attachShadow({ mode: "open" });
+        root.innerHTML = `
+          <button data-testid="capability-shadow-toggle" id="shadow-toggle">
+            Toggle shadow state
+          </button>
+          <p data-testid="capability-shadow-text">
+            Shadow state: ${active ? "active" : "pending"}
+          </p>
+        `;
+        root.getElementById("shadow-toggle").addEventListener("click", () => {
+          status("capability-shadow-status", "Shadow toggled active.");
+          recordMutation();
+          renderShadow(true);
+        });
+      }
+
+      document
+        .getElementById("reset-v8-capability-fixture")
+        .addEventListener("click", resetFixture);
+
+      document
+        .getElementById("capability-upload-input")
+        .addEventListener("change", (event) => {
+          const file = event.target.files && event.target.files[0];
+          status(
+            "capability-upload-status",
+            file ? `Upload received: ${file.name}` : "Upload pending.",
+          );
+          recordMutation();
+        });
+
+      document
+        .getElementById("capability-download")
+        .addEventListener("click", () => {
+          const blob = new Blob(["v8 capability download"], {
+            type: "text/plain",
+          });
+          const url = URL.createObjectURL(blob);
+          const anchor = document.createElement("a");
+          anchor.href = url;
+          anchor.download = "v8-capability-download.txt";
+          document.body.appendChild(anchor);
+          anchor.click();
+          anchor.remove();
+          URL.revokeObjectURL(url);
+          status("capability-download-status", "Download triggered.");
+          recordMutation();
+        });
+
+      document
+        .getElementById("capability-open-dialog")
+        .addEventListener("click", () => {
+          if (window.confirm("Accept V8 browser capability dialog?")) {
+            status("capability-dialog-status", "Dialog accepted.");
+            recordMutation();
+          } else {
+            status("capability-dialog-status", "Dialog dismissed.");
+          }
+        });
+
+      document
+        .getElementById("capability-open-prompt")
+        .addEventListener("click", () => {
+          const value = window.prompt("Enter V9-D prompt text", "");
+          status(
+            "capability-prompt-status",
+            value ? `Prompt received: ${value}` : "Prompt dismissed.",
+          );
+          if (value) recordMutation();
+        });
+
+      function renderVisualCanvas() {
+        const canvas = document.getElementById("capability-visual-canvas");
+        const context = canvas.getContext("2d");
+        context.fillStyle = "#f8fafc";
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        context.fillStyle = "#1769aa";
+        context.fillRect(12, 18, 296, 44);
+        context.fillStyle = "#ffffff";
+        context.font = "20px sans-serif";
+        context.fillText("V9-D visual fallback", 32, 47);
+        context.fillStyle = "#256d3c";
+        context.fillText("SDK screenshot evidence", 32, 78);
+      }
+
+      document.getElementById("frame-trigger").addEventListener("click", () => {
+        const frame = document.getElementById("capability-frame");
+        frame.contentWindow.postMessage("frame-ping", "*");
+        status("capability-frame-status", "Frame ping sent.");
+        recordMutation();
+      });
+
+      window.addEventListener("message", (event) => {
+        if (event.data === "frame-pong") {
+          status("capability-frame-status", "Frame pong received.");
+        }
+      });
+
+      renderShadow(false);
+      renderVisualCanvas();
+    </script>
+  </body>
+</html>

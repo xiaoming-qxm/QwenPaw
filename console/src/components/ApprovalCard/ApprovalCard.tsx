@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { Button, Card, Tag, Typography, Space, Tooltip } from "antd";
-import { Shield, Check, X, Clock, Copy, Info, AlertCircle } from "lucide-react";
+import { Shield, Check, X, Clock, Copy, AlertCircle } from "lucide-react";
 import type { ToolExecutionLevel } from "../../utils/approval";
 import { useTranslation } from "react-i18next";
 import { useAgentStore } from "../../stores/agentStore";
@@ -8,6 +8,23 @@ import { getAgentDisplayName } from "../../utils/agentDisplayName";
 import styles from "./ApprovalCard.module.less";
 
 const { Text } = Typography;
+const REDACTED = "[REDACTED]";
+const SENSITIVE_PARAM_KEYS = [
+  "authorization",
+  "cookie",
+  "credential",
+  "otp",
+  "password",
+  "secret",
+  "token",
+];
+const SENSITIVE_EXACT_PARAM_KEYS = [
+  "file_path",
+  "file_paths",
+  "files",
+  "prompt_text",
+  "text",
+];
 
 export interface ApprovalCardProps {
   requestId: string;
@@ -17,6 +34,7 @@ export interface ApprovalCardProps {
   findingsCount: number;
   findingsSummary: string;
   toolParams: Record<string, unknown>;
+  approvalBrief?: ApprovalBrief;
   createdAt: number;
   timeoutSeconds: number;
   agentId: string;
@@ -36,6 +54,19 @@ export interface ApprovalCardProps {
   onAcknowledge?: (requestId: string) => Promise<void>;
 }
 
+export interface ApprovalBrief {
+  subject?: string;
+  target?: string;
+  evidence?: Record<string, unknown>;
+  uncertainties?: string[];
+  possible_consequences?: string[];
+  risk_kind?: string;
+  risk_level?: string;
+  confidence?: number;
+  why_approval_required?: string;
+  safe_alternative?: string;
+}
+
 export function ApprovalCard({
   requestId,
   toolName,
@@ -44,6 +75,7 @@ export function ApprovalCard({
   findingsCount,
   findingsSummary,
   toolParams,
+  approvalBrief,
   createdAt,
   timeoutSeconds,
   agentId,
@@ -57,7 +89,7 @@ export function ApprovalCard({
   executionLevel,
   onApprove,
   onDeny,
-  onCancel: _onCancel,
+  onCancel,
   onAcknowledge,
 }: ApprovalCardProps) {
   const { t } = useTranslation();
@@ -72,6 +104,20 @@ export function ApprovalCard({
   >(null);
   const [remaining, setRemaining] = useState<number>(timeoutSeconds);
   const [copiedField, setCopiedField] = useState<string | null>(null);
+  const redactedToolParams = useMemo(
+    () => redactSensitiveParams(toolParams),
+    [toolParams],
+  );
+  const browserApproval = useMemo(
+    () => browserApprovalSummary(toolParams),
+    [toolParams],
+  );
+  const exactOnlyApproval = toolParams.scope_policy === "exact_only";
+  const canApproveSimilar = Boolean(isGeneralized && !exactOnlyApproval);
+  const redactedApprovalBrief = useMemo(
+    () => approvalBriefSummary(approvalBrief),
+    [approvalBrief],
+  );
 
   const handleCopy = useCallback(async (text: string, field: string) => {
     try {
@@ -126,16 +172,9 @@ export function ApprovalCard({
   const handleApprove = async (scope?: "exact" | "similar") => {
     const loadingKey =
       scope === "similar" ? "approve-pattern" : "approve-exact";
-    console.log(
-      "[ApprovalCard] Approve button clicked:",
-      requestId,
-      "scope:",
-      scope,
-    );
     setLoading(loadingKey);
     try {
       await onApprove(requestId, scope);
-      console.log("[ApprovalCard] onApprove completed");
     } catch (err) {
       console.error("[ApprovalCard] onApprove failed:", err);
     } finally {
@@ -257,7 +296,7 @@ export function ApprovalCard({
           </div>
         )}
 
-        {isGeneralized && (exactTarget || similarTarget) && (
+        {canApproveSimilar && (exactTarget || similarTarget) && (
           <div className={styles.scopeSection}>
             <Text className={styles.scopeLabel}>
               {t("approval.approvalScope", "Approval scope")}:
@@ -292,50 +331,171 @@ export function ApprovalCard({
           </div>
         )}
 
-        {toolParams && Object.keys(toolParams).length > 0 && (
-          <details className={styles.paramsDetails}>
-            <summary className={styles.paramsSummary}>
-              {t("approval.parameters", "Parameters")}
-            </summary>
-            <div className={styles.paramsCodeWrapper}>
-              <pre className={styles.paramsCode}>
-                {JSON.stringify(toolParams, null, 2)}
-              </pre>
-              <button
-                className={`${styles.copyButton} ${
-                  copiedField === "params" ? styles.copied : ""
-                }`}
-                onClick={() =>
-                  handleCopy(JSON.stringify(toolParams, null, 2), "params")
-                }
-                title={t("common.copy", "Copy")}
-              >
-                <Copy size={12} />
-              </button>
-            </div>
-          </details>
+        {findingsSummary && (
+          <div className={styles.summaryBox}>
+            <Text className={styles.summaryText}>{findingsSummary}</Text>
+            <button
+              className={`${styles.copyButton} ${
+                copiedField === "summary" ? styles.copied : ""
+              }`}
+              onClick={() => handleCopy(findingsSummary, "summary")}
+              title={t("common.copy", "Copy")}
+            >
+              <Copy size={12} />
+            </button>
+          </div>
         )}
 
-        {findingsSummary && (
-          <details className={styles.detailsSection}>
-            <summary className={styles.detailsSummary}>
-              <Info size={12} />
-              {t("approval.details", "Details")}
-            </summary>
-            <div className={styles.detailsContent}>
-              <pre className={styles.detailsText}>{findingsSummary}</pre>
-              <button
-                className={`${styles.copyButton} ${
-                  copiedField === "details" ? styles.copied : ""
-                }`}
-                onClick={() => handleCopy(findingsSummary, "details")}
-                title={t("common.copy", "Copy")}
-              >
-                <Copy size={12} />
-              </button>
+        {redactedApprovalBrief ? (
+          <div className={styles.approvalBrief}>
+            <div className={styles.approvalBriefTitle}>
+              {t("approval.decisionBrief", "Decision brief")}
             </div>
-          </details>
-        )}
+            <div className={styles.browserApprovalGrid}>
+              <BrowserField
+                label={t("approval.briefSubject", "Subject")}
+                value={redactedApprovalBrief.subject}
+              />
+              <BrowserField
+                label={t("approval.briefTarget", "Target")}
+                value={redactedApprovalBrief.target}
+              />
+              <BrowserField
+                label={t("approval.briefRisk", "Risk")}
+                value={redactedApprovalBrief.risk}
+              />
+              <BrowserField
+                label={t("approval.briefConfidence", "Confidence")}
+                value={redactedApprovalBrief.confidence}
+              />
+            </div>
+            {redactedApprovalBrief.whyApprovalRequired ? (
+              <BrowserField
+                label={t(
+                  "approval.whyApprovalRequired",
+                  "Why approval is required",
+                )}
+                value={redactedApprovalBrief.whyApprovalRequired}
+              />
+            ) : null}
+            {redactedApprovalBrief.evidenceRows.length ? (
+              <div className={styles.browserKwargs}>
+                <div className={styles.browserKwargsTitle}>
+                  {t("approval.briefEvidence", "Evidence")}
+                </div>
+                {redactedApprovalBrief.evidenceRows.map((row) => (
+                  <BrowserField
+                    key={row.path}
+                    label={row.path}
+                    value={row.value}
+                  />
+                ))}
+              </div>
+            ) : null}
+            {redactedApprovalBrief.consequences.length ? (
+              <BriefList
+                title={t("approval.possibleConsequences", "Consequences")}
+                items={redactedApprovalBrief.consequences}
+              />
+            ) : null}
+            {redactedApprovalBrief.uncertainties.length ? (
+              <BriefList
+                title={t("approval.uncertainties", "Uncertainties")}
+                items={redactedApprovalBrief.uncertainties}
+              />
+            ) : null}
+            {redactedApprovalBrief.safeAlternative ? (
+              <BrowserField
+                label={t("approval.safeAlternative", "Safe alternative")}
+                value={redactedApprovalBrief.safeAlternative}
+              />
+            ) : null}
+          </div>
+        ) : null}
+
+        {browserApproval ? (
+          <div className={styles.browserApproval}>
+            <div className={styles.browserApprovalTitle}>
+              {t("approval.browserAction", "Browser action")}
+            </div>
+            <div className={styles.browserApprovalGrid}>
+              <BrowserField
+                label={t("approval.browserDomain", "Domain")}
+                value={browserApproval.domain}
+              />
+              <BrowserField
+                label={t("approval.browserUrl", "URL")}
+                value={browserApproval.url}
+              />
+              <BrowserField
+                label={t("approval.browserActionName", "Action")}
+                value={browserApproval.action}
+              />
+              <BrowserField
+                label={t("approval.browserRisk", "Risk")}
+                value={`${browserApproval.riskKind} / ${browserApproval.riskLevel}`}
+              />
+            </div>
+            {browserApproval.title ? (
+              <BrowserField
+                label={t("approval.browserTitle", "Title")}
+                value={browserApproval.title}
+              />
+            ) : null}
+            {browserApproval.expectedStateChange ? (
+              <BrowserField
+                label={t(
+                  "approval.browserExpectedStateChange",
+                  "Expected state change",
+                )}
+                value={browserApproval.expectedStateChange}
+              />
+            ) : null}
+            {browserApproval.kwargsRows.length ? (
+              <div className={styles.browserKwargs}>
+                <div className={styles.browserKwargsTitle}>
+                  {t("approval.browserArguments", "Arguments")}
+                </div>
+                {browserApproval.kwargsRows.map((row) => (
+                  <BrowserField
+                    key={row.path}
+                    label={row.path}
+                    value={row.value}
+                  />
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+        {!browserApproval &&
+          toolParams &&
+          Object.keys(toolParams).length > 0 && (
+            <details className={styles.paramsDetails}>
+              <summary className={styles.paramsSummary}>
+                {t("approval.parameters", "Parameters")}
+              </summary>
+              <div className={styles.paramsCodeWrapper}>
+                <pre className={styles.paramsCode}>
+                  {JSON.stringify(redactedToolParams, null, 2)}
+                </pre>
+                <button
+                  className={`${styles.copyButton} ${
+                    copiedField === "params" ? styles.copied : ""
+                  }`}
+                  onClick={() =>
+                    handleCopy(
+                      JSON.stringify(redactedToolParams, null, 2),
+                      "params",
+                    )
+                  }
+                  title={t("common.copy", "Copy")}
+                >
+                  <Copy size={12} />
+                </button>
+              </div>
+            </details>
+          )}
       </div>
 
       <div className={styles.actions}>
@@ -357,6 +517,17 @@ export function ApprovalCard({
           </>
         ) : (
           <>
+            {onCancel && (
+              <Button
+                type="default"
+                onClick={() => {
+                  onCancel();
+                }}
+                disabled={loading !== null}
+              >
+                {t("approval.cancelTask", "Cancel Task")}
+              </Button>
+            )}
             <Button
               danger
               icon={<X size={14} />}
@@ -367,7 +538,17 @@ export function ApprovalCard({
             >
               {t("approval.deny", "Deny")}
             </Button>
-            {isGeneralized ? (
+            {exactOnlyApproval ? (
+              <Button
+                type="primary"
+                icon={<Check size={14} />}
+                onClick={() => handleApprove("exact")}
+                loading={loading === "approve-exact"}
+                disabled={loading !== null}
+              >
+                {t("approval.approveExact", "Approve Exact")}
+              </Button>
+            ) : canApproveSimilar ? (
               <>
                 <Button
                   onClick={() => handleApprove("exact")}
@@ -418,4 +599,163 @@ export function ApprovalCard({
       </div>
     </Card>
   );
+}
+
+function BrowserField({ label, value }: { label: string; value: string }) {
+  return (
+    <div className={styles.browserField}>
+      <span className={styles.browserFieldLabel}>{label}</span>
+      <span className={styles.browserFieldValue}>{value || "-"}</span>
+    </div>
+  );
+}
+
+function BriefList({ title, items }: { title: string; items: string[] }) {
+  return (
+    <div className={styles.briefList}>
+      <div className={styles.briefListTitle}>{title}</div>
+      <ul>
+        {items.map((item) => (
+          <li key={item}>{item}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+interface BrowserApprovalSummary {
+  domain: string;
+  url: string;
+  title: string;
+  action: string;
+  riskKind: string;
+  riskLevel: string;
+  expectedStateChange: string;
+  kwargsRows: { path: string; value: string }[];
+}
+
+interface ApprovalBriefSummary {
+  subject: string;
+  target: string;
+  risk: string;
+  confidence: string;
+  whyApprovalRequired: string;
+  safeAlternative: string;
+  consequences: string[];
+  uncertainties: string[];
+  evidenceRows: { path: string; value: string }[];
+}
+
+function approvalBriefSummary(
+  brief: ApprovalBrief | undefined,
+): ApprovalBriefSummary | null {
+  if (!brief || !isRecord(brief)) {
+    return null;
+  }
+  const evidence = isRecord(brief.evidence)
+    ? redactSensitiveParams(brief.evidence)
+    : {};
+  return {
+    subject: asString(brief.subject),
+    target: asString(brief.target),
+    risk: `${asString(brief.risk_kind) || "unknown"} / ${
+      asString(brief.risk_level) || "unknown"
+    }`,
+    confidence:
+      typeof brief.confidence === "number"
+        ? `${Math.round(brief.confidence * 100)}%`
+        : "",
+    whyApprovalRequired: asString(brief.why_approval_required),
+    safeAlternative: asString(brief.safe_alternative),
+    consequences: stringList(brief.possible_consequences),
+    uncertainties: stringList(brief.uncertainties),
+    evidenceRows: flattenPreviewRows(evidence),
+  };
+}
+
+function stringList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.map(asString).filter(Boolean);
+}
+
+function browserApprovalSummary(
+  params: Record<string, unknown>,
+): BrowserApprovalSummary | null {
+  const action = asString(params.action);
+  const risk = isRecord(params.risk) ? params.risk : {};
+  if (!action || !Object.keys(risk).length) {
+    return null;
+  }
+  const kwargs = isRecord(params.kwargs)
+    ? redactSensitiveParams(params.kwargs)
+    : {};
+  return {
+    domain: asString(params.domain),
+    url: asString(params.url),
+    title: asString(params.title),
+    action,
+    riskKind: asString(risk.kind) || "unknown_sensitive",
+    riskLevel: asString(risk.level) || "unknown",
+    expectedStateChange: asString(params.expected_state_change),
+    kwargsRows: flattenPreviewRows(kwargs),
+  };
+}
+
+function flattenPreviewRows(
+  value: unknown,
+  prefix = "",
+): { path: string; value: string }[] {
+  if (!isRecord(value)) {
+    return prefix ? [{ path: prefix, value: previewValue(value) }] : [];
+  }
+  return Object.entries(value).flatMap(([key, item]) => {
+    const path = prefix ? `${prefix}.${key}` : key;
+    if (isRecord(item)) {
+      return flattenPreviewRows(item, path);
+    }
+    if (Array.isArray(item)) {
+      return [{ path, value: item.map(previewValue).join(", ") }];
+    }
+    return [{ path, value: previewValue(item) }];
+  });
+}
+
+function previewValue(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  return JSON.stringify(value);
+}
+
+function redactSensitiveParams(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(redactSensitiveParams);
+  }
+  if (!isRecord(value)) {
+    return value;
+  }
+  return Object.fromEntries(
+    Object.entries(value).map(([key, item]) => [
+      key,
+      isSensitiveParamKey(key) ? REDACTED : redactSensitiveParams(item),
+    ]),
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function isSensitiveParamKey(key: string): boolean {
+  const lowered = key.toLowerCase();
+  if (SENSITIVE_EXACT_PARAM_KEYS.includes(lowered)) {
+    return true;
+  }
+  return SENSITIVE_PARAM_KEYS.some((token) => lowered.includes(token));
+}
+
+function asString(value: unknown): string {
+  return typeof value === "string" ? value : "";
 }

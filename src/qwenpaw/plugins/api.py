@@ -180,7 +180,7 @@ class PluginApi:  # pylint: disable=too-many-public-methods
         self,
         plugin_id: str,
         config: Dict[str, Any],
-        manifest: Dict[str, Any] = None,
+        manifest: Optional[Dict[str, Any]] = None,
     ):
         """Initialize plugin API.
 
@@ -397,8 +397,9 @@ class PluginApi:  # pylint: disable=too-many-public-methods
         *,
         prefix: str,
         tags: Optional[List[str]] = None,
+        under_api: bool = True,
     ) -> None:
-        """Expose REST endpoints under ``/api`` + *prefix*.
+        """Expose HTTP endpoints under ``/api`` + *prefix* by default.
 
         Use a FastAPI ``APIRouter`` with route decorators such as
         ``@router.get("/")`` so that with ``prefix="/pets"`` the handler
@@ -409,6 +410,9 @@ class PluginApi:  # pylint: disable=too-many-public-methods
             router: ``fastapi.APIRouter`` instance
             prefix: Path under ``/api``, e.g. ``"/pets"``
             tags: Optional OpenAPI tags for these routes
+            under_api: When false, mount at *prefix* directly.  This is
+                intended for protocol endpoints such as WebSockets that are
+                consumed outside the REST API namespace.
 
         Raises:
             RuntimeError: If the registry has no HTTP parent router.
@@ -420,6 +424,7 @@ class PluginApi:  # pylint: disable=too-many-public-methods
                 router,
                 prefix=prefix,
                 tags=tags,
+                under_api=under_api,
             )
 
     def register_control_command(
@@ -654,6 +659,18 @@ class PluginApi:  # pylint: disable=too-many-public-methods
             ...         icon="🔧",
             ...     )
         """
+        import inspect
+
+        from ..runtime.tool_registry import ToolDescriptor
+
+        descriptor = ToolDescriptor(
+            name=tool_name,
+            func=tool_func,
+            enabled_by_default=enabled,
+            async_execution=inspect.iscoroutinefunction(tool_func),
+            description=description,
+            metadata={"plugin_id": self.plugin_id, "icon": icon},
+        )
 
         def _startup_register():
             try:
@@ -690,6 +707,18 @@ class PluginApi:  # pylint: disable=too-many-public-methods
         self.register_startup_hook(
             hook_name=(f"register_tool_{self.plugin_id}_{tool_name}"),
             callback=_startup_register,
+            priority=50,
+        )
+        self.register_workspace_created_hook(
+            hook_name=f"register_tool_ws_{self.plugin_id}_{tool_name}",
+            callback=(
+                lambda workspace_info: (
+                    self._register_tool_descriptor_to_workspace(
+                        descriptor,
+                        workspace_info,
+                    )
+                )
+            ),
             priority=50,
         )
         logger.info(
@@ -1066,6 +1095,44 @@ class PluginApi:  # pylint: disable=too-many-public-methods
         except (TypeError, ValueError) as exc:
             logger.debug(
                 f"Hook registration issue: {exc}",
+            )
+
+    def _register_tool_descriptor_to_all_workspaces(self, desc):
+        """Register a ToolDescriptor to all existing workspaces."""
+        for ws in self._get_all_workspaces():
+            self._attach_tool_descriptor(ws, desc)
+
+    def _register_tool_descriptor_to_workspace(
+        self,
+        desc,
+        workspace_info: dict,
+    ):
+        """Register a ToolDescriptor to a specific workspace."""
+        ws = self._get_workspace_from_info(workspace_info)
+        if ws is None:
+            return
+        self._attach_tool_descriptor(ws, desc)
+
+    @staticmethod
+    def _attach_tool_descriptor(ws, desc):
+        """Attach a tool descriptor to a workspace registry if absent."""
+        registry = getattr(getattr(ws, "plugins", None), "tool_registry", None)
+        if registry is None:
+            return
+        existing = registry.get(desc.name)
+        if existing is not None:
+            if existing.func is not desc.func:
+                logger.warning(
+                    "Tool '%s' already registered with a different "
+                    "callable; plugin descriptor skipped",
+                    desc.name,
+                )
+            return
+        try:
+            registry.register(desc)
+        except ValueError as exc:
+            logger.debug(
+                f"Tool descriptor already registered: {exc}",
             )
 
     def _register_stop_handler_to_all_workspaces(self, reg):

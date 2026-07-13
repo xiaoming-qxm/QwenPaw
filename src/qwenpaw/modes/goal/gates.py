@@ -113,15 +113,20 @@ class GoalTurnGate(LoopGate):
 
         session.iteration += 1
         _update_goal_tokens(session, ctx)
+        max_iterations = _session_max_iterations(
+            session,
+            self._max_iterations,
+        )
+
         logger.debug(
             "GoalTurn: iter=%d/%d tokens=%d/%d",
             session.iteration,
-            self._max_iterations,
+            max_iterations,
             session.tokens_used,
             session.max_tokens,
         )
 
-        if session.iteration >= self._max_iterations:
+        if session.iteration >= max_iterations:
             session.active = False
             return StopHandlerResult(
                 action=StopAction.TERMINATE,
@@ -150,6 +155,14 @@ class GoalTurnGate(LoopGate):
             token_budget=session.max_tokens,
             remaining_tokens=remaining,
         )
+
+
+def _session_max_iterations(session: Any, fallback: int) -> int:
+    try:
+        value = int(getattr(session, "max_iterations", fallback))
+    except (TypeError, ValueError):
+        value = fallback
+    return max(1, value)
 
 
 class GoalBudgetGate(LoopGate):

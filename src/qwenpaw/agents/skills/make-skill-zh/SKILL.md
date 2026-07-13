@@ -237,7 +237,8 @@ batch 的补充参考（见 2c），不是主要执行指令。
 
   `${steps.<index>.<path>}` 不只用于脚本调用——任何工具的参数都可以
   引用前面步骤的输出。例如将 `read_file` 的结果传给 `write_file`，
-  或将 `browser_use` snapshot 的内容传给 `execute_shell_command`。
+  或将 `browser` 工具步骤得到的 Browser SDK snapshot 文本传给
+  `execute_shell_command`。
 
   示例——获取浏览器 snapshot，用独立 Python 脚本提取包含关键词的
   内容并写入文件。其中 `${args.keyword}` 等是调用 `run_tool_batch`
@@ -265,8 +266,10 @@ batch 的补充参考（见 2c），不是主要执行指令。
   ```json
   [
     {
-      "tool_name": "browser_use",
-      "arguments": {"action": "snapshot"}
+      "tool_name": "browser",
+      "arguments": {
+        "code": "browser = await Browser.connect(context=\"auto\")\nopen_result = await browser.tabs.open(\"${args.url}\")\nif open_result.status not in {\"SUCCEEDED\", \"PARTIAL\"}:\n    return open_result\ntabs: list[TabSummary] = await browser.tabs.list()\ntab = await browser.tabs.select(open_result.opened_tabs[0])\nread_result = await tab.read(limit=100)\nprint(read_result.model_text)"
+      }
     },
     {
       "tool_name": "write_file",

@@ -22,6 +22,9 @@ function pickSelectedKey(
   currentPath: string,
   routes: ReturnType<typeof useRoutes>,
 ): string {
+  if (currentPath.startsWith("/plugin-manager/")) {
+    return "core.plugin-manager";
+  }
   for (const r of routes) {
     if (matchPath({ path: r.path, end: r.path === "/" }, currentPath)) {
       return r.id;

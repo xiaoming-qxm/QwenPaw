@@ -7,6 +7,8 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
+from qwenpaw.browser.sdk.runtime.session_owner import ContractMode
+
 
 class CancelReason(StrEnum):
     USER = "user"
@@ -29,6 +31,10 @@ class ToolCallContext:
     session_id: str
     agent_id: str
     root_session_id: str
+    root_task_id: str
+    browser_owner_id: str
+    contract_mode: ContractMode
+    lease_generation: int
 
     started_at: float
     deadline: float | None
@@ -42,6 +48,7 @@ class ToolCallContext:
 
     offload_reason: OffloadReason | None = None
     extra: dict[str, Any] = field(default_factory=dict)
+    request_context: dict[str, Any] = field(default_factory=dict)
     governance_metadata: dict[str, Any] = field(default_factory=dict)
 
     @property

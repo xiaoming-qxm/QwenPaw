@@ -2,8 +2,10 @@
 # pylint: disable=redefined-outer-name,unused-argument
 import inspect
 import asyncio
+import json
 import mimetypes
 import os
+import subprocess
 import sys
 import time
 import uuid
@@ -50,10 +52,14 @@ from ..envs import load_envs_into_environ
 from ..providers.provider_manager import ProviderManager
 from ..local_models.manager import LocalModelManager
 from .migration import (
+    migrate_browser_contract_rollout_config,
     migrate_legacy_workspace_to_default_agent,
     migrate_legacy_skills_to_skill_pool,
     ensure_default_agent_exists,
     ensure_qa_agent_exists,
+)
+from ..runtime.root_request_coordinator import (
+    initialize_browser_contract_rollout,
 )
 
 # Apply log level on load so reload child process gets same level as CLI.
@@ -71,6 +77,59 @@ mimetypes.add_type("image/svg+xml", ".svg")
 # Load persisted env vars into os.environ at module import time
 # so they are available before the lifespan starts.
 load_envs_into_environ()
+
+
+def _bundled_plugins_dir() -> Path:
+    """Return the source-tree or installed-wheel plugin directory."""
+    source_tree = Path(__file__).resolve().parents[3] / "plugins" / "bundle"
+    if source_tree.is_dir():
+        return source_tree
+    return Path(__file__).resolve().parents[1] / "_plugins" / "bundle"
+
+
+def _is_bundled_builtin_plugin(plugin_dir: Path) -> bool:
+    manifest_path = plugin_dir / "plugin.json"
+    if not manifest_path.is_file():
+        return False
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        logger.warning(
+            "Failed to read bundled plugin manifest: %s",
+            manifest_path,
+        )
+        return False
+    meta = manifest.get("meta")
+    return isinstance(meta, dict) and meta.get("builtin") is True
+
+
+def _bundled_builtin_plugin_dirs() -> list[Path]:
+    bundled_dir = _bundled_plugins_dir()
+    if not bundled_dir.is_dir():
+        return []
+    return [
+        item
+        for item in sorted(bundled_dir.iterdir())
+        if item.is_dir() and _is_bundled_builtin_plugin(item)
+    ]
+
+
+def _default_plugin_dirs() -> list[Path]:
+    """Return plugin discovery dirs in precedence order."""
+    from ..config.utils import get_plugins_dir
+
+    candidates = _bundled_builtin_plugin_dirs()
+    candidates.append(get_plugins_dir())
+
+    seen = set()
+    result = []
+    for candidate in candidates:
+        key = str(candidate.expanduser().resolve())
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(candidate)
+    return result
 
 
 # Dynamic runner that selects the correct workspace based on request
@@ -125,12 +184,28 @@ class DynamicMultiAgentRunner:
             )
 
             from ..runtime.runtime import Runtime
+            from ..runtime.root_request_coordinator import run_root_request
 
             rt = Runtime(
                 workspace=workspace,
                 app_services=self._app_services,
             )
-            async for item in rt.run(request):
+            trusted_root_session_id = str(
+                getattr(request, "session_id", "")
+                or (
+                    request.get("session_id", "")
+                    if isinstance(request, dict)
+                    else ""
+                )
+                or run_key,
+            )
+            async for item in run_root_request(
+                rt,
+                request,
+                trusted_root_session_id=trusted_root_session_id,
+                inherited_binding=kwargs.get("inherited_binding"),
+                resume_token=kwargs.get("resume_token"),
+            ):
                 yield item
         except Exception as e:
             logger.error(
@@ -204,6 +279,8 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
         )
 
     logger.debug("Checking for legacy config migration...")
+    migrate_browser_contract_rollout_config()
+    await initialize_browser_contract_rollout()
     migrate_legacy_workspace_to_default_agent()
     ensure_default_agent_exists()
     migrate_legacy_skills_to_skill_pool()
@@ -355,6 +432,9 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 ContextVarsSetupHook,
             )
             from ..hooks.request_setup.media_hook import MediaProcessHook
+            from ..hooks.browser_bridge_lifecycle import (
+                BrowserBridgeLifecycleCleanupHook,
+            )
             from ..hooks.error.error_hook import (
                 ErrorNormalizeHook,
                 CancelCleanupHook,
@@ -371,6 +451,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 SkillEnvHook,
                 SkillEnvCleanupHook,
                 ContextVarsSetupHook,
+                BrowserBridgeLifecycleCleanupHook,
                 MediaProcessHook,
                 ErrorNormalizeHook,
                 CancelCleanupHook,
@@ -468,11 +549,13 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
         if workspace_registry is not None:
             runner.set_workspace_registry(workspace_registry)
 
-    async def _get_agent_by_id(agent_id: str = None):
+    async def _get_agent_by_id(agent_id: str | None = None):
         """Get agent instance by ID, or active agent if not specified."""
         if agent_id is None:
             config = load_config(get_config_path())
             agent_id = config.agents.active_agent or "default"
+        if workspace_registry is None:
+            raise RuntimeError("Workspace registry is not initialized")
         return await workspace_registry.get_agent(agent_id)
 
     app.state.get_agent_by_id = _get_agent_by_id
@@ -504,11 +587,8 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
             from ..plugins.loader import PluginLoader
             from ..plugins.runtime import RuntimeHelpers
-            from ..config.utils import get_plugins_dir
 
-            plugin_dirs = [
-                get_plugins_dir(),
-            ]
+            plugin_dirs = _default_plugin_dirs()
 
             plugin_loader = PluginLoader(plugin_dirs)
 
@@ -747,8 +827,11 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 logger.error(f"Error stopping MultiAgentManager: {e}")
 
         # These three cleanup tasks are independent; run in parallel.
-        from ..agents.tools.browser_control import stop_all_browsers
         from ..agents.skill_system.hub import aclose_hub_client
+        from ..browser.sdk.backends.registry import (
+            shutdown_registered_browser_backends,
+        )
+        from ..browser.sdk.runtime.responses import stop_all_browsers
 
         async def _stop_token_usage():
             logger.info("Stopping TokenUsageManager...")
@@ -761,6 +844,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
         async def _stop_browsers():
             try:
+                await shutdown_registered_browser_backends()
                 await stop_all_browsers()
             except Exception as e:
                 logger.error(
@@ -871,7 +955,51 @@ def get_version():
     """Return the current application version (public-safe payload)."""
     return {
         "version": __version__,
+        **_freshness_payload(),
     }
+
+
+def _freshness_payload() -> dict[str, Any]:
+    return {
+        "git_commit": _git_output("rev-parse", "--short", "HEAD"),
+        "repo_dirty": bool(_git_output("status", "--short")),
+        "frontend_fingerprint": _frontend_fingerprint(),
+    }
+
+
+def _git_output(*args: str) -> str:
+    try:
+        result = subprocess.run(
+            ("git", *args),
+            cwd=Path(__file__).resolve().parents[3],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=0.5,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    if result.returncode != 0:
+        return ""
+    return result.stdout.strip()
+
+
+def _frontend_fingerprint() -> str:
+    static_dir = Path(_CONSOLE_STATIC_DIR)
+    index_path = static_dir / "index.html"
+    assets_dir = static_dir / "assets"
+    if assets_dir.is_dir():
+        names = sorted(
+            path.name
+            for path in assets_dir.iterdir()
+            if path.is_file() and path.suffix in {".js", ".css"}
+        )
+        if names:
+            return ",".join(names[:20])
+    if index_path.exists():
+        stat = index_path.stat()
+        return f"index:{int(stat.st_mtime)}:{stat.st_size}"
+    return ""
 
 
 @app.get("/api/doctor/runtime")

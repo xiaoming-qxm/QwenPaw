@@ -26,6 +26,8 @@ from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from ..browser.sdk.runtime.session_owner import ContractMode
+
 from ..exceptions import HookCycleError
 from .phases import Phase
 
@@ -89,6 +91,10 @@ class HookContext:
     session_id: str
     agent_id: str
     root_session_id: str
+    root_task_id: str
+    browser_owner_id: str
+    contract_mode: ContractMode
+    lease_generation: int
     root_agent_id: str
     workspace_dir: Path | None
 

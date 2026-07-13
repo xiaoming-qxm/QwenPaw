@@ -1268,6 +1268,13 @@ def create_model_and_formatter(
     return wrapped_model, formatter
 
 
+def build_provider_block_profile(model: Any, formatter: Any):
+    """Build the trusted Browser block profile for Agent construction."""
+    from .provider_blocks import build_provider_block_profile as build
+
+    return build(model, formatter)
+
+
 def _create_formatter_instance(
     model: ChatModelBase,
 ) -> FormatterBase:

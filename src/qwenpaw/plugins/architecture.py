@@ -139,6 +139,9 @@ class PluginManifest(BaseModel):
     min_version: str = "0.1.0"
     max_version: Optional[str] = None
     qwenpaw_version: Optional[QwenPawVersionConstraint] = None
+    icon: Optional[str] = None
+    capabilities: List[Dict[str, Any]] = Field(default_factory=list)
+    setup: Dict[str, Any] = Field(default_factory=dict)
     meta: Dict[str, Any] = Field(default_factory=dict)
     plugin_type: PluginType = PluginType.GENERAL
 

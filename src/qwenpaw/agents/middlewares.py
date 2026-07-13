@@ -546,6 +546,13 @@ class ToolResultPruningMiddleware(MiddlewareBase):
         return getattr(block, "text", "")
 
     @staticmethod
+    def _block_id(block: Any) -> str:
+        """Return the identifier attached to a result content block."""
+        if isinstance(block, dict):
+            return str(block.get("id", "") or "")
+        return str(getattr(block, "id", "") or "")
+
+    @staticmethod
     def _set_block_text(block: Any, text: str) -> None:
         if isinstance(block, dict):
             block["text"] = text
@@ -563,7 +570,12 @@ class ToolResultPruningMiddleware(MiddlewareBase):
         text_indices = [
             idx
             for idx, block in enumerate(blocks)
-            if self._block_type(block) == "text"
+            if (
+                self._block_type(block) == "text"
+                and not self._block_id(block).startswith(
+                    "qwenpaw-browser-terminal"
+                )
+            )
         ]
         if not text_indices:
             return

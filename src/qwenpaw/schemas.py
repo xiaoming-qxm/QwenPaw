@@ -200,11 +200,14 @@ class Message(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     id: str = Field(default_factory=lambda: uuid4().hex)
+    object: str = "message"
+    name: Optional[str] = None
     type: MessageType = MessageType.MESSAGE
     role: Optional[Role] = None
     content: List[Any] = Field(default_factory=list)
     status: RunStatus = RunStatus.InProgress
     metadata: Optional[Dict[str, Any]] = None
+    usage: Optional[Dict[str, Any]] = None
 
     @field_validator("content", mode="before")
     @classmethod
@@ -266,11 +269,15 @@ class AgentResponse(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     id: Optional[str] = None
+    object: str = "response"
+    session_id: Optional[str] = None
     output: List[Message] = Field(default_factory=list)
     status: RunStatus = RunStatus.Completed
     created_at: Optional[str] = None
     completed_at: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
+    usage: Optional[Dict[str, Any]] = None
+    error: Optional[Any] = None
 
 
 __all__ = [

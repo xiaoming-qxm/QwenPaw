@@ -22,7 +22,7 @@ class _HookPair:
     """Per-tool runtime metadata.
 
     ``max_internal_timeout_secs`` is set ONLY for tools whose internal
-    implementation has an unremovable hard cap (e.g. browser_use's
+    implementation has an unremovable hard cap (e.g. browser's
     Playwright protocol layer).
     """
 

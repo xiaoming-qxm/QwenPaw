@@ -7,6 +7,7 @@ Provides RESTful API for managing multiple agent instances.
 import json
 import logging
 from pathlib import Path
+from typing import cast
 from fastapi import APIRouter, Body, HTTPException, Request
 from fastapi import Path as PathParam
 from pydantic import BaseModel, field_validator
@@ -373,9 +374,11 @@ async def create_agent(
 async def update_agent(
     agentId: str = PathParam(...),
     agent_config: AgentProfileConfig = Body(...),
-    request: Request = None,
+    request: Request = cast(Request, None),
 ) -> AgentProfileConfig:
     """Update agent configuration."""
+    if request is None:
+        raise HTTPException(status_code=400, detail="Request is required")
     config = load_config()
 
     if agentId not in config.agents.profiles:
@@ -405,9 +408,11 @@ async def update_agent(
 )
 async def delete_agent(
     agentId: str = PathParam(...),
-    request: Request = None,
+    request: Request = cast(Request, None),
 ) -> dict:
     """Delete an agent."""
+    if request is None:
+        raise HTTPException(status_code=400, detail="Request is required")
     config = load_config()
 
     if agentId not in config.agents.profiles:
@@ -440,9 +445,11 @@ async def delete_agent(
 async def toggle_agent_enabled(
     agentId: str = PathParam(...),
     enabled: bool = Body(..., embed=True),
-    request: Request = None,
+    request: Request = cast(Request, None),
 ) -> dict:
     """Toggle agent enabled state."""
+    if request is None:
+        raise HTTPException(status_code=400, detail="Request is required")
     config = load_config()
 
     if agentId not in config.agents.profiles:

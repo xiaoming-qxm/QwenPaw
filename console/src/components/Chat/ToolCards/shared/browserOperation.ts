@@ -1,0 +1,923 @@
+import type { ToolCallContent } from "./types";
+
+type BrowserRecord = Record<string, unknown>;
+
+export const HIDDEN_BROWSER_VALUE = "[hidden]";
+export const MASKED_BROWSER_VALUE = "[masked]";
+
+const MAX_BROWSER_DISPLAY_STRING_LENGTH = 160;
+
+export interface BrowserOperationRow {
+  label: string;
+  value: string;
+}
+
+export interface BrowserOperationStep {
+  apiId: string;
+  action: string;
+  status: string;
+  detail: string;
+  phase: string;
+  traceIndex: number;
+  error?: string;
+}
+
+export interface BrowserOperation {
+  title: string;
+  backendLabel: string;
+  contractMode: "LEGACY" | "CANONICAL" | "";
+  lifecycleLabel: string;
+  cleanupNotice: string;
+  terminalStatus: string;
+  dispatchState: string;
+  commitState: string;
+  effectState: string;
+  postconditionState: string;
+  problemCode: string;
+  retryDirective: string;
+  coverageStatus: string;
+  resourceSummary: string;
+  fingerprintMismatch: string;
+  requiredDeliveryFailure: string;
+  promptRequired: boolean;
+  promptType: string;
+  promptMessage: string;
+  operationId: string;
+  continuationRequired: boolean;
+  stepCount: number;
+  steps: BrowserOperationStep[];
+  summaryRows: BrowserOperationRow[];
+  paramsRows: BrowserOperationRow[];
+  rawTrace: string;
+  fallbackDetail: string;
+}
+
+interface BrowserPrimarySelection {
+  step: BrowserOperationStep;
+  event: BrowserRecord;
+  traceIndex: number;
+}
+
+const DEFAULT_HIDDEN_API_IDS = new Set([
+  "browser.connect",
+  "browser.close",
+  "browser.capabilities",
+  "browser.diagnostics",
+  "browser.help",
+]);
+
+const INTERNAL_PARAM_KEYS = new Set([
+  "browser_trace",
+  "trace",
+  "raw_trace",
+  "progress_decision",
+  "recovery_decision",
+  "runtime_outcome",
+  "cleanup_summary",
+  "request_scope_key",
+  "tool_call_id",
+  "session_id",
+  "freshness_marker",
+  "trace_event_id",
+  "backend_id",
+  "contract_mode",
+  "lifecycle_label",
+  "terminal_lifecycle",
+  "cleanup_notice",
+  "cleanup_incomplete",
+  "resume_token",
+  "browser_owner_id",
+  "root_task_id",
+  "native_tab_id",
+  "internal_binding",
+  "host_path",
+  "path",
+  "native_handle",
+  "resource_owner",
+  "selected_context",
+  "requested_context",
+  "event_id",
+  "prompt_id",
+  "native_prompt_id",
+  "message_digest",
+  "binding_digest",
+  "continuation_grant",
+  "grant",
+  "unsafe_message",
+  "unsafe_text",
+]);
+
+const OPAQUE_BROWSER_KEYS = new Set([
+  "resume_token",
+  "browser_owner_id",
+  "root_task_id",
+  "native_tab_id",
+  "internal_binding",
+  "host_path",
+  "path",
+  "native_handle",
+  "resource_owner",
+  "prompt_id",
+  "native_prompt_id",
+  "message_digest",
+  "binding_digest",
+  "continuation_grant",
+  "grant",
+  "unsafe_message",
+  "unsafe_text",
+]);
+
+const MUTATING_ACTION_API_IDS = new Set([
+  "tab.actions.click",
+  "tab.actions.fill",
+  "tab.actions.press_key",
+  "tab.actions.select_option",
+  "tab.actions.upload_file",
+  "tab.actions.download_file",
+  "tab.actions.handle_dialog",
+  "tab.actions.scroll",
+  "tab.actions.hover",
+]);
+
+const MUTATING_ACTIONS = new Set([
+  "click",
+  "fill",
+  "press_key",
+  "select_option",
+  "upload_file",
+  "download_file",
+  "handle_dialog",
+  "scroll",
+  "hover",
+]);
+
+const NAVIGATION_API_IDS = new Set([
+  "browser.tabs.open",
+  "tab.actions.navigate",
+  "tab.actions.back",
+  "tab.actions.forward",
+  "tab.actions.reload",
+]);
+
+const NAVIGATION_ACTIONS = new Set([
+  "open",
+  "navigate",
+  "back",
+  "forward",
+  "reload",
+]);
+
+const OBSERVE_API_IDS = new Set([
+  "tab.snapshot",
+  "tab.screenshot",
+  "tab.extract",
+  "tab.page_info",
+  "tab.wait_for",
+]);
+
+const OBSERVE_ACTIONS = new Set([
+  "snapshot",
+  "screenshot",
+  "observe",
+  "extract",
+  "page_info",
+  "wait_for",
+]);
+
+function asRecord(value: unknown): BrowserRecord {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as BrowserRecord)
+    : {};
+}
+
+function parseRecord(value: unknown): BrowserRecord {
+  if (typeof value !== "string") return asRecord(value);
+  try {
+    return asRecord(JSON.parse(value));
+  } catch {
+    return {};
+  }
+}
+
+function traceEvents(value: unknown): BrowserRecord[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => asRecord(item));
+}
+
+function pickTraceSource(
+  metadata: BrowserRecord,
+  result: BrowserRecord,
+  params: BrowserRecord,
+): BrowserRecord[] {
+  if (Array.isArray(metadata.browser_trace)) {
+    return traceEvents(metadata.browser_trace);
+  }
+  if (Array.isArray(result.browser_trace)) {
+    return traceEvents(result.browser_trace);
+  }
+  if (Array.isArray(params.browser_trace)) {
+    return traceEvents(params.browser_trace);
+  }
+  return [];
+}
+
+function stringValue(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  return "";
+}
+
+function numberValue(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return undefined;
+}
+
+function compactUrl(value: string): string {
+  if (!value) return "";
+  try {
+    const url = new URL(value);
+    return `${url.host}${url.pathname === "/" ? "" : url.pathname}`;
+  } catch {
+    return value;
+  }
+}
+
+function truncateDisplayString(value: string): string {
+  if (value.length <= MAX_BROWSER_DISPLAY_STRING_LENGTH) return value;
+  return `${value.slice(0, MAX_BROWSER_DISPLAY_STRING_LENGTH - 3)}...`;
+}
+
+function eventMetadata(event: BrowserRecord): BrowserRecord {
+  return asRecord(event.metadata);
+}
+
+function targetRecordDisplay(value: BrowserRecord): string {
+  const ref = stringValue(value.ref);
+  if (ref) return `ref=${ref}`;
+
+  const role = stringValue(value.role);
+  const name = stringValue(value.name);
+  if (role && name) return `${role} "${name}"`;
+
+  const text = stringValue(value.text);
+  if (text) return `"${text}"`;
+
+  const x = numberValue(value.x);
+  const y = numberValue(value.y);
+  if (x !== undefined && y !== undefined) return `(${x}, ${y})`;
+
+  return displayValue(sanitizeValue(value));
+}
+
+function targetValueDisplay(value: unknown): string {
+  const display = stringValue(value);
+  if (display) return display;
+
+  const record = asRecord(value);
+  return Object.keys(record).length ? targetRecordDisplay(record) : "";
+}
+
+function eventTarget(event: BrowserRecord): string {
+  const metadata = eventMetadata(event);
+  const kwargs = asRecord(metadata.kwargs);
+  const x = numberValue(kwargs.x);
+  const y = numberValue(kwargs.y);
+  return (
+    targetValueDisplay(kwargs.target) ||
+    targetValueDisplay(metadata.target) ||
+    (stringValue(kwargs.ref) ? `ref=${stringValue(kwargs.ref)}` : "") ||
+    (stringValue(metadata.ref) ? `ref=${stringValue(metadata.ref)}` : "") ||
+    stringValue(metadata.target_text) ||
+    stringValue(metadata.accessible_name) ||
+    stringValue(kwargs.text) ||
+    stringValue(metadata.text) ||
+    stringValue(event.selector) ||
+    stringValue(metadata.selector) ||
+    compactUrl(stringValue(kwargs.url)) ||
+    (x !== undefined && y !== undefined ? `(${x}, ${y})` : "")
+  );
+}
+
+function eventPage(event: BrowserRecord): string {
+  const metadata = eventMetadata(event);
+  return (
+    compactUrl(stringValue(event.url)) ||
+    compactUrl(stringValue(metadata.url)) ||
+    stringValue(event.domain) ||
+    stringValue(metadata.domain) ||
+    stringValue(event.title) ||
+    stringValue(metadata.title)
+  );
+}
+
+function eventDetail(event: BrowserRecord): string {
+  return (
+    eventTarget(event) ||
+    eventPage(event) ||
+    stringValue(event.title) ||
+    stringValue(event.domain)
+  );
+}
+
+function eventError(event: BrowserRecord): string {
+  return (
+    stringValue(event.error_code) ||
+    stringValue(eventMetadata(event).error_code) ||
+    stringValue(event.error) ||
+    stringValue(event.error_message) ||
+    stringValue(event.message)
+  );
+}
+
+function isVisibleEvent(event: BrowserRecord): boolean {
+  const apiId = stringValue(event.api_id);
+  if (!apiId || DEFAULT_HIDDEN_API_IDS.has(apiId)) return false;
+
+  const phase = stringValue(event.phase).toLowerCase();
+  return !["connect", "cleanup", "diagnostic", "diagnostics"].includes(phase);
+}
+
+function toStep(
+  event: BrowserRecord,
+  traceIndex: number,
+): BrowserOperationStep {
+  return {
+    apiId: stringValue(event.api_id),
+    action: stringValue(event.action) || stringValue(event.phase) || "browser",
+    status: stringValue(event.status) || "done",
+    detail: eventDetail(event),
+    phase: stringValue(event.phase),
+    traceIndex,
+    error: eventError(event) || undefined,
+  };
+}
+
+function isActionStep(step: BrowserOperationStep): boolean {
+  return (
+    MUTATING_ACTION_API_IDS.has(step.apiId) || MUTATING_ACTIONS.has(step.action)
+  );
+}
+
+function isNavigationStep(step: BrowserOperationStep): boolean {
+  return (
+    step.phase === "navigation" ||
+    NAVIGATION_API_IDS.has(step.apiId) ||
+    NAVIGATION_ACTIONS.has(step.action)
+  );
+}
+
+function isObserveStep(step: BrowserOperationStep): boolean {
+  return (
+    step.phase === "observe" ||
+    OBSERVE_API_IDS.has(step.apiId) ||
+    OBSERVE_ACTIONS.has(step.action)
+  );
+}
+
+function selectPrimaryStep(
+  candidates: BrowserPrimarySelection[],
+): BrowserPrimarySelection | undefined {
+  return (
+    candidates.find(
+      (candidate) =>
+        candidate.step.error || isErrorStatus(candidate.step.status),
+    ) ||
+    candidates.find((candidate) => isActionStep(candidate.step)) ||
+    candidates.find((candidate) => isNavigationStep(candidate.step)) ||
+    candidates.find((candidate) => isObserveStep(candidate.step)) ||
+    candidates[0]
+  );
+}
+
+function isErrorStatus(status: string): boolean {
+  const normalized = status.toLowerCase();
+  return Boolean(
+    normalized &&
+      !["ok", "done", "success", "completed", "complete"].includes(normalized),
+  );
+}
+
+function row(label: string, value: unknown): BrowserOperationRow | null {
+  const display = truncateDisplayString(stringValue(value));
+  return display ? { label, value: display } : null;
+}
+
+function addRow(rows: BrowserOperationRow[], label: string, value: unknown) {
+  const next = row(label, value);
+  if (next) rows.push(next);
+}
+
+function displayValue(value: unknown): string {
+  if (typeof value === "string") return truncateDisplayString(value);
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  if (value === null || value === undefined) return "";
+  try {
+    return truncateDisplayString(JSON.stringify(value));
+  } catch {
+    return truncateDisplayString(String(value));
+  }
+}
+
+function codeLikeKey(key: string): boolean {
+  const normalized = key.toLowerCase();
+  return (
+    normalized === "code" ||
+    normalized === "script" ||
+    normalized === "javascript" ||
+    normalized === "eval" ||
+    normalized.endsWith("_code") ||
+    normalized.endsWith("-code")
+  );
+}
+
+function credentialLikeKey(key: string): boolean {
+  return /token|cookie|authorization|password|secret|credential|api[_-]?key|auth/i.test(
+    key,
+  );
+}
+
+function sanitizeValue(value: unknown, key = ""): unknown {
+  if (key && codeLikeKey(key)) return HIDDEN_BROWSER_VALUE;
+  if (key && credentialLikeKey(key)) return MASKED_BROWSER_VALUE;
+
+  if (typeof value === "string") {
+    return truncateDisplayString(
+      key.toLowerCase() === "url" ? compactUrl(value) : value,
+    );
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeValue(item));
+  }
+
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as BrowserRecord)
+        .filter(([childKey]) => !OPAQUE_BROWSER_KEYS.has(childKey))
+        .map(([childKey, childValue]) => [
+          childKey,
+          sanitizeValue(childValue, childKey),
+        ]),
+    );
+  }
+
+  return value;
+}
+
+function paramsRows(params: BrowserRecord): BrowserOperationRow[] {
+  return Object.entries(params)
+    .filter(([key]) => !INTERNAL_PARAM_KEYS.has(key))
+    .map(([key, value]) => ({
+      label: key,
+      value: displayValue(sanitizeValue(value, key)),
+    }))
+    .filter((item) => item.value !== "");
+}
+
+function eventParamsRows(
+  event: BrowserRecord | undefined,
+  fallbackParams: BrowserRecord,
+): BrowserOperationRow[] {
+  if (!event) return paramsRows(fallbackParams);
+
+  const metadata = eventMetadata(event);
+  const kwargs = asRecord(metadata.kwargs);
+  const source: BrowserRecord = { ...kwargs };
+  const metadataTarget = asRecord(metadata.target);
+
+  if (source.target === undefined && Object.keys(metadataTarget).length > 0) {
+    source.target = metadata.target;
+  }
+
+  for (const key of ["selector", "url", "domain", "action"]) {
+    if (source[key] === undefined && event[key] !== undefined) {
+      source[key] = event[key];
+    }
+  }
+
+  return paramsRows(source);
+}
+
+function firstString(...values: unknown[]): string {
+  for (const value of values) {
+    const display = stringValue(value);
+    if (display) return display;
+  }
+  return "";
+}
+
+function firstMeaningfulApproval(...values: unknown[]): string {
+  for (const value of values) {
+    const display = stringValue(value);
+    const normalized = display.toLowerCase().replace(/_/g, " ").trim();
+    if (display && normalized !== "not required") return display;
+  }
+  return "";
+}
+
+function contextLabel(
+  primaryEvent: BrowserRecord,
+  metadata: BrowserRecord,
+  result: BrowserRecord,
+  params: BrowserRecord,
+): string {
+  const requested = firstString(
+    primaryEvent.requested_context,
+    metadata.context,
+    result.context,
+    params.context,
+    primaryEvent.context,
+  );
+  const selected = firstString(
+    primaryEvent.selected_context,
+    metadata.selected_context,
+    result.selected_context,
+  );
+
+  if (requested && selected && requested !== selected) {
+    return `${requested} -> ${selected}`;
+  }
+
+  return selected || requested;
+}
+
+function eventBackendLabel(event: BrowserRecord | undefined): string {
+  if (!event) return "";
+  return firstString(event.backend_id, event.backend);
+}
+
+function traceBackendLabel(trace: BrowserRecord[]): string {
+  for (const event of trace) {
+    const backend = eventBackendLabel(event);
+    if (backend) return backend;
+  }
+  return "";
+}
+
+function backendLabelFor(
+  primary: BrowserPrimarySelection | undefined,
+  trace: BrowserRecord[],
+  metadata: BrowserRecord,
+  result: BrowserRecord,
+): string {
+  return firstString(
+    metadata.backend_id,
+    metadata.backend,
+    result.backend_id,
+    result.backend,
+    eventBackendLabel(primary?.event),
+    traceBackendLabel(trace),
+  );
+}
+
+function firstNumber(...values: unknown[]): number | undefined {
+  for (const value of values) {
+    const parsed = numberValue(value);
+    if (parsed !== undefined) return parsed;
+  }
+  return undefined;
+}
+
+function traceDuration(trace: BrowserRecord[]): number | undefined {
+  return trace.reduce<number | undefined>((maxDuration, event) => {
+    const duration = numberValue(event.duration_ms);
+    if (duration === undefined) return maxDuration;
+    return Math.max(maxDuration ?? 0, duration);
+  }, undefined);
+}
+
+function latestPageEvent(trace: BrowserRecord[]): BrowserRecord {
+  return [...trace].reverse().find((event) => eventPage(event)) || {};
+}
+
+function resultText(value: unknown): string {
+  if (typeof value === "string") return value;
+
+  if (Array.isArray(value)) {
+    const textBlock = value
+      .map((item) => asRecord(item))
+      .find((item) => item.type === "text" && stringValue(item.text));
+    return stringValue(textBlock?.text);
+  }
+
+  const record = asRecord(value);
+  return stringValue(record.output) || stringValue(record.text);
+}
+
+function latestTraceValue(trace: BrowserRecord[], key: string): unknown {
+  for (const event of [...trace].reverse()) {
+    const metadata = eventMetadata(event);
+    if (metadata[key] !== undefined) return metadata[key];
+    if (event[key] !== undefined) return event[key];
+  }
+  return undefined;
+}
+
+function safeContractMode(
+  metadata: BrowserRecord,
+  result: BrowserRecord,
+  trace: BrowserRecord[],
+): "LEGACY" | "CANONICAL" | "" {
+  const value = firstString(
+    metadata.contract_mode,
+    result.contract_mode,
+    latestTraceValue(trace, "contract_mode"),
+  ).toUpperCase();
+  return value === "LEGACY" || value === "CANONICAL" ? value : "";
+}
+
+function safeLifecycleLabel(
+  metadata: BrowserRecord,
+  result: BrowserRecord,
+  trace: BrowserRecord[],
+): string {
+  return firstString(
+    metadata.lifecycle_label,
+    metadata.terminal_lifecycle,
+    result.lifecycle_label,
+    result.terminal_lifecycle,
+    latestTraceValue(trace, "lifecycle_label"),
+    latestTraceValue(trace, "terminal_lifecycle"),
+  );
+}
+
+function safeCleanupNotice(
+  metadata: BrowserRecord,
+  result: BrowserRecord,
+  trace: BrowserRecord[],
+): string {
+  const notice = firstString(
+    metadata.cleanup_notice,
+    result.cleanup_notice,
+    latestTraceValue(trace, "cleanup_notice"),
+  );
+  if (notice) return notice;
+  const incomplete =
+    metadata.cleanup_incomplete === true ||
+    result.cleanup_incomplete === true ||
+    latestTraceValue(trace, "cleanup_incomplete") === true;
+  return incomplete ? "Cleanup incomplete" : "";
+}
+
+function terminalFacts(
+  metadata: BrowserRecord,
+  result: BrowserRecord,
+): BrowserRecord {
+  const terminal = asRecord(metadata.terminal);
+  const resultTerminal = asRecord(result.terminal);
+  return Object.keys(terminal).length ? terminal : resultTerminal;
+}
+
+function safePhaseState(...values: unknown[]): string {
+  for (const value of values) {
+    const record = asRecord(value);
+    const state = firstString(record.status, record.state, record.outcome);
+    if (state) return state;
+    const direct = stringValue(value);
+    if (direct) return direct;
+  }
+  return "";
+}
+
+function safeCoverageStatus(
+  metadata: BrowserRecord,
+  result: BrowserRecord,
+  terminal: BrowserRecord,
+): string {
+  const terminalObservation = asRecord(terminal.observation);
+  const resultObservation = asRecord(result.observation);
+  return firstString(
+    terminal.coverage,
+    terminalObservation.coverage,
+    result.coverage,
+    resultObservation.coverage,
+    metadata.coverage,
+    metadata.coverage_status,
+  );
+}
+
+function safeResourceSummary(
+  metadata: BrowserRecord,
+  result: BrowserRecord,
+  terminal: BrowserRecord,
+): string {
+  for (const value of [terminal.resources, result.resources, metadata.resources]) {
+    if (!Array.isArray(value)) continue;
+    const labels = value
+      .map((item) => {
+        const resource = asRecord(item);
+        return firstString(resource.name, resource.media_type, resource.kind);
+      })
+      .filter(Boolean);
+    if (labels.length) return labels.join(", ");
+    if (value.length === 0) return "NONE";
+  }
+  const resource = asRecord(terminal.resource);
+  return firstString(resource.name, resource.media_type, resource.kind);
+}
+
+function safeFingerprintMismatch(
+  metadata: BrowserRecord,
+  result: BrowserRecord,
+  terminal: BrowserRecord,
+  problemCode: string,
+): string {
+  const problem = asRecord(terminal.problem);
+  const value = firstString(
+    metadata.fingerprint_mismatch,
+    result.fingerprint_mismatch,
+    terminal.fingerprint_mismatch,
+    problem.code,
+  );
+  if (value.toLowerCase().includes("fingerprint")) return value;
+  return problemCode.toLowerCase().includes("fingerprint") ? problemCode : "";
+}
+
+function safePromptFacts(
+  metadata: BrowserRecord,
+  result: BrowserRecord,
+  terminal: BrowserRecord,
+): BrowserRecord {
+  for (const value of [
+    metadata.prompt,
+    result.prompt,
+    terminal.prompt,
+    metadata.browser_prompt,
+    result.browser_prompt,
+  ]) {
+    const prompt = asRecord(value);
+    if (Object.keys(prompt).length) return prompt;
+  }
+  return {};
+}
+
+function safeRequiredDeliveryFailure(
+  metadata: BrowserRecord,
+  result: BrowserRecord,
+): string {
+  return firstString(
+    metadata.required_delivery_failure,
+    result.required_delivery_failure,
+    metadata.transport_failure,
+    result.transport_failure,
+  );
+}
+
+function buildSummaryRows(
+  content: ToolCallContent,
+  metadata: BrowserRecord,
+  result: BrowserRecord,
+  params: BrowserRecord,
+  trace: BrowserRecord[],
+  primary: BrowserPrimarySelection | undefined,
+): BrowserOperationRow[] {
+  const rows: BrowserOperationRow[] = [];
+  if (!primary) return rows;
+
+  const primaryEvent = primary.event;
+  const primaryStep = primary.step;
+  const pageEvent = eventPage(primaryEvent)
+    ? primaryEvent
+    : latestPageEvent(trace);
+  const duration = firstNumber(
+    metadata.duration_ms,
+    result.duration_ms,
+    primaryEvent.duration_ms,
+    traceDuration(trace),
+  );
+  const approval = firstMeaningfulApproval(
+    metadata.approval_state,
+    result.approval_state,
+    primaryEvent.approval_state,
+    params.approval_state,
+  );
+
+  addRow(rows, "Operation", primaryStep.apiId);
+  addRow(rows, "Target", eventTarget(primaryEvent));
+  addRow(rows, "Page", eventPage(pageEvent));
+  addRow(rows, "Context", contextLabel(primaryEvent, metadata, result, params));
+  addRow(
+    rows,
+    "Backend",
+    firstString(
+      metadata.backend_id,
+      metadata.backend,
+      result.backend_id,
+      result.backend,
+      primaryEvent.backend_id,
+      primaryEvent.backend,
+    ),
+  );
+  addRow(rows, "Status", primaryStep.status || content.status);
+  if (duration !== undefined) addRow(rows, "Duration", `${duration} ms`);
+  addRow(rows, "Error", primaryStep.error || eventError(primaryEvent));
+  addRow(rows, "Approval", approval);
+
+  return rows;
+}
+
+export function buildBrowserOperation(
+  content: ToolCallContent,
+): BrowserOperation {
+  const metadata = parseRecord(content.metadata);
+  const result = parseRecord(content.result);
+  const params = asRecord(content.params);
+  const trace = pickTraceSource(metadata, result, params);
+  const primaryCandidates = trace
+    .map((event, traceIndex) => ({ event, traceIndex }))
+    .filter(({ event }) => isVisibleEvent(event))
+    .map(({ event, traceIndex }) => ({
+      step: toStep(event, traceIndex),
+      event,
+      traceIndex,
+    }));
+  const steps = primaryCandidates.map((candidate) => candidate.step);
+  const primary = selectPrimaryStep(primaryCandidates);
+  const title = primary?.step.apiId || "Browser";
+  const backendLabel = backendLabelFor(primary, trace, metadata, result);
+  const terminal = terminalFacts(metadata, result);
+  const problemCode = firstString(terminal.problem, metadata.problem_code);
+  const prompt = safePromptFacts(metadata, result, terminal);
+  const promptRequired =
+    problemCode === "prompt_required" ||
+    metadata.prompt_required === true ||
+    result.prompt_required === true;
+
+  return {
+    title,
+    backendLabel,
+    contractMode: safeContractMode(metadata, result, trace),
+    lifecycleLabel: safeLifecycleLabel(metadata, result, trace),
+    cleanupNotice: safeCleanupNotice(metadata, result, trace),
+    terminalStatus: firstString(terminal.status, metadata.terminal_status),
+    dispatchState: safePhaseState(
+      terminal.dispatch,
+      result.dispatch,
+      metadata.dispatch,
+    ),
+    commitState: safePhaseState(
+      terminal.commit,
+      result.commit,
+      metadata.commit,
+    ),
+    effectState: safePhaseState(
+      terminal.effect,
+      result.effect,
+      metadata.effect,
+    ),
+    postconditionState: safePhaseState(
+      terminal.postcondition,
+      result.postcondition,
+      metadata.postcondition,
+    ),
+    problemCode,
+    retryDirective: firstString(terminal.retry, metadata.retry_directive),
+    coverageStatus: safeCoverageStatus(metadata, result, terminal),
+    resourceSummary: safeResourceSummary(metadata, result, terminal),
+    fingerprintMismatch: safeFingerprintMismatch(
+      metadata,
+      result,
+      terminal,
+      problemCode,
+    ),
+    requiredDeliveryFailure: safeRequiredDeliveryFailure(metadata, result),
+    promptRequired,
+    promptType: firstString(prompt.type, prompt.prompt_type),
+    promptMessage: firstString(prompt.safe_message),
+    operationId: firstString(
+      terminal.operation_id,
+      metadata.operation_id,
+      result.operation_id,
+    ),
+    continuationRequired:
+      promptRequired &&
+      (prompt.continuation_required !== false ||
+        metadata.continuation_required === true ||
+        result.continuation_required === true),
+    stepCount: steps.length,
+    steps,
+    summaryRows: buildSummaryRows(
+      content,
+      metadata,
+      result,
+      params,
+      trace,
+      primary,
+    ),
+    paramsRows: eventParamsRows(primary?.event, params),
+    rawTrace:
+      trace.length && !promptRequired
+        ? JSON.stringify(sanitizeValue(trace), null, 2)
+        : "",
+    fallbackDetail:
+      trace.length || promptRequired ? "" : resultText(content.result),
+  };
+}

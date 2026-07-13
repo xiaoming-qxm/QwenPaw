@@ -163,7 +163,10 @@ class CronExecutor:
 
         async def _run() -> None:
             nonlocal delivery_error
-            async for event in self._workspace.stream_query(req):
+            async for event in self._workspace.stream_query(
+                req,
+                trusted_root_session_id=f"cron:{job.id}:{run_id}",
+            ):
                 try:
                     await self._channel_manager.send_event(
                         channel=target_channel,

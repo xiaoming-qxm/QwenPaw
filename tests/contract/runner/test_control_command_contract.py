@@ -29,6 +29,10 @@ pytest.importorskip(
     "qwenpaw.app.runner.control_commands",
     reason="qwenpaw.app.runner was removed in AgentScope 2.0",
 )
+pytest.importorskip(
+    "qwenpaw.app.runner.control_commands.base",
+    reason="qwenpaw.app.runner was removed in AgentScope 2.0",
+)
 from qwenpaw.app.runner import (  # type: ignore[import]
     control_commands,
 )

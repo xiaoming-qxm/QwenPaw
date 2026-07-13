@@ -600,7 +600,7 @@ class GovernancePolicy:
     # Internal reference to registry (defaults to module-level
     # DEFAULT_REGISTRY)
     _registry: ToolRegistry = field(
-        default=None,
+        default_factory=lambda: DEFAULT_REGISTRY,
         repr=False,
         compare=False,
     )

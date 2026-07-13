@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import time
+from typing import Any
 
 from ....app.approvals import get_approval_service
 from ....security.tool_guard.approval import ApprovalDecision, ApprovalScope
@@ -101,6 +102,12 @@ class ApprovalCommandHandler(BaseControlCommandHandler):
             ApprovalDecision.APPROVED,
             scope=scope,
         )
+        if resolved is None:
+            return (
+                f"❌ **审批请求不存在**\n\n"
+                f"请求 ID: `{request_id[:16]}`\n\n"
+                f"可能已被处理或已超时。"
+            )
 
         # Show cross-session hint if applicable
         cross_session_hint = ""
@@ -159,6 +166,12 @@ class ApprovalCommandHandler(BaseControlCommandHandler):
             request_id,
             ApprovalDecision.DENIED,
         )
+        if resolved is None:
+            return (
+                f"❌ **审批请求不存在**\n\n"
+                f"请求 ID: `{request_id[:16]}`\n\n"
+                f"可能已被处理或已超时。"
+            )
 
         # Show cross-session hint if applicable
         cross_session_hint = ""
@@ -323,7 +336,7 @@ class ApproveCommandHandler(BaseControlCommandHandler):
         raw_args = context.args.get("_raw_args", "").strip()
         parts = raw_args.split()
 
-        new_args = {"action": "approve"}
+        new_args: dict[str, Any] = {"action": "approve"}
 
         # First non-flag token is the request_id; --exact/--pattern set scope.
         for part in parts:
@@ -367,7 +380,7 @@ class DenyCommandHandler(BaseControlCommandHandler):
         raw_args = context.args.get("_raw_args", "").strip()
         parts = raw_args.split(maxsplit=1)
 
-        new_args = {"action": "deny"}
+        new_args: dict[str, Any] = {"action": "deny"}
 
         if parts:
             # First part is request_id (optional)

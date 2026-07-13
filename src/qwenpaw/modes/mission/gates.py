@@ -216,16 +216,21 @@ class MissionGate(LoopGate):
             sid = s.get("id", "?")
             title = s.get("title", "?")
             lines.append(f"  - {sid}: {title}")
-        tail = (
-            "\nContinue with the "
-            "**worker - verifier** pipeline:\n"
-            "1. Dispatch **workers** for remaining\n"
-            "2. Dispatch **verifiers** for completed\n"
-            "3. Update prd.json passes accordingly"
-            f"\n\nMax iterations: {max_iter}"
-        )
+        tail = _worker_verifier_tail(max_iter)
         lines.append(tail)
         return "\n".join(lines)
+
+
+def _worker_verifier_tail(max_iter: Any) -> str:
+    """Build continuation text for normal worker/verifier missions."""
+    return (
+        "\nContinue with the "
+        "**worker - verifier** pipeline:\n"
+        "1. Dispatch **workers** for remaining\n"
+        "2. Dispatch **verifiers** for completed\n"
+        "3. Update prd.json passes accordingly"
+        f"\n\nMax iterations: {max_iter}"
+    )
 
 
 __all__ = ["MissionGate"]

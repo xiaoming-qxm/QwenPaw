@@ -107,6 +107,9 @@ class ToolRegistry:
           still pass.
         * ``requires_*`` gates apply as documented on
           :class:`ToolDescriptor`.
+        * ``metadata["superseded_by_skills"]`` allows newer skill-backed
+          capabilities to hide older overlapping tools while that skill is
+          active.
         """
         modes = set(active_modes or ())
         skills = set(active_skills or ())
@@ -122,6 +125,11 @@ class ToolRegistry:
                 continue
             if not d.enabled_by_default and d.name not in allow:
                 continue
+            superseded_by = _metadata_name_set(
+                d.metadata.get("superseded_by_skills"),
+            )
+            if superseded_by and superseded_by & skills:
+                continue
             if d.requires_modes and not set(d.requires_modes) & modes:
                 continue
             if d.requires_skills and not set(d.requires_skills) & skills:
@@ -134,6 +142,19 @@ class ToolRegistry:
         return out
 
 
+def _metadata_name_set(value: Any) -> set[str]:
+    """Normalize a descriptor metadata value into a set of names."""
+    if value is None:
+        return set()
+    if isinstance(value, str):
+        values = [value]
+    elif isinstance(value, (list, tuple, set, frozenset)):
+        values = list(value)
+    else:
+        return set()
+    return {str(item).strip() for item in values if str(item).strip()}
+
+
 # ---------------------------------------------------------------------------
 # Global auto-collection — populated by @tool_descriptor at import time
 # ---------------------------------------------------------------------------
@@ -141,10 +162,13 @@ class ToolRegistry:
 _REGISTERED_TOOL_FUNCS: list[Callable[..., Any]] = []
 _REGISTERED_IDS: set[int] = set()
 
-# Built-in tools live under this package prefix.  Functions decorated
-# outside this prefix (e.g. in tests) are silently ignored by
+# Built-in tools live under these package prefixes.  Functions decorated
+# outside these prefixes (e.g. in tests) are silently ignored by
 # ``get_builtin_tool_funcs()``.
-_BUILTIN_TOOLS_PREFIX = "qwenpaw.agents.tools."
+_BUILTIN_TOOLS_PREFIXES = (
+    "qwenpaw.agents.tools.",
+    "qwenpaw.browser.sdk.runtime.tool_entrypoint",
+)
 
 
 def get_builtin_tool_funcs() -> list[Callable[..., Any]]:
@@ -158,7 +182,7 @@ def get_builtin_tool_funcs() -> list[Callable[..., Any]]:
     return [
         fn
         for fn in _REGISTERED_TOOL_FUNCS
-        if getattr(fn, "__module__", "").startswith(_BUILTIN_TOOLS_PREFIX)
+        if getattr(fn, "__module__", "").startswith(_BUILTIN_TOOLS_PREFIXES)
     ]
 
 

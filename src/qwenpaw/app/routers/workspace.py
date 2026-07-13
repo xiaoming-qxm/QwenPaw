@@ -17,6 +17,7 @@ import os
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Literal, cast
 
 from fastapi import APIRouter, Body, HTTPException, UploadFile, File, Request
 from fastapi.responses import ORJSONResponse, Response, StreamingResponse
@@ -698,7 +699,7 @@ async def put_audio_mode(
             ),
         )
     config = load_config()
-    config.agents.audio_mode = audio_mode
+    config.agents.audio_mode = cast(Literal["auto", "native"], audio_mode)
     save_config(config)
     return {"audio_mode": audio_mode}
 
@@ -753,7 +754,10 @@ async def put_transcription_provider_type(
             ),
         )
     config = load_config()
-    config.agents.transcription_provider_type = provider_type
+    config.agents.transcription_provider_type = cast(
+        Literal["disabled", "whisper_api", "local_whisper"],
+        provider_type,
+    )
     save_config(config)
     return {"transcription_provider_type": provider_type}
 
@@ -924,11 +928,11 @@ async def get_agents_running_config(
     description="Update running configuration for active agent",
 )
 async def put_agents_running_config(
+    request: Request,
     running_config: AgentsRunningConfig = Body(
         ...,
         description="Updated agent running configuration",
     ),
-    request: Request = None,
 ) -> AgentsRunningConfig:
     """Update agent running configuration."""
     workspace = await get_agent_for_request(request)
@@ -969,11 +973,11 @@ async def get_system_prompt_files(
     description="Update system prompt files for active agent",
 )
 async def put_system_prompt_files(
+    request: Request,
     files: list[str] = Body(
         ...,
         description="Markdown filenames to load into system prompt",
     ),
-    request: Request = None,
 ) -> list[str]:
     """Update list of enabled system prompt files."""
     workspace = await get_agent_for_request(request)

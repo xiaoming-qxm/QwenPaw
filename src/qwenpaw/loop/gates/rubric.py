@@ -168,6 +168,8 @@ class StandaloneRubricGate(StopGate):
         self._prompt = prompt
         self._max = max_interventions
         self._count = 0
+        self._ever_used_tools = False
+        self._last_iteration: int | None = None
 
     @property
     def name(self) -> str:
@@ -183,15 +185,20 @@ class StandaloneRubricGate(StopGate):
     ) -> StopHandlerResult:
         """Intervene up to max_interventions.
 
-        Only triggers on text-only responses
-        (no tool calls).
+        Only triggers on text-only responses after this
+        loop cycle has used tools.
         """
         _bypass = StopHandlerResult(
             action=StopAction.BYPASS,
         )
+        self._reset_cycle_if_needed(ctx)
         if isinstance(ctx, dict) and ctx.get(
             "has_tool_calls",
         ):
+            self._ever_used_tools = True
+            return _bypass
+
+        if not self._ever_used_tools:
             return _bypass
 
         if self._count >= self._max:
@@ -206,7 +213,7 @@ class StandaloneRubricGate(StopGate):
         )
         return StopHandlerResult(
             action=StopAction.INTERRUPT_AND_CONTINUE,
-            reason="text-only response re-prompt",
+            reason="premature text-only stop re-prompt",
             reset_peers=True,
         )
 
@@ -217,6 +224,23 @@ class StandaloneRubricGate(StopGate):
     def reset(self) -> None:
         """Reset intervention counter for new turn."""
         self._count = 0
+        self._ever_used_tools = False
+        self._last_iteration = None
+
+    def _reset_cycle_if_needed(self, ctx: Any) -> None:
+        """Reset per-cycle state when the iteration counter restarts."""
+        if not isinstance(ctx, dict):
+            return
+        iteration = ctx.get("iteration")
+        if not isinstance(iteration, int):
+            return
+        if (
+            self._last_iteration is not None
+            and iteration <= self._last_iteration
+        ):
+            self._count = 0
+            self._ever_used_tools = False
+        self._last_iteration = iteration
 
 
 __all__ = [

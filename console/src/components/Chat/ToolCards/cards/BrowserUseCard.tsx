@@ -5,6 +5,7 @@ import { ChromeOutlined } from "@ant-design/icons";
 import type { ToolCallContent } from "../shared/types";
 import { ToolCardShell, DefaultBlock } from "../shared";
 import { stringifyResult } from "../shared/utils";
+import { buildBrowserOperation } from "../shared/browserOperation";
 
 /**
  * Try to extract meaningful fields from a browser tool result object.
@@ -89,7 +90,7 @@ function formatBrowserResult(result: unknown): string {
 
 /** All tool names this card handles */
 export const BROWSER_TOOL_NAMES = new Set([
-  "browser_use",
+  "browser",
   "browser_navigate",
   "navigate",
   "browser_click",
@@ -107,7 +108,7 @@ function getBrowserTitle(
   params: Record<string, unknown>,
   t: TFunction,
 ): string {
-  if (name === "browser_use") {
+  if (name === "browser") {
     const action = (params.action || "") as string;
     const url = (params.url || "") as string;
     const selector = (params.selector || params.element || "") as string;
@@ -270,7 +271,43 @@ const BrowserUseCard: React.FC<BrowserUseCardProps> = ({
     );
   }
 
-  const resultText = formatBrowserResult(content.result);
+  const operation = buildBrowserOperation(content);
+  const hasCanonicalTruth =
+    operation.contractMode === "CANONICAL" ||
+    Boolean(
+      operation.terminalStatus ||
+        operation.dispatchState ||
+        operation.commitState ||
+        operation.effectState ||
+        operation.postconditionState ||
+        operation.fingerprintMismatch,
+    );
+  const resultText = hasCanonicalTruth
+    ? [
+        `Terminal: ${operation.terminalStatus || "BLOCKED"}`,
+        `Dispatch: ${operation.dispatchState || "UNKNOWN"}`,
+        `Commit: ${operation.commitState || "UNKNOWN"}`,
+        `Effect: ${operation.effectState || "UNKNOWN"}`,
+        `Postcondition: ${operation.postconditionState || "UNKNOWN"}`,
+        `Retry: ${operation.retryDirective || "RECONCILE_ONLY"}`,
+        `Coverage: ${operation.coverageStatus || "UNKNOWN"}`,
+        `Resources: ${operation.resourceSummary || "UNKNOWN"}`,
+        `Fingerprint: ${operation.fingerprintMismatch || "UNKNOWN"}`,
+        operation.promptRequired ? "Prompt required" : "",
+        operation.promptRequired && operation.promptType
+          ? `Prompt type: ${operation.promptType}`
+          : "",
+        operation.promptMessage
+          ? `Prompt message: ${operation.promptMessage}`
+          : "",
+        operation.operationId ? `Operation: ${operation.operationId}` : "",
+        operation.continuationRequired
+          ? "Continuation required: respond to this exact prompt"
+          : "",
+      ]
+        .filter(Boolean)
+        .join("\n")
+    : formatBrowserResult(content.result);
 
   return (
     <ToolCardShell

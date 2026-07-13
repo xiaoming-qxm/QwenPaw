@@ -217,7 +217,7 @@ def _register_python_name_mappings(
         "append_file": "Append",
         "grep_search": "Grep",
         "glob_search": "Glob",
-        "browser_use": "Browser",
+        "browser": "Browser",
         "web_search": "WebSearch",
         "web_fetch": "WebFetch",
         "desktop_screenshot": "DesktopScreenshot",

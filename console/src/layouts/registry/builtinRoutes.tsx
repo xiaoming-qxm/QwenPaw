@@ -78,6 +78,10 @@ function ACPRedirect() {
   return <Navigate to="/acp" replace />;
 }
 
+function BrowserExtensionRedirect() {
+  return <Navigate to="/plugin/chrome" replace />;
+}
+
 export const BUILTIN_ROUTES: Route[] = [
   { id: "core.root", path: "/", component: DefaultRedirect },
   { id: "core.chat", path: "/chat/*", component: Chat },
@@ -120,6 +124,11 @@ export const BUILTIN_ROUTES: Route[] = [
     id: "core.plugin-manager",
     path: "/plugin-manager",
     component: PluginManagerPage,
+  },
+  {
+    id: "core.browser-extension",
+    path: "/browser-extension",
+    component: BrowserExtensionRedirect,
   },
 ];
 

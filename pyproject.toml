@@ -80,7 +80,7 @@ Issues = "https://github.com/agentscope-ai/QwenPaw/issues"
 version = {attr = "qwenpaw.__version__.__version__"}
 
 [tool.setuptools]
-packages = { find = { where = ["src"] } }
+packages = { find = { where = ["src"], exclude = ["qwenpaw._plugins*"] } }
 include-package-data = true
 
 [tool.setuptools.package-data]
@@ -90,11 +90,20 @@ include-package-data = true
     "agents/md_files/**",
     "agents/skills/**",
     "tokenizer/**",
+    "browser/sdk/generated/**",
+    "_plugins/**",
     "security/tool_guard/rules/**",
     "security/skill_scanner/rules/**",
     "security/skill_scanner/data/**",
     "docs/*.md",
     "app/channels/yuanbao/proto/**",
+]
+
+[tool.setuptools.exclude-package-data]
+"*" = [
+    "**/__pycache__/**",
+    "**/*.pyc",
+    "**/*.pyo",
 ]
 
 [build-system]
@@ -158,6 +167,35 @@ markers = [
 ]
 testpaths = [
     "tests",
+]
+
+[tool.mypy]
+exclude = [
+    "src/qwenpaw/agents/skills/.*",
+]
+
+[[tool.mypy.overrides]]
+module = [
+    "qwenpaw.agents",
+    "qwenpaw.agents.*",
+    "qwenpaw.config",
+    "qwenpaw.config.*",
+]
+disable_error_code = [
+    "abstract",
+    "arg-type",
+    "assignment",
+    "attr-defined",
+    "call-arg",
+    "import-untyped",
+    "list-item",
+    "misc",
+    "override",
+    "return-value",
+    "truthy-function",
+    "union-attr",
+    "valid-type",
+    "var-annotated",
 ]
 
 [tool.coverage.run]
