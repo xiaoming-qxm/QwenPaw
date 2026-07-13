@@ -16,6 +16,7 @@ from .model import (
     FaultCutPoint,
     ObserveReadFacts,
     OracleResult,
+    S7FamilyFacts,
     StateApprovalFacts,
     SynchronizeFacts,
     TargetControlFacts,
@@ -232,6 +233,33 @@ class IndependentOracle:
                     "failure_or_cleanup_visible": (
                         facts.failure_or_cleanup_visible
                     ),
+                },
+            ),
+            observed_resources=(),
+            observed_blocks=(),
+        )
+
+    def evaluate_s7_family(self, facts: S7FamilyFacts) -> OracleResult:
+        """Evaluate only controller/native logs for an S7 primary case."""
+        return self.evaluate(
+            expected_facts={
+                "primary_family": facts.primary_family.value,
+                "native_effect_count": facts.expected_native_effect_count,
+                "native_event_count": facts.expected_native_event_count,
+                "exact_identity_bound": True,
+                "owner_bound": True,
+                "public_bypass_count": 0,
+                "false_success": False,
+            },
+            observed_events=(
+                {
+                    "primary_family": facts.observed_family.value,
+                    "native_effect_count": facts.observed_native_effect_count,
+                    "native_event_count": facts.observed_native_event_count,
+                    "exact_identity_bound": facts.exact_identity_bound,
+                    "owner_bound": facts.owner_bound,
+                    "public_bypass_count": facts.public_bypass_count,
+                    "false_success": facts.false_success,
                 },
             ),
             observed_resources=(),

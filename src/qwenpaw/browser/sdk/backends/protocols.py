@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
 from ..condition_evaluator import ConditionProbe
 from ..runtime.session_owner import (
@@ -24,6 +24,14 @@ from ..primitives.types import (
     BrowserScreenshot,
     ResolvedBrowserContext,
 )
+
+if TYPE_CHECKING:
+    from ..canonical.contracts import (
+        BrowserPrompt,
+        OptionChoice,
+        TabSummary,
+        TargetRef,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,6 +84,12 @@ class BrowserSession(Protocol):
     async def list_tabs(self) -> list[dict[str, Any]]:
         """List backend tabs."""
 
+    async def current_prompt(
+        self,
+        tab: "TabSummary",
+    ) -> "BrowserPrompt | None":
+        """Capture the exact waiting native prompt without response."""
+
     async def select_tab(self, tab_id: str) -> dict[str, Any]:
         """Select a backend tab."""
 
@@ -118,51 +132,83 @@ class BrowserSession(Protocol):
     async def click(
         self,
         tab_id: str,
-        target: dict[str, Any],
+        target: "TargetRef",
         *,
-        allow_new_context: bool = False,
+        button: Literal["primary", "secondary", "middle"] = "primary",
+        count: Literal[1, 2] = 1,
+        modifiers: tuple[
+            Literal["alt", "control", "meta", "shift"],
+            ...,
+        ] = (),
     ) -> BrowserActionResult:
         """Click a resolved target."""
+
+    async def hover(
+        self,
+        tab_id: str,
+        target: "TargetRef",
+    ) -> BrowserActionResult:
+        """Hover over a resolved target."""
+
+    async def drag(
+        self,
+        tab_id: str,
+        source: "TargetRef",
+        destination: "TargetRef",
+    ) -> BrowserActionResult:
+        """Drag between resolved targets."""
 
     async def fill(
         self,
         tab_id: str,
-        target: dict[str, Any],
-        text: str,
+        target: "TargetRef",
+        value: str,
     ) -> BrowserActionResult:
         """Fill a resolved target."""
+
+    async def type_text(
+        self,
+        tab_id: str,
+        target: "TargetRef",
+        text: str,
+    ) -> BrowserActionResult:
+        """Append browser input events to a resolved target."""
 
     async def press_key(
         self,
         tab_id: str,
+        target: "TargetRef",
         key: str,
+        *,
+        modifiers: tuple[Literal["shift"], ...] = (),
     ) -> BrowserActionResult:
-        """Press a page-level key."""
+        """Press a key on an explicit resolved target."""
 
     async def scroll(
         self,
         tab_id: str,
         *,
-        direction: str = "down",
-        amount: str | int | None = None,
-        target: dict[str, Any] | None = None,
+        target: "TargetRef | None" = None,
+        direction: Literal["up", "down", "left", "right"] = "down",
+        amount: Literal["line", "page", "start", "end"] = "page",
     ) -> BrowserActionResult:
         """Scroll the page or a target."""
+
+    async def set_checked(
+        self,
+        tab_id: str,
+        target: "TargetRef",
+        checked: bool,
+    ) -> BrowserActionResult:
+        """Ensure a resolved target's checked state."""
 
     async def select_option(
         self,
         tab_id: str,
-        target: dict[str, Any],
-        value: Any,
+        target: "TargetRef",
+        option: "OptionChoice",
     ) -> BrowserActionResult:
         """Select a target option."""
-
-    async def hover(
-        self,
-        tab_id: str,
-        target: dict[str, Any],
-    ) -> BrowserActionResult:
-        """Hover over a resolved target."""
 
     async def upload_file(
         self,

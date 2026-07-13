@@ -10,6 +10,7 @@ from uuid import uuid4
 
 from qwenpaw.browser.sdk.runtime.session_owner import OwnerKey
 from qwenpaw.browser.sdk.runtime.responses import logger
+from qwenpaw.browser.sdk.governance.errors import BrowserSDKError
 from .errors import RECOVERABLE_CONTROL_EXCEPTIONS
 from .ref_scope import _control_advance_canonical_generation
 from .state import StateMapping
@@ -503,6 +504,111 @@ def _control_register_dialog_auto_handler(
     setattr(session, "_control_dialog_auto_handler_registered", True)
 
 
+def _control_register_prompt_capture_handler(
+    state: StateMapping,
+    *,
+    session: Any,
+    bridge: Any,
+    tab_id: int,
+) -> None:
+    """Capture one exact Canonical native prompt without responding."""
+    add_listener = getattr(bridge, "add_event_listener", None)
+    if not callable(add_listener):
+        return
+    if getattr(session, "_control_prompt_capture_handler_registered", False):
+        return
+
+    async def _capture_prompt(event: dict[str, Any]) -> None:
+        if not isinstance(event, dict):
+            return
+        event_tab_id = event.get("tabId", event.get("tab_id"))
+        if event_tab_id is None or int(event_tab_id) != int(tab_id):
+            return
+        if event.get("method") != "Page.javascriptDialogOpening":
+            return
+        params = event.get("params")
+        if not isinstance(params, dict):
+            return
+        prompt_type = str(params.get("type") or "").strip().lower()
+        if prompt_type == "beforeunload":
+            prompt_type = "before_unload"
+        if prompt_type not in {
+            "alert",
+            "confirm",
+            "prompt",
+            "before_unload",
+        }:
+            return
+        prompts = state.setdefault("canonical_current_prompts", {})
+        prompts[str(tab_id)] = {
+            "native_identity": f"prompt-event-{uuid4().hex}",
+            "type": prompt_type,
+            "message": str(params.get("message") or ""),
+            "allows_text": prompt_type == "prompt",
+            "parent_operation_id": (
+                str(params.get("parentOperationId"))
+                if params.get("parentOperationId")
+                else None
+            ),
+        }
+
+    add_listener("cdp.event", _capture_prompt)
+    setattr(session, "_control_prompt_capture_handler", _capture_prompt)
+    setattr(session, "_control_prompt_capture_handler_registered", True)
+
+
+async def _control_respond_exact_prompt(
+    state: StateMapping,
+    *,
+    session: Any,
+    tab_id: int,
+    native_identity: str,
+    decision: str,
+    text: str | None,
+) -> None:
+    """Consume and respond to one exact captured Canonical prompt once."""
+    prompts = state.get("canonical_current_prompts")
+    if not isinstance(prompts, dict):
+        raise BrowserSDKError(
+            "exact browser prompt is unavailable",
+            code="prompt_stale",
+        )
+    raw = prompts.get(str(tab_id))
+    if not isinstance(raw, dict) or str(
+        raw.get("native_identity") or "",
+    ) != str(native_identity):
+        raise BrowserSDKError(
+            "exact browser prompt is stale or unavailable",
+            code="prompt_stale",
+        )
+    prompt_type = str(raw.get("type") or "")
+    legal = {
+        "alert": {"accept"},
+        "confirm": {"accept", "dismiss"},
+        "prompt": {"accept", "dismiss"},
+        "before_unload": {"accept", "dismiss"},
+    }
+    if decision not in legal.get(prompt_type, set()):
+        raise BrowserSDKError(
+            "decision is invalid for the captured prompt",
+            code="prompt_decision_invalid",
+        )
+    if text is not None and (prompt_type != "prompt" or decision != "accept"):
+        raise BrowserSDKError(
+            "prompt text is invalid",
+            code="prompt_text_invalid",
+        )
+    prompts.pop(str(tab_id), None)
+    try:
+        await session.send(
+            "Page.handleJavaScriptDialog",
+            {"accept": decision == "accept", "promptText": text or ""},
+        )
+    except Exception:
+        prompts[str(tab_id)] = raw
+        raise
+
+
 def _control_remove_dialog_auto_handlers(
     state: StateMapping,
     bridge: Any,
@@ -514,18 +620,28 @@ def _control_remove_dialog_auto_handlers(
     if not isinstance(sessions, dict):
         return
     for session in sessions.values():
-        handler = getattr(session, "_control_dialog_auto_handler", None)
-        if not callable(handler):
-            continue
-        try:
-            remove_listener("cdp.event", handler)
-        except (RuntimeError, OSError, ValueError, TypeError):
-            logger.debug(
-                "Failed to remove browser-bridge dialog handler",
-                exc_info=True,
-            )
-        setattr(session, "_control_dialog_auto_handler", None)
-        setattr(session, "_control_dialog_auto_handler_registered", False)
+        for attribute, registered in (
+            (
+                "_control_dialog_auto_handler",
+                "_control_dialog_auto_handler_registered",
+            ),
+            (
+                "_control_prompt_capture_handler",
+                "_control_prompt_capture_handler_registered",
+            ),
+        ):
+            handler = getattr(session, attribute, None)
+            if not callable(handler):
+                continue
+            try:
+                remove_listener("cdp.event", handler)
+            except (RuntimeError, OSError, ValueError, TypeError):
+                logger.debug(
+                    "Failed to remove browser-bridge prompt handler",
+                    exc_info=True,
+                )
+            setattr(session, attribute, None)
+            setattr(session, registered, False)
 
 
 async def _control_prepare_session_events(
@@ -535,12 +651,26 @@ async def _control_prepare_session_events(
     bridge: Any,
     tab_id: int,
 ) -> None:
-    _control_register_dialog_auto_handler(
-        state,
-        session=session,
-        bridge=bridge,
-        tab_id=tab_id,
+    request_context = getattr(session, "request_context", {})
+    contract_mode = (
+        str(request_context.get("contract_mode") or "").upper()
+        if isinstance(request_context, dict)
+        else ""
     )
+    if contract_mode == "CANONICAL":
+        _control_register_prompt_capture_handler(
+            state,
+            session=session,
+            bridge=bridge,
+            tab_id=tab_id,
+        )
+    else:
+        _control_register_dialog_auto_handler(
+            state,
+            session=session,
+            bridge=bridge,
+            tab_id=tab_id,
+        )
     _control_register_condition_event_handler(
         state,
         session=session,

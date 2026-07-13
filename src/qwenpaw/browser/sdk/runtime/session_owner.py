@@ -16,6 +16,7 @@ from typing import Callable, Literal, Protocol, TypeAlias
 from uuid import uuid4
 
 from ..canonical.contracts import (
+    BrowserPrompt,
     ContextVersion,
     EvidenceRef,
     StateRequirement,
@@ -27,6 +28,7 @@ from ..canonical.contracts import (
     _RUNTIME_VALUE_ISSUER,
 )
 from ..governance.errors import BrowserSDKError
+from ..primitives.matching import canonicalize_http_url
 
 
 class ContractMode(StrEnum):
@@ -206,6 +208,13 @@ class _OwnerState:
     )
     targets: dict[TargetRef, TargetBinding] = field(default_factory=dict)
     tabs: dict[TabSummary, "_TabState"] = field(default_factory=dict)
+    selected_tab: TabSummary | None = None
+    initial_selection_captured: bool = False
+    closed_tab_refs: set[str] = field(default_factory=set)
+    prompts: dict[BrowserPrompt, "_PromptState"] = field(default_factory=dict)
+    current_prompt_by_tab: dict[str, BrowserPrompt] = field(
+        default_factory=dict,
+    )
     grants: dict[str, "_GrantState"] = field(default_factory=dict)
     pending_actions: dict[str, object] = field(default_factory=dict)
     unresolved_operation_id: str | None = None
@@ -224,6 +233,17 @@ class _TabState:
     origin: str
     state_revision: str
     layout_revision: str
+    provenance: Literal["BORROWED", "TASK_CREATED", "UNKNOWN"]
+    expires_at: float
+
+
+@dataclass(frozen=True, slots=True)
+class _PromptState:
+    tab: TabSummary
+    receiver_tab_key: str
+    native_identity: str
+    parent_operation_id: str | None
+    expires_at: float
 
 
 @dataclass(slots=True)
@@ -738,6 +758,10 @@ class BrowserSessionOwnerRegistry:
         state_revision: str,
         layout_revision: str,
         safe_title: str = "",
+        safe_url: str = "",
+        selected: bool = False,
+        provenance: Literal["BORROWED", "TASK_CREATED", "UNKNOWN"] = "UNKNOWN",
+        expires_at: float | None = None,
     ) -> TabSummary:
         """Issue a safe logical tab backed by private receiver authority."""
         state = self._require_owner(owner)
@@ -745,12 +769,30 @@ class BrowserSessionOwnerRegistry:
         normalized_origin = _require_identity(origin, "origin")
         revision = _require_identity(state_revision, "state_revision")
         layout = _require_identity(layout_revision, "layout_revision")
+        if provenance not in {"BORROWED", "TASK_CREATED", "UNKNOWN"}:
+            raise BrowserSDKError(
+                "tab provenance is invalid",
+                code="tab_binding_invalid",
+            )
+        url = canonicalize_http_url(safe_url).value if safe_url else ""
+        safe_origin = canonicalize_http_url(
+            normalized_origin,
+        ).value.rstrip("/")
+        expiry = (
+            self._clock() + self._pending_action_ttl_seconds
+            if expires_at is None
+            else float(expires_at)
+        )
+        tab_ref = _new_handle_token("tab")
         issued = _issue_opaque_value(
             TabSummary,
             _RUNTIME_VALUE_ISSUER,
-            ref=_new_handle_token("tab"),
-            safe_origin=normalized_origin,
-            safe_title=" ".join(str(safe_title or "").split())[:120],
+            tab_ref=tab_ref,
+            title=" ".join(str(safe_title or "").split())[:120],
+            url=url,
+            origin=safe_origin,
+            selected=bool(selected),
+            provenance=provenance,
         )
         assert isinstance(issued, TabSummary)
         state.tabs[issued] = _TabState(
@@ -758,6 +800,8 @@ class BrowserSessionOwnerRegistry:
             origin=normalized_origin,
             state_revision=revision,
             layout_revision=layout,
+            provenance=provenance,
+            expires_at=expiry,
         )
         return issued
 
@@ -780,7 +824,225 @@ class BrowserSessionOwnerRegistry:
                 "runtime_issued_value: tab is not registered to this owner",
                 code="runtime_issued_value",
             )
+        if self._clock() > resolved.expires_at:
+            raise BrowserSDKError(
+                "tab summary expired",
+                code="tab_expired",
+            )
         return resolved
+
+    def list_tab_summaries(
+        self,
+        owner: BrowserRequestBinding,
+        *,
+        max_visible_tabs: int,
+    ) -> list[TabSummary]:
+        """Return the complete owner set or one typed limit error."""
+        state = self._require_current_lease(owner)
+        current = [
+            tab
+            for tab, binding in state.tabs.items()
+            if self._clock() <= binding.expires_at
+        ]
+        if len(current) > max_visible_tabs:
+            raise BrowserSDKError(
+                "visible tab collection exceeds the profile limit",
+                code="tab_limit_exceeded",
+            )
+        return current
+
+    def capture_initial_tab_selection(
+        self,
+        owner: BrowserRequestBinding,
+        tab: TabSummary,
+    ) -> TabSummary:
+        """Capture host-active state once; never rebind from ambient focus."""
+        state = self._require_current_lease(owner)
+        self.resolve_tab_summary(tab, owner=owner)
+        if not state.initial_selection_captured:
+            state.selected_tab = tab
+            state.initial_selection_captured = True
+        return state.selected_tab or tab
+
+    def select_tab_summary(
+        self,
+        owner: BrowserRequestBinding,
+        tab: TabSummary,
+    ) -> None:
+        """Move only the explicit SDK selection pointer."""
+        state = self._require_current_lease(owner)
+        self.resolve_tab_summary(tab, owner=owner)
+        state.selected_tab = tab
+        state.initial_selection_captured = True
+
+    def selected_tab_summary(
+        self,
+        owner: BrowserRequestBinding,
+    ) -> TabSummary | None:
+        return self._require_current_lease(owner).selected_tab
+
+    def task_created_tab_count(self, owner: BrowserRequestBinding) -> int:
+        state = self._require_current_lease(owner)
+        return sum(
+            binding.provenance == "TASK_CREATED"
+            and self._clock() <= binding.expires_at
+            for binding in state.tabs.values()
+        )
+
+    def prove_tab_closed(
+        self,
+        owner: BrowserRequestBinding,
+        tab: TabSummary,
+    ) -> None:
+        """Apply an owner close fact without fallback selection."""
+        state = self._require_current_lease(owner)
+        self.resolve_tab_summary(tab, owner=owner)
+        state.tabs.pop(tab, None)
+        state.closed_tab_refs.add(str(tab.tab_ref))
+        if state.selected_tab is tab:
+            state.selected_tab = None
+
+    def is_tab_closed(
+        self,
+        owner: BrowserRequestBinding,
+        tab: TabSummary,
+    ) -> bool:
+        """Read one exact owner-bound proven close event fact."""
+        if not isinstance(tab, TabSummary):
+            return False
+        state = self._require_current_lease(owner)
+        return str(tab.tab_ref) in state.closed_tab_refs
+
+    def capture_browser_prompt(
+        self,
+        owner: BrowserRequestBinding,
+        *,
+        tab: TabSummary,
+        prompt_type: Literal[
+            "alert",
+            "confirm",
+            "prompt",
+            "before_unload",
+            "permission",
+        ],
+        origin: str,
+        safe_message: str,
+        allows_text: bool,
+        native_identity: str,
+        parent_operation_id: str | None,
+        expires_at: float,
+    ) -> BrowserPrompt:
+        """Capture one exact native prompt in the existing owner state."""
+        state = self._require_current_lease(owner)
+        tab_state = self.resolve_tab_summary(tab, owner=owner)
+        if prompt_type not in {
+            "alert",
+            "confirm",
+            "prompt",
+            "before_unload",
+            "permission",
+        }:
+            raise BrowserSDKError(
+                "browser prompt type is invalid",
+                code="prompt_type_invalid",
+            )
+        native = _require_identity(native_identity, "native_identity")
+        expiry = float(expires_at)
+        if expiry <= self._clock():
+            raise BrowserSDKError(
+                "browser prompt is already expired",
+                code="prompt_expired",
+            )
+        prompt_id = _new_handle_token("prompt")
+        prompt = _issue_opaque_value(
+            BrowserPrompt,
+            _RUNTIME_VALUE_ISSUER,
+            prompt_id=prompt_id,
+            tab=tab,
+            origin=canonicalize_http_url(origin).value.rstrip("/"),
+            type=prompt_type,
+            safe_message=" ".join(str(safe_message).split())[:512],
+            allows_text=bool(allows_text),
+            parent_operation_id=parent_operation_id,
+            expires_at=expiry,
+        )
+        assert isinstance(prompt, BrowserPrompt)
+        state.prompts[prompt] = _PromptState(
+            tab=tab,
+            receiver_tab_key=tab_state.receiver_tab_key,
+            native_identity=native,
+            parent_operation_id=parent_operation_id,
+            expires_at=expiry,
+        )
+        state.current_prompt_by_tab[tab_state.receiver_tab_key] = prompt
+        return prompt
+
+    def resolve_browser_prompt(
+        self,
+        prompt: BrowserPrompt,
+        *,
+        owner: BrowserRequestBinding,
+    ) -> _PromptState:
+        """Resolve only the exact unexpired owner-issued prompt token."""
+        if not isinstance(prompt, BrowserPrompt):
+            raise BrowserSDKError(
+                "browser prompt is not Runtime-issued",
+                code="runtime_issued_value",
+            )
+        state = self._require_current_lease(owner)
+        binding = state.prompts.get(prompt)
+        if binding is None:
+            raise BrowserSDKError(
+                "browser prompt belongs to another owner",
+                code="prompt_wrong_owner",
+            )
+        if self._clock() > binding.expires_at:
+            state.prompts.pop(prompt, None)
+            if (
+                state.current_prompt_by_tab.get(binding.receiver_tab_key)
+                is prompt
+            ):
+                state.current_prompt_by_tab.pop(binding.receiver_tab_key, None)
+            raise BrowserSDKError(
+                "browser prompt expired",
+                code="prompt_expired",
+            )
+        return binding
+
+    def current_browser_prompt(
+        self,
+        owner: BrowserRequestBinding,
+        *,
+        tab: TabSummary,
+    ) -> BrowserPrompt | None:
+        """Return only the exact currently waiting prompt for this tab."""
+        state = self._require_current_lease(owner)
+        tab_state = self.resolve_tab_summary(tab, owner=owner)
+        prompt = state.current_prompt_by_tab.get(tab_state.receiver_tab_key)
+        if prompt is None:
+            return None
+        try:
+            self.resolve_browser_prompt(prompt, owner=owner)
+        except BrowserSDKError as exc:
+            if exc.code == "prompt_expired":
+                return None
+            raise
+        return prompt
+
+    @staticmethod
+    def close_effect_floor(
+        provenance: str,
+    ) -> tuple[str, ...]:
+        """Return the closed provenance-dependent explicit-close floor."""
+        base = ("PRESENTATION", "SESSION_STATE")
+        if provenance == "TASK_CREATED":
+            return base
+        if provenance in {"BORROWED", "UNKNOWN"}:
+            return (*base, "DELETE", "UNKNOWN")
+        raise BrowserSDKError(
+            "tab provenance is invalid",
+            code="tab_binding_invalid",
+        )
 
     def register_exact_grant(
         self,

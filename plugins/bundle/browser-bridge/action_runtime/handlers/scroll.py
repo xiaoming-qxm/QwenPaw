@@ -8,6 +8,10 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..errors import BrowserBridgeRecoverableError
+from ..interactions import (
+    _canonical_runner_request,
+    canonical_interaction_control,
+)
 from ..navigation import _control_tab_id
 from ..observation import (
     _click_effect_last_snapshot_hash,
@@ -35,6 +39,21 @@ class ScrollHandler:
         **kwargs: Any,
     ):
         try:
+            request_context = kwargs.get("request_context") or {}
+            if _canonical_runner_request(request_context):
+                labels = (
+                    ("target",)
+                    if (kwargs.get("_canonical_target_tokens") or {}).get(
+                        "target",
+                    )
+                    else ()
+                )
+                return await canonical_interaction_control(
+                    state,
+                    action="scroll",
+                    target_labels=labels,
+                    kwargs=kwargs,
+                )
             tab_id = _control_tab_id(
                 _control_page_id(state, str(kwargs.get("page_id", ""))),
                 kwargs.get("index", -1),

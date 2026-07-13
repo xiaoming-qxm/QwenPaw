@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .model import LabCase, OracleResult
+from .model import CapabilityFamily, LabCase, OracleResult
 
 
 def case_report(
@@ -49,7 +49,10 @@ def case_report(
                         else (
                             "virtual_clock_raw_probe_event_log"
                             if case.family.value == "Synchronize"
-                            else "controller_owned_events"
+                            and not case.case_id.startswith(
+                                "synchronize.surface-",
+                            )
+                            else "controller_native_event_log"
                         )
                     )
                 )
@@ -138,8 +141,106 @@ def update_s6_support_from_report(
     )
 
 
+def update_s7_support_from_report(
+    report: dict[str, Any],
+    *,
+    manifest_path: str | Path,
+) -> None:
+    """Project only passing S7 primary-family evidence into support rows."""
+    family = str(report.get("family") or "")
+    cases = {
+        str(item["case_id"]): item
+        for item in report.get("cases", ())
+        if item.get("family") == family
+    }
+    mappings: dict[str, dict[str, tuple[str, ...]]] = {
+        CapabilityFamily.CONTEXT_NAVIGATE.value: {
+            "context.navigate": tuple(cases),
+        },
+        CapabilityFamily.TARGET_CONTROL.value: {
+            "target.interactions": tuple(
+                case_id
+                for case_id in cases
+                if case_id.startswith("target.interaction-")
+                or case_id
+                in {"target.frame-boundary", "target.open-shadow-boundary"}
+            ),
+        },
+        CapabilityFamily.SURFACES_WIDGETS.value: {
+            "surfaces.widgets": tuple(
+                case_id for case_id in cases if case_id.startswith("widget.")
+            ),
+            "surfaces.prompt": tuple(
+                case_id
+                for case_id in cases
+                if case_id.startswith("prompt.")
+                and case_id != "prompt.permission-handoff"
+            ),
+        },
+        CapabilityFamily.USER_CHROME_LIFECYCLE.value: {
+            "user_chrome.lifecycle": tuple(cases),
+        },
+    }
+    required = mappings.get(family)
+    if not required or any(
+        not case_ids
+        or any(
+            case_id not in cases or cases[case_id].get("outcome") != "PASS"
+            for case_id in case_ids
+        )
+        for case_ids in required.values()
+    ):
+        return
+    target = Path(manifest_path)
+    manifest = json.loads(target.read_text(encoding="utf-8"))
+    replaced_ids = set(required)
+    if family == CapabilityFamily.SURFACES_WIDGETS.value:
+        replaced_ids.add("surfaces.prompt.permission")
+    retained = [
+        row
+        for row in manifest["capabilities"]
+        if row["capability_id"] not in replaced_ids
+    ]
+    for capability_id, case_ids in required.items():
+        retained.append(
+            {
+                "capability_id": capability_id,
+                "family": family,
+                "requirement": "REQUIRED",
+                "status": "READY",
+                "limits": {},
+                "required_blocks": [],
+                "validation_evidence": [
+                    cases[case_id]["validation_evidence"]
+                    for case_id in case_ids
+                ],
+            },
+        )
+    if family == CapabilityFamily.SURFACES_WIDGETS.value:
+        permission = cases.get("prompt.permission-handoff")
+        retained.append(
+            {
+                "capability_id": "surfaces.prompt.permission",
+                "family": family,
+                "requirement": "OPTIONAL",
+                "status": "BLOCKED",
+                "limits": {},
+                "required_blocks": [],
+                "validation_evidence": (
+                    [permission["validation_evidence"]] if permission else []
+                ),
+            },
+        )
+    manifest["capabilities"] = retained
+    target.write_text(
+        json.dumps(manifest, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
 __all__ = [
     "case_report",
     "update_s6_support_from_report",
+    "update_s7_support_from_report",
     "write_report",
 ]

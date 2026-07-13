@@ -19,6 +19,7 @@ from urllib.parse import urlsplit
 from .canonical.contracts import (
     ActionExpectation,
     ActionResult,
+    BrowserPrompt,
     PagePdfResult,
     Problem,
     RetryDirective,
@@ -45,6 +46,7 @@ from .governance.effects import (
     EffectClassification,
     TargetFact,
     classify_effects,
+    minimum_effects,
 )
 from .governance.errors import BrowserSDKError
 from .runtime.session_owner import (
@@ -442,6 +444,19 @@ class ApprovalGrant:
     remaining_uses: int = 1
 
 
+@dataclass(slots=True)
+class PromptResponseGrant:
+    """Single-use exact authorization for one prompt continuation delta."""
+
+    grant_id: str
+    operation_id: str
+    prompt_id: str
+    binding_digest: str
+    effects: tuple[str, ...]
+    expires_at: float
+    remaining_uses: int = 1
+
+
 @dataclass(frozen=True, slots=True)
 class DispatchContext:
     """Registry-bound trust facts for one dispatch attempt."""
@@ -530,6 +545,179 @@ class ActionRunner:
         self._registry = registry
         self._clock = clock
         self._verifier_catalog = tuple(verifier_catalog)
+
+    @staticmethod
+    def prompt_response_effect_delta(
+        *,
+        prompt_type: str,
+        text: str | None,
+    ) -> tuple[str, ...]:
+        """Return the closed conservative delta for one prompt response."""
+        classification = minimum_effects(
+            "tab.actions.respond_prompt",
+            {
+                "prompt_kind": prompt_type,
+                "parent_effects": (),
+                "prompt_text": text or "",
+            },
+        )
+        return tuple(effect.value for effect in classification)
+
+    async def continue_prompt(
+        self,
+        *,
+        binding: BrowserRequestBinding,
+        prompt: BrowserPrompt,
+        decision: str,
+        text: str | None,
+        dispatcher: Callable[..., Awaitable[object]] | None,
+        continuation_grant: PromptResponseGrant | None = None,
+    ) -> ActionResult:
+        """Issue one new prompt-bound command under the immutable parent."""
+        prompt_binding = self._registry.resolve_browser_prompt(
+            prompt,
+            owner=binding,
+        )
+        prompt_type = str(prompt.type)
+        _validate_prompt_response(prompt_type, decision, text)
+        parent_id = prompt_binding.parent_operation_id
+        if not parent_id:
+            return ActionResult(
+                operation_id=issue_operation_id(),
+                status="BLOCKED",
+                retry="FORBIDDEN",
+                problem=Problem(
+                    code="prompt_parent_unavailable",
+                    phase="PREFLIGHT",
+                    safe_message="Prompt has no executable parent operation.",
+                ),
+                dispatch="NOT_SENT",
+            )
+        pending = self._registry.require_pending_action(binding, parent_id)
+        if not isinstance(pending, PendingAction):
+            raise BrowserSDKError(
+                "prompt parent action is invalid",
+                code="prompt_parent_invalid",
+            )
+        delta = self.prompt_response_effect_delta(
+            prompt_type=prompt_type,
+            text=text,
+        )
+        expected_digest = _prompt_response_binding_digest(
+            pending=pending,
+            prompt=prompt,
+            decision=decision,
+            text=text,
+            effects=delta,
+        )
+        if continuation_grant is None:
+            return ActionResult(
+                operation_id=pending.operation_id,
+                status="BLOCKED",
+                retry="FORBIDDEN",
+                problem=Problem(
+                    code="prompt_continuation_approval_required",
+                    phase="PREFLIGHT",
+                    safe_message="Prompt response requires exact approval.",
+                ),
+                classified_effects=delta,
+                dispatch="NOT_SENT",
+            )
+        if (
+            continuation_grant.operation_id != pending.operation_id
+            or continuation_grant.prompt_id != str(prompt.prompt_id)
+            or continuation_grant.binding_digest != expected_digest
+            or continuation_grant.effects != delta
+            or continuation_grant.remaining_uses != 1
+            or self._clock() > continuation_grant.expires_at
+        ):
+            raise BrowserSDKError(
+                "prompt continuation grant is stale or mismatched",
+                code="prompt_continuation_grant_invalid",
+            )
+        command = pending.issue_command(
+            "PROMPT_RESPONSE",
+            {
+                "prompt_id": str(prompt.prompt_id),
+                "native_identity": prompt_binding.native_identity,
+                "decision": decision,
+                "text_digest": (
+                    sha256(text.encode()).hexdigest() if text else ""
+                ),
+                "state_binding_digest": pending.state_binding_digest,
+                "effect_delta": delta,
+            },
+        )
+        if dispatcher is None:
+            raise BrowserSDKError(
+                "prompt response dispatcher is unavailable",
+                code="prompt_dispatcher_missing",
+            )
+        continuation_grant.remaining_uses = 0
+        await dispatcher(command=command, prompt=prompt)
+        return ActionResult(
+            operation_id=pending.operation_id,
+            status="UNCERTAIN",
+            retry="RECONCILE_ONLY",
+            problem=Problem(
+                code="prompt_response_reconcile_required",
+                phase="VERIFY",
+                safe_message=(
+                    "Prompt response requires receipt reconciliation."
+                ),
+            ),
+            classified_effects=delta,
+            commands=(pending.command_facts[command.command_id],),
+            dispatch="SENT",
+        )
+
+    def issue_prompt_response_grant(
+        self,
+        *,
+        binding: BrowserRequestBinding,
+        prompt: BrowserPrompt,
+        decision: str,
+        text: str | None,
+        ttl_seconds: float = 60.0,
+    ) -> PromptResponseGrant:
+        """Issue a testable exact grant after an external approval decision."""
+        prompt_binding = self._registry.resolve_browser_prompt(
+            prompt,
+            owner=binding,
+        )
+        _validate_prompt_response(str(prompt.type), decision, text)
+        if not prompt_binding.parent_operation_id:
+            raise BrowserSDKError(
+                "prompt has no parent operation",
+                code="prompt_parent_unavailable",
+            )
+        pending = self._registry.require_pending_action(
+            binding,
+            prompt_binding.parent_operation_id,
+        )
+        if not isinstance(pending, PendingAction):
+            raise BrowserSDKError(
+                "prompt parent action is invalid",
+                code="prompt_parent_invalid",
+            )
+        effects = self.prompt_response_effect_delta(
+            prompt_type=str(prompt.type),
+            text=text,
+        )
+        return PromptResponseGrant(
+            grant_id=f"prompt-grant-{secrets.token_hex(12)}",
+            operation_id=pending.operation_id,
+            prompt_id=str(prompt.prompt_id),
+            binding_digest=_prompt_response_binding_digest(
+                pending=pending,
+                prompt=prompt,
+                decision=decision,
+                text=text,
+                effects=effects,
+            ),
+            effects=effects,
+            expires_at=self._clock() + float(ttl_seconds),
+        )
 
     async def run(
         self,
@@ -877,7 +1065,7 @@ class ActionRunner:
                     code="browser_ownership_context_missing",
                 ) from exc
             receiver_key = resolved_tab.receiver_tab_key
-            tab_ref = str(receiver_tab.ref)
+            tab_ref = str(receiver_tab.tab_ref)
             origin = resolved_tab.origin
             state_revision = resolved_tab.state_revision
             layout_revision = resolved_tab.layout_revision
@@ -1217,6 +1405,55 @@ def _blocked_run_result(
 def _emit(hook: Callable[[str], None] | None, event: str) -> None:
     if hook is not None:
         hook(event)
+
+
+def _validate_prompt_response(
+    prompt_type: str,
+    decision: str,
+    text: str | None,
+) -> None:
+    legal = {
+        "alert": {"accept"},
+        "confirm": {"accept", "dismiss"},
+        "prompt": {"accept", "dismiss"},
+        "before_unload": {"accept", "dismiss"},
+        "permission": {"allow", "deny"},
+    }
+    if decision not in legal.get(prompt_type, set()):
+        raise BrowserSDKError(
+            "decision is invalid for this exact prompt",
+            code="prompt_decision_invalid",
+        )
+    if text is not None and (
+        not isinstance(text, str)
+        or prompt_type != "prompt"
+        or decision != "accept"
+    ):
+        raise BrowserSDKError(
+            "prompt text is invalid for this response",
+            code="prompt_text_invalid",
+        )
+
+
+def _prompt_response_binding_digest(
+    *,
+    pending: PendingAction,
+    prompt: BrowserPrompt,
+    decision: str,
+    text: str | None,
+    effects: tuple[str, ...],
+) -> str:
+    return _digest(
+        {
+            "operation_id": pending.operation_id,
+            "operation_fingerprint": pending.operation_fingerprint,
+            "prompt_id": str(prompt.prompt_id),
+            "decision": decision,
+            "text_digest": sha256(text.encode()).hexdigest() if text else "",
+            "state_binding_digest": pending.state_binding_digest,
+            "effects": effects,
+        },
+    )
 
 
 def _remaining_timeout_ms(deadline: float | None, now: float) -> int:

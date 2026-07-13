@@ -13,6 +13,7 @@ from typing import Literal, Protocol, cast
 
 from .canonical.contracts import (
     BrowserCondition,
+    BrowserPrompt,
     CleanupInfo,
     ConditionAtom,
     ContextVersion,
@@ -24,12 +25,15 @@ from .canonical.contracts import (
     PageCondition,
     RegionCondition,
     RegionRef,
+    SurfaceCondition,
+    TabSummary,
     TargetCondition,
     TargetQuery,
     TargetRef,
     TerminalStatus,
     _serialize_browser_condition,
 )
+from .governance.errors import BrowserSDKError
 from .primitives.matching import match_page_url, normalize_visible_text
 from .runtime.observation_store import ObservationStore, ObservationStoreError
 from .runtime.session_owner import (
@@ -51,6 +55,18 @@ ConditionOutcome = Literal[
 
 class _StaleBaseline(RuntimeError):
     """A once-valid baseline was replaced by a new document generation."""
+
+
+def _normalize_option_choice(choice: OptionChoice) -> tuple[str, str]:
+    """Apply the shared producer/evaluator/dispatcher option rules."""
+    if not isinstance(choice, OptionChoice):
+        raise TypeError("choice must be an OptionChoice")
+    value = (
+        normalize_visible_text(choice.value)
+        if choice.by == "label"
+        else choice.value
+    )
+    return (choice.by, value)
 
 
 class MonotonicClock(Protocol):
@@ -666,9 +682,67 @@ def _matched_atoms(
                     ),
                 )
             continue
+        if isinstance(atom, SurfaceCondition):
+            if _surface_condition_matches(atom, receiver):
+                matched.append(atom)
+            continue
         if _atom_matches(atom, observation):
             matched.append(atom)
     return tuple(matched)
+
+
+def _surface_condition_matches(
+    atom: SurfaceCondition,
+    receiver: ConditionReceiver | object,
+) -> bool:
+    """Evaluate only the private T005 exact tab-closed event adapter."""
+    registry = getattr(receiver, "target_registry", None)
+    owner = getattr(receiver, "owner_binding", None)
+    if not isinstance(registry, BrowserSessionOwnerRegistry) or not isinstance(
+        owner,
+        BrowserRequestBinding,
+    ):
+        return False
+    receiver_tab = str(getattr(receiver, "tab_id", "") or "")
+    state = registry._require_current_lease(owner)
+    if atom.kind == "tab_closed" and isinstance(atom.subject, TabSummary):
+        return registry.is_tab_closed(owner, atom.subject)
+    if atom.kind == "tab_selected" and isinstance(atom.subject, TabSummary):
+        if state.selected_tab is not atom.subject:
+            return False
+        bound = state.tabs.get(atom.subject)
+        return bound is not None and bound.receiver_tab_key == receiver_tab
+    if atom.kind == "prompt_present":
+        prompt = state.current_prompt_by_tab.get(receiver_tab)
+        if prompt is None:
+            return False
+        try:
+            registry.resolve_browser_prompt(prompt, owner=owner)
+        except BrowserSDKError:
+            return False
+        return atom.subject is None or str(prompt.type) == str(atom.subject)
+    if atom.kind == "prompt_absent" and isinstance(
+        atom.subject,
+        BrowserPrompt,
+    ):
+        try:
+            binding = registry.resolve_browser_prompt(
+                atom.subject,
+                owner=owner,
+            )
+        except BrowserSDKError as exc:
+            return exc.code == "prompt_expired"
+        if binding.receiver_tab_key != receiver_tab:
+            return False
+        return (
+            state.current_prompt_by_tab.get(receiver_tab) is not atom.subject
+        )
+    if atom.kind == "tab_opened" and isinstance(
+        atom.subject,
+        ContextVersion,
+    ):
+        return bool(state.tabs) and atom.subject in state.contexts
+    return False
 
 
 def _condition_true(
@@ -823,7 +897,12 @@ def _target_fact_matches(
     if atom.kind == "checked":
         return fact.checked is True or "checked" in fact.states
     if atom.kind == "selected":
-        return fact.selected == atom.expected
+        return (
+            fact.selected is not None
+            and isinstance(atom.expected, OptionChoice)
+            and _normalize_option_choice(fact.selected)
+            == _normalize_option_choice(atom.expected)
+        )
     return False
 
 

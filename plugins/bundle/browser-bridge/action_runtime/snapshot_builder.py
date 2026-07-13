@@ -18,8 +18,10 @@ from pydantic import AnyUrl
 from qwenpaw.browser.sdk.runtime.responses import logger
 from qwenpaw.browser.sdk.canonical.contracts import (
     ContextVersion,
+    Coverage,
     CurrentSurface,
     ObservationScope,
+    OptionSummary,
     _issue_opaque_value,
     _RUNTIME_VALUE_ISSUER,
 )
@@ -489,6 +491,44 @@ async def build_canonical_snapshot(
             hard_maximum=512,
         ),
     )
+
+
+def canonical_option_collection(
+    raw_options: tuple[dict[str, object], ...] | list[dict[str, object]],
+    *,
+    complete: bool,
+    limit: int = 128,
+) -> tuple[tuple[OptionSummary, ...], Coverage]:
+    """Project one bounded visible option collection with explicit coverage."""
+    if not isinstance(limit, int) or isinstance(limit, bool) or limit <= 0:
+        raise ValueError("option limit must be positive")
+    if not isinstance(raw_options, (tuple, list)):
+        raise TypeError("raw options must be a bounded sequence")
+    coverage: Coverage = "COMPLETE" if complete else "PARTIAL"
+    projected: list[OptionSummary] = []
+    for raw in raw_options[:limit]:
+        if not isinstance(raw, dict) or raw.get("observed", True) is not True:
+            coverage = "PARTIAL"
+            continue
+        label = raw.get("label")
+        value = raw.get("value")
+        if not isinstance(label, str) or not isinstance(value, str):
+            coverage = "PARTIAL"
+            continue
+        enabled = all(
+            raw.get(key, True) is True
+            for key in ("enabled", "select_enabled", "optgroup_enabled")
+        )
+        projected.append(
+            OptionSummary(
+                label=normalize_visible_text(label),
+                value=value,
+                enabled=enabled,
+            ),
+        )
+    if len(raw_options) > limit:
+        coverage = "PARTIAL"
+    return tuple(projected), coverage
 
 
 async def capture_condition_probe_facts(

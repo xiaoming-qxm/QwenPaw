@@ -155,6 +155,22 @@ class ActionFaultFacts:
     false_success: bool
 
 
+@dataclass(frozen=True, slots=True)
+class S7FamilyFacts:
+    """Controller/native facts for one S7 primary-family case."""
+
+    primary_family: CapabilityFamily
+    observed_family: CapabilityFamily
+    expected_native_effect_count: int
+    observed_native_effect_count: int
+    expected_native_event_count: int
+    observed_native_event_count: int
+    exact_identity_bound: bool
+    owner_bound: bool
+    public_bypass_count: int
+    false_success: bool
+
+
 __all__ = [
     "CapabilityFamily",
     "ActionFaultFacts",
@@ -164,6 +180,7 @@ __all__ = [
     "OracleResult",
     "ObserveReadFacts",
     "ReplayDescriptor",
+    "S7FamilyFacts",
     "SynchronizeFacts",
     "StateApprovalFacts",
     "TargetControlFacts",

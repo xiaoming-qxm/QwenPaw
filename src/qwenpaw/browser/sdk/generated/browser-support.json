@@ -245,6 +245,114 @@
         "action.fault.drop-required-resource-block@build-1",
         "action.fault.cleanup-failure@build-1"
       ]
+    },
+    {
+      "capability_id": "context.navigate",
+      "family": "ContextNavigate",
+      "requirement": "REQUIRED",
+      "status": "READY",
+      "limits": {},
+      "required_blocks": [],
+      "validation_evidence": [
+        "context.navigate@build-1",
+        "context.back@build-1",
+        "context.forward@build-1",
+        "context.reload@build-1",
+        "context.tabs-open@build-1",
+        "context.tabs-new@build-1",
+        "context.tabs-select@build-1",
+        "context.popup-open@build-1",
+        "context.popup-absent@build-1",
+        "context.selected-tab-close@build-1",
+        "context.unsafe-url@build-1",
+        "context.document-changed@build-1",
+        "context.no-implicit-selection@build-1"
+      ]
+    },
+    {
+      "capability_id": "target.interactions",
+      "family": "TargetControl",
+      "requirement": "REQUIRED",
+      "status": "READY",
+      "limits": {},
+      "required_blocks": [],
+      "validation_evidence": [
+        "target.interaction-click@build-1",
+        "target.interaction-hover@build-1",
+        "target.interaction-drag@build-1",
+        "target.interaction-scroll@build-1",
+        "target.interaction-fill@build-1",
+        "target.interaction-type-text@build-1",
+        "target.interaction-press-key@build-1",
+        "target.interaction-set-checked@build-1",
+        "target.interaction-select-option@build-1",
+        "target.frame-boundary@build-1",
+        "target.open-shadow-boundary@build-1"
+      ]
+    },
+    {
+      "capability_id": "surfaces.widgets",
+      "family": "SurfacesWidgets",
+      "requirement": "REQUIRED",
+      "status": "READY",
+      "limits": {},
+      "required_blocks": [],
+      "validation_evidence": [
+        "widget.combobox@build-1",
+        "widget.menu@build-1",
+        "widget.tree@build-1",
+        "widget.grid@build-1",
+        "widget.date-picker@build-1",
+        "widget.slider@build-1",
+        "widget.rich-editor@build-1"
+      ]
+    },
+    {
+      "capability_id": "surfaces.prompt",
+      "family": "SurfacesWidgets",
+      "requirement": "REQUIRED",
+      "status": "READY",
+      "limits": {},
+      "required_blocks": [],
+      "validation_evidence": [
+        "prompt.alert-exact@build-1",
+        "prompt.confirm-exact@build-1",
+        "prompt.text-exact@build-1",
+        "prompt.beforeunload-exact@build-1",
+        "prompt.same-message-replay@build-1",
+        "prompt.stale-token@build-1",
+        "prompt.no-default-accept@build-1",
+        "prompt.post-dispatch-required@build-1"
+      ]
+    },
+    {
+      "capability_id": "surfaces.prompt.permission",
+      "family": "SurfacesWidgets",
+      "requirement": "OPTIONAL",
+      "status": "BLOCKED",
+      "limits": {},
+      "required_blocks": [],
+      "validation_evidence": [
+        "prompt.permission-handoff@build-1"
+      ]
+    },
+    {
+      "capability_id": "user_chrome.lifecycle",
+      "family": "UserChromeLifecycle",
+      "requirement": "REQUIRED",
+      "status": "READY",
+      "limits": {},
+      "required_blocks": [],
+      "validation_evidence": [
+        "s0.owner-continuity@build-1",
+        "chrome.first-attach@build-1",
+        "chrome.focus-change@build-1",
+        "chrome.reconnect@build-1",
+        "chrome.resume@build-1",
+        "chrome.cleanup-task-created@build-1",
+        "chrome.cleanup-borrowed@build-1",
+        "chrome.cleanup-beforeunload-incomplete@build-1"
+      ]
     }
   ]
 }

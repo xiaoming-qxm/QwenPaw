@@ -8,6 +8,10 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..errors import BrowserBridgeRecoverableError
+from ..interactions import (
+    _canonical_runner_request,
+    canonical_interaction_control,
+)
 from ..navigation import _control_tab_id
 from ..session_manager import _control_get_session
 from ..state import ControlState
@@ -38,6 +42,14 @@ class HoverHandler:
         **kwargs: Any,
     ):
         try:
+            request_context = kwargs.get("request_context") or {}
+            if _canonical_runner_request(request_context):
+                return await canonical_interaction_control(
+                    state,
+                    action="hover",
+                    target_labels=("target",),
+                    kwargs=kwargs,
+                )
             tab_id = _control_tab_id(
                 _control_page_id(state, str(kwargs.get("page_id", ""))),
                 kwargs.get("index", -1),

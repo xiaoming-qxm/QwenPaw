@@ -39,6 +39,160 @@
       "visibility": "default"
     },
     {
+      "api_id": "tab.actions.navigate",
+      "callable_path": "qwenpaw.browser.sdk.canonical.tabs:TabActions.navigate",
+      "invalidates_observation": false,
+      "kind": "action",
+      "mutates": true,
+      "parameters": [
+        {
+          "annotation": "str",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "url",
+          "required": true
+        },
+        {
+          "annotation": "ActionExpectation | None",
+          "default": null,
+          "kind": "KEYWORD_ONLY",
+          "name": "expect",
+          "required": false
+        },
+        {
+          "annotation": "StateRequirement | None",
+          "default": null,
+          "kind": "KEYWORD_ONLY",
+          "name": "state",
+          "required": false
+        },
+        {
+          "annotation": "int | None",
+          "default": null,
+          "kind": "KEYWORD_ONLY",
+          "name": "timeout_ms",
+          "required": false
+        }
+      ],
+      "public_name": "tab.actions.navigate",
+      "requires_observation": false,
+      "return_type": "ActionResult",
+      "satisfies_observation": false,
+      "signature": "async navigate(url: str, *, expect=None, state=None, timeout_ms=None) -> ActionResult",
+      "summary": "Navigate this tab to one safe HTTP(S) URL.",
+      "visibility": "default"
+    },
+    {
+      "api_id": "tab.actions.back",
+      "callable_path": "qwenpaw.browser.sdk.canonical.tabs:TabActions.back",
+      "invalidates_observation": false,
+      "kind": "action",
+      "mutates": true,
+      "parameters": [
+        {
+          "annotation": "ActionExpectation | None",
+          "default": null,
+          "kind": "KEYWORD_ONLY",
+          "name": "expect",
+          "required": false
+        },
+        {
+          "annotation": "StateRequirement | None",
+          "default": null,
+          "kind": "KEYWORD_ONLY",
+          "name": "state",
+          "required": false
+        },
+        {
+          "annotation": "int | None",
+          "default": null,
+          "kind": "KEYWORD_ONLY",
+          "name": "timeout_ms",
+          "required": false
+        }
+      ],
+      "public_name": "tab.actions.back",
+      "requires_observation": false,
+      "return_type": "ActionResult",
+      "satisfies_observation": false,
+      "signature": "async back(*, expect=None, state=None, timeout_ms=None) -> ActionResult",
+      "summary": "Navigate backward in this tab's history.",
+      "visibility": "default"
+    },
+    {
+      "api_id": "tab.actions.forward",
+      "callable_path": "qwenpaw.browser.sdk.canonical.tabs:TabActions.forward",
+      "invalidates_observation": false,
+      "kind": "action",
+      "mutates": true,
+      "parameters": [
+        {
+          "annotation": "ActionExpectation | None",
+          "default": null,
+          "kind": "KEYWORD_ONLY",
+          "name": "expect",
+          "required": false
+        },
+        {
+          "annotation": "StateRequirement | None",
+          "default": null,
+          "kind": "KEYWORD_ONLY",
+          "name": "state",
+          "required": false
+        },
+        {
+          "annotation": "int | None",
+          "default": null,
+          "kind": "KEYWORD_ONLY",
+          "name": "timeout_ms",
+          "required": false
+        }
+      ],
+      "public_name": "tab.actions.forward",
+      "requires_observation": false,
+      "return_type": "ActionResult",
+      "satisfies_observation": false,
+      "signature": "async forward(*, expect=None, state=None, timeout_ms=None) -> ActionResult",
+      "summary": "Navigate forward in this tab's history.",
+      "visibility": "default"
+    },
+    {
+      "api_id": "tab.actions.reload",
+      "callable_path": "qwenpaw.browser.sdk.canonical.tabs:TabActions.reload",
+      "invalidates_observation": false,
+      "kind": "action",
+      "mutates": true,
+      "parameters": [
+        {
+          "annotation": "ActionExpectation | None",
+          "default": null,
+          "kind": "KEYWORD_ONLY",
+          "name": "expect",
+          "required": false
+        },
+        {
+          "annotation": "StateRequirement | None",
+          "default": null,
+          "kind": "KEYWORD_ONLY",
+          "name": "state",
+          "required": false
+        },
+        {
+          "annotation": "int | None",
+          "default": null,
+          "kind": "KEYWORD_ONLY",
+          "name": "timeout_ms",
+          "required": false
+        }
+      ],
+      "public_name": "tab.actions.reload",
+      "requires_observation": false,
+      "return_type": "ActionResult",
+      "satisfies_observation": false,
+      "signature": "async reload(*, expect=None, state=None, timeout_ms=None) -> ActionResult",
+      "summary": "Reload this exact tab.",
+      "visibility": "default"
+    },
+    {
       "api_id": "tab.actions.click",
       "callable_path": "qwenpaw.browser.sdk.canonical.tabs:TabActions.click",
       "invalidates_observation": false,
@@ -50,14 +204,92 @@
           "kind": "POSITIONAL_OR_KEYWORD",
           "name": "target",
           "required": true
+        },
+        {
+          "annotation": "Literal['primary', 'secondary', 'middle']",
+          "default": "primary",
+          "kind": "KEYWORD_ONLY",
+          "name": "button",
+          "required": false
+        },
+        {
+          "annotation": "Literal[1, 2]",
+          "default": 1,
+          "kind": "KEYWORD_ONLY",
+          "name": "count",
+          "required": false
+        },
+        {
+          "annotation": "tuple[Literal['alt', 'control', 'meta', 'shift'], ...]",
+          "default": [],
+          "kind": "KEYWORD_ONLY",
+          "name": "modifiers",
+          "required": false
+        },
+        {
+          "annotation": "ActionExpectation | None",
+          "default": null,
+          "kind": "KEYWORD_ONLY",
+          "name": "expect",
+          "required": false
+        },
+        {
+          "annotation": "StateRequirement | None",
+          "default": null,
+          "kind": "KEYWORD_ONLY",
+          "name": "state",
+          "required": false
+        },
+        {
+          "annotation": "int | None",
+          "default": null,
+          "kind": "KEYWORD_ONLY",
+          "name": "timeout_ms",
+          "required": false
         }
       ],
       "public_name": "tab.actions.click",
       "requires_observation": false,
       "return_type": "ActionResult",
       "satisfies_observation": false,
-      "signature": "async click(target: TargetRef) -> ActionResult",
-      "summary": "Use one Runtime-issued target; dispatch remains blocked.",
+      "signature": "async click(target: TargetRef, *, button: Literal['primary', 'secondary', 'middle'] = 'primary', count: Literal[1, 2] = 1, modifiers: tuple[Literal['alt', 'control', 'meta', 'shift'], ...] = (), expect=None, state=None, timeout_ms=None) -> ActionResult",
+      "summary": "Click one Runtime-issued target with closed input values.",
+      "visibility": "default"
+    },
+    {
+      "api_id": "tab.actions.hover",
+      "callable_path": "qwenpaw.browser.sdk.canonical.tabs:TabActions.hover",
+      "invalidates_observation": false,
+      "kind": "action",
+      "mutates": true,
+      "parameters": [
+        {
+          "annotation": "TargetRef",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "target",
+          "required": true
+        },
+        {
+          "annotation": "ActionExpectation | None",
+          "default": null,
+          "kind": "KEYWORD_ONLY",
+          "name": "expect",
+          "required": false
+        },
+        {
+          "annotation": "int | None",
+          "default": null,
+          "kind": "KEYWORD_ONLY",
+          "name": "timeout_ms",
+          "required": false
+        }
+      ],
+      "public_name": "tab.actions.hover",
+      "requires_observation": false,
+      "return_type": "ActionResult",
+      "satisfies_observation": false,
+      "signature": "async hover(target: TargetRef, *, expect=None, timeout_ms=None) -> ActionResult",
+      "summary": "Hover one Runtime-issued target.",
       "visibility": "default"
     },
     {
@@ -78,14 +310,413 @@
           "kind": "POSITIONAL_OR_KEYWORD",
           "name": "destination",
           "required": true
+        },
+        {
+          "annotation": "ActionExpectation | None",
+          "default": null,
+          "kind": "KEYWORD_ONLY",
+          "name": "expect",
+          "required": false
+        },
+        {
+          "annotation": "StateRequirement | None",
+          "default": null,
+          "kind": "KEYWORD_ONLY",
+          "name": "state",
+          "required": false
+        },
+        {
+          "annotation": "int | None",
+          "default": null,
+          "kind": "KEYWORD_ONLY",
+          "name": "timeout_ms",
+          "required": false
         }
       ],
       "public_name": "tab.actions.drag",
       "requires_observation": false,
       "return_type": "ActionResult",
       "satisfies_observation": false,
-      "signature": "async drag(source: TargetRef, destination: TargetRef) -> ActionResult",
-      "summary": "Validate ordered Runtime-issued endpoints; dispatch remains blocked.",
+      "signature": "async drag(source: TargetRef, destination: TargetRef, *, expect=None, state=None, timeout_ms=None) -> ActionResult",
+      "summary": "Drag between two ordered Runtime-issued targets.",
+      "visibility": "default"
+    },
+    {
+      "api_id": "tab.actions.scroll",
+      "callable_path": "qwenpaw.browser.sdk.canonical.tabs:TabActions.scroll",
+      "invalidates_observation": false,
+      "kind": "action",
+      "mutates": true,
+      "parameters": [
+        {
+          "annotation": "TargetRef",
+          "default": null,
+          "kind": "KEYWORD_ONLY",
+          "name": "target",
+          "required": false
+        },
+        {
+          "annotation": "Literal['up', 'down', 'left', 'right']",
+          "default": "down",
+          "kind": "KEYWORD_ONLY",
+          "name": "direction",
+          "required": false
+        },
+        {
+          "annotation": "Literal['line', 'page', 'start', 'end']",
+          "default": "page",
+          "kind": "KEYWORD_ONLY",
+          "name": "amount",
+          "required": false
+        },
+        {
+          "annotation": "ActionExpectation | None",
+          "default": null,
+          "kind": "KEYWORD_ONLY",
+          "name": "expect",
+          "required": false
+        },
+        {
+          "annotation": "int | None",
+          "default": null,
+          "kind": "KEYWORD_ONLY",
+          "name": "timeout_ms",
+          "required": false
+        }
+      ],
+      "public_name": "tab.actions.scroll",
+      "requires_observation": false,
+      "return_type": "ActionResult",
+      "satisfies_observation": false,
+      "signature": "async scroll(*, target: TargetRef | None = None, direction: Literal['up', 'down', 'left', 'right'] = 'down', amount: Literal['line', 'page', 'start', 'end'] = 'page', expect=None, timeout_ms=None) -> ActionResult",
+      "summary": "Scroll this tab or one Runtime-issued target.",
+      "visibility": "default"
+    },
+    {
+      "api_id": "tab.actions.fill",
+      "callable_path": "qwenpaw.browser.sdk.canonical.tabs:TabActions.fill",
+      "invalidates_observation": false,
+      "kind": "action",
+      "mutates": true,
+      "parameters": [
+        {
+          "annotation": "TargetRef",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "target",
+          "required": true
+        },
+        {
+          "annotation": "str",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "value",
+          "required": true
+        },
+        {
+          "annotation": "ActionExpectation | None",
+          "default": null,
+          "kind": "KEYWORD_ONLY",
+          "name": "expect",
+          "required": false
+        },
+        {
+          "annotation": "StateRequirement | None",
+          "default": null,
+          "kind": "KEYWORD_ONLY",
+          "name": "state",
+          "required": false
+        },
+        {
+          "annotation": "int | None",
+          "default": null,
+          "kind": "KEYWORD_ONLY",
+          "name": "timeout_ms",
+          "required": false
+        }
+      ],
+      "public_name": "tab.actions.fill",
+      "requires_observation": false,
+      "return_type": "ActionResult",
+      "satisfies_observation": false,
+      "signature": "async fill(target: TargetRef, value: str, *, expect=None, state=None, timeout_ms=None) -> ActionResult",
+      "summary": "Replace the complete value of one target.",
+      "visibility": "default"
+    },
+    {
+      "api_id": "tab.actions.type_text",
+      "callable_path": "qwenpaw.browser.sdk.canonical.tabs:TabActions.type_text",
+      "invalidates_observation": false,
+      "kind": "action",
+      "mutates": true,
+      "parameters": [
+        {
+          "annotation": "TargetRef",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "target",
+          "required": true
+        },
+        {
+          "annotation": "str",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "text",
+          "required": true
+        },
+        {
+          "annotation": "ActionExpectation | None",
+          "default": null,
+          "kind": "KEYWORD_ONLY",
+          "name": "expect",
+          "required": false
+        },
+        {
+          "annotation": "StateRequirement | None",
+          "default": null,
+          "kind": "KEYWORD_ONLY",
+          "name": "state",
+          "required": false
+        },
+        {
+          "annotation": "int | None",
+          "default": null,
+          "kind": "KEYWORD_ONLY",
+          "name": "timeout_ms",
+          "required": false
+        }
+      ],
+      "public_name": "tab.actions.type_text",
+      "requires_observation": false,
+      "return_type": "ActionResult",
+      "satisfies_observation": false,
+      "signature": "async type_text(target: TargetRef, text: str, *, expect=None, state=None, timeout_ms=None) -> ActionResult",
+      "summary": "Append browser input events to one target.",
+      "visibility": "default"
+    },
+    {
+      "api_id": "tab.actions.press_key",
+      "callable_path": "qwenpaw.browser.sdk.canonical.tabs:TabActions.press_key",
+      "invalidates_observation": false,
+      "kind": "action",
+      "mutates": true,
+      "parameters": [
+        {
+          "annotation": "TargetRef",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "target",
+          "required": true
+        },
+        {
+          "annotation": "str",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "key",
+          "required": true
+        },
+        {
+          "annotation": "tuple[Literal['shift'], ...]",
+          "default": [],
+          "kind": "KEYWORD_ONLY",
+          "name": "modifiers",
+          "required": false
+        },
+        {
+          "annotation": "ActionExpectation | None",
+          "default": null,
+          "kind": "KEYWORD_ONLY",
+          "name": "expect",
+          "required": false
+        },
+        {
+          "annotation": "StateRequirement | None",
+          "default": null,
+          "kind": "KEYWORD_ONLY",
+          "name": "state",
+          "required": false
+        },
+        {
+          "annotation": "int | None",
+          "default": null,
+          "kind": "KEYWORD_ONLY",
+          "name": "timeout_ms",
+          "required": false
+        }
+      ],
+      "public_name": "tab.actions.press_key",
+      "requires_observation": false,
+      "return_type": "ActionResult",
+      "satisfies_observation": false,
+      "signature": "async press_key(target: TargetRef, key: str, *, modifiers: tuple[Literal['shift'], ...] = (), expect=None, state=None, timeout_ms=None) -> ActionResult",
+      "summary": "Press one closed key value on an explicit target.",
+      "visibility": "default"
+    },
+    {
+      "api_id": "tab.actions.set_checked",
+      "callable_path": "qwenpaw.browser.sdk.canonical.tabs:TabActions.set_checked",
+      "invalidates_observation": false,
+      "kind": "action",
+      "mutates": true,
+      "parameters": [
+        {
+          "annotation": "TargetRef",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "target",
+          "required": true
+        },
+        {
+          "annotation": "bool",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "checked",
+          "required": true
+        },
+        {
+          "annotation": "ActionExpectation | None",
+          "default": null,
+          "kind": "KEYWORD_ONLY",
+          "name": "expect",
+          "required": false
+        },
+        {
+          "annotation": "StateRequirement | None",
+          "default": null,
+          "kind": "KEYWORD_ONLY",
+          "name": "state",
+          "required": false
+        },
+        {
+          "annotation": "int | None",
+          "default": null,
+          "kind": "KEYWORD_ONLY",
+          "name": "timeout_ms",
+          "required": false
+        }
+      ],
+      "public_name": "tab.actions.set_checked",
+      "requires_observation": false,
+      "return_type": "ActionResult",
+      "satisfies_observation": false,
+      "signature": "async set_checked(target: TargetRef, checked: bool, *, expect=None, state=None, timeout_ms=None) -> ActionResult",
+      "summary": "Ensure one target has the exact checked state.",
+      "visibility": "default"
+    },
+    {
+      "api_id": "tab.actions.select_option",
+      "callable_path": "qwenpaw.browser.sdk.canonical.tabs:TabActions.select_option",
+      "invalidates_observation": false,
+      "kind": "action",
+      "mutates": true,
+      "parameters": [
+        {
+          "annotation": "TargetRef",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "target",
+          "required": true
+        },
+        {
+          "annotation": "OptionChoice",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "option",
+          "required": true
+        },
+        {
+          "annotation": "ActionExpectation | None",
+          "default": null,
+          "kind": "KEYWORD_ONLY",
+          "name": "expect",
+          "required": false
+        },
+        {
+          "annotation": "StateRequirement | None",
+          "default": null,
+          "kind": "KEYWORD_ONLY",
+          "name": "state",
+          "required": false
+        },
+        {
+          "annotation": "int | None",
+          "default": null,
+          "kind": "KEYWORD_ONLY",
+          "name": "timeout_ms",
+          "required": false
+        }
+      ],
+      "public_name": "tab.actions.select_option",
+      "requires_observation": false,
+      "return_type": "ActionResult",
+      "satisfies_observation": false,
+      "signature": "async select_option(target: TargetRef, option: OptionChoice, *, expect=None, state=None, timeout_ms=None) -> ActionResult",
+      "summary": "Select one exact OptionChoice on a target.",
+      "visibility": "default"
+    },
+    {
+      "api_id": "tab.close",
+      "callable_path": "qwenpaw.browser.sdk.canonical.tabs:Tab.close",
+      "invalidates_observation": false,
+      "kind": "primitive",
+      "mutates": true,
+      "parameters": [],
+      "public_name": "tab.close",
+      "requires_observation": false,
+      "return_type": "ActionResult",
+      "satisfies_observation": false,
+      "signature": "async close() -> ActionResult",
+      "summary": "Close this exact tab through the ActionRunner.",
+      "visibility": "default"
+    },
+    {
+      "api_id": "browser.tabs.open",
+      "callable_path": "qwenpaw.browser.sdk.canonical.tabs:BrowserTabs.open",
+      "invalidates_observation": false,
+      "kind": "primitive",
+      "mutates": true,
+      "parameters": [
+        {
+          "annotation": "str",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "url",
+          "required": true
+        }
+      ],
+      "public_name": "browser.tabs.open",
+      "requires_observation": false,
+      "return_type": "ActionResult",
+      "satisfies_observation": false,
+      "signature": "async open(url: str) -> ActionResult",
+      "summary": "Create and navigate a task tab without selecting it.",
+      "visibility": "default"
+    },
+    {
+      "api_id": "browser.tabs.new",
+      "callable_path": "qwenpaw.browser.sdk.canonical.tabs:BrowserTabs.new",
+      "invalidates_observation": false,
+      "kind": "primitive",
+      "mutates": true,
+      "parameters": [],
+      "public_name": "browser.tabs.new",
+      "requires_observation": false,
+      "return_type": "ActionResult",
+      "satisfies_observation": false,
+      "signature": "async new() -> ActionResult",
+      "summary": "Create one blank task tab without selecting it.",
+      "visibility": "default"
+    },
+    {
+      "api_id": "tab.print_to_pdf",
+      "callable_path": "qwenpaw.browser.sdk.canonical.tabs:Tab.print_to_pdf",
+      "invalidates_observation": false,
+      "kind": "primitive",
+      "mutates": true,
+      "parameters": [
+        {
+          "annotation": "PagePdfOptions | None",
+          "default": null,
+          "kind": "KEYWORD_ONLY",
+          "name": "options",
+          "required": false
+        }
+      ],
+      "public_name": "tab.print_to_pdf",
+      "requires_observation": false,
+      "return_type": "PagePdfResult",
+      "satisfies_observation": false,
+      "signature": "async print_to_pdf(*, options: PagePdfOptions | None = None) -> PagePdfResult",
+      "summary": "Route page PDF through ActionRunner before S8.",
       "visibility": "default"
     },
     {

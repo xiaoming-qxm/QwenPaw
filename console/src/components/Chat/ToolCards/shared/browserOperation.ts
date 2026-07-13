@@ -32,6 +32,11 @@ export interface BrowserOperation {
   problemCode: string;
   retryDirective: string;
   requiredDeliveryFailure: string;
+  promptRequired: boolean;
+  promptType: string;
+  promptMessage: string;
+  operationId: string;
+  continuationRequired: boolean;
   stepCount: number;
   steps: BrowserOperationStep[];
   summaryRows: BrowserOperationRow[];
@@ -85,6 +90,14 @@ const INTERNAL_PARAM_KEYS = new Set([
   "selected_context",
   "requested_context",
   "event_id",
+  "prompt_id",
+  "native_prompt_id",
+  "message_digest",
+  "binding_digest",
+  "continuation_grant",
+  "grant",
+  "unsafe_message",
+  "unsafe_text",
 ]);
 
 const OPAQUE_BROWSER_KEYS = new Set([
@@ -97,6 +110,14 @@ const OPAQUE_BROWSER_KEYS = new Set([
   "path",
   "native_handle",
   "resource_owner",
+  "prompt_id",
+  "native_prompt_id",
+  "message_digest",
+  "binding_digest",
+  "continuation_grant",
+  "grant",
+  "unsafe_message",
+  "unsafe_text",
 ]);
 
 const MUTATING_ACTION_API_IDS = new Set([
@@ -648,6 +669,24 @@ function terminalFacts(
   return Object.keys(terminal).length ? terminal : resultTerminal;
 }
 
+function safePromptFacts(
+  metadata: BrowserRecord,
+  result: BrowserRecord,
+  terminal: BrowserRecord,
+): BrowserRecord {
+  for (const value of [
+    metadata.prompt,
+    result.prompt,
+    terminal.prompt,
+    metadata.browser_prompt,
+    result.browser_prompt,
+  ]) {
+    const prompt = asRecord(value);
+    if (Object.keys(prompt).length) return prompt;
+  }
+  return {};
+}
+
 function safeRequiredDeliveryFailure(
   metadata: BrowserRecord,
   result: BrowserRecord,
@@ -733,6 +772,12 @@ export function buildBrowserOperation(
   const title = primary?.step.apiId || "Browser";
   const backendLabel = backendLabelFor(primary, trace, metadata, result);
   const terminal = terminalFacts(metadata, result);
+  const problemCode = firstString(terminal.problem, metadata.problem_code);
+  const prompt = safePromptFacts(metadata, result, terminal);
+  const promptRequired =
+    problemCode === "prompt_required" ||
+    metadata.prompt_required === true ||
+    result.prompt_required === true;
 
   return {
     title,
@@ -741,9 +786,22 @@ export function buildBrowserOperation(
     lifecycleLabel: safeLifecycleLabel(metadata, result, trace),
     cleanupNotice: safeCleanupNotice(metadata, result, trace),
     terminalStatus: firstString(terminal.status, metadata.terminal_status),
-    problemCode: firstString(terminal.problem, metadata.problem_code),
+    problemCode,
     retryDirective: firstString(terminal.retry, metadata.retry_directive),
     requiredDeliveryFailure: safeRequiredDeliveryFailure(metadata, result),
+    promptRequired,
+    promptType: firstString(prompt.type, prompt.prompt_type),
+    promptMessage: firstString(prompt.safe_message),
+    operationId: firstString(
+      terminal.operation_id,
+      metadata.operation_id,
+      result.operation_id,
+    ),
+    continuationRequired:
+      promptRequired &&
+      (prompt.continuation_required !== false ||
+        metadata.continuation_required === true ||
+        result.continuation_required === true),
     stepCount: steps.length,
     steps,
     summaryRows: buildSummaryRows(
@@ -755,7 +813,11 @@ export function buildBrowserOperation(
       primary,
     ),
     paramsRows: eventParamsRows(primary?.event, params),
-    rawTrace: trace.length ? JSON.stringify(sanitizeValue(trace), null, 2) : "",
-    fallbackDetail: trace.length ? "" : resultText(content.result),
+    rawTrace:
+      trace.length && !promptRequired
+        ? JSON.stringify(sanitizeValue(trace), null, 2)
+        : "",
+    fallbackDetail:
+      trace.length || promptRequired ? "" : resultText(content.result),
   };
 }

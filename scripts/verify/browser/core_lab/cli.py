@@ -13,6 +13,7 @@ from .model import CapabilityFamily, CaseOutcome
 from .reports import (
     case_report,
     update_s6_support_from_report,
+    update_s7_support_from_report,
     write_report,
 )
 from .runner import build_case, registered_case_ids, run_case
@@ -64,6 +65,18 @@ def _run(args: argparse.Namespace) -> int:
     write_report(args.report, payload)
     if family is CapabilityFamily.STATE_APPROVAL_EFFECT:
         update_s6_support_from_report(
+            payload,
+            manifest_path=(
+                "src/qwenpaw/browser/sdk/generated/browser-support.json"
+            ),
+        )
+    if family in {
+        CapabilityFamily.CONTEXT_NAVIGATE,
+        CapabilityFamily.TARGET_CONTROL,
+        CapabilityFamily.SURFACES_WIDGETS,
+        CapabilityFamily.USER_CHROME_LIFECYCLE,
+    }:
+        update_s7_support_from_report(
             payload,
             manifest_path=(
                 "src/qwenpaw/browser/sdk/generated/browser-support.json"

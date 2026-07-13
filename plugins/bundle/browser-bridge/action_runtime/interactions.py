@@ -1,14 +1,17 @@
 # -*- coding: utf-8 -*-
 """Interaction helpers for Browser Bridge typed handlers."""
 # pylint: disable=too-many-branches,too-many-statements
-# pylint: disable=too-many-return-statements
+# pylint: disable=too-many-return-statements,protected-access
 
 from __future__ import annotations
 
 import json
+from collections.abc import Awaitable, Callable, Mapping
 from typing import Any
 from urllib.parse import urljoin
 
+from qwenpaw.browser.sdk.action_runner import DispatchContext
+from qwenpaw.browser.sdk.governance.errors import BrowserSDKError
 from qwenpaw.browser.sdk.runtime.responses import _tool_response
 from .navigation import (
     _control_remember_approved_navigation,
@@ -28,7 +31,11 @@ from .observation import (
     _control_visual_coordinate_click_guard,
     _control_mark_observation_required,
 )
-from .ref_scope import _control_current_snapshot_ref
+from .ref_scope import (
+    _control_canonical_binding_status,
+    _control_current_snapshot_ref,
+    _require_canonical_binding,
+)
 from .session_manager import _control_get_session
 from .state import ControlState, StateMapping
 from .state_verification import _control_state_verification_payload
@@ -124,6 +131,251 @@ def _canonical_raw_command_hint(tab_id: int, action: str):
             "condition_truth": "NOT_EVALUATED",
         },
     )
+
+
+_CANONICAL_FORBIDDEN_TARGET_KEYS = {
+    "selector",
+    "x",
+    "y",
+    "native_id",
+    "nativeId",
+    "backendNodeId",
+    "nodeId",
+}
+
+
+async def _canonical_execute_interaction(
+    state: ControlState,
+    *,
+    action: str,
+    target_labels: tuple[str, ...],
+    kwargs: dict[str, Any],
+    injector: Callable[
+        [tuple[dict[str, object], ...], dict[str, object]],
+        Awaitable[object],
+    ],
+) -> dict[str, object]:
+    """Validate exact native bindings, then inject once in the same turn."""
+    request_context = kwargs.get("request_context")
+    context = (
+        request_context.get("canonical_dispatch_context")
+        if isinstance(request_context, Mapping)
+        else None
+    )
+    if not isinstance(context, DispatchContext):
+        raise BrowserSDKError(
+            "Canonical interaction requires a trusted DispatchContext",
+            code="canonical_dispatch_context_missing",
+        )
+    if any(
+        key in kwargs and kwargs.get(key) not in (None, "")
+        for key in _CANONICAL_FORBIDDEN_TARGET_KEYS
+    ):
+        raise BrowserSDKError(
+            "Canonical interaction cannot use selector or coordinates",
+            code="canonical_target_escape_forbidden",
+        )
+    target_tokens = kwargs.get("_canonical_target_tokens")
+    native_facts = kwargs.get("_canonical_native_facts")
+    if not isinstance(target_tokens, Mapping) or not isinstance(
+        native_facts,
+        Mapping,
+    ):
+        raise BrowserSDKError(
+            "Canonical native target facts are unavailable",
+            code="target_binding_invalid",
+        )
+    owner_key = (context.root_task_id, context.browser_owner_id)
+    try:
+        receiver_tab = int(context._receiver_tab_key)
+    except (TypeError, ValueError) as exc:
+        raise BrowserSDKError(
+            "Canonical receiver tab is invalid",
+            code="target_wrong_receiver",
+        ) from exc
+    prepared: list[dict[str, object]] = []
+    seen_tokens: set[str] = set()
+    normalized_action = str(action or "").strip()
+    for label in target_labels:
+        token = str(target_tokens.get(label) or "")
+        if not token or token in seen_tokens:
+            raise BrowserSDKError(
+                "Canonical ordered target binding is invalid",
+                code="target_binding_invalid",
+            )
+        binding = _require_canonical_binding(state, token)
+        native_identity = native_facts.get(label)
+        if not isinstance(native_identity, tuple):
+            raise BrowserSDKError(
+                "Canonical current native identity is unavailable",
+                code="target_unavailable",
+            )
+        status = _control_canonical_binding_status(
+            state,
+            token=token,
+            owner_key=owner_key,
+            receiver_tab=receiver_tab,
+            current_native_identity=native_identity,
+        )
+        if status != "VALID":
+            raise BrowserSDKError(
+                "Canonical target changed before native injection",
+                code="target_stale",
+            )
+        _validate_canonical_surface(binding)
+        _validate_canonical_actionability(binding, normalized_action)
+        _validate_canonical_effect_ceiling(binding, context)
+        prepared.append(
+            {
+                "label": label,
+                "token": token,
+                "frame_key": str(binding.get("frame_key") or ""),
+                "native_identity": tuple(native_identity),
+                "geometry_digest": str(
+                    binding.get("geometry_digest") or "",
+                ),
+            },
+        )
+        seen_tokens.add(token)
+    arguments = {
+        key: value
+        for key, value in kwargs.items()
+        if key
+        not in {
+            "request_context",
+            "_canonical_target_tokens",
+            "_canonical_native_facts",
+        }
+        and key not in _CANONICAL_FORBIDDEN_TARGET_KEYS
+    }
+    native_result = await injector(tuple(prepared), arguments)
+    result: dict[str, object] = {
+        "ok": True,
+        "action": normalized_action,
+        "raw_change_hint": True,
+        "condition_truth": "NOT_EVALUATED",
+    }
+    if isinstance(native_result, Mapping):
+        result.update(
+            {
+                str(key): value
+                for key, value in native_result.items()
+                if str(key) not in {"condition_truth"}
+            },
+        )
+    return result
+
+
+def _validate_canonical_surface(binding: Mapping[str, object]) -> None:
+    frame_key = str(binding.get("frame_key") or "")
+    invalid_markers = ("detached", "replaced", "closed", "cross-origin")
+    valid = (
+        frame_key == "main"
+        or frame_key.startswith("frame:")
+        or frame_key.startswith("shadow:open:")
+    )
+    if not valid or any(
+        marker in frame_key.lower() for marker in invalid_markers
+    ):
+        raise BrowserSDKError(
+            "Canonical target surface is unavailable",
+            code="target_unavailable",
+        )
+
+
+def _validate_canonical_actionability(
+    binding: Mapping[str, object],
+    action: str,
+) -> None:
+    raw_allowed = binding.get("allowed_actions", ())
+    if not isinstance(raw_allowed, (tuple, list)):
+        raise BrowserSDKError(
+            "Canonical allowed-action binding is invalid",
+            code="target_binding_invalid",
+        )
+    allowed = tuple(str(item) for item in raw_allowed)
+    aliases = {
+        "fill": "type",
+        "type_text": "type",
+        "set_checked": "click",
+    }
+    accepted = {action, aliases.get(action, action)}
+    if allowed and not accepted.intersection(allowed):
+        raise BrowserSDKError(
+            "Canonical action is not allowed by the target binding",
+            code="target_action_forbidden",
+        )
+    raw_states = binding.get("action_state", ())
+    if not isinstance(raw_states, (tuple, list)):
+        raise BrowserSDKError(
+            "Canonical action-state binding is invalid",
+            code="target_binding_invalid",
+        )
+    states = dict(raw_states)
+    required = {"visible", "stable"}
+    if action not in {"hover", "scroll"}:
+        required.add("enabled")
+    if action in {"fill", "type_text"}:
+        required.add("editable")
+    if any(states.get(name) is not True for name in required):
+        raise BrowserSDKError(
+            "Canonical target is not actionable",
+            code="target_not_actionable",
+        )
+
+
+def _validate_canonical_effect_ceiling(
+    binding: Mapping[str, object],
+    context: DispatchContext,
+) -> None:
+    raw_ceiling = binding.get("effect_ceiling", ())
+    if not isinstance(raw_ceiling, (tuple, list)):
+        raise BrowserSDKError(
+            "Canonical effect ceiling binding is invalid",
+            code="target_binding_invalid",
+        )
+    ceiling = {str(item) for item in raw_ceiling}
+    effects = {str(item) for item in context.classified_effects}
+    if effects and not effects.issubset(ceiling):
+        raise BrowserSDKError(
+            "Canonical target effect ceiling is insufficient",
+            code="effect_ceiling_mismatch",
+        )
+
+
+async def _canonical_set_checked_decision(
+    *,
+    current: bool,
+    requested: bool,
+) -> str:
+    """Return the no-send ensure decision for an exact checked state."""
+    if not isinstance(current, bool) or not isinstance(requested, bool):
+        raise TypeError("checked state must be boolean")
+    return "ALREADY_SATISFIED" if current == requested else "INJECT"
+
+
+async def canonical_interaction_control(
+    state: ControlState,
+    *,
+    action: str,
+    target_labels: tuple[str, ...],
+    kwargs: dict[str, Any],
+):
+    """Run a Canonical handler through its private native injector seam."""
+    injector = kwargs.get("_canonical_native_injector")
+    if not callable(injector):
+        raise BrowserSDKError(
+            "Canonical native injector is unavailable",
+            code="canonical_native_injector_missing",
+        )
+    result = await _canonical_execute_interaction(
+        state,
+        action=action,
+        target_labels=target_labels,
+        kwargs=kwargs,
+        injector=injector,
+    )
+    return _json_response(result)
 
 
 def _control_link_href(target: dict[str, Any], base_url: str) -> str:

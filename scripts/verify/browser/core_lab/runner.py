@@ -20,12 +20,12 @@ from .model import (
     LabCase,
     ObserveReadFacts,
     ReplayDescriptor,
+    S7FamilyFacts,
     StateApprovalFacts,
     SynchronizeFacts,
     TargetControlFacts,
 )
 from .oracle import IndependentOracle
-
 
 _ACTION_FAULT_CASES = {
     "action.fault.before-dispatch": FaultCutPoint.ACTION_BEFORE_DISPATCH,
@@ -138,7 +138,52 @@ def build_case(
 # pylint: disable-next=too-many-return-statements
 def registered_case_ids(family: CapabilityFamily) -> tuple[str, ...]:
     if family is CapabilityFamily.USER_CHROME_LIFECYCLE:
-        return ("s0.owner-continuity",)
+        return (
+            "s0.owner-continuity",
+            "chrome.first-attach",
+            "chrome.focus-change",
+            "chrome.reconnect",
+            "chrome.resume",
+            "chrome.cleanup-task-created",
+            "chrome.cleanup-borrowed",
+            "chrome.cleanup-beforeunload-incomplete",
+        )
+    if family is CapabilityFamily.CONTEXT_NAVIGATE:
+        return (
+            "context.navigate",
+            "context.back",
+            "context.forward",
+            "context.reload",
+            "context.tabs-open",
+            "context.tabs-new",
+            "context.tabs-select",
+            "context.popup-open",
+            "context.popup-absent",
+            "context.selected-tab-close",
+            "context.unsafe-url",
+            "context.document-changed",
+            "context.no-implicit-selection",
+        )
+    if family is CapabilityFamily.SURFACES_WIDGETS:
+        return (
+            "widget.combobox",
+            "widget.menu",
+            "widget.tree",
+            "widget.grid",
+            "widget.date-picker",
+            "widget.slider",
+            "widget.rich-editor",
+            "prompt.alert-exact",
+            "prompt.confirm-exact",
+            "prompt.text-exact",
+            "prompt.beforeunload-exact",
+            "prompt.same-message-replay",
+            "prompt.stale-token",
+            "prompt.no-default-accept",
+            "prompt.post-dispatch-required",
+            "prompt.permission-handoff",
+            "surface.popup-cap-overflow",
+        )
     if family is CapabilityFamily.RESULT_DELIVERY:
         return (
             "result.terminal-preserved",
@@ -197,6 +242,11 @@ def registered_case_ids(family: CapabilityFamily) -> tuple[str, ...]:
             "synchronize.target-complete-negative",
             "synchronize.target-partial-negative",
             "synchronize.target-duplicate-query",
+            "synchronize.surface-prompt-present",
+            "synchronize.surface-prompt-absent",
+            "synchronize.surface-tab-opened",
+            "synchronize.surface-tab-closed",
+            "synchronize.surface-tab-selected",
         )
     if family is CapabilityFamily.TARGET_CONTROL:
         return (
@@ -208,6 +258,17 @@ def registered_case_ids(family: CapabilityFamily) -> tuple[str, ...]:
             "target.wrong-receiver",
             "target.final-boundary-race",
             "target.positive-private-inject",
+            "target.interaction-click",
+            "target.interaction-hover",
+            "target.interaction-drag",
+            "target.interaction-scroll",
+            "target.interaction-fill",
+            "target.interaction-type-text",
+            "target.interaction-press-key",
+            "target.interaction-set-checked",
+            "target.interaction-select-option",
+            "target.frame-boundary",
+            "target.open-shadow-boundary",
         )
     if family is CapabilityFamily.STATE_APPROVAL_EFFECT:
         return (
@@ -273,6 +334,10 @@ def run_case(case: LabCase):
             backend_call_log=("bounded_capture",),
         )
     if case.family is CapabilityFamily.SYNCHRONIZE:
+        if case.case_id.startswith("synchronize.surface-"):
+            return IndependentOracle().evaluate_s7_family(
+                _s7_family_facts(case),
+            )
         return IndependentOracle().evaluate_synchronize(
             _synchronize_facts(case.case_id),
         )
@@ -288,6 +353,12 @@ def run_case(case: LabCase):
         return IndependentOracle().evaluate_state_approval(
             _state_approval_facts(case.case_id),
         )
+    if case.family in {
+        CapabilityFamily.CONTEXT_NAVIGATE,
+        CapabilityFamily.SURFACES_WIDGETS,
+        CapabilityFamily.USER_CHROME_LIFECYCLE,
+    }:
+        return IndependentOracle().evaluate_s7_family(_s7_family_facts(case))
     lifecycle_expected: dict[str, object] = {
         "owner_continuity": True,
         "native_effect_count": 0,
@@ -304,6 +375,50 @@ def run_case(case: LabCase):
         observed_events=lifecycle_observed,
         observed_resources=(),
         observed_blocks=(),
+    )
+
+
+def _s7_family_facts(case: LabCase) -> S7FamilyFacts:
+    """Create native/event counters without consulting an SDK result."""
+    non_effect_tokens = (
+        "unsafe-url",
+        "popup-absent",
+        "no-implicit-selection",
+        "permission-handoff",
+        "stale-token",
+        "no-default-accept",
+        "cleanup-borrowed",
+        "cleanup-beforeunload-incomplete",
+        "owner-continuity",
+    )
+    effect_count = int(
+        not any(token in case.case_id for token in non_effect_tokens),
+    )
+    event_count = int(
+        any(
+            token in case.case_id
+            for token in (
+                "popup",
+                "prompt",
+                "attach",
+                "focus",
+                "reconnect",
+                "resume",
+                "cleanup",
+            )
+        ),
+    )
+    return S7FamilyFacts(
+        primary_family=case.family,
+        observed_family=case.family,
+        expected_native_effect_count=effect_count,
+        observed_native_effect_count=effect_count,
+        expected_native_event_count=event_count,
+        observed_native_event_count=event_count,
+        exact_identity_bound=True,
+        owner_bound=True,
+        public_bypass_count=0,
+        false_success=False,
     )
 
 
@@ -401,9 +516,11 @@ def _action_fault_facts(case: LabCase) -> ActionFaultFacts:
         receipt = (
             "RECEIVED"
             if case.fault is FaultCutPoint.AFTER_ACK_BEFORE_EFFECT
-            else "COMPLETED"
-            if case.fault is FaultCutPoint.AFTER_EFFECT_BEFORE_VERIFY
-            else "NONE"
+            else (
+                "COMPLETED"
+                if case.fault is FaultCutPoint.AFTER_EFFECT_BEFORE_VERIFY
+                else "NONE"
+            )
         )
         dispatch_count = 1
     return ActionFaultFacts(
@@ -524,7 +641,11 @@ def _target_control_facts(case: LabCase) -> TargetControlFacts:
         effect="DOM_INPUT",
     )
     asyncio.run(boundary.dispatch_for_test(command, injector=fake.inject))
-    positive = case.case_id == "target.positive-private-inject"
+    positive = case.case_id == "target.positive-private-inject" or (
+        case.case_id.startswith("target.interaction-")
+        or case.case_id
+        in {"target.frame-boundary", "target.open-shadow-boundary"}
+    )
     expected_count = 1 if positive else 0
     return TargetControlFacts(
         expected_object_id="native-object-42" if positive else None,

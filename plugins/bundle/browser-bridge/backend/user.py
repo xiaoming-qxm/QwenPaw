@@ -18,12 +18,14 @@ from qwenpaw.browser.sdk.backends.registry import get_default_backend_registry
 from qwenpaw.browser.sdk.action_runner import DispatchContext
 from qwenpaw.browser.sdk.canonical.contracts import (
     ActionResult,
+    BrowserPrompt,
     Coverage,
     CurrentSurface,
     EvidenceRef,
     RegionCondition,
     RegionRef,
     Problem,
+    TabSummary,
     issue_operation_id,
 )
 from qwenpaw.browser.sdk.condition_evaluator import (
@@ -796,6 +798,68 @@ class ChromeExtensionBrowserSession:
     async def list_tabs(self) -> list[dict[str, Any]]:
         tabs = await self.bridge.discover_tabs()
         return [_normalize_tab(tab) for tab in tabs if isinstance(tab, dict)]
+
+    async def current_prompt(
+        self,
+        tab: TabSummary,
+    ) -> BrowserPrompt | None:
+        """Project the exact captured Canonical prompt into owner authority."""
+        from qwenpaw.browser.sdk.runtime.kernel import (
+            get_current_execution_context,
+        )
+        from qwenpaw.runtime.root_request_coordinator import _OWNER_REGISTRY
+
+        execution = get_current_execution_context()
+        if (
+            execution is None
+            or execution.contract_mode is not ContractMode.CANONICAL
+        ):
+            raise BrowserSDKError(
+                "current_prompt requires Canonical owner context",
+                code="browser_ownership_context_missing",
+            )
+        owner = BrowserRequestBinding(
+            root_session_id=execution.root_session_id,
+            root_task_id=execution.root_task_id,
+            browser_owner_id=execution.browser_owner_id,
+            contract_mode=execution.contract_mode,
+            lease_generation=execution.lease_generation,
+        )
+        current = _OWNER_REGISTRY.current_browser_prompt(owner, tab=tab)
+        if current is not None:
+            return current
+        tab_state = _OWNER_REGISTRY.resolve_tab_summary(tab, owner=owner)
+        prompts = self._state.get("canonical_current_prompts")
+        raw = (
+            prompts.get(tab_state.receiver_tab_key)
+            if isinstance(prompts, dict)
+            else None
+        )
+        if not isinstance(raw, dict):
+            return None
+        prompt_type = str(raw.get("type") or "")
+        if prompt_type not in {
+            "alert",
+            "confirm",
+            "prompt",
+            "before_unload",
+        }:
+            return None
+        return _OWNER_REGISTRY.capture_browser_prompt(
+            owner,
+            tab=tab,
+            prompt_type=cast(Any, prompt_type),
+            origin=tab_state.origin,
+            safe_message=str(raw.get("message") or ""),
+            allows_text=bool(raw.get("allows_text")),
+            native_identity=str(raw.get("native_identity") or ""),
+            parent_operation_id=(
+                str(raw["parent_operation_id"])
+                if raw.get("parent_operation_id")
+                else None
+            ),
+            expires_at=_OWNER_REGISTRY.pending_action_expiry(),
+        )
 
     async def open_tab(self, url: str | None = None) -> dict[str, Any]:
         target_url = _require_target_url(url)

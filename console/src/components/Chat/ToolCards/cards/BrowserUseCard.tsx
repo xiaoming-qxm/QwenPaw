@@ -5,6 +5,7 @@ import { ChromeOutlined } from "@ant-design/icons";
 import type { ToolCallContent } from "../shared/types";
 import { ToolCardShell, DefaultBlock } from "../shared";
 import { stringifyResult } from "../shared/utils";
+import { buildBrowserOperation } from "../shared/browserOperation";
 
 /**
  * Try to extract meaningful fields from a browser tool result object.
@@ -258,7 +259,24 @@ const BrowserUseCard: React.FC<BrowserUseCardProps> = ({
 }) => {
   const { t } = useTranslation();
   const title = getBrowserTitle(content.name, content.params || {}, t);
-  const resultText = formatBrowserResult(content.result);
+  const operation = buildBrowserOperation(content);
+  const resultText = operation.promptRequired
+    ? [
+        `Terminal: ${operation.terminalStatus || "BLOCKED"}`,
+        "Prompt required",
+        operation.promptType ? `Prompt type: ${operation.promptType}` : "",
+        operation.promptMessage
+          ? `Prompt message: ${operation.promptMessage}`
+          : "",
+        operation.operationId ? `Operation: ${operation.operationId}` : "",
+        operation.continuationRequired
+          ? "Continuation required: respond to this exact prompt"
+          : "",
+        `Retry: ${operation.retryDirective || "RECONCILE_ONLY"}`,
+      ]
+        .filter(Boolean)
+        .join("\n")
+    : formatBrowserResult(content.result);
 
   return (
     <ToolCardShell

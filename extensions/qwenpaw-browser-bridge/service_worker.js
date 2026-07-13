@@ -58,6 +58,8 @@ const managedTabs = new Set();
 const createdTabs = new Set();
 const tabMetadata = new Map();
 const commandInflight = new Map();
+const popupEventCounts = new Map();
+const MAX_POPUP_EVENTS_PER_SOURCE = 8;
 
 async function persistManagedTabs() {
   const persistedMetadata = {};
@@ -1202,6 +1204,19 @@ chrome.webNavigation.onCreatedNavigationTarget.addListener((details) => {
     return;
   }
 
+  const count = (popupEventCounts.get(details.sourceTabId) || 0) + 1;
+  popupEventCounts.set(details.sourceTabId, count);
+  if (count > MAX_POPUP_EVENTS_PER_SOURCE) {
+    sendEvent("webNavigation.popupOverflow", {
+      sourceTabId: details.sourceTabId,
+      count,
+      cap: MAX_POPUP_EVENTS_PER_SOURCE,
+      outcome: "PARTIAL",
+      executionTruth: "UNCERTAIN",
+    });
+    return;
+  }
+
   sendEvent("webNavigation.createdNavigationTarget", {
     tabId: details.tabId,
     sourceTabId: details.sourceTabId,
@@ -1261,6 +1276,7 @@ chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {
   managedTabs.delete(tabId);
   createdTabs.delete(tabId);
   tabMetadata.delete(Number(tabId));
+  popupEventCounts.delete(tabId);
   void persistManagedTabs();
 });
 

@@ -110,7 +110,15 @@ _PRESENTATION_KEYS = frozenset(
 _ACTIVATION_KEYS = frozenset({"Enter", "Space"})
 _DESTRUCTIVE_KEYS = frozenset({"Backspace", "Delete"})
 _PROMPT_KINDS = frozenset(
-    {"", "alert", "confirm", "prompt", "beforeunload", "permission"},
+    {
+        "",
+        "alert",
+        "confirm",
+        "prompt",
+        "beforeunload",
+        "before_unload",
+        "permission",
+    },
 )
 
 
@@ -265,7 +273,7 @@ def _prompt_effects(
     effects: list[EffectCategory] = [*parent, UNKNOWN]
     if prompt_kind == "permission":
         effects.append(PERMISSION_OR_SECURITY)
-    if prompt_kind == "beforeunload":
+    if prompt_kind in {"beforeunload", "before_unload"}:
         effects.append(SESSION_STATE)
     if str(arguments.get("prompt_text") or ""):
         effects.append(DATA_DISCLOSURE)

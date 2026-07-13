@@ -5,7 +5,12 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..errors import BrowserBridgeRecoverableError
-from ..interactions import _json_response, click_control
+from ..interactions import (
+    _canonical_runner_request,
+    _json_response,
+    canonical_interaction_control,
+    click_control,
+)
 from ..state import ControlState
 from .protocol import ActionMeta
 
@@ -23,6 +28,14 @@ class ClickHandler:
         **kwargs: Any,
     ):
         try:
+            request_context = kwargs.get("request_context") or {}
+            if _canonical_runner_request(request_context):
+                return await canonical_interaction_control(
+                    state,
+                    action="click",
+                    target_labels=("target",),
+                    kwargs=kwargs,
+                )
             return await click_control(
                 state,
                 holder_id=holder_id,
@@ -30,7 +43,7 @@ class ClickHandler:
                 request_context=kwargs.get("request_context") or {},
                 kwargs=kwargs,
             )
-        except BrowserBridgeRecoverableError as exc:
+        except (BrowserBridgeRecoverableError, ValueError, TypeError) as exc:
             return _json_response(
                 {"ok": False, "mode": "control", "error": str(exc)},
             )

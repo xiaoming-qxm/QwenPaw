@@ -12,6 +12,7 @@ from .capabilities import DIALOG_HANDLER, DOWNLOAD_HANDLER, UPLOAD_HANDLER
 from .claim_tab import CLAIM_TAB_HANDLER
 from .click import CLICK_HANDLER
 from .dispatcher import register_handler
+from .drag import DRAG_HANDLER
 from .hover import HOVER_HANDLER
 from .misc import (
     handle_unsupported,
@@ -23,13 +24,14 @@ from .press_key import PRESS_KEY_HANDLER
 from .release_tab import RELEASE_TAB_HANDLER
 from .reload import RELOAD_HANDLER
 from .scroll import SCROLL_HANDLER
+from .set_checked import SET_CHECKED_HANDLER
 from .select_option import SELECT_OPTION_HANDLER
 from .screenshot import SCREENSHOT_HANDLER
 from .snapshot import SNAPSHOT_HANDLER
 from .start import START_HANDLER
 from .stop import STOP_HANDLER
 from .tabs import TABS_HANDLER
-from .type_text import TYPE_HANDLER
+from .type_text import FILL_HANDLER, TYPE_HANDLER, TYPE_TEXT_HANDLER
 from .wait_for import WAIT_FOR_HANDLER
 
 ActionHandler = Callable[..., Awaitable[ToolChunk]]
@@ -49,7 +51,11 @@ register_handler("hover", HOVER_HANDLER)
 register_handler("select_option", SELECT_OPTION_HANDLER)
 register_handler("click", CLICK_HANDLER)
 register_handler("type", TYPE_HANDLER)
+register_handler("fill", FILL_HANDLER)
+register_handler("type_text", TYPE_TEXT_HANDLER)
 register_handler("press_key", PRESS_KEY_HANDLER)
+register_handler("drag", DRAG_HANDLER)
+register_handler("set_checked", SET_CHECKED_HANDLER)
 register_handler("upload", UPLOAD_HANDLER)
 register_handler("download", DOWNLOAD_HANDLER)
 register_handler("dialog", DIALOG_HANDLER)
@@ -73,7 +79,11 @@ ACTION_HANDLERS: dict[str, ActionHandler] = {
     "snapshot": SNAPSHOT_HANDLER.execute,
     "click": CLICK_HANDLER.execute,
     "type": TYPE_HANDLER.execute,
+    "fill": FILL_HANDLER.execute,
+    "type_text": TYPE_TEXT_HANDLER.execute,
     "press_key": PRESS_KEY_HANDLER.execute,
+    "drag": DRAG_HANDLER.execute,
+    "set_checked": SET_CHECKED_HANDLER.execute,
     "upload": UPLOAD_HANDLER.execute,
     "download": DOWNLOAD_HANDLER.execute,
     "dialog": DIALOG_HANDLER.execute,
@@ -81,7 +91,6 @@ ACTION_HANDLERS: dict[str, ActionHandler] = {
     "wait_for": WAIT_FOR_HANDLER.execute,
     "stop": STOP_HANDLER.execute,
     # Spec-listed actions not yet implemented by the control backend.
-    "drag": handle_unsupported,
     "resize": handle_unsupported,
     "new_tab": handle_unsupported,
 }

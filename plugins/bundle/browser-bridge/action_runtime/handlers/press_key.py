@@ -5,7 +5,12 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..errors import BrowserBridgeRecoverableError
-from ..interactions import _json_response, press_key_control
+from ..interactions import (
+    _canonical_runner_request,
+    _json_response,
+    canonical_interaction_control,
+    press_key_control,
+)
 from ..state import ControlState
 from .protocol import ActionMeta
 
@@ -23,6 +28,14 @@ class PressKeyHandler:
         **kwargs: Any,
     ):
         try:
+            request_context = kwargs.get("request_context") or {}
+            if _canonical_runner_request(request_context):
+                return await canonical_interaction_control(
+                    state,
+                    action="press_key",
+                    target_labels=("target",),
+                    kwargs=kwargs,
+                )
             return await press_key_control(
                 state,
                 holder_id=holder_id,

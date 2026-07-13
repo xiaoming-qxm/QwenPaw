@@ -527,6 +527,26 @@ class EvidenceMeta:
 
 
 @dataclass(frozen=True, slots=True)
+class OptionSummary:
+    """One bounded, visible select option without native identity."""
+
+    label: str
+    value: str
+    enabled: bool
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.label, str) or not isinstance(self.value, str):
+            raise TypeError("option label and value must be strings")
+        if not isinstance(self.enabled, bool):
+            raise TypeError("option enabled must be a bool")
+        normalized = normalize_visible_text(self.label)
+        if normalized != self.label:
+            raise ValueError(
+                "option label must use visible-text normalization",
+            )
+
+
+@dataclass(frozen=True, slots=True)
 class TargetSummary:
     """Safe read-only target evidence without host-native identity."""
 
@@ -536,9 +556,20 @@ class TargetSummary:
     states: tuple[str, ...] = ()
     allowed_actions: tuple[str, ...] = ()
     observed_url: str = ""
+    options: tuple[OptionSummary, ...] = ()
+    options_coverage: Coverage = "UNAVAILABLE"
 
     def __post_init__(self) -> None:
         _require_runtime_value(self.ref, TargetRef, "ref")
+        if not all(
+            isinstance(option, OptionSummary) for option in self.options
+        ):
+            raise TypeError("options must contain OptionSummary values")
+        _require_choice(
+            self.options_coverage,
+            set(Coverage.__args__),  # type: ignore[attr-defined]
+            "options coverage",
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -1643,6 +1674,59 @@ class CapabilityBlocked:
     code: str = "browser_sdk_gap"
 
 
+_CATALOG_MISSING = object()
+
+
+def _catalog_parameter(
+    name: str,
+    annotation: str,
+    *,
+    keyword: bool = False,
+    default: object = _CATALOG_MISSING,
+) -> dict[str, Any]:
+    parameter: dict[str, Any] = {
+        "name": name,
+        "kind": "KEYWORD_ONLY" if keyword else "POSITIONAL_OR_KEYWORD",
+        "required": default is _CATALOG_MISSING,
+        "annotation": annotation,
+    }
+    if default is not _CATALOG_MISSING:
+        parameter["default"] = default
+    return parameter
+
+
+def _canonical_action_entry(
+    name: str,
+    signature: str,
+    parameters: list[dict[str, Any]],
+    summary: str,
+) -> dict[str, Any]:
+    for common_name, annotation in (
+        ("expect", "ActionExpectation | None"),
+        ("state", "StateRequirement | None"),
+        ("timeout_ms", "int | None"),
+    ):
+        if f"{common_name}=" in signature:
+            parameters.append(
+                _catalog_parameter(
+                    common_name,
+                    annotation,
+                    keyword=True,
+                    default=None,
+                ),
+            )
+    return _entry(
+        f"tab.actions.{name}",
+        f"qwenpaw.browser.sdk.canonical.tabs:TabActions.{name}",
+        signature,
+        mutates=True,
+        kind="action",
+        return_type="ActionResult",
+        summary=summary,
+        parameters=parameters,
+    )
+
+
 def canonical_api_catalog() -> dict[str, Any]:
     """Return the S0 canonical lifecycle-only API catalog."""
     return {
@@ -1676,53 +1760,195 @@ def canonical_api_catalog() -> dict[str, Any]:
                     },
                 ],
             ),
-            _entry(
-                "tab.actions.click",
-                "qwenpaw.browser.sdk.canonical.tabs:TabActions.click",
-                "async click(target: TargetRef) -> ActionResult",
-                mutates=True,
-                kind="action",
-                return_type="ActionResult",
-                summary=(
-                    "Use one Runtime-issued target; dispatch remains blocked."
-                ),
-                parameters=[
-                    {
-                        "name": "target",
-                        "kind": "POSITIONAL_OR_KEYWORD",
-                        "required": True,
-                        "annotation": "TargetRef",
-                    },
-                ],
-            ),
-            _entry(
-                "tab.actions.drag",
-                "qwenpaw.browser.sdk.canonical.tabs:TabActions.drag",
+            _canonical_action_entry(
+                "navigate",
                 (
-                    "async drag(source: TargetRef, destination: TargetRef) "
+                    "async navigate(url: str, *, expect=None, state=None, "
+                    "timeout_ms=None) -> ActionResult"
+                ),
+                [_catalog_parameter("url", "str")],
+                "Navigate this tab to one safe HTTP(S) URL.",
+            ),
+            _canonical_action_entry(
+                "back",
+                (
+                    "async back(*, expect=None, state=None, timeout_ms=None) "
                     "-> ActionResult"
                 ),
-                mutates=True,
-                kind="action",
-                return_type="ActionResult",
-                summary=(
-                    "Validate ordered Runtime-issued endpoints; dispatch "
-                    "remains blocked."
+                [],
+                "Navigate backward in this tab's history.",
+            ),
+            _canonical_action_entry(
+                "forward",
+                (
+                    "async forward(*, expect=None, state=None, "
+                    "timeout_ms=None) -> ActionResult"
                 ),
-                parameters=[
-                    {
-                        "name": "source",
-                        "kind": "POSITIONAL_OR_KEYWORD",
-                        "required": True,
-                        "annotation": "TargetRef",
-                    },
-                    {
-                        "name": "destination",
-                        "kind": "POSITIONAL_OR_KEYWORD",
-                        "required": True,
-                        "annotation": "TargetRef",
-                    },
+                [],
+                "Navigate forward in this tab's history.",
+            ),
+            _canonical_action_entry(
+                "reload",
+                (
+                    "async reload(*, expect=None, state=None, "
+                    "timeout_ms=None) -> ActionResult"
+                ),
+                [],
+                "Reload this exact tab.",
+            ),
+            _canonical_action_entry(
+                "click",
+                (
+                    "async click(target: TargetRef, *, button: "
+                    "Literal['primary', 'secondary', 'middle'] = 'primary', "
+                    "count: Literal[1, 2] = 1, modifiers: tuple[Literal["
+                    "'alt', 'control', 'meta', 'shift'], ...] = (), "
+                    "expect=None, state=None, timeout_ms=None) -> ActionResult"
+                ),
+                [
+                    _catalog_parameter("target", "TargetRef"),
+                    _catalog_parameter(
+                        "button",
+                        "Literal['primary', 'secondary', 'middle']",
+                        keyword=True,
+                        default="primary",
+                    ),
+                    _catalog_parameter(
+                        "count",
+                        "Literal[1, 2]",
+                        keyword=True,
+                        default=1,
+                    ),
+                    _catalog_parameter(
+                        "modifiers",
+                        (
+                            "tuple[Literal['alt', 'control', 'meta', "
+                            "'shift'], ...]"
+                        ),
+                        keyword=True,
+                        default=[],
+                    ),
                 ],
+                "Click one Runtime-issued target with closed input values.",
+            ),
+            _canonical_action_entry(
+                "hover",
+                (
+                    "async hover(target: TargetRef, *, expect=None, "
+                    "timeout_ms=None) -> ActionResult"
+                ),
+                [_catalog_parameter("target", "TargetRef")],
+                "Hover one Runtime-issued target.",
+            ),
+            _canonical_action_entry(
+                "drag",
+                (
+                    "async drag(source: TargetRef, destination: TargetRef, *, "
+                    "expect=None, state=None, timeout_ms=None) -> ActionResult"
+                ),
+                [
+                    _catalog_parameter("source", "TargetRef"),
+                    _catalog_parameter("destination", "TargetRef"),
+                ],
+                "Drag between two ordered Runtime-issued targets.",
+            ),
+            _canonical_action_entry(
+                "scroll",
+                (
+                    "async scroll(*, target: TargetRef | None = None, "
+                    "direction: Literal['up', 'down', 'left', 'right'] = "
+                    "'down', amount: Literal['line', 'page', 'start', 'end'] "
+                    "= 'page', expect=None, timeout_ms=None) -> ActionResult"
+                ),
+                [
+                    _catalog_parameter(
+                        "target",
+                        "TargetRef",
+                        keyword=True,
+                        default=None,
+                    ),
+                    _catalog_parameter(
+                        "direction",
+                        "Literal['up', 'down', 'left', 'right']",
+                        keyword=True,
+                        default="down",
+                    ),
+                    _catalog_parameter(
+                        "amount",
+                        "Literal['line', 'page', 'start', 'end']",
+                        keyword=True,
+                        default="page",
+                    ),
+                ],
+                "Scroll this tab or one Runtime-issued target.",
+            ),
+            _canonical_action_entry(
+                "fill",
+                (
+                    "async fill(target: TargetRef, value: str, *, "
+                    "expect=None, state=None, timeout_ms=None) -> ActionResult"
+                ),
+                [
+                    _catalog_parameter("target", "TargetRef"),
+                    _catalog_parameter("value", "str"),
+                ],
+                "Replace the complete value of one target.",
+            ),
+            _canonical_action_entry(
+                "type_text",
+                (
+                    "async type_text(target: TargetRef, text: str, *, "
+                    "expect=None, state=None, timeout_ms=None) -> ActionResult"
+                ),
+                [
+                    _catalog_parameter("target", "TargetRef"),
+                    _catalog_parameter("text", "str"),
+                ],
+                "Append browser input events to one target.",
+            ),
+            _canonical_action_entry(
+                "press_key",
+                (
+                    "async press_key(target: TargetRef, key: str, *, "
+                    "modifiers: tuple[Literal['shift'], ...] = (), "
+                    "expect=None, state=None, timeout_ms=None) -> ActionResult"
+                ),
+                [
+                    _catalog_parameter("target", "TargetRef"),
+                    _catalog_parameter("key", "str"),
+                    _catalog_parameter(
+                        "modifiers",
+                        "tuple[Literal['shift'], ...]",
+                        keyword=True,
+                        default=[],
+                    ),
+                ],
+                "Press one closed key value on an explicit target.",
+            ),
+            _canonical_action_entry(
+                "set_checked",
+                (
+                    "async set_checked(target: TargetRef, checked: bool, *, "
+                    "expect=None, state=None, timeout_ms=None) -> ActionResult"
+                ),
+                [
+                    _catalog_parameter("target", "TargetRef"),
+                    _catalog_parameter("checked", "bool"),
+                ],
+                "Ensure one target has the exact checked state.",
+            ),
+            _canonical_action_entry(
+                "select_option",
+                (
+                    "async select_option(target: TargetRef, option: "
+                    "OptionChoice, *, expect=None, state=None, "
+                    "timeout_ms=None) -> ActionResult"
+                ),
+                [
+                    _catalog_parameter("target", "TargetRef"),
+                    _catalog_parameter("option", "OptionChoice"),
+                ],
+                "Select one exact OptionChoice on a target.",
             ),
             _entry(
                 "tab.close",
@@ -2015,6 +2241,7 @@ __all__ = [
     "ObservationScope",
     "OPAQUE_VALUE_NAMES",
     "OptionChoice",
+    "OptionSummary",
     "PUBLIC_CONSTRUCTOR_NAMES",
     "PageCondition",
     "PagePdfOptions",

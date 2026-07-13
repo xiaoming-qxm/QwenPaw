@@ -5,7 +5,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from hashlib import sha256
+from time import monotonic
 from typing import Any, Awaitable, Callable, Literal, cast
+from urllib.parse import urlsplit
 
 from ..action_runner import ActionRunner
 from ..backends.protocols import BackendProfile
@@ -41,14 +43,17 @@ from ..runtime.session_owner import (
 )
 from .contracts import (
     ActionResult,
+    ActionExpectation,
     CapabilityProblemDetails,
     BrowserCondition,
+    BrowserPrompt,
     CaptureGap,
     CoverageGap,
     CurrentSurface,
     EvidenceRef,
     FrameScope,
     ObservationScope,
+    OptionChoice,
     PagePdfOptions,
     PagePdfResult,
     Problem,
@@ -62,6 +67,7 @@ from .contracts import (
     ScreenshotResult,
     SnapshotResult,
     SurfaceCondition,
+    StateRequirement,
     TabSummary,
     RetryDirective,
     TargetQuery,
@@ -101,25 +107,147 @@ class TabActions:
         repr=False,
     )
 
-    async def click(self, target: TargetRef) -> ActionResult:
-        """Fail before backend dispatch until target/action stages activate."""
+    async def navigate(
+        self,
+        url: str,
+        *,
+        expect: ActionExpectation | None = None,
+        state: StateRequirement | None = None,
+        timeout_ms: int | None = None,
+    ) -> ActionResult:
+        """Navigate this exact receiver to one safe HTTP(S) URL."""
+        _require_safe_http_url(url)
+        return await self._run_mutation(
+            "tab.actions.navigate",
+            ordered_targets=(),
+            arguments={"url": url},
+            expectation=expect,
+            state=state,
+            timeout_ms=timeout_ms,
+        )
+
+    async def back(
+        self,
+        *,
+        expect: ActionExpectation | None = None,
+        state: StateRequirement | None = None,
+        timeout_ms: int | None = None,
+    ) -> ActionResult:
+        """Navigate backward in this receiver's history."""
+        return await self._run_mutation(
+            "tab.actions.back",
+            ordered_targets=(),
+            arguments={},
+            expectation=expect,
+            state=state,
+            timeout_ms=timeout_ms,
+        )
+
+    async def forward(
+        self,
+        *,
+        expect: ActionExpectation | None = None,
+        state: StateRequirement | None = None,
+        timeout_ms: int | None = None,
+    ) -> ActionResult:
+        """Navigate forward in this receiver's history."""
+        return await self._run_mutation(
+            "tab.actions.forward",
+            ordered_targets=(),
+            arguments={},
+            expectation=expect,
+            state=state,
+            timeout_ms=timeout_ms,
+        )
+
+    async def reload(
+        self,
+        *,
+        expect: ActionExpectation | None = None,
+        state: StateRequirement | None = None,
+        timeout_ms: int | None = None,
+    ) -> ActionResult:
+        """Reload this exact receiver."""
+        return await self._run_mutation(
+            "tab.actions.reload",
+            ordered_targets=(),
+            arguments={},
+            expectation=expect,
+            state=state,
+            timeout_ms=timeout_ms,
+        )
+
+    async def click(
+        self,
+        target: TargetRef,
+        *,
+        button: Literal["primary", "secondary", "middle"] = "primary",
+        count: Literal[1, 2] = 1,
+        modifiers: tuple[
+            Literal["alt", "control", "meta", "shift"],
+            ...,
+        ] = (),
+        expect: ActionExpectation | None = None,
+        state: StateRequirement | None = None,
+        timeout_ms: int | None = None,
+    ) -> ActionResult:
+        """Click one Runtime-issued target with closed input values."""
+        _require_choice(button, {"primary", "secondary", "middle"}, "button")
+        _require_choice(count, {1, 2}, "count")
+        _require_modifiers(
+            modifiers,
+            allowed={"alt", "control", "meta", "shift"},
+        )
         if isinstance(target, str):
-            # Preserve the S0 zero-dispatch characterization while the
-            # canonical signature and all executable authority are TargetRef.
+            # Preserve the frozen S0 characterization while rejecting all
+            # string/native-id authority before the runner or backend.
             raise _capability_blocked("tab.actions.click")
         self._require_target(target)
+        if self._action_runner is None:
+            return _blocked_canonical_action(
+                "tab.actions.click",
+                target=target,
+            )
         return await self._run_mutation(
             "tab.actions.click",
             ordered_targets=(("target", target),),
+            arguments={
+                "button": button,
+                "count": count,
+                "modifiers": modifiers,
+            },
+            expectation=expect,
+            state=state,
+            timeout_ms=timeout_ms,
+        )
+
+    async def hover(
+        self,
+        target: TargetRef,
+        *,
+        expect: ActionExpectation | None = None,
+        timeout_ms: int | None = None,
+    ) -> ActionResult:
+        """Hover one Runtime-issued target."""
+        self._require_target(target)
+        return await self._run_mutation(
+            "tab.actions.hover",
+            ordered_targets=(("target", target),),
             arguments={},
+            expectation=expect,
+            timeout_ms=timeout_ms,
         )
 
     async def drag(
         self,
         source: TargetRef,
         destination: TargetRef,
+        *,
+        expect: ActionExpectation | None = None,
+        state: StateRequirement | None = None,
+        timeout_ms: int | None = None,
     ) -> ActionResult:
-        """Validate ordered endpoints without enabling native dispatch."""
+        """Drag between two ordered Runtime-issued endpoints."""
         self._require_target(source)
         self._require_target(destination)
         return await self._run_mutation(
@@ -129,6 +257,176 @@ class TabActions:
                 ("destination", destination),
             ),
             arguments={},
+            expectation=expect,
+            state=state,
+            timeout_ms=timeout_ms,
+        )
+
+    async def scroll(
+        self,
+        *,
+        target: TargetRef | None = None,
+        direction: Literal["up", "down", "left", "right"] = "down",
+        amount: Literal["line", "page", "start", "end"] = "page",
+        expect: ActionExpectation | None = None,
+        timeout_ms: int | None = None,
+    ) -> ActionResult:
+        """Scroll the receiver or one explicit Runtime-issued target."""
+        _require_choice(
+            direction,
+            {"up", "down", "left", "right"},
+            "direction",
+        )
+        _require_choice(amount, {"line", "page", "start", "end"}, "amount")
+        if target is not None:
+            self._require_target(target)
+        ordered_targets = () if target is None else (("target", target),)
+        return await self._run_mutation(
+            "tab.actions.scroll",
+            ordered_targets=ordered_targets,
+            arguments={"direction": direction, "amount": amount},
+            expectation=expect,
+            timeout_ms=timeout_ms,
+        )
+
+    async def fill(
+        self,
+        target: TargetRef,
+        value: str,
+        *,
+        expect: ActionExpectation | None = None,
+        state: StateRequirement | None = None,
+        timeout_ms: int | None = None,
+    ) -> ActionResult:
+        """Replace the complete value of one Runtime-issued target."""
+        _require_string(value, "value")
+        self._require_target(target)
+        return await self._run_mutation(
+            "tab.actions.fill",
+            ordered_targets=(("target", target),),
+            arguments={"value": value},
+            expectation=expect,
+            state=state,
+            timeout_ms=timeout_ms,
+        )
+
+    async def type_text(
+        self,
+        target: TargetRef,
+        text: str,
+        *,
+        expect: ActionExpectation | None = None,
+        state: StateRequirement | None = None,
+        timeout_ms: int | None = None,
+    ) -> ActionResult:
+        """Append browser input events to one Runtime-issued target."""
+        _require_string(text, "text")
+        self._require_target(target)
+        return await self._run_mutation(
+            "tab.actions.type_text",
+            ordered_targets=(("target", target),),
+            arguments={"text": text},
+            expectation=expect,
+            state=state,
+            timeout_ms=timeout_ms,
+        )
+
+    async def press_key(
+        self,
+        target: TargetRef,
+        key: str,
+        *,
+        modifiers: tuple[Literal["shift"], ...] = (),
+        expect: ActionExpectation | None = None,
+        state: StateRequirement | None = None,
+        timeout_ms: int | None = None,
+    ) -> ActionResult:
+        """Press one closed key value on an explicit target."""
+        _require_key(key)
+        _require_modifiers(modifiers, allowed={"shift"})
+        self._require_target(target)
+        return await self._run_mutation(
+            "tab.actions.press_key",
+            ordered_targets=(("target", target),),
+            arguments={"key": key, "modifiers": modifiers},
+            expectation=expect,
+            state=state,
+            timeout_ms=timeout_ms,
+        )
+
+    async def set_checked(
+        self,
+        target: TargetRef,
+        checked: bool,
+        *,
+        expect: ActionExpectation | None = None,
+        state: StateRequirement | None = None,
+        timeout_ms: int | None = None,
+    ) -> ActionResult:
+        """Ensure one target has the exact checked state."""
+        if not isinstance(checked, bool):
+            raise TypeError("checked must be a bool")
+        self._require_target(target)
+        return await self._run_mutation(
+            "tab.actions.set_checked",
+            ordered_targets=(("target", target),),
+            arguments={"checked": checked},
+            expectation=expect,
+            state=state,
+            timeout_ms=timeout_ms,
+        )
+
+    async def select_option(
+        self,
+        target: TargetRef,
+        option: OptionChoice,
+        *,
+        expect: ActionExpectation | None = None,
+        state: StateRequirement | None = None,
+        timeout_ms: int | None = None,
+    ) -> ActionResult:
+        """Select one exact option choice on a Runtime-issued target."""
+        if not isinstance(option, OptionChoice):
+            raise TypeError("option must be an OptionChoice")
+        self._require_target(target)
+        return await self._run_mutation(
+            "tab.actions.select_option",
+            ordered_targets=(("target", target),),
+            arguments={"option": option},
+            expectation=expect,
+            state=state,
+            timeout_ms=timeout_ms,
+        )
+
+    async def respond_prompt(
+        self,
+        prompt: BrowserPrompt,
+        decision: Literal["accept", "dismiss", "allow", "deny"],
+        *,
+        text: str | None = None,
+        timeout_ms: int | None = None,
+    ) -> ActionResult:
+        """Continue one exact prompt under its parent PendingAction."""
+        if not isinstance(prompt, BrowserPrompt):
+            raise TypeError("prompt must be a Runtime-issued BrowserPrompt")
+        if decision not in {"accept", "dismiss", "allow", "deny"}:
+            raise ValueError("invalid prompt decision")
+        _deadline(timeout_ms)
+        if self._action_runner is None or self._owner_binding is None:
+            raise BrowserSDKError(
+                "Canonical ActionRunner is unavailable",
+                code="action_runner_missing",
+                action="tab.actions.respond_prompt",
+            )
+        dispatcher = getattr(self.dispatch, "respond_prompt", None)
+        if dispatcher is None and callable(self.dispatch):
+            dispatcher = self.dispatch
+        return await self._action_runner.continue_prompt(
+            binding=self._owner_binding,
+            prompt=prompt,
+            decision=decision,
+            text=text,
+            dispatcher=dispatcher,
         )
 
     async def _run_mutation(
@@ -137,6 +435,9 @@ class TabActions:
         *,
         ordered_targets: tuple[tuple[str, TargetRef], ...],
         arguments: dict[str, object],
+        expectation: ActionExpectation | None = None,
+        state: StateRequirement | None = None,
+        timeout_ms: int | None = None,
     ) -> ActionResult:
         if self._action_runner is None:
             raise BrowserSDKError(
@@ -150,9 +451,9 @@ class TabActions:
             contract=canonical_mutation_contract(api_id),
             ordered_targets=ordered_targets,
             arguments=arguments,
-            expectation=None,
-            state=None,
-            deadline=None,
+            expectation=expectation,
+            state=state,
+            deadline=_deadline(timeout_ms),
         )
         return cast(ActionResult, result)
 
@@ -224,8 +525,57 @@ class Tab:
 
     async def close(self) -> ActionResult:
         """Route explicit close through the sole ActionRunner."""
-        result = await self._run_mutation("tab.close")
+        if not isinstance(self._tab_summary, TabSummary):
+            raise BrowserSDKError(
+                "tab.close requires an owner-bound receiver summary",
+                code="runtime_issued_value",
+            )
+        expectation = ActionExpectation.transition(
+            BrowserCondition.all(
+                SurfaceCondition.tab_closed(self._tab_summary),
+            ),
+        )
+        result = await self._run_mutation(
+            "tab.close",
+            expectation=expectation,
+        )
         return cast(ActionResult, result)
+
+    async def current_prompt(self) -> BrowserPrompt | None:
+        """Return the exact non-mutating prompt waiting on this tab."""
+        if (
+            self._target_registry is None
+            or self._owner_binding is None
+            or not isinstance(self._tab_summary, TabSummary)
+        ):
+            raise BrowserSDKError(
+                "current_prompt requires owner-bound tab authority",
+                code="browser_ownership_context_missing",
+            )
+        current = self._target_registry.current_browser_prompt(
+            self._owner_binding,
+            tab=self._tab_summary,
+        )
+        if current is not None:
+            return current
+        capture = getattr(self._session, "current_prompt", None)
+        if callable(capture):
+            capture_prompt = cast(
+                Callable[[TabSummary], Awaitable[BrowserPrompt | None]],
+                capture,
+            )
+            # pylint: disable-next=not-callable
+            captured = await capture_prompt(self._tab_summary)
+            if captured is not None and not isinstance(
+                captured,
+                BrowserPrompt,
+            ):
+                raise BrowserSDKError(
+                    "backend returned an invalid BrowserPrompt",
+                    code="prompt_binding_invalid",
+                )
+            return cast(BrowserPrompt | None, captured)
+        return None
 
     async def print_to_pdf(
         self,
@@ -244,6 +594,7 @@ class Tab:
         api_id: str,
         *,
         arguments: dict[str, object] | None = None,
+        expectation: ActionExpectation | None = None,
     ) -> ActionResult | PagePdfResult:
         if self._action_runner is None:
             raise BrowserSDKError(
@@ -257,7 +608,7 @@ class Tab:
             contract=canonical_mutation_contract(api_id),
             ordered_targets=(),
             arguments=arguments or {},
-            expectation=None,
+            expectation=expectation,
             state=None,
             deadline=None,
         )
@@ -751,9 +1102,13 @@ class BrowserTabs:
         default=None,
         repr=False,
     )
+    _max_visible_tabs: int = field(default=64, repr=False)
+    _max_task_created_tabs: int = field(default=16, repr=False)
 
     async def open(self, url: str) -> ActionResult:
         """Route create-and-navigate without changing selected Tab."""
+        _require_safe_http_url(url)
+        self._require_create_capacity()
         return await self._run_mutation(
             "browser.tabs.open",
             arguments={"url": url},
@@ -761,7 +1116,20 @@ class BrowserTabs:
 
     async def new(self) -> ActionResult:
         """Route blank task-tab creation without implicit selection."""
+        self._require_create_capacity()
         return await self._run_mutation("browser.tabs.new", arguments={})
+
+    async def list(self) -> list[TabSummary]:
+        """Return a complete owner-bound visible set or a typed error."""
+        if self._target_registry is None or self._owner_binding is None:
+            raise BrowserSDKError(
+                "Canonical tab registry is unavailable",
+                code="browser_ownership_context_missing",
+            )
+        return self._target_registry.list_tab_summaries(
+            self._owner_binding,
+            max_visible_tabs=self._max_visible_tabs,
+        )
 
     async def _run_mutation(
         self,
@@ -788,16 +1156,151 @@ class BrowserTabs:
         return cast(ActionResult, result)
 
     async def active(self) -> Tab:
+        if (
+            self._target_registry is not None
+            and self._owner_binding is not None
+        ):
+            summary = self._target_registry.selected_tab_summary(
+                self._owner_binding,
+            )
+            if summary is not None:
+                return self._tab_from_summary(summary)
         if self._selected is not None:
             return self._selected
-        raise _capability_blocked("browser.tabs.active")
+        raise BrowserSDKError(
+            "No SDK tab is currently selected",
+            code="no_current_tab",
+            action="browser.tabs.active",
+        )
 
-    async def select(self, tab: Tab) -> Tab:
-        """Select only the collection pointer; never rebind the Tab."""
-        if not isinstance(tab, Tab):
-            raise TypeError("tabs.select requires a Tab")
-        self._selected = tab
-        return tab
+    async def select(self, tab: TabSummary) -> Tab:
+        """Select only one Runtime-issued owner-bound summary."""
+        if not isinstance(tab, TabSummary):
+            raise TypeError("tabs.select requires a TabSummary")
+        if self._target_registry is None or self._owner_binding is None:
+            raise BrowserSDKError(
+                "Canonical tab registry is unavailable",
+                code="browser_ownership_context_missing",
+            )
+        self._target_registry.select_tab_summary(self._owner_binding, tab)
+        selected = self._tab_from_summary(tab)
+        self._selected = selected
+        return selected
+
+    def _tab_from_summary(self, summary: TabSummary) -> Tab:
+        assert self._target_registry is not None
+        assert self._owner_binding is not None
+        resolved = self._target_registry.resolve_tab_summary(
+            summary,
+            owner=self._owner_binding,
+        )
+        return Tab(
+            id=resolved.receiver_tab_key,
+            _session=self._session,
+            _resources=self._resources,
+            _condition_evaluator=self._condition_evaluator,
+            _profile=self._profile,
+            _target_registry=self._target_registry,
+            _owner_binding=self._owner_binding,
+            _tab_summary=summary,
+            _action_runner=self._action_runner,
+        )
+
+    def _require_create_capacity(self) -> None:
+        if self._target_registry is None or self._owner_binding is None:
+            return
+        if (
+            self._target_registry.task_created_tab_count(self._owner_binding)
+            >= self._max_task_created_tabs
+        ):
+            raise BrowserSDKError(
+                "task-created tab limit reached",
+                code="tab_limit_exceeded",
+            )
+
+
+def _require_choice(value: object, allowed: set[object], name: str) -> None:
+    if value not in allowed:
+        raise ValueError(f"invalid {name}: {value}")
+
+
+def _require_string(value: object, name: str) -> str:
+    if not isinstance(value, str):
+        raise TypeError(f"{name} must be a string")
+    return value
+
+
+def _require_modifiers(
+    modifiers: object,
+    *,
+    allowed: set[str],
+) -> None:
+    if not isinstance(modifiers, tuple):
+        raise TypeError("modifiers must be a tuple")
+    if len(set(modifiers)) != len(modifiers):
+        raise ValueError("modifiers cannot contain duplicates")
+    if any(
+        not isinstance(item, str) or item not in allowed for item in modifiers
+    ):
+        raise ValueError("invalid modifier")
+
+
+def _require_key(key: object) -> str:
+    key = _require_string(key, "key")
+    named = {
+        "Enter",
+        "Tab",
+        "Escape",
+        "Space",
+        "ArrowUp",
+        "ArrowDown",
+        "ArrowLeft",
+        "ArrowRight",
+        "Home",
+        "End",
+        "PageUp",
+        "PageDown",
+        "Backspace",
+        "Delete",
+    }
+    printable_scalar = (
+        len(key) == 1
+        and key.isprintable()
+        and not 0xD800 <= ord(key) <= 0xDFFF
+    )
+    if key not in named and not printable_scalar:
+        raise ValueError("key must be one printable scalar or a supported key")
+    return key
+
+
+def _require_safe_http_url(url: object) -> str:
+    url = _require_string(url, "url")
+    if not url or any(ord(character) < 0x20 for character in url):
+        raise ValueError("url must be a non-empty safe URL")
+    try:
+        parsed = urlsplit(url)
+        port = parsed.port
+    except ValueError as exc:
+        raise ValueError("url must be a valid HTTP(S) URL") from exc
+    del port
+    if (
+        parsed.scheme not in {"http", "https"}
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+    ):
+        raise ValueError("url must be HTTP(S) without embedded credentials")
+    return url
+
+
+def _deadline(timeout_ms: int | None) -> float | None:
+    if timeout_ms is None:
+        return None
+    if not isinstance(timeout_ms, int) or isinstance(timeout_ms, bool):
+        raise TypeError("timeout_ms must be an integer")
+    if timeout_ms <= 0:
+        raise ValueError("timeout_ms must be positive")
+    return monotonic() + timeout_ms / 1000
 
 
 def _capability_blocked(capability: str) -> BrowserSDKGap:
