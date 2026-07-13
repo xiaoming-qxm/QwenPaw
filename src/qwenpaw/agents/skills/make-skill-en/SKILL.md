@@ -297,7 +297,7 @@ in sequence** should go into the batch.
     {
       "tool_name": "browser",
       "arguments": {
-        "code": "browser = await Browser.connect(context=\"auto\")\ntab = await browser.tabs.open(\"${args.url}\")\nsnapshot = await tab.snapshot()\nprint(snapshot.text)"
+        "code": "browser = await Browser.connect(context=\"auto\")\nopen_result = await browser.tabs.open(\"${args.url}\")\nif open_result.status not in {\"SUCCEEDED\", \"PARTIAL\"}:\n    return open_result\ntabs: list[TabSummary] = await browser.tabs.list()\ntab = await browser.tabs.select(open_result.opened_tabs[0])\nread_result = await tab.read(limit=100)\nprint(read_result.model_text)"
       }
     },
     {

@@ -9,6 +9,7 @@ from .kernel import (
     BrowserKernelResult,
     BrowserKernelRuntime,
 )
+from ..telemetry.trace import get_legacy_usage_snapshot
 
 __all__ = [
     "BrowserCodeExecutor",
@@ -18,4 +19,5 @@ __all__ = [
     "BrowserKernelRuntime",
     "CapabilityGuard",
     "InProcessBrowserCodeExecutor",
+    "get_legacy_usage_snapshot",
 ]

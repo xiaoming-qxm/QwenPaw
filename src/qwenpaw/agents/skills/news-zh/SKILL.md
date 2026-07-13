@@ -31,9 +31,13 @@ metadata:
 3. **打开并观察页面**：调用 **browser(code=...)** 执行 Browser SDK 代码：
    ```python
    browser = await Browser.connect(context="auto")
-   tab = await browser.tabs.open("https://www.chinanews.com/society/")
-   snapshot = await tab.snapshot()
-   print(snapshot.text)
+   open_result = await browser.tabs.open("https://www.chinanews.com/society/")
+   if open_result.status not in {"SUCCEEDED", "PARTIAL"}:
+       return open_result
+   tabs: list[TabSummary] = await browser.tabs.list()
+   tab = await browser.tabs.select(open_result.opened_tabs[0])
+   read_result = await tab.read(limit=100)
+   print(read_result.model_text)
    ```
    将 `url` 替换为表格中对应的 URL。
 4. **总结回复**：从返回的页面内容中提取标题、日期和摘要。按时间或重要性组织一个简短列表（标题 + 一两句话 + 来源）；如果网站无法访问或超时，请说明并建议其他来源。

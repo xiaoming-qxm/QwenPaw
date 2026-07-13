@@ -260,11 +260,31 @@ const BrowserUseCard: React.FC<BrowserUseCardProps> = ({
   const { t } = useTranslation();
   const title = getBrowserTitle(content.name, content.params || {}, t);
   const operation = buildBrowserOperation(content);
-  const resultText = operation.promptRequired
+  const hasCanonicalTruth =
+    operation.contractMode === "CANONICAL" ||
+    Boolean(
+      operation.terminalStatus ||
+        operation.dispatchState ||
+        operation.commitState ||
+        operation.effectState ||
+        operation.postconditionState ||
+        operation.fingerprintMismatch,
+    );
+  const resultText = hasCanonicalTruth
     ? [
         `Terminal: ${operation.terminalStatus || "BLOCKED"}`,
-        "Prompt required",
-        operation.promptType ? `Prompt type: ${operation.promptType}` : "",
+        `Dispatch: ${operation.dispatchState || "UNKNOWN"}`,
+        `Commit: ${operation.commitState || "UNKNOWN"}`,
+        `Effect: ${operation.effectState || "UNKNOWN"}`,
+        `Postcondition: ${operation.postconditionState || "UNKNOWN"}`,
+        `Retry: ${operation.retryDirective || "RECONCILE_ONLY"}`,
+        `Coverage: ${operation.coverageStatus || "UNKNOWN"}`,
+        `Resources: ${operation.resourceSummary || "UNKNOWN"}`,
+        `Fingerprint: ${operation.fingerprintMismatch || "UNKNOWN"}`,
+        operation.promptRequired ? "Prompt required" : "",
+        operation.promptRequired && operation.promptType
+          ? `Prompt type: ${operation.promptType}`
+          : "",
         operation.promptMessage
           ? `Prompt message: ${operation.promptMessage}`
           : "",
@@ -272,7 +292,6 @@ const BrowserUseCard: React.FC<BrowserUseCardProps> = ({
         operation.continuationRequired
           ? "Continuation required: respond to this exact prompt"
           : "",
-        `Retry: ${operation.retryDirective || "RECONCILE_ONLY"}`,
       ]
         .filter(Boolean)
         .join("\n")

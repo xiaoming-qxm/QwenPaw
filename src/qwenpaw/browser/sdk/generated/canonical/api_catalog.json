@@ -1052,7 +1052,14 @@
       "visibility": "default"
     }
   ],
+  "build_fingerprint": "build-1",
+  "contract_fingerprint": "contract-v1",
+  "extension_fingerprint": "extension@build-1",
+  "max_legacy_token_ttl_seconds": 3600,
+  "max_retained_state_ttl_seconds": 3600,
   "mode": "CANONICAL",
+  "profile_fingerprint": "profile-v1",
+  "provider_fingerprint": "provider-v1",
   "source": "canonical_browser_api",
   "version": 1
 }

@@ -2067,6 +2067,15 @@ class SecurityConfig(BaseModel):
     )
 
 
+class BrowserContractRolloutConfig(BaseModel):
+    """Host-owned revisioned default for new Browser root sessions."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    revision: int = Field(default=1, ge=0, strict=True)
+    default: Literal["LEGACY", "CANONICAL"] = "CANONICAL"
+
+
 class Config(BaseModel):
     """Root config (config.json)."""
 
@@ -2078,6 +2087,10 @@ class Config(BaseModel):
     last_dispatch: Optional[LastDispatchConfig] = None
     security: SecurityConfig = Field(default_factory=SecurityConfig)
     acp: ACPConfig = Field(default_factory=ACPConfig)
+    browser_contract_rollout: BrowserContractRolloutConfig = Field(
+        default_factory=BrowserContractRolloutConfig,
+    )
+    browser_legacy_admission: Literal["OPEN", "CLOSED"] = "OPEN"
     show_tool_details: bool = True
     user_timezone: str = Field(
         default_factory=detect_system_timezone,

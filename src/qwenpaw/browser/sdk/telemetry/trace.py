@@ -9,7 +9,8 @@ from functools import lru_cache
 from pathlib import Path
 import subprocess
 from threading import RLock
-from typing import Any
+from time import monotonic
+from typing import Any, Callable
 from urllib.parse import urlparse
 from uuid import uuid4
 
@@ -60,6 +61,97 @@ _LEGACY_ACTION_API_IDS = {
     "select": "tab.actions.select_option",
     "dialog": "tab.actions.handle_dialog",
 }
+_LEGACY_USAGE_CALLERS = frozenset(
+    {"browser_tool", "legacy_contract_runtime"},
+)
+_LEGACY_TOOL_API_ID = "browser.execute"
+
+
+class LegacyUsageTracker:
+    """Process-local, identity-free Legacy usage evidence."""
+
+    def __init__(self, *, clock: Callable[[], float] = monotonic) -> None:
+        self._clock = clock
+        self._rows: dict[tuple[str, str], list[float | int]] = {}
+        self._lock = RLock()
+
+    def begin(self, *, caller: str, api_id: str) -> None:
+        """Count one Legacy call before any backend dispatch."""
+        key = _legacy_usage_key(caller, api_id)
+        now = float(self._clock())
+        with self._lock:
+            row = self._rows.setdefault(key, [0, 0, now])
+            row[0] = int(row[0]) + 1
+            row[1] = int(row[1]) + 1
+            row[2] = now
+
+    def finish(self, *, caller: str, api_id: str) -> None:
+        """Close one active Legacy call without erasing history."""
+        key = _legacy_usage_key(caller, api_id)
+        now = float(self._clock())
+        with self._lock:
+            row = self._rows.get(key)
+            if row is None or int(row[1]) <= 0:
+                raise RuntimeError("legacy usage call is not active")
+            row[1] = int(row[1]) - 1
+            row[2] = now
+
+    def snapshot(self) -> tuple[dict[str, object], ...]:
+        """Return a sorted, redacted monotonic snapshot."""
+        now = float(self._clock())
+        with self._lock:
+            rows = tuple(
+                {
+                    "caller": caller,
+                    "api_id": api_id,
+                    "total_count": int(values[0]),
+                    "active_calls": int(values[1]),
+                    "last_activity_monotonic": float(values[2]),
+                    "quiet_seconds": max(0, int(now - float(values[2]))),
+                }
+                for (caller, api_id), values in sorted(self._rows.items())
+            )
+        return rows
+
+
+def _legacy_usage_key(caller: str, api_id: str) -> tuple[str, str]:
+    safe_caller = str(caller or "").strip()
+    safe_api_id = str(api_id or "").strip()
+    if safe_caller not in _LEGACY_USAGE_CALLERS:
+        raise ValueError("invalid legacy usage caller")
+    if (
+        safe_api_id != _LEGACY_TOOL_API_ID
+        and safe_api_id not in _public_browser_api_ids()
+    ):
+        raise ValueError("invalid legacy usage api_id")
+    return safe_caller, safe_api_id
+
+
+_legacy_usage_tracker = LegacyUsageTracker()
+
+
+def begin_legacy_usage(*, caller: str, api_id: str) -> None:
+    """Start one process-local Legacy usage sample."""
+    _legacy_usage_tracker.begin(caller=caller, api_id=api_id)
+
+
+def finish_legacy_usage(*, caller: str, api_id: str) -> None:
+    """Finish one process-local Legacy usage sample."""
+    _legacy_usage_tracker.finish(caller=caller, api_id=api_id)
+
+
+def get_legacy_usage_snapshot() -> tuple[dict[str, object], ...]:
+    """Return current process-local Legacy usage evidence."""
+    return _legacy_usage_tracker.snapshot()
+
+
+def reset_legacy_usage_tracker_for_tests(
+    *,
+    clock: Callable[[], float] = monotonic,
+) -> None:
+    """Install a clean deterministic Legacy usage tracker for tests."""
+    global _legacy_usage_tracker
+    _legacy_usage_tracker = LegacyUsageTracker(clock=clock)
 
 
 @dataclass(frozen=True)
@@ -480,9 +572,14 @@ def _redact(value: Any) -> Any:
 __all__ = [
     "BrowserTraceEvent",
     "BrowserTraceStore",
+    "LegacyUsageTracker",
+    "begin_legacy_usage",
+    "finish_legacy_usage",
     "get_browser_trace_store",
+    "get_legacy_usage_snapshot",
     "record_browser_trace_event",
     "reset_browser_trace_store_for_tests",
+    "reset_legacy_usage_tracker_for_tests",
     "summarize_browser_reliability_counters",
     "summarize_browser_tab_ownership",
     "validate_browser_trace_event",

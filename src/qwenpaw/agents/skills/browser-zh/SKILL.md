@@ -10,11 +10,15 @@ metadata:
 
 # Browser
 
-正常浏览器自动化使用 `browser(code=...)`。在代码里连接 Browser SDK：
+正常浏览器自动化使用 `browser(code=...)`。在代码里连接 Canonical Browser SDK：
 
 ```python
 browser = await Browser.connect(context="auto")
-tab = await browser.tabs.open("https://example.com")
+open_result = await browser.tabs.open("https://example.com")
+if open_result.status not in {"SUCCEEDED", "PARTIAL"}:
+    return open_result
+tabs: list[TabSummary] = await browser.tabs.list()
+tab = await browser.tabs.select(open_result.opened_tabs[0])
 snapshot = await tab.snapshot()
 ```
 
@@ -25,21 +29,30 @@ Action-First, Controlled Primitive：
 - 每次改变页面状态后，下一次 mutation 前先用 `tab.snapshot()` 或
   `tab.screenshot()` 重新观察。
 
-需要 API 细节时使用生成式发现入口：
+Canonical 值由 Runtime 签发。选择 `TabSummary`，只使用新证据中的
+`TargetRef`，并检查 rich terminal truth：
 
 ```python
-Browser.capabilities(scope="actions")
-Browser.help(api_id="tab.actions.click")
+read_result = await tab.read(limit=100)
+snapshot = await tab.snapshot(limit=50)
+target: TargetRef = snapshot.targets[0].ref
+terminal = await tab.actions.click(target)
+if terminal.status not in {"SUCCEEDED", "PARTIAL"}:
+    return terminal
 ```
 
-常规节奏：
+wait 必须使用 typed `BrowserCondition`，不能使用自然语言猜测：
 
 ```python
-browser = await Browser.connect(context="auto")
-tab = await browser.tabs.open("https://example.com")
-snapshot = await tab.snapshot()
-await tab.actions.click({"ref": "r1_e3"})
-snapshot = await tab.snapshot()
+condition = BrowserCondition.all(PageCondition.ready("load"))
+terminal = await tab.wait_for(condition, timeout_ms=10_000)
+```
+
+workspace 路径只转换一次，之后传递 task-owned `ResourceHandle`：
+
+```python
+resource: ResourceHandle = browser.resources.from_workspace("report.pdf")
+terminal = await tab.actions.upload_file(target, (resource,))
 ```
 
 - `context="auto"` 是默认值，会选择当前最合适的 backend。
@@ -48,12 +61,6 @@ snapshot = await tab.snapshot()
 - 需要登录态、购物车、账号页面或用户已有标签页时，传入
   `requires_user_state=True`；用户 Chrome 不可用时这类请求 fail closed。
 
-不打开浏览器时检查后端可用性：
-
-```python
-diagnostics = await Browser.diagnostics(context="auto")
-```
-
 不要使用固定 sleep、私有 backend 对象、JavaScript 执行、CSS 定位捷径、底层
-协议逃逸或直接 backend dispatcher。用 `tab.wait_for(...)`、新的观察结果和
-生成的 `Browser.help(...)` 恢复。
+协议逃逸或直接 backend dispatcher。用 typed `tab.wait_for(...)`、新的观察结果
+和 reviewed Canonical capability/help artifacts 恢复。

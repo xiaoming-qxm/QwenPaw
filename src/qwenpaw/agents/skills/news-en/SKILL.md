@@ -31,9 +31,13 @@ When the user asks for "latest news", "what's in the news today", or "news in ca
 3. **Open and observe the page**: Call **browser(code=...)** with Browser SDK code:
    ```python
    browser = await Browser.connect(context="auto")
-   tab = await browser.tabs.open("https://www.chinanews.com/society/")
-   snapshot = await tab.snapshot()
-   print(snapshot.text)
+   open_result = await browser.tabs.open("https://www.chinanews.com/society/")
+   if open_result.status not in {"SUCCEEDED", "PARTIAL"}:
+       return open_result
+   tabs: list[TabSummary] = await browser.tabs.list()
+   tab = await browser.tabs.select(open_result.opened_tabs[0])
+   read_result = await tab.read(limit=100)
+   print(read_result.model_text)
    ```
    Replace `url` with the corresponding URL from the table.
 4. **Summarize the reply**: Extract headlines, dates, and summaries from the returned page content. Organize a short list (headline + one or two sentences + source) by time or importance; if a site is unreachable or times out, say so and suggest another source.

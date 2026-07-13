@@ -21,6 +21,8 @@ from .governance.errors import BrowserObservationRequired
 from .governance.errors import BrowserSDKError
 from .governance.errors import BrowserTargetResolutionError
 from .runtime.session_owner import BrowserRequestBinding
+from .runtime.session_owner import ContractMode
+from .telemetry.trace import begin_legacy_usage, finish_legacy_usage
 
 
 class BrowserContractRuntime:
@@ -36,13 +38,26 @@ class BrowserContractRuntime:
     ) -> Any:
         """Execute a callable through a thin contract wrapper."""
         resolved = self._resolve_contract(contract)
-        self._validate_arguments(resolved, func, owner, *args, **kwargs)
-        self._enforce_preconditions(resolved, owner)
-        result = func(*args, **kwargs)
-        if inspect.isawaitable(result):
-            result = await result
-        self._apply_postconditions(resolved, owner)
-        return result
+        is_legacy = _current_contract_mode() is ContractMode.LEGACY
+        if is_legacy:
+            begin_legacy_usage(
+                caller="legacy_contract_runtime",
+                api_id=resolved.api_id,
+            )
+        try:
+            self._validate_arguments(resolved, func, owner, *args, **kwargs)
+            self._enforce_preconditions(resolved, owner)
+            result = func(*args, **kwargs)
+            if inspect.isawaitable(result):
+                result = await result
+            self._apply_postconditions(resolved, owner)
+            return result
+        finally:
+            if is_legacy:
+                finish_legacy_usage(
+                    caller="legacy_contract_runtime",
+                    api_id=resolved.api_id,
+                )
 
     async def preflight_action(
         self,
@@ -147,6 +162,14 @@ def _accepts_var_keyword(signature: inspect.Signature) -> bool:
         parameter.kind is inspect.Parameter.VAR_KEYWORD
         for parameter in signature.parameters.values()
     )
+
+
+def _current_contract_mode() -> ContractMode | None:
+    from .runtime.kernel import get_current_execution_context
+
+    execution = get_current_execution_context()
+    mode = getattr(execution, "contract_mode", None)
+    return mode if isinstance(mode, ContractMode) else None
 
 
 def _validate_target_shape(

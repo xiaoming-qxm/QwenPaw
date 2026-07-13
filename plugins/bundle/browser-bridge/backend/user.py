@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import base64
+from hashlib import sha256
 import json
 import logging
 from datetime import UTC, datetime
@@ -94,6 +95,8 @@ from qwenpaw.browser.sdk.runtime.session_owner import (
     BrowserRequestBinding,
     BrowserSessionOwnerRegistry,
     ContractMode,
+    MAX_LEGACY_TOKEN_TTL_SECONDS,
+    MAX_RETAINED_STATE_TTL_SECONDS,
     NativeContextVersion,
     TargetBinding,
 )
@@ -108,6 +111,7 @@ from ..action_runtime.handlers.protocol import (
 )
 
 BACKEND_ID = "user.chrome_extension"
+PROVIDER_FINGERPRINT = "provider-v1"
 logger = logging.getLogger(__name__)
 _BROWSER_SENTINEL_TAB_ID = "__browser__"
 _TabOwnership = Literal[
@@ -250,6 +254,7 @@ class ChromeExtensionBrowserBackend:
         self._control_engine = control_engine
         self._policy = policy or DefaultBrowserPolicy()
         self._trace_recorder = trace_recorder or record_browser_trace_event
+        self._legacy_last_activity_monotonic = monotonic()
 
     def capabilities(self) -> BrowserBackendCapabilities:
         return BrowserBackendCapabilities(
@@ -287,6 +292,12 @@ class ChromeExtensionBrowserBackend:
                 "max_wait_ms": 30_000,
                 "max_stable_ms": 5_000,
                 "max_condition_atoms": 16,
+                "max_retained_state_ttl_seconds": (
+                    MAX_RETAINED_STATE_TTL_SECONDS
+                ),
+                "max_legacy_token_ttl_seconds": (
+                    MAX_LEGACY_TOKEN_TTL_SECONDS
+                ),
             },
             contract_fingerprint=base.contract_fingerprint,
             profile_fingerprint=base.profile_fingerprint,
@@ -505,6 +516,17 @@ class ChromeExtensionBrowserBackend:
                 code="browser_bridge_disconnected",
                 backend_id=self.backend_id,
             )
+        from qwenpaw.browser.sdk.runtime.kernel import (
+            get_current_execution_context,
+        )
+
+        execution = get_current_execution_context()
+        contract_mode = (
+            execution.contract_mode
+            if execution is not None
+            else ContractMode.LEGACY
+        )
+        self._record_legacy_activity(contract_mode)
         session = ChromeExtensionBrowserSession(
             bridge=bridge,
             session_id=session_id,
@@ -515,6 +537,8 @@ class ChromeExtensionBrowserBackend:
             control_engine=self._engine(),
             trace_recorder=self._trace_recorder,
             ownership_context=ownership_context,
+            contract_mode=contract_mode,
+            activity_recorder=self._record_legacy_activity,
         )
         _register_user_browser_session(session)
         return session
@@ -530,6 +554,111 @@ class ChromeExtensionBrowserBackend:
 
     def _engine(self) -> Any | None:
         return self._control_engine
+
+    def _record_legacy_activity(self, mode: ContractMode) -> None:
+        if mode is ContractMode.LEGACY:
+            self._legacy_last_activity_monotonic = monotonic()
+
+    def retirement_snapshot(self) -> dict[str, object]:
+        """Read live Bridge retirement facts without querying or mutation."""
+        bridge = self._bridge()
+        if bridge is None:
+            return {
+                "revision": None,
+                "counts": None,
+                "legacy_quiet_seconds": None,
+                "reason": "BACKEND_MISSING",
+            }
+        is_connected = getattr(bridge, "is_connected", None)
+        connected = (
+            bool(is_connected())
+            if callable(is_connected)
+            else bool(getattr(bridge, "connected", False))
+        )
+        if not connected:
+            return {
+                "revision": None,
+                "counts": None,
+                "legacy_quiet_seconds": None,
+                "reason": "BACKEND_DISCONNECTED",
+            }
+        leases = getattr(bridge, "_leases", None)
+        pending = getattr(bridge, "_pending", None)
+        if not isinstance(leases, dict) or not isinstance(pending, dict):
+            return {
+                "revision": None,
+                "counts": None,
+                "legacy_quiet_seconds": None,
+                "reason": "STATE_UNAVAILABLE",
+            }
+        sessions = _registered_user_sessions_for_bridge(bridge)
+        legacy_sessions = tuple(
+            session
+            for session in sessions
+            if session.contract_mode is ContractMode.LEGACY
+        )
+        lease_holders = {
+            str(getattr(lease, "owner_id", "") or "")
+            for lease in leases.values()
+        }
+        legacy_holders = {
+            session.holder_id
+            for session in legacy_sessions
+            if session.holder_id in lease_holders
+            or any(
+                ownership not in {"released", "protected"}
+                for ownership in session._tab_ownership.values()
+            )
+        }
+        transition_count = sum(
+            isinstance(
+                session._state.get("control_pending_action_transition"),
+                dict,
+            )
+            for session in legacy_sessions
+        )
+        counts = {
+            "legacy_holders": len(legacy_holders),
+            "legacy_sessions": len(legacy_sessions),
+            "legacy_pending_receipts": len(pending) + transition_count,
+        }
+        material = {
+            "sessions": [
+                (
+                    session.session_id,
+                    session.holder_id,
+                    session.contract_mode.value,
+                    session._last_activity_monotonic,
+                    tuple(sorted(session._tab_ownership.items())),
+                    bool(
+                        session._state.get(
+                            "control_pending_action_transition",
+                        ),
+                    ),
+                )
+                for session in sessions
+            ],
+            "leases": [
+                (
+                    str(tab_id),
+                    str(getattr(lease, "owner_id", "") or ""),
+                    int(getattr(lease, "version", 0) or 0),
+                    float(getattr(lease, "expires_at", 0.0) or 0.0),
+                )
+                for tab_id, lease in leases.items()
+            ],
+            "pending": tuple(sorted(str(item) for item in pending)),
+            "counts": counts,
+        }
+        return {
+            "revision": _bridge_retirement_revision(material),
+            "counts": counts,
+            "legacy_quiet_seconds": max(
+                0,
+                int(monotonic() - self._legacy_last_activity_monotonic),
+            ),
+            "reason": None,
+        }
 
     async def cleanup_for_request(
         self,
@@ -624,6 +753,8 @@ class ChromeExtensionBrowserSession:
         control_engine: Any | None = None,
         trace_recorder: Callable[..., Any] | None = None,
         ownership_context: BrowserOwnershipContext | None = None,
+        contract_mode: ContractMode = ContractMode.LEGACY,
+        activity_recorder: Callable[[ContractMode], None] | None = None,
     ) -> None:
         self.bridge = bridge
         self.session_id = session_id
@@ -646,6 +777,9 @@ class ChromeExtensionBrowserSession:
         self._policy = policy
         self._control_engine = control_engine
         self._trace_recorder = trace_recorder or record_browser_trace_event
+        self.contract_mode = ContractMode(contract_mode)
+        self._activity_recorder = activity_recorder
+        self._last_activity_monotonic = monotonic()
         self._state: dict[str, Any] = {
             "workspace_id": self.ownership_context.workspace_id,
             "owner_id": self.owner_id,
@@ -692,6 +826,7 @@ class ChromeExtensionBrowserSession:
         cleanup_reason: str,
         preserve_owned_tabs: bool = False,
     ) -> dict[str, Any]:
+        self._touch_activity()
         self._state.pop("control_condition_subscriptions", None)
         self._condition_region_baselines.clear()
         closed_tabs = 0
@@ -806,6 +941,7 @@ class ChromeExtensionBrowserSession:
         return tab
 
     async def list_tabs(self) -> list[dict[str, Any]]:
+        self._touch_activity()
         tabs = await self.bridge.discover_tabs()
         return [_normalize_tab(tab) for tab in tabs if isinstance(tab, dict)]
 
@@ -1595,6 +1731,7 @@ class ChromeExtensionBrowserSession:
         command_payload: Mapping[str, object] | None = None,
         **kwargs: Any,
     ) -> BrowserActionResult:
+        self._touch_activity()
         from qwenpaw.browser.sdk.runtime.kernel import (
             get_current_execution_context,
         )
@@ -2106,6 +2243,7 @@ class ChromeExtensionBrowserSession:
         apply_aliases: bool = True,
         **kwargs: Any,
     ) -> Any:
+        self._touch_activity()
         if self._control_engine is not None:
             engine_name = (
                 _ENGINE_ACTION_ALIASES.get(name, name)
@@ -2128,6 +2266,11 @@ class ChromeExtensionBrowserSession:
                 return _chunk_payload(chunk)
         params = {"tab_id": int(tab_id), **kwargs}
         return await self.bridge.request(name, params)
+
+    def _touch_activity(self) -> None:
+        self._last_activity_monotonic = monotonic()
+        if self._activity_recorder is not None:
+            self._activity_recorder(self.contract_mode)
 
     async def _action_metadata(
         self,
@@ -3211,6 +3354,27 @@ def _register_user_browser_session(
     for key in keys:
         sessions = _USER_BROWSER_SESSIONS.setdefault(key, set())
         sessions.add(session)
+
+
+def _registered_user_sessions_for_bridge(
+    bridge: Any,
+) -> tuple[ChromeExtensionBrowserSession, ...]:
+    sessions: dict[int, ChromeExtensionBrowserSession] = {}
+    for registered in _USER_BROWSER_SESSIONS.values():
+        for session in registered:
+            if session.bridge is bridge:
+                sessions[id(session)] = session
+    return tuple(sessions[key] for key in sorted(sessions))
+
+
+def _bridge_retirement_revision(material: object) -> int:
+    encoded = json.dumps(
+        material,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    ).encode("utf-8")
+    return int(sha256(encoded).hexdigest()[:12], 16)
 
 
 def _unregister_user_browser_session(

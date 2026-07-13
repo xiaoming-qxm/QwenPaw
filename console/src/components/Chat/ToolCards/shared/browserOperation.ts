@@ -29,8 +29,15 @@ export interface BrowserOperation {
   lifecycleLabel: string;
   cleanupNotice: string;
   terminalStatus: string;
+  dispatchState: string;
+  commitState: string;
+  effectState: string;
+  postconditionState: string;
   problemCode: string;
   retryDirective: string;
+  coverageStatus: string;
+  resourceSummary: string;
+  fingerprintMismatch: string;
   requiredDeliveryFailure: string;
   promptRequired: boolean;
   promptType: string;
@@ -669,6 +676,71 @@ function terminalFacts(
   return Object.keys(terminal).length ? terminal : resultTerminal;
 }
 
+function safePhaseState(...values: unknown[]): string {
+  for (const value of values) {
+    const record = asRecord(value);
+    const state = firstString(record.status, record.state, record.outcome);
+    if (state) return state;
+    const direct = stringValue(value);
+    if (direct) return direct;
+  }
+  return "";
+}
+
+function safeCoverageStatus(
+  metadata: BrowserRecord,
+  result: BrowserRecord,
+  terminal: BrowserRecord,
+): string {
+  const terminalObservation = asRecord(terminal.observation);
+  const resultObservation = asRecord(result.observation);
+  return firstString(
+    terminal.coverage,
+    terminalObservation.coverage,
+    result.coverage,
+    resultObservation.coverage,
+    metadata.coverage,
+    metadata.coverage_status,
+  );
+}
+
+function safeResourceSummary(
+  metadata: BrowserRecord,
+  result: BrowserRecord,
+  terminal: BrowserRecord,
+): string {
+  for (const value of [terminal.resources, result.resources, metadata.resources]) {
+    if (!Array.isArray(value)) continue;
+    const labels = value
+      .map((item) => {
+        const resource = asRecord(item);
+        return firstString(resource.name, resource.media_type, resource.kind);
+      })
+      .filter(Boolean);
+    if (labels.length) return labels.join(", ");
+    if (value.length === 0) return "NONE";
+  }
+  const resource = asRecord(terminal.resource);
+  return firstString(resource.name, resource.media_type, resource.kind);
+}
+
+function safeFingerprintMismatch(
+  metadata: BrowserRecord,
+  result: BrowserRecord,
+  terminal: BrowserRecord,
+  problemCode: string,
+): string {
+  const problem = asRecord(terminal.problem);
+  const value = firstString(
+    metadata.fingerprint_mismatch,
+    result.fingerprint_mismatch,
+    terminal.fingerprint_mismatch,
+    problem.code,
+  );
+  if (value.toLowerCase().includes("fingerprint")) return value;
+  return problemCode.toLowerCase().includes("fingerprint") ? problemCode : "";
+}
+
 function safePromptFacts(
   metadata: BrowserRecord,
   result: BrowserRecord,
@@ -786,8 +858,36 @@ export function buildBrowserOperation(
     lifecycleLabel: safeLifecycleLabel(metadata, result, trace),
     cleanupNotice: safeCleanupNotice(metadata, result, trace),
     terminalStatus: firstString(terminal.status, metadata.terminal_status),
+    dispatchState: safePhaseState(
+      terminal.dispatch,
+      result.dispatch,
+      metadata.dispatch,
+    ),
+    commitState: safePhaseState(
+      terminal.commit,
+      result.commit,
+      metadata.commit,
+    ),
+    effectState: safePhaseState(
+      terminal.effect,
+      result.effect,
+      metadata.effect,
+    ),
+    postconditionState: safePhaseState(
+      terminal.postcondition,
+      result.postcondition,
+      metadata.postcondition,
+    ),
     problemCode,
     retryDirective: firstString(terminal.retry, metadata.retry_directive),
+    coverageStatus: safeCoverageStatus(metadata, result, terminal),
+    resourceSummary: safeResourceSummary(metadata, result, terminal),
+    fingerprintMismatch: safeFingerprintMismatch(
+      metadata,
+      result,
+      terminal,
+      problemCode,
+    ),
     requiredDeliveryFailure: safeRequiredDeliveryFailure(metadata, result),
     promptRequired,
     promptType: firstString(prompt.type, prompt.prompt_type),

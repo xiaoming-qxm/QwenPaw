@@ -13,10 +13,25 @@ from ..governance.errors import BrowserSDKGap
 from ..backends.protocols import BackendProfile
 
 
+_FINGERPRINT_KEYS = (
+    "build_fingerprint",
+    "contract_fingerprint",
+    "profile_fingerprint",
+    "extension_fingerprint",
+    "provider_fingerprint",
+)
+_RETIREMENT_LIMIT_KEYS = (
+    "max_retained_state_ttl_seconds",
+    "max_legacy_token_ttl_seconds",
+)
+
+
 @dataclass(frozen=True, slots=True)
 class SessionCapabilityTruth:
     ready: frozenset[str]
     blocked: dict[str, str]
+    fingerprints: dict[str, str]
+    retirement_limits: dict[str, int]
 
 
 def browser_support_manifest() -> dict[str, Any]:
@@ -61,6 +76,11 @@ def compute_session_capabilities(
     build = str(manifest.get("build_fingerprint") or "")
     contract = str(manifest.get("contract_fingerprint") or "")
     profile = str(manifest.get("profile_fingerprint") or "")
+    provider_expected = str(manifest.get("provider_fingerprint") or "")
+    provider_actual = str(
+        getattr(provider, "provider_fingerprint", provider_expected)
+        or provider_expected,
+    )
     core_mismatch = (
         backend.build_fingerprint != build
         or backend.contract_fingerprint != contract
@@ -68,13 +88,16 @@ def compute_session_capabilities(
     )
     extension_expected = str(manifest.get("extension_fingerprint") or "")
     extension_mismatch = backend.extension_fingerprint != extension_expected
+    provider_mismatch = provider_actual != provider_expected
     diagnostics = diagnostics_ready
     for row in manifest.get("capabilities", []):
         capability_id = str(row.get("capability_id") or "")
         required_blocks = tuple(row.get("required_blocks") or ())
         evidence = tuple(row.get("validation_evidence") or ())
         reason = ""
-        if row.get("status") != "READY":
+        if provider_mismatch:
+            reason = "fingerprint_mismatch:provider"
+        elif row.get("status") != "READY":
             reason = "release_blocked"
         elif not evidence or any(
             not str(item).endswith(f"@{build}") for item in evidence
@@ -99,7 +122,17 @@ def compute_session_capabilities(
             blocked[capability_id] = reason
         else:
             ready.add(capability_id)
-    return SessionCapabilityTruth(ready=frozenset(ready), blocked=blocked)
+    return SessionCapabilityTruth(
+        ready=frozenset(ready),
+        blocked=blocked,
+        fingerprints={
+            key: str(manifest.get(key) or "") for key in _FINGERPRINT_KEYS
+        },
+        retirement_limits={
+            key: int(manifest.get(key) or 0)
+            for key in _RETIREMENT_LIMIT_KEYS
+        },
+    )
 
 
 def browser_capabilities(scope: str = "all") -> dict[str, Any]:

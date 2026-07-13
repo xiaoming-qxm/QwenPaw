@@ -24,7 +24,7 @@ from fastapi import (
 from starlette.responses import JSONResponse
 
 from qwenpaw.browser.approval_policy import QwenPawBrowserApprovalPolicy
-from qwenpaw.browser.sdk import Browser
+from qwenpaw.browser.sdk.facade.browser import Browser
 from qwenpaw.browser.sdk.governance.error_codes import BrowserErrorCode
 from qwenpaw.browser.sdk.telemetry.trace import (
     BrowserTraceEvent,

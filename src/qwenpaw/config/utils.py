@@ -624,6 +624,35 @@ def load_config(config_path: Optional[Path] = None) -> Config:
         return config
 
 
+def load_config_strict(config_path: Optional[Path] = None) -> Config:
+    """Read and validate explicit Browser rollout config without fallback."""
+    if config_path is None:
+        config_path = get_config_path()
+    try:
+        raw = config_path.read_text(encoding="utf-8")
+        data = json.loads(raw)
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError("browser_rollout_unavailable") from exc
+    if not isinstance(data, dict):
+        raise RuntimeError("browser_rollout_unavailable")
+    required = {
+        "browser_contract_rollout",
+        "browser_legacy_admission",
+    }
+    if not required.issubset(data):
+        raise RuntimeError("browser_rollout_unavailable")
+    normalized = _normalize_working_dir_bound_paths(data)
+    if not isinstance(normalized, dict):
+        raise RuntimeError("browser_rollout_unavailable")
+    try:
+        config = Config.model_validate(normalized)
+    except ValidationError as exc:
+        raise RuntimeError("browser_rollout_unavailable") from exc
+    if config.browser_contract_rollout.revision <= 0:
+        raise RuntimeError("browser_rollout_unavailable")
+    return config
+
+
 def strict_validate_config_file(
     config_path: Optional[Path] = None,
 ) -> tuple[bool, str]:

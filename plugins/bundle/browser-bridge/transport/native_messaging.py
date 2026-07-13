@@ -25,6 +25,9 @@ BUILD_FINGERPRINT = "build-1"
 CONTRACT_FINGERPRINT = "contract-v1"
 PROFILE_FINGERPRINT = "profile-v1"
 EXTENSION_FINGERPRINT = "extension@build-1"
+PROVIDER_FINGERPRINT = "provider-v1"
+MAX_RETAINED_STATE_TTL_SECONDS = 3600
+MAX_LEGACY_TOKEN_TTL_SECONDS = 3600
 
 JSONRPC_VERSION = "2.0"
 SUPPORTED_PROTOCOL_VERSION = 2
@@ -632,12 +635,24 @@ class NMBridge:
             "extensionFingerprint": str(
                 message.get("extensionFingerprint") or "",
             ),
+            "providerFingerprint": str(
+                message.get("providerFingerprint") or "",
+            ),
+            "maxRetainedStateTtlSeconds": int(
+                message.get("maxRetainedStateTtlSeconds") or 0,
+            ),
+            "maxLegacyTokenTtlSeconds": int(
+                message.get("maxLegacyTokenTtlSeconds") or 0,
+            ),
         }
         expected_fingerprints = {
             "buildFingerprint": BUILD_FINGERPRINT,
             "contractFingerprint": CONTRACT_FINGERPRINT,
             "profileFingerprint": PROFILE_FINGERPRINT,
             "extensionFingerprint": EXTENSION_FINGERPRINT,
+            "providerFingerprint": PROVIDER_FINGERPRINT,
+            "maxRetainedStateTtlSeconds": MAX_RETAINED_STATE_TTL_SECONDS,
+            "maxLegacyTokenTtlSeconds": MAX_LEGACY_TOKEN_TTL_SECONDS,
         }
         mismatched = {
             key: {"expected": expected, "actual": actual_fingerprints[key]}

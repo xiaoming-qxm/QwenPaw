@@ -37,11 +37,27 @@ from ..governance.policy import (
 from ..primitives.matching import canonicalize_http_url
 
 
+MAX_RETAINED_STATE_TTL_SECONDS = 3600
+MAX_LEGACY_TOKEN_TTL_SECONDS = 3600
+
+
 class ContractMode(StrEnum):
     """Browser public contract selected for one trusted root session."""
 
     LEGACY = "LEGACY"
     CANONICAL = "CANONICAL"
+
+
+LegacyAdmission: TypeAlias = Literal["OPEN", "CLOSED"]
+
+
+@dataclass(frozen=True, slots=True)
+class BrowserContractRolloutSnapshot:
+    """One strict host-owned rollout read for a first session binding."""
+
+    revision: int
+    default: ContractMode
+    legacy_admission: LegacyAdmission
 
 
 class RootTaskOutcome(StrEnum):
@@ -448,14 +464,40 @@ class _ActionStateOwner:
 class SessionContractModeRegistry:
     """Atomically bind a contract mode once per trusted root session."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        legacy_admission: LegacyAdmission | None = "OPEN",
+    ) -> None:
         self._modes: dict[str, ContractMode] = {}
         self._lock = asyncio.Lock()
+        self._rollout_revision = 0
+        self._rollout_default: ContractMode | None = None
+        self._legacy_admission = legacy_admission
+
+    async def initialize_rollout(
+        self,
+        snapshot: BrowserContractRolloutSnapshot,
+    ) -> None:
+        """Freeze admission once and accept only monotonic rollout reads."""
+        async with self._lock:
+            self._accept_rollout_locked(snapshot)
+
+    async def has_binding(self, root_session_id: str) -> bool:
+        """Return whether a trusted root session already has a mode."""
+        session_key = _require_identity(root_session_id, "root_session_id")
+        async with self._lock:
+            return session_key in self._modes
+
+    def current_default(self) -> ContractMode:
+        """Return the last validated process-host default."""
+        return self._rollout_default or ContractMode.LEGACY
 
     async def bind(
         self,
         *,
         root_session_id: str,
+        rollout_revision: int | None = None,
         rollout_default: ContractMode,
     ) -> ContractMode:
         """Return the session's first process-trusted rollout decision."""
@@ -463,9 +505,59 @@ class SessionContractModeRegistry:
         async with self._lock:
             mode = self._modes.get(session_key)
             if mode is None:
-                mode = ContractMode(rollout_default)
+                revision = rollout_revision
+                if revision is None:
+                    revision = max(1, self._rollout_revision)
+                    if (
+                        self._rollout_default is not None
+                        and self._rollout_default
+                        is not ContractMode(rollout_default)
+                    ):
+                        revision += 1
+                snapshot = BrowserContractRolloutSnapshot(
+                    revision=revision,
+                    default=ContractMode(rollout_default),
+                    legacy_admission=self._legacy_admission or "OPEN",
+                )
+                self._accept_rollout_locked(snapshot)
+                mode = (
+                    ContractMode.CANONICAL
+                    if self._legacy_admission == "CLOSED"
+                    else snapshot.default
+                )
                 self._modes[session_key] = mode
             return mode
+
+    def _accept_rollout_locked(
+        self,
+        snapshot: BrowserContractRolloutSnapshot,
+    ) -> None:
+        revision = snapshot.revision
+        if (
+            not isinstance(revision, int)
+            or isinstance(revision, bool)
+            or revision <= 0
+            or not isinstance(snapshot.default, ContractMode)
+        ):
+            raise BrowserOwnerRegistryError("browser_rollout_unavailable")
+        admission = snapshot.legacy_admission
+        if admission not in {"OPEN", "CLOSED"}:
+            raise BrowserOwnerRegistryError("browser_rollout_unavailable")
+        if self._legacy_admission is None:
+            self._legacy_admission = admission
+        elif self._legacy_admission != admission:
+            raise BrowserOwnerRegistryError("browser_rollout_unavailable")
+        if revision < self._rollout_revision:
+            raise BrowserOwnerRegistryError("browser_rollout_unavailable")
+        if (
+            revision == self._rollout_revision
+            and self._rollout_default is not None
+            and self._rollout_default is not snapshot.default
+        ):
+            raise BrowserOwnerRegistryError("browser_rollout_unavailable")
+        if revision > self._rollout_revision:
+            self._rollout_revision = revision
+            self._rollout_default = snapshot.default
 
     async def require(self, root_session_id: str) -> ContractMode:
         """Return an existing trusted binding, failing closed if absent."""
@@ -477,6 +569,16 @@ class SessionContractModeRegistry:
                 raise BrowserOwnerRegistryError(
                     "contract_mode_missing",
                 ) from exc
+
+    def _legacy_bindings_locked(self) -> tuple[str, ...]:
+        """Return internal Legacy keys while the caller holds ``_lock``."""
+        return tuple(
+            sorted(
+                session_key
+                for session_key, mode in self._modes.items()
+                if mode is ContractMode.LEGACY
+            ),
+        )
 
 
 # pylint: disable-next=too-many-public-methods
@@ -491,21 +593,166 @@ class BrowserSessionOwnerRegistry:
         trusted_surface_policy: TrustedSurfacePolicy | None = None,
         pending_action_capacity: int = 128,
         pending_action_ttl_seconds: float = 300.0,
+        legacy_admission: LegacyAdmission | None = "OPEN",
     ) -> None:
         if pending_action_capacity <= 0:
             raise ValueError("pending_action_capacity must be positive")
         if pending_action_ttl_seconds <= 0:
             raise ValueError("pending_action_ttl_seconds must be positive")
         self._clock = clock
-        self._modes = modes or SessionContractModeRegistry()
+        if legacy_admission not in {None, "OPEN", "CLOSED"}:
+            raise ValueError("legacy_admission must be OPEN or CLOSED")
+        self._modes = modes or SessionContractModeRegistry(
+            legacy_admission=legacy_admission,
+        )
         self._default_trusted_surface_policy = trusted_surface_policy
         self._pending_action_capacity = int(pending_action_capacity)
         self._pending_action_ttl_seconds = float(
             pending_action_ttl_seconds,
         )
+        self._process_started_monotonic = float(self._clock())
+        self._legacy_admission_initialized = legacy_admission is not None
+        self._legacy_admission_closed_monotonic: float | None = (
+            self._process_started_monotonic
+            if legacy_admission == "CLOSED"
+            else None
+        )
         self._owners: dict[tuple[str, str], _OwnerState] = {}
         self._tokens: dict[str, _TokenState] = {}
         self._lock = asyncio.Lock()
+
+    async def initialize_rollout(
+        self,
+        snapshot: BrowserContractRolloutSnapshot,
+    ) -> None:
+        """Initialize startup admission and a validated rollout snapshot."""
+        await self._modes.initialize_rollout(snapshot)
+        if not self._legacy_admission_initialized:
+            self._legacy_admission_initialized = True
+            if snapshot.legacy_admission == "CLOSED":
+                self._legacy_admission_closed_monotonic = float(
+                    self._clock(),
+                )
+
+    async def has_contract_mode(self, root_session_id: str) -> bool:
+        """Return whether a root session can continue without config read."""
+        return await self._modes.has_binding(root_session_id)
+
+    def trusted_rollout_default(self) -> ContractMode:
+        """Return the most recently validated process-host default."""
+        return self._modes.current_default()
+
+    async def retirement_snapshot(self) -> dict[str, object]:
+        """Return one identity-free, read-only Legacy retirement snapshot."""
+        now = float(self._clock())
+        async with self._modes._lock:
+            legacy_mode_keys = self._modes._legacy_bindings_locked()
+            async with self._lock:
+                legacy_states = tuple(
+                    state
+                    for state in self._owners.values()
+                    if state.binding.contract_mode is ContractMode.LEGACY
+                )
+                legacy_owner_keys = {
+                    state.binding.owner_key for state in legacy_states
+                }
+                counts = {
+                    "legacy_mode_bindings": len(legacy_mode_keys),
+                    "active_legacy_root_sessions": len(
+                        {
+                            state.binding.root_session_id
+                            for state in legacy_states
+                        },
+                    ),
+                    "retained_or_handoff_states": sum(
+                        not state.lease_active for state in legacy_states
+                    ),
+                    "active_legacy_leases": sum(
+                        state.lease_active for state in legacy_states
+                    ),
+                    "unexpired_legacy_tokens": sum(
+                        token.owner_key in legacy_owner_keys
+                        and not token.consumed
+                        and token.expires_at >= now
+                        for token in self._tokens.values()
+                    ),
+                    "unresolved_prompts": sum(
+                        prompt.expires_at >= now
+                        for state in legacy_states
+                        for prompt in state.prompts.values()
+                    ),
+                    "pending_actions": sum(
+                        _pending_action_is_live(action, now)
+                        for state in legacy_states
+                        for action in state.pending_actions.values()
+                    ),
+                    "pending_approvals": sum(
+                        grant.remaining_uses > 0 and grant.expires_at >= now
+                        for state in legacy_states
+                        for grant in state.grants.values()
+                    ),
+                    "uncertain_effects": sum(
+                        state.unresolved_operation_id is not None
+                        for state in legacy_states
+                    ),
+                }
+                revision_material = {
+                    "legacy_admission_closed_monotonic": (
+                        self._legacy_admission_closed_monotonic
+                    ),
+                    "modes": legacy_mode_keys,
+                    "rollout_revision": self._modes._rollout_revision,
+                    "rollout_default": self._modes.current_default().value,
+                    "owners": [
+                        {
+                            "owner": state.binding.owner_key,
+                            "root": state.binding.root_session_id,
+                            "lease": state.lease_active,
+                            "generation": state.binding.lease_generation,
+                            "retained_until": state.retained_until,
+                            "prompts": len(state.prompts),
+                            "actions": tuple(sorted(state.pending_actions)),
+                            "approvals": tuple(sorted(state.grants)),
+                            "uncertain": state.unresolved_operation_id,
+                        }
+                        for state in legacy_states
+                    ],
+                    "tokens": [
+                        (
+                            token.owner_key,
+                            token.root_session_id,
+                            token.expires_at,
+                            token.consumed,
+                        )
+                        for token in self._tokens.values()
+                        if token.owner_key in legacy_owner_keys
+                    ],
+                    "counts": counts,
+                }
+        return {
+            "revision": _retirement_revision(revision_material),
+            "counts": counts,
+            "legacy_admission": {
+                "closed": (
+                    self._legacy_admission_closed_monotonic is not None
+                ),
+                "closed_age_seconds": (
+                    None
+                    if self._legacy_admission_closed_monotonic is None
+                    else max(
+                        0,
+                        int(
+                            now
+                            - self._legacy_admission_closed_monotonic
+                        ),
+                    )
+                ),
+            },
+            "canonical_admission_age_seconds": max(
+                0,
+                int(now - self._process_started_monotonic),
+            ),
+        }
 
     def install_trusted_surface_policy(
         self,
@@ -533,6 +780,7 @@ class BrowserSessionOwnerRegistry:
         *,
         root_session_id: str,
         source: str,
+        rollout_revision: int | None = None,
         rollout_default: ContractMode | None = None,
         resume_token: str | None = None,
         inherited_binding: BrowserRequestBinding | None = None,
@@ -549,6 +797,7 @@ class BrowserSessionOwnerRegistry:
 
         mode = await self._modes.bind(
             root_session_id=session_key,
+            rollout_revision=rollout_revision,
             rollout_default=rollout_default or ContractMode.LEGACY,
         )
         binding = BrowserRequestBinding(
@@ -634,6 +883,13 @@ class BrowserSessionOwnerRegistry:
         ttl = float(ttl_seconds)
         if ttl <= 0:
             raise BrowserOwnerRegistryError("resume_token_expired")
+        if ttl > min(
+            MAX_RETAINED_STATE_TTL_SECONDS,
+            MAX_LEGACY_TOKEN_TTL_SECONDS,
+        ):
+            raise BrowserOwnerRegistryError(
+                "retained_ttl_exceeds_maximum",
+            )
         async with self._lock:
             state = self._require_current_lease(binding)
             expires_at = self._clock() + ttl
@@ -1953,6 +2209,26 @@ class BrowserSessionOwnerRegistry:
         for value, token in tuple(self._tokens.items()):
             if token.owner_key == owner_key:
                 self._tokens.pop(value, None)
+
+
+def _pending_action_is_live(action: object, now: float) -> bool:
+    expires_at = getattr(action, "expires_at", None)
+    if expires_at is None:
+        return True
+    try:
+        return float(expires_at) >= now
+    except (TypeError, ValueError):
+        return True
+
+
+def _retirement_revision(material: object) -> int:
+    encoded = json.dumps(
+        material,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    ).encode("utf-8")
+    return int(sha256(encoded).hexdigest()[:12], 16)
 
 
 def _require_identity(value: str, field_name: str) -> str:

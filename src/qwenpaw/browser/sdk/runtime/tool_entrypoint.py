@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import base64
+from functools import wraps
 from typing import Any
 from typing import cast
 
@@ -31,6 +32,8 @@ from ..recovery import (
 from ..telemetry.progress import BrowserProgressDecision, detect_no_progress
 from ..telemetry.trace import BrowserTraceEvent
 from ..telemetry.trace import (
+    begin_legacy_usage,
+    finish_legacy_usage,
     get_browser_trace_store,
     record_browser_trace_event,
     summarize_browser_reliability_counters,
@@ -114,6 +117,32 @@ _BROWSER_INVARIANT_ERROR_CODES = {
 }
 
 
+def _record_legacy_browser_execution(func: Any) -> Any:
+    """Record Legacy tool use before the wrapped entry can fail."""
+
+    @wraps(func)
+    async def wrapped(*args: Any, **kwargs: Any) -> Any:
+        binding = _current_browser_binding()
+        is_legacy = (
+            binding is not None and binding[3] is ContractMode.LEGACY
+        )
+        if is_legacy:
+            begin_legacy_usage(
+                caller="browser_tool",
+                api_id="browser.execute",
+            )
+        try:
+            return await func(*args, **kwargs)
+        finally:
+            if is_legacy:
+                finish_legacy_usage(
+                    caller="browser_tool",
+                    api_id="browser.execute",
+                )
+
+    return wrapped
+
+
 @tool_descriptor(
     name="browser",
     enabled_by_default=True,
@@ -123,6 +152,7 @@ _BROWSER_INVARIANT_ERROR_CODES = {
         '`browser = await Browser.connect(context="auto")` inside code.'
     ),
 )
+@_record_legacy_browser_execution
 async def browser(
     code: str,
     context: str = "auto",
@@ -375,14 +405,7 @@ def _metadata(
         metadata["return_value"] = result.return_value
     else:
         terminal = result.envelope.terminal_result
-        metadata["terminal"] = {
-            "operation_id": terminal.operation_id,
-            "status": terminal.status,
-            "problem": (
-                terminal.problem.code if terminal.problem is not None else None
-            ),
-            "retry": terminal.retry,
-        }
+        metadata["terminal"] = _safe_terminal_metadata(terminal)
     if browser_trace:
         metadata["trace_event_id"] = str(browser_trace[-1].get("event_id"))
     if result.error:
@@ -411,6 +434,63 @@ def _metadata(
             for artifact in result.artifacts
         ]
     return metadata
+
+
+def _safe_terminal_metadata(terminal: object) -> dict[str, Any]:
+    """Project only reviewed user-safe Canonical terminal facts."""
+    problem = getattr(terminal, "problem", None)
+    problem_code = str(getattr(problem, "code", "") or "")
+    payload: dict[str, Any] = {
+        "operation_id": str(getattr(terminal, "operation_id", "") or ""),
+        "status": str(getattr(terminal, "status", "") or ""),
+        "problem": problem_code or None,
+        "retry": str(getattr(terminal, "retry", "") or ""),
+    }
+    for name in ("dispatch", "commit", "effect", "postcondition"):
+        fact = _safe_fact_value(getattr(terminal, name, None))
+        if fact:
+            payload[name] = fact
+    observation = getattr(terminal, "observation", None)
+    coverage = _safe_fact_value(getattr(observation, "coverage", None))
+    if coverage:
+        payload["coverage"] = coverage
+    resources = tuple(getattr(terminal, "resources", ()) or ())
+    single_resource = getattr(terminal, "resource", None)
+    if single_resource is not None:
+        resources += (single_resource,)
+    if resources:
+        payload["resources"] = tuple(
+            {
+                "name": str(getattr(resource, "name", "") or ""),
+                "media_type": str(
+                    getattr(resource, "media_type", "") or "",
+                ),
+                "size": max(0, int(getattr(resource, "size", 0) or 0)),
+            }
+            for resource in resources
+        )
+    prompt = getattr(terminal, "prompt", None)
+    if prompt is not None:
+        payload["prompt"] = {
+            "type": str(getattr(prompt, "type", "") or ""),
+            "safe_message": str(
+                getattr(prompt, "safe_message", "") or "",
+            ),
+            "continuation_required": True,
+        }
+    if "fingerprint" in problem_code.casefold():
+        payload["fingerprint_mismatch"] = problem_code
+    return payload
+
+
+def _safe_fact_value(value: object) -> str:
+    if isinstance(value, str):
+        return value
+    for name in ("outcome", "status", "state"):
+        fact = getattr(value, name, None)
+        if isinstance(fact, str):
+            return fact
+    return ""
 
 
 def _fail_fast_error_code(

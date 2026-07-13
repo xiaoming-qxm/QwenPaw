@@ -45,3 +45,13 @@ Use `Browser.help(api_id="tab.actions.click")` for one API.
 
 - `browser.close` - Release the current SDK lease only.
 - `browser.connect` - Connect with the trusted root-task binding.
+
+## Release Truth
+
+- `build_fingerprint`: `build-1`
+- `contract_fingerprint`: `contract-v1`
+- `profile_fingerprint`: `profile-v1`
+- `extension_fingerprint`: `extension@build-1`
+- `provider_fingerprint`: `provider-v1`
+- `max_retained_state_ttl_seconds`: `3600`
+- `max_legacy_token_ttl_seconds`: `3600`

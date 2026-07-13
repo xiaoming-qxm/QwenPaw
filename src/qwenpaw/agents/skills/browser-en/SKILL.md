@@ -11,11 +11,15 @@ metadata:
 # Browser
 
 Use `browser(code=...)` as the normal browser automation entry. Inside that
-code, connect with the Browser SDK:
+code, connect with the Canonical Browser SDK:
 
 ```python
 browser = await Browser.connect(context="auto")
-tab = await browser.tabs.open("https://example.com")
+open_result = await browser.tabs.open("https://example.com")
+if open_result.status not in {"SUCCEEDED", "PARTIAL"}:
+    return open_result
+tabs: list[TabSummary] = await browser.tabs.list()
+tab = await browser.tabs.select(open_result.opened_tabs[0])
 snapshot = await tab.snapshot()
 ```
 
@@ -27,21 +31,30 @@ Action-First, Controlled Primitive:
 - After any state-changing action, observe again with `tab.snapshot()` or
   `tab.screenshot()` before the next mutation.
 
-Use generated discovery for API details:
+Canonical values are Runtime-issued. Select a `TabSummary`, use the
+`TargetRef` from fresh evidence, and inspect rich terminal truth:
 
 ```python
-Browser.capabilities(scope="actions")
-Browser.help(api_id="tab.actions.click")
+read_result = await tab.read(limit=100)
+snapshot = await tab.snapshot(limit=50)
+target: TargetRef = snapshot.targets[0].ref
+terminal = await tab.actions.click(target)
+if terminal.status not in {"SUCCEEDED", "PARTIAL"}:
+    return terminal
 ```
 
-Normal rhythm:
+Waits use a typed `BrowserCondition`, never natural-language guessing:
 
 ```python
-browser = await Browser.connect(context="auto")
-tab = await browser.tabs.open("https://example.com")
-snapshot = await tab.snapshot()
-await tab.actions.click({"ref": "r1_e3"})
-snapshot = await tab.snapshot()
+condition = BrowserCondition.all(PageCondition.ready("load"))
+terminal = await tab.wait_for(condition, timeout_ms=10_000)
+```
+
+Convert a workspace path once, then pass the task-owned `ResourceHandle`:
+
+```python
+resource: ResourceHandle = browser.resources.from_workspace("report.pdf")
+terminal = await tab.actions.upload_file(target, (resource,))
 ```
 
 - `context="auto"` is the default and chooses the best available backend.
@@ -53,13 +66,7 @@ snapshot = await tab.snapshot()
   existing user tabs are required; such requests fail closed if user Chrome is
   unavailable.
 
-Check backend availability without opening a browser:
-
-```python
-diagnostics = await Browser.diagnostics(context="auto")
-```
-
 Do not use fixed sleeps, private backend objects, JavaScript execution,
 CSS-target shortcuts, low-level protocol escape hatches, or direct backend
-dispatchers. Recover with `tab.wait_for(...)`, fresh observations, and
-generated `Browser.help(...)`.
+dispatchers. Recover with typed `tab.wait_for(...)`, fresh observations, and
+the reviewed Canonical capability/help artifacts.

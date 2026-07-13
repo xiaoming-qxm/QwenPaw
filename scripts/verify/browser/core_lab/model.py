@@ -29,6 +29,11 @@ class CaseOutcome(StrEnum):
     NOT_RUN = "NOT_RUN"
 
 
+class LegacyState(StrEnum):
+    PRESENT = "present"
+    RETIRED = "retired"
+
+
 class FaultCutPoint(StrEnum):
     BEFORE_DISPATCH = "before_dispatch"
     AFTER_DISPATCH = "after_dispatch"
@@ -254,6 +259,7 @@ __all__ = [
     "CaseOutcome",
     "FaultCutPoint",
     "LabCase",
+    "LegacyState",
     "OracleResult",
     "ObserveReadFacts",
     "ReplayDescriptor",

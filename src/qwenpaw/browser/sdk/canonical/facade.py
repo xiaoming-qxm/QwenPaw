@@ -186,8 +186,31 @@ class Browser:
         backend = get_default_backend_registry().profile(
             self.context.backend_id,
         )
+        manifest = browser_support_manifest()
+        fingerprints = {
+            key: str(manifest.get(key) or "")
+            for key in (
+                "build_fingerprint",
+                "contract_fingerprint",
+                "profile_fingerprint",
+                "extension_fingerprint",
+                "provider_fingerprint",
+            )
+        }
+        retirement_limits = {
+            key: int(manifest.get(key) or 0)
+            for key in (
+                "max_retained_state_ttl_seconds",
+                "max_legacy_token_ttl_seconds",
+            )
+        }
         if backend is None:
-            return {"ready": (), "blocked": {"all": "backend_profile_missing"}}
+            return {
+                "ready": (),
+                "blocked": {"all": "backend_profile_missing"},
+                "fingerprints": fingerprints,
+                "retirement_limits": retirement_limits,
+            }
         execution = get_current_execution_context()
         provider = getattr(execution, "provider_block_profile", None)
         if provider is None:
@@ -199,10 +222,13 @@ class Browser:
                     "data": False,
                     "image": False,
                     "artifact": False,
+                    "provider_fingerprint": manifest.get(
+                        "provider_fingerprint",
+                    ),
                 },
             )()
         session = compute_session_capabilities(
-            manifest=browser_support_manifest(),
+            manifest=manifest,
             backend=backend,
             provider=provider,
             session_ready=frozenset(backend.variants),
@@ -210,6 +236,8 @@ class Browser:
         return {
             "ready": tuple(sorted(session.ready)),
             "blocked": session.blocked,
+            "fingerprints": session.fingerprints,
+            "retirement_limits": session.retirement_limits,
         }
 
 

@@ -16,6 +16,9 @@ from qwenpaw.browser.sdk.runtime.result_delivery import (
 )
 
 
+PROVIDER_FINGERPRINT = "provider-v1"
+
+
 @dataclass(frozen=True, slots=True)
 class ProviderBlockProfile:
     text: bool
@@ -24,6 +27,7 @@ class ProviderBlockProfile:
     artifact: bool
     image_media_types: frozenset[str]
     artifact_media_types: frozenset[str]
+    provider_fingerprint: str
     model_fingerprint: str
     formatter_fingerprint: str
     formatter: Any = field(repr=False, compare=False)
@@ -58,6 +62,7 @@ def build_provider_block_profile(
         artifact="artifact" in supported,
         image_media_types=model_images & formatter_images,
         artifact_media_types=model_artifacts & formatter_artifacts,
+        provider_fingerprint=PROVIDER_FINGERPRINT,
         model_fingerprint=str(
             getattr(model, "model_key", "")
             or getattr(model, "model_fingerprint", "")
@@ -181,6 +186,7 @@ def _mapped_field(value: Any, name: str) -> str:
 
 __all__ = [
     "PreparedBlocks",
+    "PROVIDER_FINGERPRINT",
     "ProviderBlockProfile",
     "build_provider_block_profile",
     "prepare_required_blocks",

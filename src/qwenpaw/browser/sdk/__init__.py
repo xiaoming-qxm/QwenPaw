@@ -17,12 +17,18 @@ from .contracts import (
     browser_api,
     iter_browser_api_contracts,
 )
+from .canonical.contracts import (
+    BrowserCondition,
+    ResourceHandle,
+    TabSummary,
+    TargetRef,
+)
+from .canonical.facade import Browser
 from .docs.capabilities import (
     browser_capabilities,
     browser_sdk_help,
     capability_gap,
 )
-from .facade.browser import Browser, connect_browser
 from .governance.error_codes import (
     BrowserErrorCode,
     BrowserErrorInfo,
@@ -95,6 +101,8 @@ from .telemetry.trace import (
     reset_browser_trace_store_for_tests,
 )
 
+connect_browser = Browser.connect
+
 __all__ = [
     "BrowserActionRequest",
     "BrowserActionResult",
@@ -115,6 +123,7 @@ __all__ = [
     "BrowserContextRequest",
     "BrowserContextResolver",
     "BrowserContextUnavailable",
+    "BrowserCondition",
     "BrowserDiagnosticCheck",
     "BrowserDiagnosticStatus",
     "BrowserDiagnostics",
@@ -153,8 +162,11 @@ __all__ = [
     "ExtractionFormat",
     "IsolatedBrowserBackend",
     "ResolvedBrowserContext",
+    "ResourceHandle",
     "Tab",
+    "TabSummary",
     "TabActions",
+    "TargetRef",
     "browser_capabilities",
     "browser_api",
     "browser_sdk_help",

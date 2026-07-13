@@ -21,6 +21,16 @@ GENERATED_DIR = Path(__file__).resolve().parents[1] / "generated"
 CAPABILITIES_PATH = GENERATED_DIR / "capabilities.json"
 HELP_INDEX_PATH = GENERATED_DIR / "help" / "index.md"
 CANONICAL_GENERATED_DIR = GENERATED_DIR / "canonical"
+SUPPORT_MANIFEST_PATH = GENERATED_DIR / "browser-support.json"
+_CANONICAL_RELEASE_TRUTH: dict[str, str | int] = {
+    "build_fingerprint": "build-1",
+    "contract_fingerprint": "contract-v1",
+    "profile_fingerprint": "profile-v1",
+    "extension_fingerprint": "extension@build-1",
+    "provider_fingerprint": "provider-v1",
+    "max_retained_state_ttl_seconds": 3600,
+    "max_legacy_token_ttl_seconds": 3600,
+}
 
 
 def build_api_catalog(
@@ -33,6 +43,7 @@ def build_api_catalog(
         payload = canonical_api_catalog()
         payload["apis"].extend(_canonical_resource_entries())
         _validate_canonical_resource_surface(payload)
+        payload.update(_CANONICAL_RELEASE_TRUTH)
         return payload
     return {
         "version": 1,
@@ -64,7 +75,8 @@ def build_capabilities(
     mode: Literal["legacy", "canonical"] = "legacy",
 ) -> dict[str, Any]:
     """Build compact machine-readable capabilities from the API catalog."""
-    apis = build_api_catalog(mode)["apis"]
+    catalog = build_api_catalog(mode)
+    apis = catalog["apis"]
     compact = {api["api_id"]: _compact_api_entry(api) for api in apis}
     scopes = {
         "all": sorted(compact),
@@ -91,6 +103,7 @@ def build_capabilities(
     }
     if mode == "canonical":
         payload["mode"] = "CANONICAL"
+        payload.update(_CANONICAL_RELEASE_TRUTH)
     return payload
 
 
@@ -116,6 +129,8 @@ def build_help_payload(
         api_id: _api_help(entry) for api_id, entry in sorted(compact.items())
     }
     index = _index_help(compact, scopes)
+    if mode == "canonical":
+        index = _release_truth_help(index)
     return {
         "index": index,
         "scopes": scope_help,
@@ -129,6 +144,8 @@ def write_generated_artifacts(
     mode: Literal["legacy", "canonical"] = "legacy",
 ) -> None:
     """Write the generated catalog, capabilities, and help artifacts."""
+    if mode == "canonical":
+        _write_support_release_truth()
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "api_catalog.json").write_text(
         _json_text(build_api_catalog(mode)),
@@ -174,7 +191,14 @@ def _check_support_manifest() -> bool:
 
     payload = browser_support_manifest()
     build = str(payload.get("build_fingerprint") or "")
-    if not build or not payload.get("capabilities"):
+    if (
+        not build
+        or not payload.get("capabilities")
+        or any(
+            payload.get(key) != value
+            for key, value in _CANONICAL_RELEASE_TRUTH.items()
+        )
+    ):
         return False
     for row in payload["capabilities"]:
         if row.get("status") != "READY":
@@ -185,6 +209,24 @@ def _check_support_manifest() -> bool:
         ):
             return False
     return True
+
+
+def _write_support_release_truth() -> None:
+    payload = json.loads(SUPPORT_MANIFEST_PATH.read_text(encoding="utf-8"))
+    payload.update(_CANONICAL_RELEASE_TRUTH)
+    SUPPORT_MANIFEST_PATH.write_text(
+        json.dumps(payload, ensure_ascii=True, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _release_truth_help(index: str) -> str:
+    lines = [index.rstrip(), "", "## Release Truth", ""]
+    lines.extend(
+        f"- `{key}`: `{value}`"
+        for key, value in _CANONICAL_RELEASE_TRUTH.items()
+    )
+    return "\n".join(lines) + "\n"
 
 
 def main(argv: Sequence[str] | None = None) -> int:

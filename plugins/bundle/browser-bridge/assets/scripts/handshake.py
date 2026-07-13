@@ -8,6 +8,15 @@ import json
 from typing import Any
 
 
+BUILD_FINGERPRINT = "build-1"
+CONTRACT_FINGERPRINT = "contract-v1"
+PROFILE_FINGERPRINT = "profile-v1"
+EXTENSION_FINGERPRINT = "extension@build-1"
+PROVIDER_FINGERPRINT = "provider-v1"
+MAX_RETAINED_STATE_TTL_SECONDS = 3600
+MAX_LEGACY_TOKEN_TTL_SECONDS = 3600
+
+
 class HandshakeError(RuntimeError):
     """Raised when a backend hello handshake fails."""
 
@@ -25,6 +34,15 @@ async def send_hello(
                 "entryId": entry_id,
                 "protocolVersion": protocol_version,
                 "capabilities": ["cdp", "tabs"],
+                "buildFingerprint": BUILD_FINGERPRINT,
+                "contractFingerprint": CONTRACT_FINGERPRINT,
+                "profileFingerprint": PROFILE_FINGERPRINT,
+                "extensionFingerprint": EXTENSION_FINGERPRINT,
+                "providerFingerprint": PROVIDER_FINGERPRINT,
+                "maxRetainedStateTtlSeconds": (
+                    MAX_RETAINED_STATE_TTL_SECONDS
+                ),
+                "maxLegacyTokenTtlSeconds": MAX_LEGACY_TOKEN_TTL_SECONDS,
             },
             separators=(",", ":"),
         ),

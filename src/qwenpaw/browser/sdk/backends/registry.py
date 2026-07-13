@@ -10,6 +10,8 @@ from typing import Any
 from ..primitives.types import ConcreteBrowserContext
 from .protocols import BackendProfile, BrowserBackend
 
+RETIREMENT_EVIDENCE_BACKEND_ID = "user.chrome_extension"
+
 
 class BrowserBackendRegistry:
     """Register and resolve browser backends by stable backend id."""
@@ -181,6 +183,7 @@ def _merge_cleanup_counters(
 
 __all__ = [
     "BrowserBackendRegistry",
+    "RETIREMENT_EVIDENCE_BACKEND_ID",
     "cleanup_browser_backend_request_resources",
     "get_default_backend_registry",
     "shutdown_registered_browser_backends",

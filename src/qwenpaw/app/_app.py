@@ -36,7 +36,11 @@ from ..utils.logging import (
 )
 from ..utils.system_info import summarize_python_environment
 from .auth import AuthMiddleware, auto_register_from_env
-from .routers import router as api_router, create_agent_scoped_router
+from .routers import (
+    browser_core_router,
+    create_agent_scoped_router,
+    router as api_router,
+)
 from .routers.agent_scoped import AgentContextMiddleware
 from .routers.approval import router as approval_router
 from .routers.coding_mode import router as coding_mode_router
@@ -47,10 +51,14 @@ from ..envs import load_envs_into_environ
 from ..providers.provider_manager import ProviderManager
 from ..local_models.manager import LocalModelManager
 from .migration import (
+    migrate_browser_contract_rollout_config,
     migrate_legacy_workspace_to_default_agent,
     migrate_legacy_skills_to_skill_pool,
     ensure_default_agent_exists,
     ensure_qa_agent_exists,
+)
+from ..runtime.root_request_coordinator import (
+    initialize_browser_contract_rollout,
 )
 from .channels.registry import register_custom_channel_routes
 
@@ -267,6 +275,8 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
         )
 
     logger.debug("Checking for legacy config migration...")
+    migrate_browser_contract_rollout_config()
+    await initialize_browser_contract_rollout()
     migrate_legacy_workspace_to_default_agent()
     ensure_default_agent_exists()
     migrate_legacy_skills_to_skill_pool()
@@ -981,6 +991,8 @@ def get_doctor_runtime():
 
 
 app.include_router(api_router, prefix="/api")
+
+app.include_router(browser_core_router, prefix="/api")
 
 app.include_router(tool_calls_router, prefix="/api")
 
