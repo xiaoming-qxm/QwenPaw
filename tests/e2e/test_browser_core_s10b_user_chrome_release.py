@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 from hashlib import sha256
+import site
 import subprocess
 import sys
 
@@ -135,7 +136,9 @@ import sys
 installed = Path(sys.argv[1]).resolve()
 working_dir = Path(sys.argv[2]).resolve()
 sys.path.insert(0, str(installed))
+sys.path.extend(json.loads(sys.argv[3]))
 
+from fastapi import FastAPI
 import qwenpaw
 from qwenpaw.app._app import _bundled_plugins_dir
 from qwenpaw.app.migration import migrate_browser_contract_rollout_config
@@ -151,6 +154,7 @@ from qwenpaw.browser.sdk.runtime.kernel import (
 from qwenpaw.browser.sdk.runtime.session_owner import RootTaskOutcome
 from qwenpaw.config.utils import load_config_strict
 from qwenpaw.plugins.loader import PluginLoader
+from qwenpaw.plugins.state import PluginStateStore
 from qwenpaw.runtime import root_request_coordinator as coordinator
 
 
@@ -164,12 +168,15 @@ class ReleaseBridge:
 async def load_packaged_bridge():
     plugin_dir = _bundled_plugins_dir().resolve()
     assert plugin_dir.is_relative_to(installed)
+    PluginStateStore().set_enabled("chrome", True)
     loader = PluginLoader([plugin_dir])
+    loader.registry.set_plugin_http_app(FastAPI())
     discovered = loader.discover_plugins()
     assert len(discovered) == 1
     plugin_manifest, source = discovered[0]
     assert plugin_manifest.id == "chrome"
-    await loader.load_plugin(plugin_manifest, source)
+    record = await loader.load_plugin(plugin_manifest, source)
+    assert record.enabled is True
     from plugin_chrome.backend.user import ChromeExtensionBrowserBackend
 
     class CountingChromeBackend(ChromeExtensionBrowserBackend):
@@ -304,6 +311,13 @@ print(json.dumps(asyncio.run(main()), sort_keys=True))
         "QWENPAW_SECRET_DIR": str(tmp_path / "clean-secret"),
         "PYTHONNOUSERSITE": "1",
     }
+    dependency_paths = json.dumps(
+        [
+            str(Path(item).resolve())
+            for item in site.getsitepackages()
+            if Path(item).is_dir()
+        ],
+    )
     result = subprocess.run(
         [
             str(venv_python),
@@ -312,6 +326,7 @@ print(json.dumps(asyncio.run(main()), sort_keys=True))
             script,
             str(installed),
             str(working_dir),
+            dependency_paths,
         ],
         cwd=tmp_path,
         env=environment,

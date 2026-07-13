@@ -58,7 +58,9 @@ def _release_wheel() -> Path:
     return wheels[0].resolve()
 
 
-def test_release_wheel_is_post_retirement_and_excludes_offline_verifier() -> None:
+def test_release_wheel_is_post_retirement_and_excludes_offline_verifier() -> (
+    None
+):
     wheel = _release_wheel()
     required = {
         "qwenpaw/app/_app.py",
@@ -76,9 +78,11 @@ def test_release_wheel_is_post_retirement_and_excludes_offline_verifier() -> Non
         assert required <= names
         assert _REQUIRED_BRIDGE_PATHS <= names
         assert not any("/__pycache__/" in name for name in names)
-        assert not any(name.endswith(".pyc") for name in names)
-        assert not any(name.startswith(_BRIDGE_ROOT + "frontend/") for name in names)
-        assert not (_RETIRED_HOST_PATHS & names)
+        assert not any(name.endswith((".pyc", ".pyo")) for name in names)
+        assert not any(
+            name.startswith(_BRIDGE_ROOT + "frontend/") for name in names
+        )
+        assert not _RETIRED_HOST_PATHS & names
         assert "qwenpaw/app/routers/browser_core.py" not in names
         assert not any(
             name.startswith("scripts/verify/browser/core_lab/")
@@ -90,7 +94,7 @@ def test_release_wheel_is_post_retirement_and_excludes_offline_verifier() -> Non
             if name.endswith(".py")
         )
         support = json.loads(
-            archive.read("qwenpaw/browser/sdk/generated/browser-support.json")
+            archive.read("qwenpaw/browser/sdk/generated/browser-support.json"),
         )
     assert not any(token in python_text for token in _RETIRED_ROOT_TOKENS)
     assert support["legacy_state"] == "RETIRED"
@@ -116,12 +120,14 @@ import sys
 
 installed_dir = Path(sys.argv[1]).resolve()
 sys.path.insert(0, str(installed_dir))
+from fastapi import FastAPI
 import qwenpaw
 from qwenpaw.browser.sdk import Browser
 from qwenpaw.browser.sdk.canonical.facade import Browser as CanonicalBrowser
 from qwenpaw.config.config import Config
 from qwenpaw.app._app import _bundled_plugins_dir
 from qwenpaw.plugins.loader import PluginLoader
+from qwenpaw.plugins.state import PluginStateStore
 
 module_path = Path(qwenpaw.__file__).resolve()
 assert module_path.is_relative_to(installed_dir)
@@ -136,13 +142,16 @@ assert (plugin_dir / "browser-bridge" / "plugin.json").is_file()
 assert (plugin_dir / "browser-bridge" / "api" / "routes.py").is_file()
 
 async def load_bridge():
+    PluginStateStore().set_enabled("chrome", True)
     loader = PluginLoader([plugin_dir])
+    loader.registry.set_plugin_http_app(FastAPI())
     discovered = loader.discover_plugins()
     assert len(discovered) == 1
     manifest, source = discovered[0]
     assert manifest.id == "chrome"
     record = await loader.load_plugin(manifest, source)
     assert record.manifest.id == "chrome"
+    assert record.enabled is True
     from plugin_chrome.api import routes
     diagnostics = await routes._sdk_diagnostics_snapshot("user")
     assert diagnostics.requested_context == "user"

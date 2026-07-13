@@ -92,6 +92,13 @@ include-package-data = true
     "docs/*.md",
 ]
 
+[tool.setuptools.exclude-package-data]
+"*" = [
+    "**/__pycache__/**",
+    "**/*.pyc",
+    "**/*.pyo",
+]
+
 [build-system]
 requires = ["setuptools>=42", "wheel"]
 build-backend = "setuptools.build_meta"
