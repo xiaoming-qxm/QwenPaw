@@ -37,7 +37,6 @@ from ..utils.logging import (
 from ..utils.system_info import summarize_python_environment
 from .auth import AuthMiddleware, auto_register_from_env
 from .routers import (
-    browser_core_router,
     create_agent_scoped_router,
     router as api_router,
 )
@@ -80,8 +79,11 @@ load_envs_into_environ()
 
 
 def _bundled_plugins_dir() -> Path:
-    """Return the source-tree bundled plugin directory."""
-    return Path(__file__).resolve().parents[3] / "plugins" / "bundle"
+    """Return the source-tree or installed-wheel plugin directory."""
+    source_tree = Path(__file__).resolve().parents[3] / "plugins" / "bundle"
+    if source_tree.is_dir():
+        return source_tree
+    return Path(__file__).resolve().parents[1] / "_plugins" / "bundle"
 
 
 def _is_bundled_builtin_plugin(plugin_dir: Path) -> bool:
@@ -991,8 +993,6 @@ def get_doctor_runtime():
 
 
 app.include_router(api_router, prefix="/api")
-
-app.include_router(browser_core_router, prefix="/api")
 
 app.include_router(tool_calls_router, prefix="/api")
 

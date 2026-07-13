@@ -48,7 +48,7 @@ class ContractMode(StrEnum):
     CANONICAL = "CANONICAL"
 
 
-LegacyAdmission: TypeAlias = Literal["OPEN", "CLOSED"]
+LegacyAdmission: TypeAlias = Literal["CLOSED"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -466,14 +466,11 @@ class SessionContractModeRegistry:
 
     def __init__(
         self,
-        *,
-        legacy_admission: LegacyAdmission | None = "OPEN",
     ) -> None:
         self._modes: dict[str, ContractMode] = {}
         self._lock = asyncio.Lock()
         self._rollout_revision = 0
-        self._rollout_default: ContractMode | None = None
-        self._legacy_admission = legacy_admission
+        self._rollout_default = ContractMode.CANONICAL
 
     async def initialize_rollout(
         self,
@@ -491,7 +488,7 @@ class SessionContractModeRegistry:
 
     def current_default(self) -> ContractMode:
         """Return the last validated process-host default."""
-        return self._rollout_default or ContractMode.LEGACY
+        return ContractMode.CANONICAL
 
     async def bind(
         self,
@@ -505,26 +502,20 @@ class SessionContractModeRegistry:
         async with self._lock:
             mode = self._modes.get(session_key)
             if mode is None:
+                if ContractMode(rollout_default) is not ContractMode.CANONICAL:
+                    raise BrowserOwnerRegistryError(
+                        "browser_rollout_unavailable",
+                    )
                 revision = rollout_revision
                 if revision is None:
                     revision = max(1, self._rollout_revision)
-                    if (
-                        self._rollout_default is not None
-                        and self._rollout_default
-                        is not ContractMode(rollout_default)
-                    ):
-                        revision += 1
                 snapshot = BrowserContractRolloutSnapshot(
                     revision=revision,
-                    default=ContractMode(rollout_default),
-                    legacy_admission=self._legacy_admission or "OPEN",
+                    default=ContractMode.CANONICAL,
+                    legacy_admission="CLOSED",
                 )
                 self._accept_rollout_locked(snapshot)
-                mode = (
-                    ContractMode.CANONICAL
-                    if self._legacy_admission == "CLOSED"
-                    else snapshot.default
-                )
+                mode = ContractMode.CANONICAL
                 self._modes[session_key] = mode
             return mode
 
@@ -537,21 +528,16 @@ class SessionContractModeRegistry:
             not isinstance(revision, int)
             or isinstance(revision, bool)
             or revision <= 0
-            or not isinstance(snapshot.default, ContractMode)
+            or snapshot.default is not ContractMode.CANONICAL
         ):
             raise BrowserOwnerRegistryError("browser_rollout_unavailable")
         admission = snapshot.legacy_admission
-        if admission not in {"OPEN", "CLOSED"}:
-            raise BrowserOwnerRegistryError("browser_rollout_unavailable")
-        if self._legacy_admission is None:
-            self._legacy_admission = admission
-        elif self._legacy_admission != admission:
+        if admission != "CLOSED":
             raise BrowserOwnerRegistryError("browser_rollout_unavailable")
         if revision < self._rollout_revision:
             raise BrowserOwnerRegistryError("browser_rollout_unavailable")
         if (
             revision == self._rollout_revision
-            and self._rollout_default is not None
             and self._rollout_default is not snapshot.default
         ):
             raise BrowserOwnerRegistryError("browser_rollout_unavailable")
@@ -572,13 +558,7 @@ class SessionContractModeRegistry:
 
     def _legacy_bindings_locked(self) -> tuple[str, ...]:
         """Return internal Legacy keys while the caller holds ``_lock``."""
-        return tuple(
-            sorted(
-                session_key
-                for session_key, mode in self._modes.items()
-                if mode is ContractMode.LEGACY
-            ),
-        )
+        return ()
 
 
 # pylint: disable-next=too-many-public-methods
@@ -593,29 +573,21 @@ class BrowserSessionOwnerRegistry:
         trusted_surface_policy: TrustedSurfacePolicy | None = None,
         pending_action_capacity: int = 128,
         pending_action_ttl_seconds: float = 300.0,
-        legacy_admission: LegacyAdmission | None = "OPEN",
     ) -> None:
         if pending_action_capacity <= 0:
             raise ValueError("pending_action_capacity must be positive")
         if pending_action_ttl_seconds <= 0:
             raise ValueError("pending_action_ttl_seconds must be positive")
         self._clock = clock
-        if legacy_admission not in {None, "OPEN", "CLOSED"}:
-            raise ValueError("legacy_admission must be OPEN or CLOSED")
-        self._modes = modes or SessionContractModeRegistry(
-            legacy_admission=legacy_admission,
-        )
+        self._modes = modes or SessionContractModeRegistry()
         self._default_trusted_surface_policy = trusted_surface_policy
         self._pending_action_capacity = int(pending_action_capacity)
         self._pending_action_ttl_seconds = float(
             pending_action_ttl_seconds,
         )
         self._process_started_monotonic = float(self._clock())
-        self._legacy_admission_initialized = legacy_admission is not None
-        self._legacy_admission_closed_monotonic: float | None = (
+        self._legacy_admission_closed_monotonic = (
             self._process_started_monotonic
-            if legacy_admission == "CLOSED"
-            else None
         )
         self._owners: dict[tuple[str, str], _OwnerState] = {}
         self._tokens: dict[str, _TokenState] = {}
@@ -627,12 +599,6 @@ class BrowserSessionOwnerRegistry:
     ) -> None:
         """Initialize startup admission and a validated rollout snapshot."""
         await self._modes.initialize_rollout(snapshot)
-        if not self._legacy_admission_initialized:
-            self._legacy_admission_initialized = True
-            if snapshot.legacy_admission == "CLOSED":
-                self._legacy_admission_closed_monotonic = float(
-                    self._clock(),
-                )
 
     async def has_contract_mode(self, root_session_id: str) -> bool:
         """Return whether a root session can continue without config read."""
@@ -648,11 +614,7 @@ class BrowserSessionOwnerRegistry:
         async with self._modes._lock:
             legacy_mode_keys = self._modes._legacy_bindings_locked()
             async with self._lock:
-                legacy_states = tuple(
-                    state
-                    for state in self._owners.values()
-                    if state.binding.contract_mode is ContractMode.LEGACY
-                )
+                legacy_states: tuple[_OwnerState, ...] = ()
                 legacy_owner_keys = {
                     state.binding.owner_key for state in legacy_states
                 }
@@ -742,8 +704,7 @@ class BrowserSessionOwnerRegistry:
                     else max(
                         0,
                         int(
-                            now
-                            - self._legacy_admission_closed_monotonic
+                            now - self._legacy_admission_closed_monotonic,
                         ),
                     )
                 ),
@@ -798,7 +759,7 @@ class BrowserSessionOwnerRegistry:
         mode = await self._modes.bind(
             root_session_id=session_key,
             rollout_revision=rollout_revision,
-            rollout_default=rollout_default or ContractMode.LEGACY,
+            rollout_default=rollout_default or ContractMode.CANONICAL,
         )
         binding = BrowserRequestBinding(
             root_session_id=session_key,

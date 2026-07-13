@@ -40,8 +40,7 @@ def test_user_chrome_generic_resource_flow_has_one_native_effect(
     assert result.observed["false_success"] is False
 
 
-def test_user_chrome_handlers_use_native_resource_paths_without_clipboard(
-) -> None:
+def test_user_chrome_native_resource_paths_avoid_clipboard() -> None:
     capabilities = Path(
         "plugins/bundle/browser-bridge/action_runtime/handlers/"
         "capabilities.py",

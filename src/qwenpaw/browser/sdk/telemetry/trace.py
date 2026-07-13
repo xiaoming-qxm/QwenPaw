@@ -478,13 +478,13 @@ def _normalize_api_id(
 @lru_cache(maxsize=1)
 def _public_browser_api_ids() -> frozenset[str]:
     try:
-        from ..contracts import iter_browser_api_contracts
+        from ..canonical.contracts import canonical_api_catalog
     except Exception:  # pragma: no cover - import-cycle fallback
         return frozenset()
     return frozenset(
-        str(contract.api_id)
-        for contract in iter_browser_api_contracts()
-        if str(contract.api_id or "").strip()
+        str(entry.get("api_id") or "")
+        for entry in canonical_api_catalog()["apis"]
+        if str(entry.get("api_id") or "").strip()
     )
 
 

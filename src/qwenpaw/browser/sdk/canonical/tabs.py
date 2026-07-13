@@ -1369,7 +1369,7 @@ class Tab:
                 sources="visual-hit-test:unavailable",
             )
         capture_call = cast(Callable[..., Awaitable[object]], capture_visual)
-        capture = await capture_call(
+        capture = await capture_call(  # pylint: disable=not-callable
             self.id,
             scope=scope,
             budget=ObservationBudget(
@@ -1437,8 +1437,7 @@ class Tab:
             for index, target in enumerate(targets, start=1)
         )
         region_summaries = tuple(
-            _region_summary(self._observations, region)
-            for region in regions
+            _region_summary(self._observations, region) for region in regions
         )
         status, retry, problem = _snapshot_terminal(coverage)
         return _record_snapshot_result(
@@ -1653,9 +1652,7 @@ class Tab:
                     viewport=captured.before.viewport,
                     scroll=captured.before.scroll_offset,
                     zoom=captured.before.zoom,
-                    device_pixel_ratio=(
-                        captured.before.device_pixel_ratio
-                    ),
+                    device_pixel_ratio=(captured.before.device_pixel_ratio),
                     layout=captured.before.layout,
                     capture_epoch=captured.before.event_watermark,
                     image_sha256=str(handle.sha256),

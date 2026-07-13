@@ -18,8 +18,9 @@ def _fingerprint(path: Path) -> str:
     return sha256(path.read_bytes()).hexdigest()
 
 
-def test_s7_canonical_user_chrome_flow_projects_terminal_and_build_facts(
-) -> None:
+def test_s7_canonical_user_chrome_flow_projects_terminal_and_build_facts() -> (
+    None
+):
     operation_id = "browser-op-s7-user-chrome"
     result = ActionResult(
         operation_id=operation_id,

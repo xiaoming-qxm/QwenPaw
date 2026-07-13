@@ -74,7 +74,7 @@ dependencies = [
 version = {attr = "qwenpaw.__version__.__version__"}
 
 [tool.setuptools]
-packages = { find = { where = ["src"] } }
+packages = { find = { where = ["src"], exclude = ["qwenpaw._plugins*"] } }
 include-package-data = true
 
 [tool.setuptools.package-data]
@@ -85,6 +85,7 @@ include-package-data = true
     "agents/skills/**",
     "tokenizer/**",
     "browser/sdk/generated/**",
+    "_plugins/**",
     "security/tool_guard/rules/**",
     "security/skill_scanner/rules/**",
     "security/skill_scanner/data/**",

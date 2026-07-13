@@ -12,7 +12,6 @@ from typing import Any
 from ..browser.sdk.runtime.session_owner import (
     BrowserContractRolloutSnapshot,
     BrowserOwnerRegistryError,
-    BrowserOwnerRegistryError,
     BrowserRequestBinding,
     BrowserSessionOwnerRegistry,
     ContractMode,
@@ -94,7 +93,7 @@ class RootTaskLifecycleEvent:
         object.__setattr__(self, "reason", reason)
 
 
-_OWNER_REGISTRY = BrowserSessionOwnerRegistry(legacy_admission=None)
+_OWNER_REGISTRY = BrowserSessionOwnerRegistry()
 _RETAINED_BINDINGS: dict[tuple[str, str], BrowserRequestBinding] = {}
 
 
@@ -244,7 +243,7 @@ def _load_browser_contract_rollout(
         return BrowserContractRolloutSnapshot(
             revision=rollout.revision,
             default=ContractMode(rollout.default),
-            legacy_admission=config.browser_legacy_admission,
+            legacy_admission="CLOSED",
         )
     except BrowserOwnerRegistryError:
         raise

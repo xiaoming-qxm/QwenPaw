@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 import json
+from pathlib import Path
 
 from scripts.verify.browser.core_lab.model import CapabilityFamily
 from scripts.verify.browser.core_lab.oracle import IndependentOracle
@@ -77,9 +78,17 @@ def test_visual_canvas_variants_and_faults_are_primary_and_pass() -> None:
     results = [run_case(case) for case in cases]
     assert results
     assert all(result.outcome.value == "PASS" for result in results)
-    assert all(result.observed["raw_coordinate_dispatch_count"] == 0 for result in results)
-    assert all(result.observed["proximity_choice_count"] == 0 for result in results)
-    assert all(result.observed["effect_count_at_most_one"] is True for result in results)
+    assert all(
+        result.observed["raw_coordinate_dispatch_count"] == 0
+        for result in results
+    )
+    assert all(
+        result.observed["proximity_choice_count"] == 0 for result in results
+    )
+    assert all(
+        result.observed["effect_count_at_most_one"] is True
+        for result in results
+    )
 
 
 def test_visual_canvas_transformations_and_fault_cuts_are_explicit() -> None:
@@ -150,11 +159,16 @@ def test_visual_canvas_support_keeps_required_and_optional_separate(
             case_id=case_id,
             seed=7,
         )
-        cases.append(case_report(case, run_case(case), from_report="report.json"))
+        cases.append(
+            case_report(case, run_case(case), from_report="report.json"),
+        )
     payload = {"family": "VisualCanvas", "cases": cases}
     source = "src/qwenpaw/browser/sdk/generated/browser-support.json"
     manifest_path = tmp_path / "browser-support.json"
-    manifest_path.write_text(open(source, encoding="utf-8").read(), encoding="utf-8")
+    manifest_path.write_text(
+        Path(source).read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
 
     update_s9_support_from_report(payload, manifest_path=manifest_path)
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))

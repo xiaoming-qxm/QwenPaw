@@ -1,28 +1,33 @@
 # -*- coding: utf-8 -*-
 """CLI for deterministic Browser Core capability cases."""
+# pylint: disable=too-many-return-statements,too-many-statements
 
 from __future__ import annotations
 
 import argparse
-import asyncio
-from hashlib import sha256
 import json
 import os
 from pathlib import Path
-import tempfile
 from typing import Sequence
 
 from .model import CapabilityFamily, CaseOutcome, LegacyState
 from .reports import (
+    bridge_symbol_inventory,
     build_release_handoff,
     case_report,
     current_build_fingerprints,
     release_artifact_identity,
+    retirement_gate,
     update_s6_support_from_report,
     update_s7_support_from_report,
     update_s8_support_from_report,
     update_s9_support_from_report,
     verify_family_report,
+    verify_bridge_symbol_manifest,
+    verify_deployment_completion_receipt,
+    verify_deployment_start_receipt,
+    verify_legacy_inventory,
+    verify_retirement_report,
     verify_release_handoff,
     write_atomic_report,
     write_report,
@@ -52,8 +57,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     replay.add_argument("--from-report", required=True)
     replay.add_argument("--case", required=True)
     replay.add_argument("--report", required=True)
-    rollback = commands.add_parser("rollback-drill")
-    rollback.add_argument("--report", required=True)
     verify_family = commands.add_parser("verify-family-report")
     verify_family.add_argument(
         "--family",
@@ -70,6 +73,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     handoff.add_argument("--release-dir", required=True)
     handoff.add_argument("--rollback-report")
+    handoff.add_argument("--bridge-pre-root")
+    handoff.add_argument("--bridge-post-root")
     handoff.add_argument("--family-report", action="append", default=[])
     handoff.add_argument("--report", required=True)
     verify_handoff = commands.add_parser("verify-release-handoff")
@@ -80,14 +85,73 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     verify_handoff.add_argument("--release-dir", required=True)
     verify_handoff.add_argument("--rollback-report")
+    verify_handoff.add_argument("--bridge-pre-root")
+    verify_handoff.add_argument("--bridge-post-root")
     verify_handoff.add_argument("--report", required=True)
+    retirement = commands.add_parser("retirement-gate")
+    retirement.add_argument("--release-handoff", required=True)
+    retirement.add_argument("--deployment-attestation", required=True)
+    retirement.add_argument("--rollback-report", required=True)
+    retirement.add_argument("--report", required=True)
+    verify_retirement = commands.add_parser("verify-retirement-report")
+    verify_retirement.add_argument("--release-handoff", required=True)
+    verify_retirement.add_argument("--deployment-attestation", required=True)
+    verify_retirement.add_argument("--rollback-report", required=True)
+    verify_retirement.add_argument("--max-age-seconds", type=int, default=300)
+    verify_retirement.add_argument("--report", required=True)
+    inventory = commands.add_parser("verify-legacy-inventory")
+    inventory.add_argument(
+        "--mode",
+        choices=("present", "absent"),
+        required=True,
+    )
+    inventory.add_argument("--release-handoff", required=True)
+    inventory.add_argument("--source-root", required=True)
+    bridge_inventory = commands.add_parser("bridge-symbol-inventory")
+    bridge_inventory.add_argument(
+        "--phase",
+        choices=("pre-root", "post-root"),
+        required=True,
+    )
+    bridge_inventory.add_argument("--source-root", required=True)
+    bridge_inventory.add_argument("--release-handoff", required=True)
+    bridge_inventory.add_argument("--baseline-source-root")
+    bridge_inventory.add_argument("--pre-root")
+    bridge_inventory.add_argument("--report", required=True)
+    verify_bridge = commands.add_parser("verify-bridge-symbol-manifest")
+    verify_bridge.add_argument(
+        "--mode",
+        choices=("pre-root", "post-root", "applied"),
+        required=True,
+    )
+    verify_bridge.add_argument("--source-root", required=True)
+    verify_bridge.add_argument("--release-handoff", required=True)
+    verify_bridge.add_argument("--baseline-source-root", required=True)
+    verify_bridge.add_argument("--pre-root")
+    verify_bridge.add_argument("--report", required=True)
+    start_receipt = commands.add_parser("verify-deployment-start-receipt")
+    start_receipt.add_argument("--deployment-attestation", required=True)
+    start_receipt.add_argument("--release-report", required=True)
+    start_receipt.add_argument("--authorization-report", required=True)
+    start_receipt.add_argument("--receipt", required=True)
+    terminal_receipt = commands.add_parser(
+        "verify-deployment-completion-receipt",
+    )
+    terminal_receipt.add_argument(
+        "--require-outcome",
+        choices=("COMPLETED", "ROLLED_BACK"),
+        required=True,
+    )
+    terminal_receipt.add_argument("--deployment-attestation", required=True)
+    terminal_receipt.add_argument("--release-handoff", required=True)
+    terminal_receipt.add_argument("--release-report", required=True)
+    terminal_receipt.add_argument("--start-receipt", required=True)
+    terminal_receipt.add_argument("--receipt", required=True)
     args = parser.parse_args(argv)
     if args.command == "run":
         return _run(args)
     if args.command == "replay":
         return _replay(args)
-    if args.command == "rollback-drill":
-        return _rollback_drill(args)
     if args.command == "verify-family-report":
         verify_family_report(
             args.report,
@@ -101,14 +165,80 @@ def main(argv: Sequence[str] | None = None) -> int:
             release_dir=args.release_dir,
             rollback_report=args.rollback_report,
             family_reports=_parse_family_reports(args.family_report),
+            bridge_pre_root=args.bridge_pre_root,
+            bridge_post_root=args.bridge_post_root,
         )
         write_atomic_report(args.report, payload)
+        return 0
+    if args.command == "retirement-gate":
+        payload = retirement_gate(
+            args.release_handoff,
+            args.deployment_attestation,
+            args.rollback_report,
+            args.report,
+        )
+        return 0 if payload["outcome"] == "AUTHORIZED" else 1
+    if args.command == "verify-retirement-report":
+        verify_retirement_report(
+            args.report,
+            args.release_handoff,
+            args.deployment_attestation,
+            args.rollback_report,
+            max_age_seconds=args.max_age_seconds,
+        )
+        return 0
+    if args.command == "verify-legacy-inventory":
+        verify_legacy_inventory(
+            args.release_handoff,
+            args.source_root,
+            mode=args.mode,
+        )
+        return 0
+    if args.command == "bridge-symbol-inventory":
+        bridge_symbol_inventory(
+            source_root=args.source_root,
+            phase=args.phase,
+            pre_root=args.pre_root,
+            release_handoff=args.release_handoff,
+            baseline_source_root=args.baseline_source_root,
+            report=args.report,
+        )
+        return 0
+    if args.command == "verify-bridge-symbol-manifest":
+        verify_bridge_symbol_manifest(
+            report=args.report,
+            source_root=args.source_root,
+            mode=args.mode,
+            pre_root=args.pre_root,
+            release_handoff=args.release_handoff,
+            baseline_source_root=args.baseline_source_root,
+        )
+        return 0
+    if args.command == "verify-deployment-start-receipt":
+        verify_deployment_start_receipt(
+            args.receipt,
+            args.deployment_attestation,
+            args.release_report,
+            args.authorization_report,
+        )
+        return 0
+    if args.command == "verify-deployment-completion-receipt":
+        verify_deployment_completion_receipt(
+            args.receipt,
+            args.deployment_attestation,
+            args.release_handoff,
+            args.release_report,
+            args.start_receipt,
+            require_outcome=args.require_outcome,
+        )
         return 0
     verify_release_handoff(
         args.report,
         legacy_state=args.legacy_state,
         release_dir=args.release_dir,
         rollback_report=args.rollback_report,
+        bridge_pre_root=args.bridge_pre_root,
+        bridge_post_root=args.bridge_post_root,
     )
     return 0
 
@@ -135,7 +265,9 @@ def _run(args: argparse.Namespace) -> int:
         "outcome": (
             "PASS"
             if reports
-            and all(item["outcome"] == CaseOutcome.PASS.value for item in reports)
+            and all(
+                item["outcome"] == CaseOutcome.PASS.value for item in reports
+            )
             else "FAIL"
         ),
         "build": os.environ.get(
@@ -217,149 +349,10 @@ def _replay(args: argparse.Namespace) -> int:
     return _exit_for(reports)
 
 
-def _rollback_drill(args: argparse.Namespace) -> int:
-    return asyncio.run(_run_rollback_drill(Path(args.report)))
-
-
-async def _run_rollback_drill(report_path: Path) -> int:
-    from qwenpaw.browser.sdk.runtime.session_owner import (
-        BrowserSessionOwnerRegistry,
-        ContractMode,
-    )
-    from qwenpaw.config.config import Config
-    from qwenpaw.config.utils import save_config
-    from qwenpaw.runtime.root_request_coordinator import (
-        _load_browser_contract_rollout,
-    )
-
-    report = report_path.expanduser().resolve()
-    _require_durable_report_path(report)
-    if report.exists():
-        raise FileExistsError(str(report))
-    report.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(
-        prefix=".rollback-drill-",
-        dir=report.parent,
-    ) as temporary_dir:
-        config_path = Path(temporary_dir) / "config.json"
-        registry = BrowserSessionOwnerRegistry(legacy_admission="OPEN")
-
-        save_config(_drill_config(1, "CANONICAL"), config_path)
-        first_digest = _file_sha256(config_path)
-        first_rollout = _load_browser_contract_rollout(config_path)
-        await registry.initialize_rollout(first_rollout)
-        existing = await registry.begin_request(
-            root_session_id="existing-root",
-            source="rollback-drill",
-            rollout_revision=first_rollout.revision,
-            rollout_default=first_rollout.default,
-        )
-
-        save_config(_drill_config(2, "LEGACY"), config_path)
-        legacy_digest = _file_sha256(config_path)
-        legacy_rollout = _load_browser_contract_rollout(config_path)
-        await registry.initialize_rollout(legacy_rollout)
-        existing_after = await registry.begin_request(
-            root_session_id="existing-root",
-            source="rollback-drill",
-            rollout_revision=legacy_rollout.revision,
-            rollout_default=legacy_rollout.default,
-        )
-        rollback_new = await registry.begin_request(
-            root_session_id="rollback-new-root",
-            source="rollback-drill",
-            rollout_revision=legacy_rollout.revision,
-            rollout_default=legacy_rollout.default,
-        )
-        rollback_snapshot = await registry.retirement_snapshot()
-
-        config_path.write_text("{", encoding="utf-8")
-        partial_digest = _file_sha256(config_path)
-        partial_failed = False
-        try:
-            _load_browser_contract_rollout(config_path)
-        except Exception:
-            partial_failed = True
-        partial_unbound = not await registry.has_contract_mode(
-            "partial-root",
-        )
-
-        save_config(_drill_config(3, "CANONICAL"), config_path)
-        canonical_digest = _file_sha256(config_path)
-        canonical_rollout = _load_browser_contract_rollout(config_path)
-        await registry.initialize_rollout(canonical_rollout)
-        canonical_new = await registry.begin_request(
-            root_session_id="canonical-new-root",
-            source="rollback-drill",
-            rollout_revision=canonical_rollout.revision,
-            rollout_default=canonical_rollout.default,
-        )
-        final_snapshot = await registry.retirement_snapshot()
-
-    passed = all(
-        (
-            existing.contract_mode is ContractMode.CANONICAL,
-            existing_after.contract_mode is ContractMode.CANONICAL,
-            rollback_new.contract_mode is ContractMode.LEGACY,
-            canonical_new.contract_mode is ContractMode.CANONICAL,
-            partial_failed,
-            partial_unbound,
-        ),
-    )
-    payload = {
-        "schema_version": 1,
-        "outcome": "PASS" if passed else "FAIL",
-        "legacy_admission": "OPEN",
-        "revisions": [1, 2, 3],
-        "config_sha256": {
-            "initial_canonical": first_digest,
-            "rollback_legacy": legacy_digest,
-            "partial_invalid": partial_digest,
-            "restored_canonical": canonical_digest,
-        },
-        "existing_mode_before": existing.contract_mode.value,
-        "existing_mode_after_rollback": existing_after.contract_mode.value,
-        "rollback_new_mode": rollback_new.contract_mode.value,
-        "canonical_new_mode": canonical_new.contract_mode.value,
-        "partial_read_failed": partial_failed,
-        "partial_root_unbound": partial_unbound,
-        "duplicate_effects": 0,
-        "rollback_host_counts": rollback_snapshot["counts"],
-        "final_host_counts": final_snapshot["counts"],
-    }
-    write_atomic_report(report, payload)
-    return 0 if passed else 1
-
-
-def _drill_config(revision: int, default: str):
-    from qwenpaw.config.config import Config
-
-    return Config(
-        browser_contract_rollout={
-            "revision": revision,
-            "default": default,
-        },
-        browser_legacy_admission="OPEN",
-    )
-
-
-def _file_sha256(path: Path) -> str:
-    return sha256(path.read_bytes()).hexdigest()
-
-
-def _require_durable_report_path(report: Path) -> None:
-    temporary_root = Path(tempfile.gettempdir()).resolve()
-    if report == temporary_root or temporary_root in report.parents:
-        raise ValueError("rollback report must be durable and outside /tmp")
-    evidence_dir = os.environ.get("S10A_EVIDENCE_DIR", "").strip()
-    if evidence_dir:
-        expected = Path(evidence_dir).expanduser().resolve()
-        if report.parent != expected and expected not in report.parents:
-            raise ValueError("rollback report must be inside S10A_EVIDENCE_DIR")
-
-
-def _parse_family_reports(values: Sequence[str]) -> dict[CapabilityFamily, Path]:
-    reports: dict[CapabilityFamily, Path] = {}
+def _parse_family_reports(
+    values: Sequence[str],
+) -> dict[CapabilityFamily | str, str | Path]:
+    reports: dict[CapabilityFamily | str, str | Path] = {}
     for value in values:
         family_name, separator, raw_path = value.partition("=")
         if not separator or not raw_path:

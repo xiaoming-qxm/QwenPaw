@@ -6,10 +6,8 @@ from typing import Any
 
 from ..errors import BrowserBridgeRecoverableError
 from ..interactions import (
-    _canonical_runner_request,
     _json_response,
     canonical_interaction_control,
-    type_control,
 )
 from ..state import ControlState
 from .protocol import ActionMeta
@@ -28,25 +26,17 @@ class TypeHandler:
         bridge: Any,
         **kwargs: Any,
     ):
+        del holder_id, bridge
         try:
-            request_context = kwargs.get("request_context") or {}
-            if _canonical_runner_request(request_context):
-                canonical_kwargs = dict(kwargs)
-                canonical_kwargs["input_mode"] = (
-                    "REPLACE" if self.action == "fill" else "APPEND"
-                )
-                return await canonical_interaction_control(
-                    state,
-                    action=self.action,
-                    target_labels=("target",),
-                    kwargs=canonical_kwargs,
-                )
-            return await type_control(
+            canonical_kwargs = dict(kwargs)
+            canonical_kwargs["input_mode"] = (
+                "REPLACE" if self.action == "fill" else "APPEND"
+            )
+            return await canonical_interaction_control(
                 state,
-                holder_id=holder_id,
-                bridge=bridge,
-                request_context=kwargs.get("request_context") or {},
-                kwargs=kwargs,
+                action=self.action,
+                target_labels=("target",),
+                kwargs=canonical_kwargs,
             )
         except BrowserBridgeRecoverableError as exc:
             return _json_response(

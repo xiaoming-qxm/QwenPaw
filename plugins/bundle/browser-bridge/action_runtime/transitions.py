@@ -5,7 +5,6 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import time
 from collections.abc import Callable
 from typing import Any
@@ -18,7 +17,6 @@ from .errors import RECOVERABLE_CONTROL_EXCEPTIONS
 from .inference import _control_jsonrpc_error
 from .navigation import (
     _control_sync_session_navigation_scope,
-    _control_url_key,
 )
 from .session_manager import _control_get_session
 from .state import StateMapping
@@ -30,16 +28,11 @@ from .tab_manager import (
     _control_cleanup_tab_record,
     _control_discover_tabs_safe,
     _control_int_tab_id,
-    _control_is_http_url,
     _control_live_tab_map,
     _control_refresh_tab_url,
     _control_tab_record,
     _control_tab_url,
 )
-
-
-def _control_is_action_transition_url(url: str) -> bool:
-    return _control_is_http_url(url) or str(url or "").startswith("file://")
 
 
 def _control_tab_ids(tabs: list[dict[str, Any]] | None) -> set[int]:
@@ -80,174 +73,6 @@ def _control_new_tab_opened_from_action(
     if not candidates:
         return None
     return sorted(candidates)[0][3]
-
-
-def _control_event_tab(params: dict[str, Any]) -> dict[str, Any]:
-    tab = params.get("tab")
-    if isinstance(tab, dict):
-        merged = dict(tab)
-        for key in ("tabId", "sourceTabId", "openerTabId"):
-            if key in params and key not in merged:
-                merged[key] = params[key]
-    else:
-        merged = dict(params)
-
-    tab_id = _control_int_tab_id(merged.get("id") or merged.get("tabId"))
-    if tab_id is not None:
-        if "id" not in merged:
-            merged["id"] = tab_id
-        if "tabId" not in merged:
-            merged["tabId"] = tab_id
-
-    change_info = params.get("changeInfo")
-    if isinstance(change_info, dict):
-        for key in ("url", "pendingUrl", "status"):
-            value = change_info.get(key)
-            if value and not merged.get(key):
-                merged[key] = value
-    return merged
-
-
-def _control_transition_from_tab_event(
-    params: dict[str, Any],
-    *,
-    before_tabs: list[dict[str, Any]],
-    source_tab_id: int,
-    source_url: str,
-) -> dict[str, Any] | None:
-    tab = _control_event_tab(params)
-    tab_id = _control_int_tab_id(tab.get("id") or tab.get("tabId"))
-    if tab_id is None:
-        return None
-
-    url = _control_tab_url(tab)
-    before_ids = _control_tab_ids(before_tabs)
-    source_event_id = _control_int_tab_id(tab.get("sourceTabId"))
-    opener_tab_id = _control_int_tab_id(tab.get("openerTabId"))
-
-    if tab_id not in before_ids:
-        source_matches = (
-            source_event_id == source_tab_id or opener_tab_id == source_tab_id
-        )
-        if not source_matches and not tab.get("active"):
-            return None
-        if not _control_is_action_transition_url(url):
-            return None
-        return {"kind": "new_tab", "tab": tab}
-
-    if tab_id != source_tab_id or not _control_is_action_transition_url(url):
-        return None
-    if source_url and _control_url_key(url) == _control_url_key(source_url):
-        return None
-    return {"kind": "current_tab_navigation", "tab": tab}
-
-
-def _control_transition_from_cdp_event(
-    params: dict[str, Any],
-    *,
-    source_tab_id: int,
-    source_url: str,
-) -> dict[str, Any] | None:
-    tab_id = _control_int_tab_id(params.get("tabId"))
-    if tab_id != source_tab_id:
-        return None
-
-    method = str(params.get("method") or "")
-    event_params = params.get("params")
-    if not isinstance(event_params, dict):
-        event_params = {}
-
-    url = ""
-    frame = event_params.get("frame")
-    if isinstance(frame, dict):
-        url = str(frame.get("url") or "")
-    if not url:
-        url = str(event_params.get("url") or "")
-
-    if method not in {
-        "Page.frameNavigated",
-        "Page.navigatedWithinDocument",
-        "Page.loadEventFired",
-    }:
-        return None
-    if not _control_is_action_transition_url(url):
-        return None
-    if source_url and _control_url_key(url) == _control_url_key(source_url):
-        return None
-    return {
-        "kind": "current_tab_navigation",
-        "tab": {"id": source_tab_id, "tabId": source_tab_id, "url": url},
-    }
-
-
-def _control_create_action_transition_waiter(
-    bridge: Any,
-    *,
-    before_tabs: list[dict[str, Any]] | None,
-    source_tab_id: int,
-) -> Callable[..., Any] | None:
-    if before_tabs is None or not hasattr(bridge, "add_event_listener"):
-        return None
-
-    source_tab = (_control_live_tab_map(before_tabs) or {}).get(
-        source_tab_id,
-    ) or {}
-    source_url = _control_tab_url(source_tab)
-    loop = asyncio.get_running_loop()
-    future: asyncio.Future[dict[str, Any]] = loop.create_future()
-    handlers: list[tuple[str, Callable[[dict[str, Any]], None]]] = []
-
-    def accept(transition: dict[str, Any] | None) -> None:
-        if transition is not None and not future.done():
-            future.set_result(transition)
-
-    def on_tab_event(params: dict[str, Any]) -> None:
-        accept(
-            _control_transition_from_tab_event(
-                params,
-                before_tabs=before_tabs,
-                source_tab_id=source_tab_id,
-                source_url=source_url,
-            ),
-        )
-
-    def on_cdp_event(params: dict[str, Any]) -> None:
-        accept(
-            _control_transition_from_cdp_event(
-                params,
-                source_tab_id=source_tab_id,
-                source_url=source_url,
-            ),
-        )
-
-    for event_name, handler in (
-        ("webNavigation.createdNavigationTarget", on_tab_event),
-        ("tabs.created", on_tab_event),
-        ("tabs.updated", on_tab_event),
-        ("cdp.event", on_cdp_event),
-    ):
-        bridge.add_event_listener(event_name, handler)
-        handlers.append((event_name, handler))
-
-    async def wait(timeout: float = 0.0) -> dict[str, Any] | None:
-        try:
-            if future.done():
-                return future.result()
-            if timeout <= 0:
-                return None
-            return await asyncio.wait_for(
-                future,
-                timeout=timeout,
-            )
-        except asyncio.TimeoutError:
-            return None
-        finally:
-            if hasattr(bridge, "remove_event_listener"):
-                for event_name, handler in handlers:
-                    with contextlib.suppress(ValueError):
-                        bridge.remove_event_listener(event_name, handler)
-
-    return wait
 
 
 def _control_store_pending_action_transition(
@@ -579,13 +404,9 @@ __all__ = [
     "_control_attach_new_current_tab",
     "_control_claim_tab_opened_by_action",
     "_control_consume_pending_action_transition",
-    "_control_create_action_transition_waiter",
-    "_control_event_tab",
     "_control_new_tab_opened_from_action",
     "_control_refresh_current_tab_from_live_tabs",
     "_control_resolve_action_transition",
     "_control_store_pending_action_transition",
     "_control_tab_ids",
-    "_control_transition_from_cdp_event",
-    "_control_transition_from_tab_event",
 ]

@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """Unified browser automation SDK for QwenPaw agents."""
 
-from .actions.tab_actions import BrowserActions, TabActions
 from .backends import (
     IsolatedBrowserBackend,
     register_isolated_backend_once,
@@ -11,12 +10,6 @@ from .backends.registry import (
     BrowserBackendRegistry,
     get_default_backend_registry,
 )
-from .contracts import (
-    BrowserAPIContract,
-    BrowserTargetContract,
-    browser_api,
-    iter_browser_api_contracts,
-)
 from .canonical.contracts import (
     BrowserCondition,
     ResourceHandle,
@@ -24,6 +17,7 @@ from .canonical.contracts import (
     TargetRef,
 )
 from .canonical.facade import Browser
+from .canonical.tabs import BrowserTabs, Tab, TabActions
 from .docs.capabilities import (
     browser_capabilities,
     browser_sdk_help,
@@ -51,8 +45,6 @@ from .governance.loop_gate import (
 from .governance.policy import BrowserPolicy, DefaultBrowserPolicy
 from .governance.resolver import BrowserContextResolver
 from .governance.risk import classify_browser_action
-from .primitives.tab import Tab
-from .primitives.tabs import BrowserTabs
 from .primitives.types import (
     BrowserActionRequest,
     BrowserActionResult,
@@ -108,9 +100,7 @@ __all__ = [
     "BrowserActionResult",
     "BrowserActionRisk",
     "BrowserActionSignature",
-    "BrowserAPIContract",
     "Browser",
-    "BrowserActions",
     "BrowserBackend",
     "BrowserBackendCapabilities",
     "BrowserBackendDiagnostic",
@@ -154,7 +144,6 @@ __all__ = [
     "BrowserScreenshot",
     "BrowserSession",
     "BrowserTabs",
-    "BrowserTargetContract",
     "BrowserTraceEvent",
     "BrowserTraceStore",
     "ConcreteBrowserContext",
@@ -168,7 +157,6 @@ __all__ = [
     "TabActions",
     "TargetRef",
     "browser_capabilities",
-    "browser_api",
     "browser_sdk_help",
     "capability_gap",
     "classify_browser_action",
@@ -178,7 +166,6 @@ __all__ = [
     "detect_no_progress",
     "get_browser_trace_store",
     "get_default_backend_registry",
-    "iter_browser_api_contracts",
     "record_browser_trace_event",
     "register_browser_loop_gate_provider_once",
     "register_isolated_backend_once",

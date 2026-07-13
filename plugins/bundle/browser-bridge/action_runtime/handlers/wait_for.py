@@ -39,27 +39,14 @@ class WaitForHandler:
         **kwargs: Any,
     ):
         request_context = kwargs.get("request_context") or {}
-        contract_mode = str(request_context.get("contract_mode") or "LEGACY")
-        if contract_mode == "CANONICAL":
-            canonical_kwargs = dict(kwargs)
-            canonical_kwargs.pop("request_context", None)
-            return await self._execute_canonical(
-                state,
-                holder_id=holder_id,
-                bridge=bridge,
-                request_context=request_context,
-                **canonical_kwargs,
-            )
-        waited = float(kwargs.get("wait_time") or 0)
-        if waited <= 0:
-            waited = 1.0
-        await asyncio.sleep(waited)
-        return _tool_response(
-            json.dumps(
-                {"ok": True, "mode": "control", "waited": waited},
-                ensure_ascii=False,
-                indent=2,
-            ),
+        canonical_kwargs = dict(kwargs)
+        canonical_kwargs.pop("request_context", None)
+        return await self._execute_canonical(
+            state,
+            holder_id=holder_id,
+            bridge=bridge,
+            request_context=request_context,
+            **canonical_kwargs,
         )
 
     async def _execute_canonical(

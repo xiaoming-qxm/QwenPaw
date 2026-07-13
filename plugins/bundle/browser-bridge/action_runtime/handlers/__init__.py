@@ -3,11 +3,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
-from typing import Any
-
-from agentscope.tool import ToolChunk
-
 from .capabilities import (
     DIALOG_HANDLER,
     DOWNLOAD_HANDLER,
@@ -16,12 +11,9 @@ from .capabilities import (
 )
 from .claim_tab import CLAIM_TAB_HANDLER
 from .click import CLICK_HANDLER
-from .dispatcher import register_handler
+from .dispatcher import _REGISTRY, register_handler
 from .drag import DRAG_HANDLER
 from .hover import HOVER_HANDLER
-from .misc import (
-    handle_unsupported,
-)
 from .navigate import NAVIGATE_HANDLER
 from .navigate_back import NAVIGATE_BACK_HANDLER, NAVIGATE_FORWARD_HANDLER
 from .open import OPEN_HANDLER
@@ -39,8 +31,6 @@ from .stop import STOP_HANDLER
 from .tabs import TABS_HANDLER
 from .type_text import FILL_HANDLER, TYPE_HANDLER, TYPE_TEXT_HANDLER
 from .wait_for import WAIT_FOR_HANDLER
-
-ActionHandler = Callable[..., Awaitable[ToolChunk]]
 
 register_handler("start", START_HANDLER)
 register_handler("tabs", TABS_HANDLER)
@@ -71,39 +61,7 @@ register_handler("snapshot", SNAPSHOT_HANDLER)
 register_handler("screenshot", SCREENSHOT_HANDLER)
 register_handler("wait_for", WAIT_FOR_HANDLER)
 
-ACTION_HANDLERS: dict[str, ActionHandler] = {
-    "start": START_HANDLER.execute,
-    "tabs": TABS_HANDLER.execute,
-    "open": OPEN_HANDLER.execute,
-    "claim_tab": CLAIM_TAB_HANDLER.execute,
-    "navigate": NAVIGATE_HANDLER.execute,
-    "navigate_back": NAVIGATE_BACK_HANDLER.execute,
-    "navigate_forward": NAVIGATE_FORWARD_HANDLER.execute,
-    "reload": RELOAD_HANDLER.execute,
-    "scroll": SCROLL_HANDLER.execute,
-    "hover": HOVER_HANDLER.execute,
-    "select_option": SELECT_OPTION_HANDLER.execute,
-    "release_tab": RELEASE_TAB_HANDLER.execute,
-    "snapshot": SNAPSHOT_HANDLER.execute,
-    "click": CLICK_HANDLER.execute,
-    "type": TYPE_HANDLER.execute,
-    "fill": FILL_HANDLER.execute,
-    "type_text": TYPE_TEXT_HANDLER.execute,
-    "press_key": PRESS_KEY_HANDLER.execute,
-    "drag": DRAG_HANDLER.execute,
-    "set_checked": SET_CHECKED_HANDLER.execute,
-    "upload": UPLOAD_HANDLER.execute,
-    "download": DOWNLOAD_HANDLER.execute,
-    "page_pdf": PAGE_PDF_HANDLER.execute,
-    "paste": PASTE_HANDLER.execute,
-    "dialog": DIALOG_HANDLER.execute,
-    "screenshot": SCREENSHOT_HANDLER.execute,
-    "wait_for": WAIT_FOR_HANDLER.execute,
-    "stop": STOP_HANDLER.execute,
-    # Spec-listed actions not yet implemented by the control backend.
-    "resize": handle_unsupported,
-    "new_tab": handle_unsupported,
-}
+SUPPORTED_ACTIONS = frozenset((*_REGISTRY, "resize", "new_tab"))
 
 
-__all__ = ["ACTION_HANDLERS", "ActionHandler"]
+__all__ = ["SUPPORTED_ACTIONS"]

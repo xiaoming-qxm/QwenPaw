@@ -402,108 +402,6 @@ def _control_refresh_session_request_context(
     setattr(session, "request_context", current)
 
 
-def _control_store_last_dialog(
-    state: StateMapping,
-    *,
-    dialog_type: str,
-    message: str,
-    accepted: bool = True,
-) -> None:
-    payload = {
-        "type": dialog_type,
-        "message": message,
-        "auto_accepted": accepted,
-        "accepted": accepted,
-    }
-    extra = getattr(state, "extra", None)
-    if isinstance(extra, dict):
-        extra["last_dialog"] = payload
-        return
-    state["last_dialog"] = payload
-
-
-def _control_pop_next_dialog_decision(
-    state: StateMapping,
-    *,
-    tab_id: int,
-) -> dict[str, Any]:
-    default = {"accept": True, "prompt_text": ""}
-    extra = getattr(state, "extra", None)
-    if isinstance(extra, dict):
-        decision = extra.pop("next_dialog_decision", None)
-    else:
-        decision = state.pop("next_dialog_decision", None)
-    if not isinstance(decision, dict):
-        return default
-    decision_tab_id = decision.get("tab_id")
-    if decision_tab_id is not None and int(decision_tab_id) != int(tab_id):
-        if isinstance(extra, dict):
-            extra["next_dialog_decision"] = decision
-        else:
-            state["next_dialog_decision"] = decision
-        return default
-    return {
-        "accept": bool(decision.get("accept", True)),
-        "prompt_text": str(decision.get("prompt_text") or ""),
-    }
-
-
-def _control_register_dialog_auto_handler(
-    state: StateMapping,
-    *,
-    session: Any,
-    bridge: Any,
-    tab_id: int,
-) -> None:
-    add_listener = getattr(bridge, "add_event_listener", None)
-    if not callable(add_listener):
-        return
-    if getattr(session, "_control_dialog_auto_handler_registered", False):
-        return
-
-    async def _auto_handle_dialog(event: dict[str, Any]) -> None:
-        try:
-            if not isinstance(event, dict):
-                return
-            event_tab_id = event.get("tabId", event.get("tab_id"))
-            if event_tab_id is None or int(event_tab_id) != int(tab_id):
-                return
-            if event.get("method") != "Page.javascriptDialogOpening":
-                return
-            params = event.get("params")
-            if not isinstance(params, dict):
-                params = {}
-            dialog_type = str(params.get("type") or "")
-            message = str(params.get("message") or "")
-            decision = _control_pop_next_dialog_decision(state, tab_id=tab_id)
-            accept = bool(decision.get("accept", True))
-            prompt_text = str(decision.get("prompt_text") or "")
-            _control_store_last_dialog(
-                state,
-                dialog_type=dialog_type,
-                message=message,
-                accepted=accept,
-            )
-            await session.send(
-                "Page.handleJavaScriptDialog",
-                {"accept": accept, "promptText": prompt_text},
-            )
-            logger.info(
-                "Auto-handled %s dialog: %s",
-                dialog_type,
-                message,
-            )
-        except Exception:
-            logger.debug(
-                "Failed to auto-handle browser-bridge dialog",
-                exc_info=True,
-            )
-
-    add_listener("cdp.event", _auto_handle_dialog)
-    setattr(session, "_control_dialog_auto_handler", _auto_handle_dialog)
-    setattr(session, "_control_dialog_auto_handler_registered", True)
-
-
 def _control_register_prompt_capture_handler(
     state: StateMapping,
     *,
@@ -651,26 +549,12 @@ async def _control_prepare_session_events(
     bridge: Any,
     tab_id: int,
 ) -> None:
-    request_context = getattr(session, "request_context", {})
-    contract_mode = (
-        str(request_context.get("contract_mode") or "").upper()
-        if isinstance(request_context, dict)
-        else ""
+    _control_register_prompt_capture_handler(
+        state,
+        session=session,
+        bridge=bridge,
+        tab_id=tab_id,
     )
-    if contract_mode == "CANONICAL":
-        _control_register_prompt_capture_handler(
-            state,
-            session=session,
-            bridge=bridge,
-            tab_id=tab_id,
-        )
-    else:
-        _control_register_dialog_auto_handler(
-            state,
-            session=session,
-            bridge=bridge,
-            tab_id=tab_id,
-        )
     _control_register_condition_event_handler(
         state,
         session=session,

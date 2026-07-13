@@ -635,10 +635,7 @@ def load_config_strict(config_path: Optional[Path] = None) -> Config:
         raise RuntimeError("browser_rollout_unavailable") from exc
     if not isinstance(data, dict):
         raise RuntimeError("browser_rollout_unavailable")
-    required = {
-        "browser_contract_rollout",
-        "browser_legacy_admission",
-    }
+    required = {"browser_contract_rollout"}
     if not required.issubset(data):
         raise RuntimeError("browser_rollout_unavailable")
     normalized = _normalize_working_dir_bound_paths(data)

@@ -28,17 +28,12 @@ from .protocol import (
 
 _REGISTRY: dict[str, ActionHandler] = {}
 
-_LEGACY_FALLBACK_ACTIONS = {
+_ENVELOPE_FREE_CANONICAL_ACTIONS = {
     "start",
     "tabs",
-    "discover_tabs",
-    "open",
     "claim_tab",
-    "navigate",
     "release_tab",
-    "click",
-    "type",
-    "press_key",
+    "snapshot",
     "screenshot",
     "wait_for",
     "stop",
@@ -74,15 +69,18 @@ class _TrustedHandlerGuard:
         **kwargs: Any,
     ) -> ToolChunk:
         request_context = kwargs.get("request_context") or {}
+        if str(request_context.get("contract_mode") or "").upper() != (
+            "CANONICAL"
+        ):
+            raise BrowserSDKError(
+                "Handler calls require a Canonical request context",
+                code="canonical_dispatch_context_missing",
+            )
         envelope = kwargs.get("trusted_envelope")
-        canonical = (
-            bool(envelope)
-            or str(
-                request_context.get("contract_mode") or "",
-            ).upper()
-            == "CANONICAL"
-        )
-        if canonical and not is_trusted_command_envelope(envelope):
+        if (
+            self.action not in _ENVELOPE_FREE_CANONICAL_ACTIONS
+            and not is_trusted_command_envelope(envelope)
+        ):
             raise BrowserSDKError(
                 "Direct Canonical handler call lacks a trusted envelope",
                 code="trusted_command_envelope_missing",
@@ -180,14 +178,17 @@ async def dispatch(
 
     request_context = kwargs.get("request_context") or {}
     envelope = kwargs.get("trusted_envelope")
-    canonical = (
-        bool(envelope)
-        or str(
-            request_context.get("contract_mode") or "",
-        ).upper()
-        == "CANONICAL"
-    )
-    if canonical and not is_trusted_command_envelope(envelope):
+    if str(request_context.get("contract_mode") or "").upper() != (
+        "CANONICAL"
+    ):
+        raise BrowserSDKError(
+            "Bridge dispatch requires a Canonical request context",
+            code="canonical_dispatch_context_missing",
+        )
+    if (
+        action_name not in _ENVELOPE_FREE_CANONICAL_ACTIONS
+        and not is_trusted_command_envelope(envelope)
+    ):
         raise BrowserSDKError(
             "Canonical handler requires a trusted command envelope",
             code="trusted_command_envelope_missing",

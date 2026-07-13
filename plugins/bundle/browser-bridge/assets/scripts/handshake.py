@@ -39,9 +39,7 @@ async def send_hello(
                 "profileFingerprint": PROFILE_FINGERPRINT,
                 "extensionFingerprint": EXTENSION_FINGERPRINT,
                 "providerFingerprint": PROVIDER_FINGERPRINT,
-                "maxRetainedStateTtlSeconds": (
-                    MAX_RETAINED_STATE_TTL_SECONDS
-                ),
+                "maxRetainedStateTtlSeconds": (MAX_RETAINED_STATE_TTL_SECONDS),
                 "maxLegacyTokenTtlSeconds": MAX_LEGACY_TOKEN_TTL_SECONDS,
             },
             separators=(",", ":"),

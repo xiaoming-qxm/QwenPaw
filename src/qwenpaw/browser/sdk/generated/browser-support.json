@@ -193,6 +193,36 @@
       ]
     },
     {
+      "capability_id": "result.artifact_delivery",
+      "family": "ResultDelivery",
+      "requirement": "REQUIRED",
+      "status": "READY",
+      "limits": {},
+      "required_blocks": [
+        "artifact"
+      ],
+      "validation_evidence": [
+        "result.artifact-preflight@build-1",
+        "result.artifact-promotion@build-1",
+        "result.artifact-formatter-prepare@build-1",
+        "result.artifact-final-envelope@build-1",
+        "result.artifact-transient-cleanup@build-1",
+        "result.artifact-expiry@build-1",
+        "result.artifact-protected-block@build-1"
+      ]
+    },
+    {
+      "capability_id": "result.artifact_delivery.unsupported_provider",
+      "family": "ResultDelivery",
+      "requirement": "OPTIONAL",
+      "status": "BLOCKED",
+      "limits": {},
+      "required_blocks": [],
+      "validation_evidence": [
+        "result.artifact-provider-unsupported@build-1"
+      ]
+    },
+    {
       "capability_id": "context.navigate",
       "family": "ContextNavigate",
       "requirement": "REQUIRED",
@@ -213,6 +243,79 @@
         "context.unsafe-url@build-1",
         "context.document-changed@build-1",
         "context.no-implicit-selection@build-1"
+      ]
+    },
+    {
+      "capability_id": "synchronize.resource.available",
+      "family": "Synchronize",
+      "requirement": "REQUIRED",
+      "status": "READY",
+      "limits": {},
+      "required_blocks": [],
+      "validation_evidence": [
+        "synchronize.resource-available-current@build-1",
+        "synchronize.resource-available-expired@build-1",
+        "synchronize.resource-available-owner-mismatch@build-1"
+      ]
+    },
+    {
+      "capability_id": "target.interactions",
+      "family": "TargetControl",
+      "requirement": "REQUIRED",
+      "status": "READY",
+      "limits": {},
+      "required_blocks": [],
+      "validation_evidence": [
+        "target.interaction-click@build-1",
+        "target.interaction-hover@build-1",
+        "target.interaction-drag@build-1",
+        "target.interaction-scroll@build-1",
+        "target.interaction-fill@build-1",
+        "target.interaction-type-text@build-1",
+        "target.interaction-press-key@build-1",
+        "target.interaction-set-checked@build-1",
+        "target.interaction-select-option@build-1",
+        "target.frame-boundary@build-1",
+        "target.open-shadow-boundary@build-1"
+      ]
+    },
+    {
+      "capability_id": "action.runner",
+      "family": "StateApprovalEffect",
+      "requirement": "REQUIRED",
+      "status": "READY",
+      "limits": {},
+      "required_blocks": [],
+      "validation_evidence": [
+        "action.fault.before-dispatch@build-1",
+        "action.fault.after-effect-before-verify@build-1"
+      ]
+    },
+    {
+      "capability_id": "action.receipt",
+      "family": "StateApprovalEffect",
+      "requirement": "REQUIRED",
+      "status": "READY",
+      "limits": {},
+      "required_blocks": [],
+      "validation_evidence": [
+        "action.fault.after-send-before-ack@build-1",
+        "action.fault.after-ack-before-effect@build-1",
+        "action.fault.bridge-or-extension-loss@build-1"
+      ]
+    },
+    {
+      "capability_id": "action.reconcile",
+      "family": "StateApprovalEffect",
+      "requirement": "REQUIRED",
+      "status": "READY",
+      "limits": {},
+      "required_blocks": [],
+      "validation_evidence": [
+        "action.fault.after-effect-before-verify@build-1",
+        "action.fault.during-result-mapping@build-1",
+        "action.fault.drop-required-resource-block@build-1",
+        "action.fault.cleanup-failure@build-1"
       ]
     },
     {
@@ -375,106 +478,21 @@
       ]
     },
     {
-      "capability_id": "result.artifact_delivery",
-      "family": "ResultDelivery",
-      "requirement": "REQUIRED",
-      "status": "READY",
-      "limits": {},
-      "required_blocks": [
-        "artifact"
-      ],
-      "validation_evidence": [
-        "result.artifact-preflight@build-1",
-        "result.artifact-promotion@build-1",
-        "result.artifact-formatter-prepare@build-1",
-        "result.artifact-final-envelope@build-1",
-        "result.artifact-transient-cleanup@build-1",
-        "result.artifact-expiry@build-1",
-        "result.artifact-protected-block@build-1"
-      ]
-    },
-    {
-      "capability_id": "result.artifact_delivery.unsupported_provider",
-      "family": "ResultDelivery",
-      "requirement": "OPTIONAL",
-      "status": "BLOCKED",
-      "limits": {},
-      "required_blocks": [],
-      "validation_evidence": [
-        "result.artifact-provider-unsupported@build-1"
-      ]
-    },
-    {
-      "capability_id": "target.interactions",
-      "family": "TargetControl",
+      "capability_id": "user_chrome.lifecycle",
+      "family": "UserChromeLifecycle",
       "requirement": "REQUIRED",
       "status": "READY",
       "limits": {},
       "required_blocks": [],
       "validation_evidence": [
-        "target.interaction-click@build-1",
-        "target.interaction-hover@build-1",
-        "target.interaction-drag@build-1",
-        "target.interaction-scroll@build-1",
-        "target.interaction-fill@build-1",
-        "target.interaction-type-text@build-1",
-        "target.interaction-press-key@build-1",
-        "target.interaction-set-checked@build-1",
-        "target.interaction-select-option@build-1",
-        "target.frame-boundary@build-1",
-        "target.open-shadow-boundary@build-1"
-      ]
-    },
-    {
-      "capability_id": "synchronize.resource.available",
-      "family": "Synchronize",
-      "requirement": "REQUIRED",
-      "status": "READY",
-      "limits": {},
-      "required_blocks": [],
-      "validation_evidence": [
-        "synchronize.resource-available-current@build-1",
-        "synchronize.resource-available-expired@build-1",
-        "synchronize.resource-available-owner-mismatch@build-1"
-      ]
-    },
-    {
-      "capability_id": "action.runner",
-      "family": "StateApprovalEffect",
-      "requirement": "REQUIRED",
-      "status": "READY",
-      "limits": {},
-      "required_blocks": [],
-      "validation_evidence": [
-        "action.fault.before-dispatch@build-1",
-        "action.fault.after-effect-before-verify@build-1"
-      ]
-    },
-    {
-      "capability_id": "action.receipt",
-      "family": "StateApprovalEffect",
-      "requirement": "REQUIRED",
-      "status": "READY",
-      "limits": {},
-      "required_blocks": [],
-      "validation_evidence": [
-        "action.fault.after-send-before-ack@build-1",
-        "action.fault.after-ack-before-effect@build-1",
-        "action.fault.bridge-or-extension-loss@build-1"
-      ]
-    },
-    {
-      "capability_id": "action.reconcile",
-      "family": "StateApprovalEffect",
-      "requirement": "REQUIRED",
-      "status": "READY",
-      "limits": {},
-      "required_blocks": [],
-      "validation_evidence": [
-        "action.fault.after-effect-before-verify@build-1",
-        "action.fault.during-result-mapping@build-1",
-        "action.fault.drop-required-resource-block@build-1",
-        "action.fault.cleanup-failure@build-1"
+        "s0.owner-continuity@build-1",
+        "chrome.first-attach@build-1",
+        "chrome.focus-change@build-1",
+        "chrome.reconnect@build-1",
+        "chrome.resume@build-1",
+        "chrome.cleanup-task-created@build-1",
+        "chrome.cleanup-borrowed@build-1",
+        "chrome.cleanup-beforeunload-incomplete@build-1"
       ]
     },
     {
@@ -550,27 +568,13 @@
       "validation_evidence": [
         "visual.policy-low-risk-action@build-1"
       ]
-    },
-    {
-      "capability_id": "user_chrome.lifecycle",
-      "family": "UserChromeLifecycle",
-      "requirement": "REQUIRED",
-      "status": "READY",
-      "limits": {},
-      "required_blocks": [],
-      "validation_evidence": [
-        "s0.owner-continuity@build-1",
-        "chrome.first-attach@build-1",
-        "chrome.focus-change@build-1",
-        "chrome.reconnect@build-1",
-        "chrome.resume@build-1",
-        "chrome.cleanup-task-created@build-1",
-        "chrome.cleanup-borrowed@build-1",
-        "chrome.cleanup-beforeunload-incomplete@build-1"
-      ]
     }
   ],
   "provider_fingerprint": "provider-v1",
   "max_retained_state_ttl_seconds": 3600,
-  "max_legacy_token_ttl_seconds": 3600
+  "max_legacy_token_ttl_seconds": 3600,
+  "legacy_state": "RETIRED",
+  "code_kernel_status": "FUTURE",
+  "execution_isolation_status": "BLOCKED",
+  "isolated_canonical_execution_status": "BLOCKED"
 }

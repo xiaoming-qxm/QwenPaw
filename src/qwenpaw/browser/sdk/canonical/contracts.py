@@ -1477,11 +1477,15 @@ class SnapshotResult(_TerminalFields):
             raise ResultContractError(
                 "MULTIPLE grounding requires multiple targets",
             )
-        if self.grounding in {
-            Grounding.NO_MATCH,
-            Grounding.STALE,
-            Grounding.UNAVAILABLE,
-        } and self.targets:
+        if (
+            self.grounding
+            in {
+                Grounding.NO_MATCH,
+                Grounding.STALE,
+                Grounding.UNAVAILABLE,
+            }
+            and self.targets
+        ):
             raise ResultContractError(
                 "negative grounding cannot contain targets",
             )

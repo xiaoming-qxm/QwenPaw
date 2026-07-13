@@ -17,6 +17,14 @@ esac
 
 CONSOLE_DIR="$REPO_ROOT/console"
 CONSOLE_DEST="$REPO_ROOT/src/qwenpaw/console"
+PLUGIN_SRC="$REPO_ROOT/plugins/bundle/browser-bridge"
+PLUGIN_STAGE_ROOT="$REPO_ROOT/src/qwenpaw/_plugins"
+PLUGIN_DEST="$PLUGIN_STAGE_ROOT/bundle/browser-bridge"
+
+cleanup_plugin_stage() {
+  rm -rf "$PLUGIN_STAGE_ROOT"
+}
+trap cleanup_plugin_stage EXIT
 
 mkdir -p "$DIST_DIR"
 DIST_DIR="$(cd "$DIST_DIR" && pwd -P)"
@@ -50,9 +58,21 @@ rm -rf "$DOCS_DEST"
 mkdir -p "$DOCS_DEST"
 cp "$DOCS_SRC/"*.md "$DOCS_DEST/"
 
+echo "[wheel_build] Staging Browser Bridge inside the wheel..."
+cleanup_plugin_stage
+mkdir -p "$PLUGIN_DEST"
+rsync -a \
+  --exclude '__pycache__/' \
+  --exclude '*.pyc' \
+  --exclude 'frontend/' \
+  "$PLUGIN_SRC/" "$PLUGIN_DEST/"
+
 echo "[wheel_build] Building wheel + sdist..."
 python3 -m pip install --quiet build
 rm -rf "$DIST_DIR"/*
 python3 -m build --outdir "$DIST_DIR" .
+
+cleanup_plugin_stage
+trap - EXIT
 
 echo "[wheel_build] Done. Wheel(s) in: $DIST_DIR/"

@@ -9,18 +9,13 @@ import inspect
 import json
 from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import Any, Literal, get_args, get_origin, get_type_hints
+from typing import Any, Literal, get_args, get_origin
 
-from ..contracts import BrowserAPIContract
-
-
-CATALOG_PATH = (
-    Path(__file__).resolve().parents[1] / "generated" / "api_catalog.json"
-)
 GENERATED_DIR = Path(__file__).resolve().parents[1] / "generated"
-CAPABILITIES_PATH = GENERATED_DIR / "capabilities.json"
-HELP_INDEX_PATH = GENERATED_DIR / "help" / "index.md"
 CANONICAL_GENERATED_DIR = GENERATED_DIR / "canonical"
+CATALOG_PATH = CANONICAL_GENERATED_DIR / "api_catalog.json"
+CAPABILITIES_PATH = CANONICAL_GENERATED_DIR / "capabilities.json"
+HELP_INDEX_PATH = CANONICAL_GENERATED_DIR / "help" / "index.md"
 SUPPORT_MANIFEST_PATH = GENERATED_DIR / "browser-support.json"
 _CANONICAL_RELEASE_TRUTH: dict[str, str | int] = {
     "build_fingerprint": "build-1",
@@ -31,31 +26,27 @@ _CANONICAL_RELEASE_TRUTH: dict[str, str | int] = {
     "max_retained_state_ttl_seconds": 3600,
     "max_legacy_token_ttl_seconds": 3600,
 }
+_RETIREMENT_SUPPORT_TRUTH = {
+    "legacy_state": "RETIRED",
+    "code_kernel_status": "FUTURE",
+    "execution_isolation_status": "BLOCKED",
+    "isolated_canonical_execution_status": "BLOCKED",
+}
 
 
 def build_api_catalog(
-    mode: Literal["legacy", "canonical"] = "legacy",
+    mode: Literal["canonical"] = "canonical",
 ) -> dict[str, Any]:
     """Build the public API catalog payload from real public methods."""
-    if mode == "canonical":
-        from ..canonical.contracts import canonical_api_catalog
+    if mode != "canonical":
+        raise ValueError("Only the Canonical Browser contract is generated")
+    from ..canonical.contracts import canonical_api_catalog
 
-        payload = canonical_api_catalog()
-        payload["apis"].extend(_canonical_resource_entries())
-        _validate_canonical_resource_surface(payload)
-        payload.update(_CANONICAL_RELEASE_TRUTH)
-        return payload
-    return {
-        "version": 1,
-        "source": "browser_api",
-        "apis": [
-            _api_catalog_entry(func)
-            for func in sorted(
-                _real_public_api_callables(),
-                key=lambda item: _contract_for(item).api_id,
-            )
-        ],
-    }
+    payload = canonical_api_catalog()
+    payload["apis"].extend(_canonical_resource_entries())
+    _validate_canonical_resource_surface(payload)
+    payload.update(_CANONICAL_RELEASE_TRUTH)
+    return payload
 
 
 def write_api_catalog(path: Path = CATALOG_PATH) -> None:
@@ -72,7 +63,7 @@ def check_api_catalog(path: Path = CATALOG_PATH) -> bool:
 
 
 def build_capabilities(
-    mode: Literal["legacy", "canonical"] = "legacy",
+    mode: Literal["canonical"] = "canonical",
 ) -> dict[str, Any]:
     """Build compact machine-readable capabilities from the API catalog."""
     catalog = build_api_catalog(mode)
@@ -101,9 +92,8 @@ def build_capabilities(
             mode=mode,
         ),
     }
-    if mode == "canonical":
-        payload["mode"] = "CANONICAL"
-        payload.update(_CANONICAL_RELEASE_TRUTH)
+    payload["mode"] = "CANONICAL"
+    payload.update(_CANONICAL_RELEASE_TRUTH)
     return payload
 
 
@@ -111,7 +101,7 @@ def build_help_payload(
     *,
     compact: dict[str, Any] | None = None,
     scopes: dict[str, list[str]] | None = None,
-    mode: Literal["legacy", "canonical"] = "legacy",
+    mode: Literal["canonical"] = "canonical",
 ) -> dict[str, Any]:
     """Build generated help text from compact capabilities."""
     if compact is None or scopes is None:
@@ -129,8 +119,7 @@ def build_help_payload(
         api_id: _api_help(entry) for api_id, entry in sorted(compact.items())
     }
     index = _index_help(compact, scopes)
-    if mode == "canonical":
-        index = _release_truth_help(index)
+    index = _release_truth_help(index)
     return {
         "index": index,
         "scopes": scope_help,
@@ -139,13 +128,12 @@ def build_help_payload(
 
 
 def write_generated_artifacts(
-    output_dir: Path = GENERATED_DIR,
+    output_dir: Path = CANONICAL_GENERATED_DIR,
     *,
-    mode: Literal["legacy", "canonical"] = "legacy",
+    mode: Literal["canonical"] = "canonical",
 ) -> None:
     """Write the generated catalog, capabilities, and help artifacts."""
-    if mode == "canonical":
-        _write_support_release_truth()
+    _write_support_release_truth()
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "api_catalog.json").write_text(
         _json_text(build_api_catalog(mode)),
@@ -164,9 +152,9 @@ def write_generated_artifacts(
 
 
 def check_generated_artifacts(
-    output_dir: Path = GENERATED_DIR,
+    output_dir: Path = CANONICAL_GENERATED_DIR,
     *,
-    mode: Literal["legacy", "canonical"] = "legacy",
+    mode: Literal["canonical"] = "canonical",
 ) -> bool:
     """Return whether all generated artifacts match regenerated content."""
     expected = {
@@ -181,7 +169,7 @@ def check_generated_artifacts(
             return False
         if path.read_text(encoding="utf-8") != content:
             return False
-    if mode == "canonical" and not _check_support_manifest():
+    if not _check_support_manifest():
         return False
     return True
 
@@ -196,7 +184,10 @@ def _check_support_manifest() -> bool:
         or not payload.get("capabilities")
         or any(
             payload.get(key) != value
-            for key, value in _CANONICAL_RELEASE_TRUTH.items()
+            for key, value in {
+                **_CANONICAL_RELEASE_TRUTH,
+                **_RETIREMENT_SUPPORT_TRUTH,
+            }.items()
         )
     ):
         return False
@@ -214,6 +205,7 @@ def _check_support_manifest() -> bool:
 def _write_support_release_truth() -> None:
     payload = json.loads(SUPPORT_MANIFEST_PATH.read_text(encoding="utf-8"))
     payload.update(_CANONICAL_RELEASE_TRUTH)
+    payload.update(_RETIREMENT_SUPPORT_TRUTH)
     SUPPORT_MANIFEST_PATH.write_text(
         json.dumps(payload, ensure_ascii=True, indent=2) + "\n",
         encoding="utf-8",
@@ -241,37 +233,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument(
         "--mode",
-        choices=("legacy", "canonical"),
-        default="legacy",
-        help="select the physically separate public contract surface",
+        choices=("canonical",),
+        default="canonical",
+        help="select the Canonical public contract surface",
     )
     args = parser.parse_args(argv)
-    output_dir = (
-        CANONICAL_GENERATED_DIR if args.mode == "canonical" else GENERATED_DIR
-    )
+    output_dir = CANONICAL_GENERATED_DIR
     if args.check:
         return (
             0 if check_generated_artifacts(output_dir, mode=args.mode) else 1
         )
     write_generated_artifacts(output_dir, mode=args.mode)
     return 0
-
-
-def _api_catalog_entry(func: Callable[..., Any]) -> dict[str, Any]:
-    contract = _contract_for(func)
-    hints = _type_hints_for(func)
-    parameters = _parameters_for(func, hints)
-    return_type = _format_annotation(hints.get("return", Any))
-    entry = {
-        **contract.as_dict(),
-        "callable_path": _callable_path_for(func),
-        "signature": _format_signature(func, parameters, return_type),
-        "parameters": parameters,
-        "return_type": return_type,
-        "summary": _summary_for(func),
-    }
-    entry.pop("backend_op", None)
-    return entry
 
 
 def _canonical_resource_entries() -> list[dict[str, Any]]:
@@ -365,13 +338,6 @@ def _validate_canonical_resource_surface(payload: dict[str, Any]) -> None:
     serialized = json.dumps(payload).lower()
     if "file://" in serialized or "navigator.clipboard" in serialized:
         raise ValueError("canonical resource surface leaks a forbidden API")
-
-
-def _contract_for(func: Callable[..., Any]) -> BrowserAPIContract:
-    contract = getattr(func, "__browser_api_contract__", None)
-    if not isinstance(contract, BrowserAPIContract):
-        raise TypeError(f"Missing Browser API contract for {func!r}")
-    return contract
 
 
 def _compact_api_entry(api: dict[str, Any]) -> dict[str, Any]:
@@ -569,60 +535,6 @@ def _summary_for(func: Callable[..., Any]) -> str:
     if "." not in first_line:
         return first_line
     return first_line.split(".", 1)[0].strip() + "."
-
-
-def _real_public_api_callables() -> tuple[Callable[..., Any], ...]:
-    from ..actions.tab_actions import BrowserActions
-    from ..actions.tab_actions import TabActions
-    from ..facade.browser import Browser
-    from ..primitives.tab import Tab
-    from ..primitives.tabs import BrowserTabs
-
-    return (
-        Browser.connect,
-        Browser.capabilities,
-        Browser.help,
-        Browser.diagnostics,
-        Browser.close,
-        BrowserTabs.open,
-        BrowserTabs.new,
-        BrowserTabs.active,
-        BrowserTabs.list,
-        BrowserTabs.select,
-        Tab.snapshot,
-        Tab.screenshot,
-        Tab.page_info,
-        Tab.extract,
-        Tab.wait_for,
-        Tab.close,
-        BrowserActions.search_web,
-        TabActions.navigate,
-        TabActions.back,
-        TabActions.forward,
-        TabActions.reload,
-        TabActions.click,
-        TabActions.fill,
-        TabActions.press_key,
-        TabActions.scroll,
-        TabActions.select_option,
-        TabActions.upload_file,
-        TabActions.download_file,
-        TabActions.handle_dialog,
-        TabActions.hover,
-    )
-
-
-def _callable_path_for(func: Callable[..., Any]) -> str:
-    raw_func = _introspection_callable(func)
-    return f"{raw_func.__module__}:{raw_func.__qualname__}"
-
-
-def _type_hints_for(func: Callable[..., Any]) -> dict[str, Any]:
-    return get_type_hints(_introspection_callable(func))
-
-
-def _introspection_callable(func: Callable[..., Any]) -> Callable[..., Any]:
-    return getattr(func, "__func__", func)
 
 
 def _catalog_text() -> str:

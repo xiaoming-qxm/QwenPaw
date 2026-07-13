@@ -31,7 +31,6 @@ from .backup import router as backup_router
 from .git import router as git_router
 from .coding_project import router as coding_project_router
 from .access_control import router as access_control_router
-from .browser_core import router as browser_core_router
 
 router = APIRouter()
 
@@ -77,7 +76,6 @@ def create_agent_scoped_router() -> APIRouter:
 
 
 __all__ = [
-    "browser_core_router",
     "create_agent_scoped_router",
     "router",
 ]

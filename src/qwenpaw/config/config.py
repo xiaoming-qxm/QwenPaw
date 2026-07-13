@@ -2073,11 +2073,20 @@ class BrowserContractRolloutConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     revision: int = Field(default=1, ge=0, strict=True)
-    default: Literal["LEGACY", "CANONICAL"] = "CANONICAL"
+    default: Literal["CANONICAL"] = "CANONICAL"
 
 
 class Config(BaseModel):
     """Root config (config.json)."""
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_retired_browser_admission(cls, data: Any) -> Any:
+        """Reject the removed S10A Legacy-admission configuration field."""
+        retired_field = "browser_" + "legacy_admission"
+        if isinstance(data, dict) and retired_field in data:
+            raise ValueError(f"{retired_field} has been retired")
+        return data
 
     channels: ChannelConfig = ChannelConfig()
     mcp: MCPConfig = MCPConfig()
@@ -2090,7 +2099,6 @@ class Config(BaseModel):
     browser_contract_rollout: BrowserContractRolloutConfig = Field(
         default_factory=BrowserContractRolloutConfig,
     )
-    browser_legacy_admission: Literal["OPEN", "CLOSED"] = "OPEN"
     show_tool_details: bool = True
     user_timezone: str = Field(
         default_factory=detect_system_timezone,

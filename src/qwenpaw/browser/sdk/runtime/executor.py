@@ -4,35 +4,17 @@
 from __future__ import annotations
 
 import ast
-import builtins
 import inspect
 from types import CodeType
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
-from ..governance.errors import BrowserPolicyDenied
+from ..canonical.guard import CanonicalCapabilityGuard
 from .session_owner import ContractMode
-from .guard import CapabilityGuard
 
 if TYPE_CHECKING:
     from .kernel import BrowserExecutionContext
 
 _RETURN_NAME = "__qwenpaw_browser_return__"
-_MAX_PREBOUND_REF_INDEX = 10000
-_ALLOWED_IMPORT_ROOTS = frozenset(
-    {
-        "collections",
-        "datetime",
-        "decimal",
-        "functools",
-        "itertools",
-        "json",
-        "math",
-        "re",
-        "statistics",
-        "time",
-        "typing",
-    },
-)
 
 
 @runtime_checkable
@@ -67,15 +49,19 @@ class BrowserCodeExecutor(Protocol):
 class InProcessBrowserCodeExecutor:
     """AST-guarded in-process executor used by V10."""
 
-    def __init__(self, *, guard: CapabilityGuard | None = None) -> None:
-        self._guard = guard or CapabilityGuard()
+    def __init__(
+        self,
+        *,
+        guard: CanonicalCapabilityGuard | None = None,
+    ) -> None:
+        self._guard = guard or CanonicalCapabilityGuard()
         self._namespaces: dict[
-            tuple[str, str, ContractMode],
+            tuple[str, str],
             dict[str, Any],
         ] = {}
         self._session_keys: dict[
             str,
-            set[tuple[str, str, ContractMode]],
+            set[tuple[str, str]],
         ] = {}
 
     async def execute(
@@ -88,12 +74,13 @@ class InProcessBrowserCodeExecutor:
         namespace_key = (
             execution_context.root_task_id,
             execution_context.browser_owner_id,
-            execution_context.contract_mode,
         )
-        guard = _guard_for_mode(execution_context.contract_mode, self._guard)
+        if execution_context.contract_mode is not ContractMode.CANONICAL:
+            raise RuntimeError("canonical_contract_required")
+        guard = self._guard
         namespace = self._namespaces.setdefault(
             namespace_key,
-            _new_namespace(guard, execution_context.contract_mode),
+            _new_namespace(guard),
         )
         self._session_keys.setdefault(execution_context.session_id, set()).add(
             namespace_key,
@@ -138,7 +125,7 @@ class InProcessBrowserCodeExecutor:
         }
 
 
-def _compile_code(code: str, guard: CapabilityGuard) -> CodeType:
+def _compile_code(code: str, guard: CanonicalCapabilityGuard) -> CodeType:
     tree = guard.parse(code)
     if tree.body and isinstance(tree.body[-1], ast.Expr):
         last_expr = tree.body[-1]
@@ -155,44 +142,23 @@ def _compile_code(code: str, guard: CapabilityGuard) -> CodeType:
     )
 
 
-def _guard_for_mode(
-    mode: ContractMode,
-    legacy_guard: CapabilityGuard,
-) -> CapabilityGuard:
-    if mode is ContractMode.LEGACY:
-        return legacy_guard
-    from ..canonical.guard import CanonicalCapabilityGuard
-
-    return CanonicalCapabilityGuard()
-
-
 def _new_namespace(
-    guard: CapabilityGuard,
-    mode: ContractMode,
+    guard: CanonicalCapabilityGuard,
 ) -> dict[str, Any]:
     from ..governance.errors import (
         BrowserContextConflict,
         BrowserContextUnavailable,
         BrowserObservationRequired,
+        BrowserPolicyDenied,
         BrowserSDKError,
         BrowserSDKGap,
     )
 
-    if mode is ContractMode.CANONICAL:
-        from ..canonical.proxy import (
-            BrowserProxyClass as canonical_browser_proxy,
-        )
-        from ..canonical.proxy import canonical_value_namespace
+    from ..canonical.proxy import BrowserProxyClass as browser_proxy
+    from ..canonical.proxy import canonical_value_namespace
 
-        browser_proxy: Any = canonical_browser_proxy
-        connect_browser = canonical_browser_proxy.connect
-    else:
-        from .proxy import BrowserProxyClass as legacy_browser_proxy
-        from .proxy import connect_browser
-
-        browser_proxy = legacy_browser_proxy
-
-    namespace: dict[str, Any] = {"__builtins__": _safe_builtins(guard)}
+    connect_browser = browser_proxy.connect
+    namespace: dict[str, Any] = {"__builtins__": guard.safe_builtins()}
     namespace.update(
         {
             "Browser": browser_proxy,
@@ -205,86 +171,8 @@ def _new_namespace(
             "connect_browser": connect_browser,
         },
     )
-    if mode is ContractMode.CANONICAL:
-        namespace.update(canonical_value_namespace())
-    if mode is ContractMode.LEGACY:
-        namespace.update(
-            {
-                f"e{index}": f"e{index}"
-                for index in range(1, _MAX_PREBOUND_REF_INDEX + 1)
-            },
-        )
+    namespace.update(canonical_value_namespace())
     return namespace
-
-
-def _safe_builtins(guard: CapabilityGuard) -> dict[str, Any]:
-    return {
-        "__build_class__": builtins.__build_class__,
-        "__import__": _safe_import_factory(guard),
-        "ArithmeticError": ArithmeticError,
-        "AssertionError": AssertionError,
-        "AttributeError": AttributeError,
-        "BaseException": BaseException,
-        "Exception": Exception,
-        "IndexError": IndexError,
-        "KeyError": KeyError,
-        "LookupError": LookupError,
-        "NameError": NameError,
-        "RuntimeError": RuntimeError,
-        "StopIteration": StopIteration,
-        "TypeError": TypeError,
-        "ValueError": ValueError,
-        "abs": abs,
-        "all": all,
-        "any": any,
-        "bool": bool,
-        "dict": dict,
-        "enumerate": enumerate,
-        "float": float,
-        "int": int,
-        "isinstance": isinstance,
-        "issubclass": issubclass,
-        "len": len,
-        "list": list,
-        "max": max,
-        "min": min,
-        "object": object,
-        "print": print,
-        "property": property,
-        "range": range,
-        "repr": repr,
-        "round": round,
-        "set": set,
-        "sorted": sorted,
-        "str": str,
-        "sum": sum,
-        "super": super,
-        "tuple": tuple,
-        "type": type,
-        "zip": zip,
-    }
-
-
-def _safe_import_factory(guard: CapabilityGuard):
-    def _safe_import(
-        name: str,
-        globals_: dict[str, Any] | None = None,
-        locals_: dict[str, Any] | None = None,
-        fromlist: tuple[str, ...] = (),
-        level: int = 0,
-    ) -> Any:
-        del globals_, locals_
-        root = str(name or "").split(".", 1)[0]
-        guard.validate_import(root)
-        if level or root not in _ALLOWED_IMPORT_ROOTS:
-            raise BrowserPolicyDenied(
-                f"Import is not allowed in browser(code=...): {name}",
-                action="browser_kernel_guard",
-                metadata={"import": name, "level": level},
-            )
-        return builtins.__import__(name, {}, {}, fromlist, level)
-
-    return _safe_import
 
 
 __all__ = [

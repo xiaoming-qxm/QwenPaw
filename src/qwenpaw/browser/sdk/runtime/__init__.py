@@ -2,7 +2,7 @@
 """Browser SDK code runtime."""
 
 from .executor import BrowserCodeExecutor, InProcessBrowserCodeExecutor
-from .guard import CapabilityGuard
+from ..canonical.guard import CanonicalCapabilityGuard
 from .kernel import (
     BrowserExecutionContext,
     BrowserKernelManager,
@@ -17,7 +17,7 @@ __all__ = [
     "BrowserKernelManager",
     "BrowserKernelResult",
     "BrowserKernelRuntime",
-    "CapabilityGuard",
+    "CanonicalCapabilityGuard",
     "InProcessBrowserCodeExecutor",
     "get_legacy_usage_snapshot",
 ]

@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Browser SDK policy hook contracts."""
+# pylint: disable=too-many-boolean-expressions
 
 from __future__ import annotations
 
@@ -94,7 +95,9 @@ class TrustedSurfaceRule:
                 code="surface_policy_invalid",
             )
         try:
-            ceiling = tuple(EffectCategory(item) for item in self.effect_ceiling)
+            ceiling = tuple(
+                EffectCategory(item) for item in self.effect_ceiling
+            )
         except (TypeError, ValueError) as exc:
             raise BrowserSDKError(
                 "trusted surface effect ceiling is invalid",
@@ -107,9 +110,12 @@ class TrustedSurfaceRule:
                 "trusted surface effect ceiling is not low risk",
                 code="surface_policy_invalid",
             )
-        if not str(self.revision or "").strip() or not str(
-            self.evidence_ref or "",
-        ).strip():
+        if (
+            not str(self.revision or "").strip()
+            or not str(
+                self.evidence_ref or "",
+            ).strip()
+        ):
             raise BrowserSDKError(
                 "trusted surface review evidence is missing",
                 code="surface_policy_invalid",
@@ -293,6 +299,7 @@ def _exact_http_origin(value: str) -> str:
     )
     authority = host if port is None or default else f"{host}:{port}"
     return f"{parsed.scheme}://{authority}"
+
 
 async def maybe_await_policy_decision(
     value: BrowserPolicyDecision | Awaitable[BrowserPolicyDecision],

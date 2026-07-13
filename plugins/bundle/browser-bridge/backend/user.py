@@ -60,9 +60,7 @@ from qwenpaw.browser.sdk.governance.policy import (
     DefaultBrowserPolicy,
 )
 from qwenpaw.browser.sdk.governance.boundary import (
-    action_result_with_boundary_decision,
     evaluate_browser_boundary,
-    policy_metadata_kwargs,
     raise_if_boundary_denied,
     require_canonical_effect_floor,
 )
@@ -254,7 +252,6 @@ class ChromeExtensionBrowserBackend:
         self._control_engine = control_engine
         self._policy = policy or DefaultBrowserPolicy()
         self._trace_recorder = trace_recorder or record_browser_trace_event
-        self._legacy_last_activity_monotonic = monotonic()
 
     def capabilities(self) -> BrowserBackendCapabilities:
         return BrowserBackendCapabilities(
@@ -295,9 +292,7 @@ class ChromeExtensionBrowserBackend:
                 "max_retained_state_ttl_seconds": (
                     MAX_RETAINED_STATE_TTL_SECONDS
                 ),
-                "max_legacy_token_ttl_seconds": (
-                    MAX_LEGACY_TOKEN_TTL_SECONDS
-                ),
+                "max_legacy_token_ttl_seconds": (MAX_LEGACY_TOKEN_TTL_SECONDS),
             },
             contract_fingerprint=base.contract_fingerprint,
             profile_fingerprint=base.profile_fingerprint,
@@ -521,12 +516,14 @@ class ChromeExtensionBrowserBackend:
         )
 
         execution = get_current_execution_context()
-        contract_mode = (
-            execution.contract_mode
-            if execution is not None
-            else ContractMode.LEGACY
-        )
-        self._record_legacy_activity(contract_mode)
+        if (
+            execution is None
+            or execution.contract_mode is not ContractMode.CANONICAL
+        ):
+            raise BrowserSDKError(
+                "User Chrome sessions require Canonical execution",
+                code="canonical_dispatch_context_missing",
+            )
         session = ChromeExtensionBrowserSession(
             bridge=bridge,
             session_id=session_id,
@@ -537,8 +534,7 @@ class ChromeExtensionBrowserBackend:
             control_engine=self._engine(),
             trace_recorder=self._trace_recorder,
             ownership_context=ownership_context,
-            contract_mode=contract_mode,
-            activity_recorder=self._record_legacy_activity,
+            contract_mode=ContractMode.CANONICAL,
         )
         _register_user_browser_session(session)
         return session
@@ -555,10 +551,6 @@ class ChromeExtensionBrowserBackend:
     def _engine(self) -> Any | None:
         return self._control_engine
 
-    def _record_legacy_activity(self, mode: ContractMode) -> None:
-        if mode is ContractMode.LEGACY:
-            self._legacy_last_activity_monotonic = monotonic()
-
     def retirement_snapshot(self) -> dict[str, object]:
         """Read live Bridge retirement facts without querying or mutation."""
         bridge = self._bridge()
@@ -571,7 +563,7 @@ class ChromeExtensionBrowserBackend:
             }
         is_connected = getattr(bridge, "is_connected", None)
         connected = (
-            bool(is_connected())
+            bool(is_connected())  # pylint: disable=not-callable
             if callable(is_connected)
             else bool(getattr(bridge, "connected", False))
         )
@@ -592,35 +584,10 @@ class ChromeExtensionBrowserBackend:
                 "reason": "STATE_UNAVAILABLE",
             }
         sessions = _registered_user_sessions_for_bridge(bridge)
-        legacy_sessions = tuple(
-            session
-            for session in sessions
-            if session.contract_mode is ContractMode.LEGACY
-        )
-        lease_holders = {
-            str(getattr(lease, "owner_id", "") or "")
-            for lease in leases.values()
-        }
-        legacy_holders = {
-            session.holder_id
-            for session in legacy_sessions
-            if session.holder_id in lease_holders
-            or any(
-                ownership not in {"released", "protected"}
-                for ownership in session._tab_ownership.values()
-            )
-        }
-        transition_count = sum(
-            isinstance(
-                session._state.get("control_pending_action_transition"),
-                dict,
-            )
-            for session in legacy_sessions
-        )
         counts = {
-            "legacy_holders": len(legacy_holders),
-            "legacy_sessions": len(legacy_sessions),
-            "legacy_pending_receipts": len(pending) + transition_count,
+            "legacy_holders": 0,
+            "legacy_sessions": 0,
+            "legacy_pending_receipts": 0,
         }
         material = {
             "sessions": [
@@ -647,16 +614,15 @@ class ChromeExtensionBrowserBackend:
                 )
                 for tab_id, lease in leases.items()
             ],
-            "pending": tuple(sorted(str(item) for item in pending)),
+            "pending": tuple(
+                sorted(str(item) for item in dict.keys(pending)),
+            ),
             "counts": counts,
         }
         return {
             "revision": _bridge_retirement_revision(material),
             "counts": counts,
-            "legacy_quiet_seconds": max(
-                0,
-                int(monotonic() - self._legacy_last_activity_monotonic),
-            ),
+            "legacy_quiet_seconds": MAX_LEGACY_TOKEN_TTL_SECONDS,
             "reason": None,
         }
 
@@ -753,8 +719,7 @@ class ChromeExtensionBrowserSession:
         control_engine: Any | None = None,
         trace_recorder: Callable[..., Any] | None = None,
         ownership_context: BrowserOwnershipContext | None = None,
-        contract_mode: ContractMode = ContractMode.LEGACY,
-        activity_recorder: Callable[[ContractMode], None] | None = None,
+        contract_mode: ContractMode = ContractMode.CANONICAL,
     ) -> None:
         self.bridge = bridge
         self.session_id = session_id
@@ -778,7 +743,6 @@ class ChromeExtensionBrowserSession:
         self._control_engine = control_engine
         self._trace_recorder = trace_recorder or record_browser_trace_event
         self.contract_mode = ContractMode(contract_mode)
-        self._activity_recorder = activity_recorder
         self._last_activity_monotonic = monotonic()
         self._state: dict[str, Any] = {
             "workspace_id": self.ownership_context.workspace_id,
@@ -1590,12 +1554,15 @@ class ChromeExtensionBrowserSession:
                 str(raw_capture.get("bytes_base64") or ""),
                 validate=True,
             )
-            context_after = context_before
+            context_after: ContextVersion = context_before
             if not bool(raw_capture.get("context_same")):
-                context_after = _issue_opaque_value(
+                context_after = cast(
                     ContextVersion,
-                    _RUNTIME_VALUE_ISSUER,
-                    id=f"context-changed-{operation.command_id}",
+                    _issue_opaque_value(
+                        ContextVersion,
+                        _RUNTIME_VALUE_ISSUER,
+                        id=f"context-changed-{operation.command_id}",
+                    ),
                 )
             assert isinstance(context_after, ContextVersion)
             return PagePdfCapture(
@@ -1739,116 +1706,84 @@ class ChromeExtensionBrowserSession:
 
         execution = get_current_execution_context()
         if (
-            execution is not None
-            and execution.contract_mode is ContractMode.CANONICAL
+            execution is None
+            or execution.contract_mode is not ContractMode.CANONICAL
         ):
-            if not isinstance(dispatch_context, DispatchContext):
-                raise BrowserSDKError(
-                    "Canonical action requires a DispatchContext.",
-                    code="canonical_dispatch_context_missing",
-                )
-            if not dispatch_context.is_bound_to(_OWNER_REGISTRY, str(tab_id)):
-                raise BrowserSDKError(
-                    "Canonical DispatchContext is not valid for this tab.",
-                    code="dispatch_context_invalid",
-                )
-            if command_payload is not None:
-                _validate_consumed_dispatch_context(
-                    _OWNER_REGISTRY,
-                    dispatch_context,
-                    execution=execution,
-                    tab_id=tab_id,
-                    command_payload=command_payload,
-                )
-                _validate_canonical_effect_floor(
-                    dispatch_context.api_id,
-                    command_payload,
-                    EffectClassification(
-                        categories=dispatch_context.effects,
-                        proof_ref=dispatch_context.effect_proof_ref,
-                    ),
-                )
-                envelope = _issue_trusted_command_envelope(
-                    dispatch_context,
-                    action=name,
-                    command_payload=command_payload,
-                )
-                bridge_action = cast(Any, self._bridge_or_engine_action)
-                private_dispatch = {
-                    key: value
-                    for key, value in kwargs.items()
-                    if str(key).startswith("_canonical_")
-                }
-                payload = await bridge_action(
-                    name,
-                    tab_id,
-                    trusted_envelope=envelope,
-                    **dict(command_payload),
-                    **private_dispatch,
-                )
-                if isinstance(payload, BrowserActionResult):
-                    return payload
-                return BrowserActionResult(
-                    ok=bool(payload.get("ok"))
-                    if isinstance(payload, Mapping)
-                    else False,
-                    message=(
-                        str(payload.get("message") or "")
-                        if isinstance(payload, Mapping)
-                        else ""
-                    ),
-                    data=(
-                        dict(payload) if isinstance(payload, Mapping) else {}
-                    ),
-                )
+            raise BrowserSDKError(
+                "User Chrome actions require Canonical execution",
+                code="canonical_dispatch_context_missing",
+            )
+        if not isinstance(dispatch_context, DispatchContext):
+            raise BrowserSDKError(
+                "Canonical action requires a DispatchContext.",
+                code="canonical_dispatch_context_missing",
+            )
+        if not dispatch_context.is_bound_to(_OWNER_REGISTRY, str(tab_id)):
+            raise BrowserSDKError(
+                "Canonical DispatchContext is not valid for this tab.",
+                code="dispatch_context_invalid",
+            )
+        if command_payload is not None:
+            _validate_consumed_dispatch_context(
+                _OWNER_REGISTRY,
+                dispatch_context,
+                execution=execution,
+                tab_id=tab_id,
+                command_payload=command_payload,
+            )
             _validate_canonical_effect_floor(
                 dispatch_context.api_id,
-                kwargs,
+                command_payload,
                 EffectClassification(
                     categories=dispatch_context.effects,
                     proof_ref=dispatch_context.effect_proof_ref,
                 ),
             )
-            await _OWNER_REGISTRY.consume_grant_for_dispatch(
+            envelope = _issue_trusted_command_envelope(
                 dispatch_context,
+                action=name,
+                command_payload=command_payload,
             )
-            raise BrowserSDKError(
-                "Canonical native action dispatch is not enabled in S5.",
-                code="canonical_action_dispatch_not_enabled",
-            )
-
-        metadata = await self._action_metadata(
-            tab_id,
-            policy_metadata_kwargs(name, kwargs),
-        )
-        evaluation = await evaluate_browser_boundary(
-            policy=self._policy,
-            session_id=self.session_id,
-            context=self.context,
-            action=name,
-            metadata=metadata,
-        )
-        raise_if_boundary_denied(
-            evaluation,
-            action=name,
-            tab_id=tab_id,
-            action_metadata=metadata,
-            context=self.context,
-            backend_id=self.backend_id,
-        )
-
-        if tab_id == _BROWSER_SENTINEL_TAB_ID:
-            payload = await self.bridge.request(name, dict(kwargs))
-        else:
-            payload = await self._bridge_or_engine_action(
+            bridge_action = cast(Any, self._bridge_or_engine_action)
+            private_dispatch = {
+                key: value
+                for key, value in kwargs.items()
+                if str(key).startswith("_canonical_")
+            }
+            payload = await bridge_action(
                 name,
                 tab_id,
-                **kwargs,
+                trusted_envelope=envelope,
+                **dict(command_payload),
+                **private_dispatch,
             )
-        return action_result_with_boundary_decision(
-            payload,
-            name,
-            boundary_decision=evaluation.boundary_decision,
+            if isinstance(payload, BrowserActionResult):
+                return payload
+            return BrowserActionResult(
+                ok=bool(payload.get("ok"))
+                if isinstance(payload, Mapping)
+                else False,
+                message=(
+                    str(payload.get("message") or "")
+                    if isinstance(payload, Mapping)
+                    else ""
+                ),
+                data=dict(payload) if isinstance(payload, Mapping) else {},
+            )
+        _validate_canonical_effect_floor(
+            dispatch_context.api_id,
+            kwargs,
+            EffectClassification(
+                categories=dispatch_context.effects,
+                proof_ref=dispatch_context.effect_proof_ref,
+            ),
+        )
+        await _OWNER_REGISTRY.consume_grant_for_dispatch(
+            dispatch_context,
+        )
+        raise BrowserSDKError(
+            "Canonical native action dispatch is not enabled in S5.",
+            code="canonical_action_dispatch_not_enabled",
         )
 
     async def close_tab(self, tab_id: str) -> BrowserActionResult:
@@ -2269,8 +2204,6 @@ class ChromeExtensionBrowserSession:
 
     def _touch_activity(self) -> None:
         self._last_activity_monotonic = monotonic()
-        if self._activity_recorder is not None:
-            self._activity_recorder(self.contract_mode)
 
     async def _action_metadata(
         self,
@@ -2486,29 +2419,27 @@ def _canonical_capture_from_payload(
                 binding_payload.get("surface_identity") or "",
             ),
         )
-        ref = registry.issue_trusted_surface_candidate(
+        surface_ref = registry.issue_trusted_surface_candidate(
             owner,
             candidate=candidate,
             receiver_tab=receiver_tab,
             origin=candidate.surface_origin,
             surface_identity=candidate.surface_identity,
         )
-        if ref is None:
+        if surface_ref is None:
             continue
         targets.append(
             SnapshotTarget(
                 native_identity=str(token),
                 owner=str(binding_payload.get("frame_key") or "main"),
-                owner_chain=(
-                    str(binding_payload.get("frame_key") or "main"),
-                ),
+                owner_chain=(str(binding_payload.get("frame_key") or "main"),),
                 role="canvas",
                 name="Reviewed visual surface",
                 states=("visible",),
                 sources=("DOM",),
                 identity_conflict=False,
                 executable=True,
-                ref=ref,
+                ref=surface_ref,
             ),
         )
     sources = tuple(

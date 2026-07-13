@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import hashlib
+import inspect
 import secrets
 import contextlib
 import subprocess
@@ -24,7 +25,7 @@ from fastapi import (
 from starlette.responses import JSONResponse
 
 from qwenpaw.browser.approval_policy import QwenPawBrowserApprovalPolicy
-from qwenpaw.browser.sdk.facade.browser import Browser
+from qwenpaw.browser.sdk.backends.registry import get_default_backend_registry
 from qwenpaw.browser.sdk.governance.error_codes import BrowserErrorCode
 from qwenpaw.browser.sdk.telemetry.trace import (
     BrowserTraceEvent,
@@ -35,6 +36,7 @@ from qwenpaw.browser.sdk.primitives.types import (
     BrowserBackendDiagnostic,
     BrowserContext,
     BrowserDiagnosticCheck,
+    BrowserDiagnosticStatus,
     BrowserDiagnostics,
 )
 
@@ -292,7 +294,65 @@ def _store_extension_version(payload: dict[str, Any]) -> None:
 
 async def _sdk_diagnostics_snapshot(context: str) -> BrowserDiagnostics:
     requested = context if context in {"auto", "user", "isolated"} else "auto"
-    return await Browser.diagnostics(context=cast(BrowserContext, requested))
+    normalized = cast(BrowserContext, requested)
+    diagnostic_items = []
+    for backend in get_default_backend_registry().all():
+        diagnostic_items.append(await _backend_diagnostic(backend))
+    diagnostics = tuple(diagnostic_items)
+    selected = _select_diagnostic_backend(normalized, diagnostics)
+    return BrowserDiagnostics(
+        requested_context=normalized,
+        selected_backend_id=selected,
+        backends=diagnostics,
+    )
+
+
+async def _backend_diagnostic(backend: Any) -> BrowserBackendDiagnostic:
+    diagnose = getattr(backend, "diagnose", None)
+    if callable(diagnose):
+        raw = diagnose()
+        if inspect.isawaitable(raw):
+            raw = await raw
+        if isinstance(raw, BrowserBackendDiagnostic):
+            return raw
+    capabilities = backend.capabilities()
+    try:
+        available = bool(backend.is_available())
+        code = "" if available else "browser_backend_unavailable"
+        message = "Available" if available else "Unavailable"
+    except Exception as exc:  # noqa: BLE001 - diagnostic must stay available
+        available = False
+        code = type(exc).__name__
+        message = str(exc)
+    status: BrowserDiagnosticStatus = (
+        "available" if available else "unavailable"
+    )
+    return BrowserBackendDiagnostic(
+        backend_id=capabilities.backend_id,
+        browser_context=capabilities.browser_context,
+        available=available,
+        status=status,
+        code=code,
+        reason="" if available else message,
+        message=message,
+        message_fallback=message,
+        features=capabilities.features,
+    )
+
+
+def _select_diagnostic_backend(
+    requested: BrowserContext,
+    diagnostics: tuple[BrowserBackendDiagnostic, ...],
+) -> str:
+    contexts = ("user", "isolated") if requested == "auto" else (requested,)
+    for browser_context in contexts:
+        for diagnostic in diagnostics:
+            if (
+                diagnostic.browser_context == browser_context
+                and diagnostic.available
+            ):
+                return diagnostic.backend_id
+    return ""
 
 
 def _serialize_diagnostics(diagnostics: BrowserDiagnostics) -> dict[str, Any]:

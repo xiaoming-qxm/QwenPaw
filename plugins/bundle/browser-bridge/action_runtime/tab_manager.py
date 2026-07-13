@@ -84,10 +84,6 @@ def _control_tab_url(tab: dict[str, Any]) -> str:
     return str(tab.get("url") or tab.get("pendingUrl") or "")
 
 
-def _control_is_http_url(url: str) -> bool:
-    return url.startswith(("http://", "https://"))
-
-
 def _control_live_tab_map(
     tabs: list[dict[str, Any]] | None,
 ) -> dict[int, dict[str, Any]] | None:
@@ -906,7 +902,6 @@ __all__ = [
     "_control_discover_tabs_safe",
     "_control_forget_tab_state",
     "_control_int_tab_id",
-    "_control_is_http_url",
     "_control_live_tab_map",
     "_control_matching_browser_tab",
     "_control_matching_browser_tab_from_tabs",

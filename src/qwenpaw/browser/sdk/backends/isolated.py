@@ -12,7 +12,6 @@ from typing import Any, Callable
 from urllib.parse import quote_plus
 from urllib.parse import urlparse
 
-from ..actions.tab_actions import BrowserActionResult
 from ..backends.registry import get_default_backend_registry
 from ..governance.error_codes import BrowserErrorCode, classify_browser_error
 from ..governance.errors import BrowserSDKError
@@ -25,6 +24,7 @@ from ..governance.boundary import (
 from ..governance.policy import BrowserPolicy, DefaultBrowserPolicy
 from ..primitives.observation import coerce_observation, coerce_screenshot
 from ..primitives.types import (
+    BrowserActionResult,
     BrowserBackendCapabilities,
     BrowserBackendDiagnostic,
     BrowserDiagnosticCheck,

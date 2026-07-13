@@ -6,9 +6,7 @@
 from __future__ import annotations
 
 import asyncio
-import json
 from collections import defaultdict
-from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -26,42 +24,12 @@ _cdp_relay = load_browser_bridge_submodule("engine.cdp_relay")
 CDPPermissionDenied = _cdp_relay.CDPPermissionDenied
 CDPRelayError = _cdp_relay.CDPRelayError
 CDPRelaySession = _cdp_relay.CDPRelaySession
-_engine_impl = load_browser_bridge_submodule("engine_impl")
 _nm_bridge = load_browser_bridge_submodule("nm_bridge")
 LEASE_TTL_SECONDS = _nm_bridge.LEASE_TTL_SECONDS
 NMBridge = _nm_bridge.NMBridge
 NMBridgeDisconnectedError = _nm_bridge.NMBridgeDisconnectedError
 StaleLeaseError = _nm_bridge.StaleLeaseError
 TabOccupiedError = _nm_bridge.TabOccupiedError
-
-
-class _BridgeManager:
-    def __init__(self, bridge: Any) -> None:
-        self.bridge = bridge
-
-    def get_connection(self) -> Any:
-        return self.bridge
-
-    def is_connected(self) -> bool:
-        return bool(getattr(self.bridge, "connected", False))
-
-
-def _runtime(bridge: Any):
-    return _engine_impl.ControlEngineImpl(
-        bridge_manager=_BridgeManager(bridge),
-    )
-
-
-def _ownership_state(workspace_id: str = "workspace-1") -> dict[str, Any]:
-    owner_id = f"browser_owner:{workspace_id}"
-    return {
-        "workspace_id": workspace_id,
-        "ownership_context": {
-            "protocol_version": 2,
-            "owner_id": owner_id,
-            "workspace_id": f"browser_workspace:{workspace_id}",
-        },
-    }
 
 
 class _FakeWebSocket:
@@ -285,63 +253,6 @@ async def test_cdp_relay_approval_callback_tracks_new_domain() -> None:
 
 
 @pytest.mark.asyncio
-async def test_control_session_uses_request_context_for_approval(
-    monkeypatch,
-) -> None:
-    class Bridge(_FakeRelayBridge):
-        connected = True
-
-        async def claim_tab(self, _tab_id: int, _holder_id: str) -> bool:
-            return True
-
-    approvals: list[dict[str, Any]] = []
-
-    class ApprovalService:
-        async def create_pending_summary(self, **kwargs: Any) -> Any:
-            approvals.append(kwargs)
-            return SimpleNamespace(request_id="approval-1")
-
-        async def wait_for_approval(
-            self,
-            _request_id: str,
-            _timeout_seconds: float,
-        ) -> Any:
-            from qwenpaw.security.tool_guard.approval import ApprovalDecision
-
-            return ApprovalDecision.APPROVED
-
-    from qwenpaw.app import agent_context
-
-    def get_approval_service() -> ApprovalService:
-        return ApprovalService()
-
-    bridge = Bridge()
-    monkeypatch.setattr(
-        "qwenpaw.app.approvals.get_approval_service",
-        get_approval_service,
-    )
-    agent_context.set_current_agent_id("agent-1")
-    agent_context.set_current_session_id("session-1")
-    agent_context.set_current_root_session_id("root-session-1")
-
-    state = _ownership_state("workspace-1")
-    await _runtime(bridge).dispatch(
-        state,
-        "claim_tab",
-        page_id="tab_3",
-        index=-1,
-    )
-    session = state["control_sessions"]["3"]
-
-    await session.send("Page.navigate", {"url": "https://example.com/a"})
-
-    assert approvals
-    assert approvals[0]["session_id"] == "session-1"
-    assert approvals[0]["root_session_id"] == "root-session-1"
-    assert bridge.requests[-1][0] == "cdp.send"
-
-
-@pytest.mark.asyncio
 async def test_cdp_relay_does_not_register_hitl_pause_controls() -> None:
     bridge = _EventBridge()
     session = CDPRelaySession(
@@ -480,102 +391,6 @@ def test_load_permissions_accepts_control_nested_schema(tmp_path) -> None:
     assert loaded.approved_domains == {"allowed.test"}
 
 
-@pytest.mark.asyncio
-async def test_claim_tab_denied_domain_does_not_create_tab(
-    monkeypatch,
-) -> None:
-    class Bridge:
-        connected = True
-
-        def __init__(self) -> None:
-            self.requests: list[tuple[str, dict[str, Any]]] = []
-            self.claimed: list[tuple[int, str]] = []
-
-        async def request(
-            self,
-            method: str,
-            params: dict[str, Any] | None = None,
-        ) -> dict[str, Any]:
-            self.requests.append((method, params or {}))
-            if method == "tab.create":
-                return {"jsonrpc": "2.0", "result": {"id": 9}}
-            return {"jsonrpc": "2.0", "result": {"ok": True}}
-
-        async def claim_tab(self, tab_id: int, holder_id: str) -> bool:
-            self.claimed.append((tab_id, holder_id))
-            return True
-
-    from qwenpaw.agents.tools import cdp_permissions
-
-    bridge = Bridge()
-    monkeypatch.setattr(
-        cdp_permissions,
-        "load_permissions",
-        lambda: PermissionsConfig(
-            domain_rules=[
-                {"pattern": "denied.example.com", "policy": "deny"},
-            ],
-        ),
-    )
-
-    response = await _runtime(bridge).dispatch(
-        _ownership_state("workspace-1"),
-        "claim_tab",
-        url="https://denied.example.com/path",
-    )
-    payload = json.loads(response.content[0].text)
-
-    assert payload["ok"] is False
-    assert "denied.example.com" in payload["error"]
-    assert not any(method == "tab.create" for method, _ in bridge.requests)
-    assert not bridge.claimed
-
-
-@pytest.mark.asyncio
-async def test_claim_tab_attach_rollback_releases_lease() -> None:
-    class Bridge:
-        connected = True
-
-        def __init__(self) -> None:
-            self.requests: list[tuple[str, dict[str, Any]]] = []
-            self.claimed: list[tuple[int, str]] = []
-            self.released: list[tuple[int, str]] = []
-
-        async def request(
-            self,
-            method: str,
-            params: dict[str, Any] | None = None,
-        ) -> dict[str, Any]:
-            self.requests.append((method, params or {}))
-            if method == "tab.attach":
-                return {
-                    "jsonrpc": "2.0",
-                    "error": {"message": "DevTools conflict"},
-                }
-            return {"jsonrpc": "2.0", "result": {"ok": True}}
-
-        async def claim_tab(self, tab_id: int, holder_id: str) -> bool:
-            self.claimed.append((tab_id, holder_id))
-            return True
-
-        async def release(self, tab_id: int, holder_id: str) -> None:
-            self.released.append((tab_id, holder_id))
-
-    bridge = Bridge()
-
-    response = await _runtime(bridge).dispatch(
-        _ownership_state("workspace-1"),
-        "claim_tab",
-        page_id="tab_7",
-    )
-    payload = json.loads(response.content[0].text)
-
-    assert payload["ok"] is False
-    assert "DevTools conflict" in payload["error"]
-    assert bridge.claimed == [(7, "browser_owner:workspace-1")]
-    assert bridge.released == [(7, "browser_owner:workspace-1")]
-
-
 def test_from_cdp_ax_tree_builds_refs_and_prunes_ignored_nodes() -> None:
     snapshot, refs = from_cdp_ax_tree(
         {
@@ -613,20 +428,3 @@ def test_from_cdp_ax_tree_builds_refs_and_prunes_ignored_nodes() -> None:
     assert "Hidden" not in snapshot
     assert refs["e1"]["backendNodeId"] == 42
     assert refs["e2"]["nth"] == 1
-
-
-@pytest.mark.asyncio
-async def test_browser_use_routes_control_start() -> None:
-    class Bridge:
-        connected = True
-
-    response = await _runtime(Bridge()).dispatch(
-        _ownership_state("default"),
-        "start",
-        mode="control",
-    )
-    payload = json.loads(response.content[0].text)
-
-    assert payload["ok"] is True
-    assert payload["mode"] == "control"
-    assert "connected" in payload["message"]

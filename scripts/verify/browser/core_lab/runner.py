@@ -2,6 +2,7 @@
 """Deterministic Browser Core Lab case builder and executor."""
 
 # pylint: disable=protected-access,too-many-return-statements
+# pylint: disable=too-many-branches,too-many-statements
 
 from __future__ import annotations
 
@@ -681,7 +682,9 @@ def _visual_canvas_facts(case: LabCase) -> VisualCanvasFacts:
         approval_request_count=observed["approval_request_count"],
         approval_grant_count=observed["approval_grant_count"],
         proximity_choice_count=observed["proximity_choice_count"],
-        raw_coordinate_dispatch_count=observed["raw_coordinate_dispatch_count"],
+        raw_coordinate_dispatch_count=observed[
+            "raw_coordinate_dispatch_count"
+        ],
         duplicate_action_count=observed["duplicate_action_count"],
         false_success=observed["false_success"],
     )
@@ -730,8 +733,8 @@ class _VisualLabSession:
     def record_hit(self, params: dict[str, object], backend_id: int) -> None:
         self.hit_identities.append(backend_id)
         self.last_hit_query = (
-            int(params.get("x") or 0),
-            int(params.get("y") or 0),
+            int(str(params.get("x") or 0)),
+            int(str(params.get("y") or 0)),
             backend_id,
         )
 
@@ -743,7 +746,9 @@ class _VisualLabSession:
             return {
                 "frameTree": {
                     "frame": {
-                        "loaderId": "loader-stale" if stale_loader else "loader-1",
+                        "loaderId": "loader-stale"
+                        if stale_loader
+                        else "loader-1",
                     },
                 },
             }
@@ -789,7 +794,10 @@ class _VisualLabSession:
                 backend_id = 41 + self.hit_calls % 2
                 self.record_hit(params, backend_id)
                 return {"backendNodeId": backend_id}
-            if case_id == "visual.overlay-occluded-no-send" and self.hit_calls > 6:
+            if (
+                case_id == "visual.overlay-occluded-no-send"
+                and self.hit_calls > 6
+            ):
                 self.record_hit(params, 99)
                 return {"backendNodeId": 99}
             if case_id == "visual.icon-only-exact" and self.hit_calls > 5:
@@ -803,7 +811,16 @@ class _VisualLabSession:
             left = 100.0 if backend_id in {41, 88} else 220.0
             return {
                 "quads": [
-                    [left, 100.0, left + 100.0, 100.0, left + 100.0, 160.0, left, 160.0],
+                    [
+                        left,
+                        100.0,
+                        left + 100.0,
+                        100.0,
+                        left + 100.0,
+                        160.0,
+                        left,
+                        160.0,
+                    ],
                 ],
             }
         if method == "DOM.describeNode":
@@ -869,7 +886,9 @@ async def _run_visual_canvas_production(
     owner_runtime = import_module("qwenpaw.browser.sdk.runtime.session_owner")
     policy_runtime = import_module("qwenpaw.browser.sdk.governance.policy")
     action_runtime = import_module("qwenpaw.browser.sdk.action_runner")
-    api_contracts = import_module("qwenpaw.browser.sdk.contracts")
+    api_contracts = import_module(
+        "qwenpaw.browser.sdk.canonical.action_contract",
+    )
     snapshot_handler = import_module(
         "plugins.bundle.browser-bridge.action_runtime.handlers.snapshot",
     )
@@ -882,7 +901,9 @@ async def _run_visual_canvas_production(
     )
     primitives_runtime = import_module("qwenpaw.browser.sdk.primitives.types")
     kernel_runtime = import_module("qwenpaw.browser.sdk.runtime.kernel")
-    coordinator_runtime = import_module("qwenpaw.runtime.root_request_coordinator")
+    coordinator_runtime = import_module(
+        "qwenpaw.runtime.root_request_coordinator",
+    )
     from time import monotonic
 
     now = monotonic()
@@ -947,7 +968,9 @@ async def _run_visual_canvas_production(
         generation="loader-1",
         coverage="COMPLETE",
         gaps=(),
-        sources=(snapshot_runtime.SourceOutcome("DOM", True, len(identities)),),
+        sources=(
+            snapshot_runtime.SourceOutcome("DOM", True, len(identities)),
+        ),
         targets=tuple(
             snapshot_runtime.SnapshotTarget(
                 native_identity=f"backend:{identity}",
@@ -994,7 +1017,12 @@ async def _run_visual_canvas_production(
         or session.faults.trip(FaultCutPoint.VISUAL_AFTER_BINDING_ISSUE)
     )
     if early_failure or case.case_id == "visual.full-page-evidence-only":
-        grounded = {**payload, "coverage": "UNAVAILABLE", "targets": [], "_trusted_bindings": {}}
+        grounded = {
+            **payload,
+            "coverage": "UNAVAILABLE",
+            "targets": [],
+            "_trusted_bindings": {},
+        }
     else:
         grounded = await snapshot_handler._canonical_visual_grounding_payload(
             session,
@@ -1156,8 +1184,8 @@ async def _run_visual_canvas_production(
                 )
 
         action_attempted = True
-        previous_registry = coordinator_runtime._OWNER_REGISTRY
-        coordinator_runtime._OWNER_REGISTRY = registry
+        previous_registry = getattr(coordinator_runtime, "_OWNER_REGISTRY")
+        setattr(coordinator_runtime, "_OWNER_REGISTRY", registry)
         execution_token = kernel_runtime.set_current_execution_context(
             kernel_runtime.BrowserExecutionContext(
                 session_id=owner.root_session_id,
@@ -1206,7 +1234,11 @@ async def _run_visual_canvas_production(
             action_status = "ERROR"
         finally:
             kernel_runtime.reset_current_execution_context(execution_token)
-            coordinator_runtime._OWNER_REGISTRY = previous_registry
+            setattr(
+                coordinator_runtime,
+                "_OWNER_REGISTRY",
+                previous_registry,
+            )
 
     queried = tuple(
         f"fixture-target-{identity}"

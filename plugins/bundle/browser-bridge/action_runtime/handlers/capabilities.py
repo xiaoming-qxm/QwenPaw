@@ -33,7 +33,6 @@ from ..errors import (
 )
 from ..interactions import _canonical_execute_interaction
 from ..navigation import _control_tab_id
-from ..ref_scope import _control_current_snapshot_ref
 from ..session_manager import _control_get_session
 from ..state import ControlState
 from ..tab_manager import _control_ensure_tab_available, _control_page_id
@@ -70,8 +69,8 @@ def _download_event_matches(
     if not isinstance(event, dict):
         return False
     try:
-        tab_id = int(event.get("tabId", event.get("tab_id")))
-        sequence = int(event.get("sequence"))
+        tab_id = int(str(event.get("tabId", event.get("tab_id"))))
+        sequence = int(str(event.get("sequence")))
     except (TypeError, ValueError):
         return False
     params = event.get("params")
@@ -133,7 +132,7 @@ def _download_correlation(
             command_id=str(raw.get("command_id") or ""),
             owner_key=(str(owner_key[0]), str(owner_key[1])),
             tab_id=int(tab_id),
-            pre_arm_watermark=int(raw.get("pre_arm_watermark")),
+            pre_arm_watermark=int(str(raw.get("pre_arm_watermark"))),
         )
     except (TypeError, ValueError) as exc:
         raise ValueError("Download operation correlation is invalid") from exc
@@ -548,7 +547,7 @@ async def _node_params(
 ) -> dict[str, int]:
     ref = str(kwargs.get("ref") or "")
     selector = _target_selector(kwargs)
-    resolved_ref = _control_current_snapshot_ref(state, tab_id, ref)
+    resolved_ref = ref
     target = (
         state.refs.get(str(tab_id), {}).get(resolved_ref, {}) if ref else {}
     )
@@ -727,7 +726,7 @@ def _download_progress_matches(
     correlation: DownloadCorrelation,
 ) -> bool:
     try:
-        sequence = int(event.get("sequence"))
+        sequence = int(str(event.get("sequence")))
     except (TypeError, ValueError):
         return False
     expected_guid = str(details.get("guid") or "")

@@ -6,10 +6,8 @@ from typing import Any
 
 from ..errors import BrowserBridgeRecoverableError
 from ..interactions import (
-    _canonical_runner_request,
     _json_response,
     canonical_native_interaction_control,
-    click_control,
 )
 from ..state import ControlState
 from .protocol import ActionMeta
@@ -28,21 +26,12 @@ class ClickHandler:
         **kwargs: Any,
     ):
         try:
-            request_context = kwargs.get("request_context") or {}
-            if _canonical_runner_request(request_context):
-                return await canonical_native_interaction_control(
-                    state,
-                    holder_id=holder_id,
-                    bridge=bridge,
-                    action="click",
-                    target_labels=("target",),
-                    kwargs=kwargs,
-                )
-            return await click_control(
+            return await canonical_native_interaction_control(
                 state,
                 holder_id=holder_id,
                 bridge=bridge,
-                request_context=kwargs.get("request_context") or {},
+                action="click",
+                target_labels=("target",),
                 kwargs=kwargs,
             )
         except (BrowserBridgeRecoverableError, ValueError, TypeError) as exc:

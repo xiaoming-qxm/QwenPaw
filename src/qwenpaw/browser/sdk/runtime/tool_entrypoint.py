@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import base64
-from functools import wraps
 from typing import Any
 from typing import cast
 
@@ -32,8 +31,6 @@ from ..recovery import (
 from ..telemetry.progress import BrowserProgressDecision, detect_no_progress
 from ..telemetry.trace import BrowserTraceEvent
 from ..telemetry.trace import (
-    begin_legacy_usage,
-    finish_legacy_usage,
     get_browser_trace_store,
     record_browser_trace_event,
     summarize_browser_reliability_counters,
@@ -117,32 +114,6 @@ _BROWSER_INVARIANT_ERROR_CODES = {
 }
 
 
-def _record_legacy_browser_execution(func: Any) -> Any:
-    """Record Legacy tool use before the wrapped entry can fail."""
-
-    @wraps(func)
-    async def wrapped(*args: Any, **kwargs: Any) -> Any:
-        binding = _current_browser_binding()
-        is_legacy = (
-            binding is not None and binding[3] is ContractMode.LEGACY
-        )
-        if is_legacy:
-            begin_legacy_usage(
-                caller="browser_tool",
-                api_id="browser.execute",
-            )
-        try:
-            return await func(*args, **kwargs)
-        finally:
-            if is_legacy:
-                finish_legacy_usage(
-                    caller="browser_tool",
-                    api_id="browser.execute",
-                )
-
-    return wrapped
-
-
 @tool_descriptor(
     name="browser",
     enabled_by_default=True,
@@ -152,7 +123,6 @@ def _record_legacy_browser_execution(func: Any) -> Any:
         '`browser = await Browser.connect(context="auto")` inside code.'
     ),
 )
-@_record_legacy_browser_execution
 async def browser(
     code: str,
     context: str = "auto",

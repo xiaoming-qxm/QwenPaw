@@ -62,7 +62,7 @@ _WORKSPACE_JSON_DEFAULTS: list[tuple[str, dict]] = [
 def migrate_browser_contract_rollout_config(
     config_path: Path | None = None,
 ) -> bool:
-    """Add explicit S10A rollout config without repairing invalid input."""
+    """Migrate an admitted S10A config to the Canonical-only schema."""
     target = config_path or get_config_path()
     if not target.exists():
         save_config(Config(), target)
@@ -74,33 +74,38 @@ def migrate_browser_contract_rollout_config(
         raise RuntimeError("browser_rollout_unavailable") from exc
     if not isinstance(data, dict):
         raise RuntimeError("browser_rollout_unavailable")
-    has_rollout = "browser_contract_rollout" in data
-    has_admission = "browser_legacy_admission" in data
-    if has_rollout != has_admission:
-        raise RuntimeError("browser_rollout_unavailable")
-    if has_rollout:
-        load_config_strict(target)
-        return False
+    changed = False
+    rollout = data.get("browser_contract_rollout")
+    admission = data.get("browser_legacy_admission")
+    if admission is not None:
+        if (
+            not isinstance(rollout, dict)
+            or rollout.get("default") != "CANONICAL"
+            or admission != "CLOSED"
+        ):
+            raise RuntimeError("browser_rollout_unavailable")
+        data.pop("browser_legacy_admission")
+        changed = True
+    if rollout is None:
+        data["browser_contract_rollout"] = {
+            "revision": 1,
+            "default": "CANONICAL",
+        }
+        changed = True
     try:
         Config.model_validate(data)
     except Exception as exc:
         raise RuntimeError("browser_rollout_unavailable") from exc
-    data.update(
-        {
-            "browser_contract_rollout": {
-                "revision": 1,
-                "default": "CANONICAL",
-            },
-            "browser_legacy_admission": "OPEN",
-        },
-    )
+    if not changed:
+        load_config_strict(target)
+        return False
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(
         json.dumps(data, indent=2, ensure_ascii=False),
         encoding="utf-8",
     )
     load_config_strict(target)
-    return True
+    return changed
 
 
 def migrate_legacy_workspace_to_default_agent() -> bool:

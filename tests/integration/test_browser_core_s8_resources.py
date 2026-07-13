@@ -104,11 +104,14 @@ async def test_resource_owner_continuity_and_promoted_root_retention(
     assert cleanup.complete
     with pytest.raises(resources.ResourceStoreError):
         store.require(transient.id)
-    assert resources.resolve_promoted_bytes(
-        artifact.id,
-        owner_key=owner,
-        now=now + timedelta(seconds=1),
-    ) == b"artifact"
+    assert (
+        resources.resolve_promoted_bytes(
+            artifact.id,
+            owner_key=owner,
+            now=now + timedelta(seconds=1),
+        )
+        == b"artifact"
+    )
     with pytest.raises(resources.ResourceStoreError):
         resources.resolve_promoted_bytes(
             artifact.id,

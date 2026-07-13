@@ -9,10 +9,11 @@ from typing import Any
 
 from agentscope.tool import ToolChunk
 
+from qwenpaw.browser.sdk.governance.errors import BrowserSDKError
 from qwenpaw.browser.sdk.runtime.responses import _tool_response
 from .action_runtime import tab_manager as control_tab_manager
 from .action_runtime import navigation as control_navigation
-from .action_runtime.handlers import ACTION_HANDLERS
+from .action_runtime.handlers import SUPPORTED_ACTIONS
 from .action_runtime.handlers.dispatcher import dispatch
 from .action_runtime.handlers.protocol import (
     is_trusted_command_envelope,
@@ -58,22 +59,33 @@ class ControlEngineImpl:
         manager = self._bridge_manager
         bridge = manager.get_connection() if manager is not None else None
         request_context = _control_request_context()
+        from qwenpaw.browser.sdk.runtime.kernel import (
+            get_current_execution_context,
+        )
+
+        execution = get_current_execution_context()
+        execution_mode = getattr(
+            getattr(execution, "contract_mode", None),
+            "value",
+            getattr(execution, "contract_mode", None),
+        )
+        if execution is None or execution_mode != "CANONICAL":
+            raise BrowserSDKError(
+                "Control engine dispatch requires Canonical execution",
+                code="canonical_dispatch_context_missing",
+            )
+        request_context = {
+            **request_context,
+            "contract_mode": "CANONICAL",
+        }
         envelope = kwargs.get("trusted_envelope")
         if envelope is not None:
             if not is_trusted_command_envelope(envelope):
-                from qwenpaw.browser.sdk.governance.errors import (
-                    BrowserSDKError,
-                )
-
                 raise BrowserSDKError(
                     "Control engine received an untrusted command envelope",
                     code="trusted_command_envelope_invalid",
                 )
             if envelope.action != action_name:
-                from qwenpaw.browser.sdk.governance.errors import (
-                    BrowserSDKError,
-                )
-
                 raise BrowserSDKError(
                     "Control engine action does not match its envelope",
                     code="trusted_command_envelope_mismatch",
@@ -94,7 +106,7 @@ class ControlEngineImpl:
             control_navigation._CONTROL_NAVIGATE_NETWORK_TIMEOUT_SECONDS = (
                 _CONTROL_NAVIGATE_NETWORK_TIMEOUT_SECONDS
             )
-            if action_name not in ACTION_HANDLERS:
+            if action_name not in SUPPORTED_ACTIONS:
                 return unsupported_control_action_response(action_name)
             return await dispatch(
                 state_obj,
@@ -110,7 +122,7 @@ class ControlEngineImpl:
 
     def supported_actions(self) -> frozenset[str]:
         """Return action names supported by this engine."""
-        return frozenset(ACTION_HANDLERS.keys())
+        return SUPPORTED_ACTIONS
 
     def get_request_context(self) -> dict[str, Any]:
         """Return current request context for control mode detection."""

@@ -42,8 +42,8 @@ def test_release_wheel_contains_exact_browser_contract_assets() -> None:
         assert required.issubset(names)
         support = json.loads(
             archive.read(
-                "qwenpaw/browser/sdk/generated/browser-support.json"
-            )
+                "qwenpaw/browser/sdk/generated/browser-support.json",
+            ),
         )
     fingerprints = {
         key: support[key]
@@ -55,12 +55,17 @@ def test_release_wheel_contains_exact_browser_contract_assets() -> None:
             "provider_fingerprint",
         )
     }
-    assert all(isinstance(value, str) and value for value in fingerprints.values())
+    assert all(
+        isinstance(value, str) and value for value in fingerprints.values()
+    )
     for key in (
         "max_retained_state_ttl_seconds",
         "max_legacy_token_ttl_seconds",
     ):
-        assert isinstance(support[key], int) and not isinstance(support[key], bool)
+        assert isinstance(support[key], int) and not isinstance(
+            support[key],
+            bool,
+        )
         assert support[key] > 0
     assert support["schema_version"] == "browser-support-v1"
     assert support["capabilities"]

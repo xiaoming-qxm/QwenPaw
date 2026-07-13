@@ -1,38 +1,27 @@
 # -*- coding: utf-8 -*-
+"""Canonical snapshot action handler."""
+# pylint: disable=too-many-branches,too-many-statements
+
 from __future__ import annotations
 
 import json
 from dataclasses import dataclass
 from typing import Any
 
-from qwenpaw.browser.sdk.runtime.responses import (
-    _tool_response,
-    _tool_response_with_blocks,
-)
+from qwenpaw.browser.sdk.runtime.responses import _tool_response
 from qwenpaw.browser.sdk.runtime.snapshot import ObservationBudget
 from ..network_settle import _network_quiescence_wait
 from ..observation import (
-    _click_effect_check,
-    _click_effect_record_snapshot,
     _control_clear_observation_required,
     _control_clear_visual_observation,
 )
 from ..session_manager import _control_get_session
-from ..snapshot_builder import (
-    _control_escalation_payload,
-    _control_snapshot_hash,
-    _control_visual_context_block,
-    build_canonical_snapshot,
-    build_control_snapshot,
-)
+from ..snapshot_builder import build_canonical_snapshot
 from ..ref_scope import (
     _control_bind_canonical_target,
     _control_note_canonical_document,
-    _control_scope_snapshot_refs,
-    _control_snapshot_payload_refs,
 )
 from ..state import ControlState
-from ..state_verification import _control_state_verification_payload
 from ..tab_manager import _control_ensure_tab_available, _control_page_id
 from ..navigation import _control_tab_id
 from ..targets import (
@@ -56,7 +45,6 @@ class SnapshotHandler:
         **kwargs: Any,
     ):
         request_context = kwargs.get("request_context") or {}
-        contract_mode = str(request_context.get("contract_mode") or "LEGACY")
         tab_id = _control_tab_id(
             _control_page_id(state, str(kwargs.get("page_id", ""))),
             kwargs.get("index", -1),
@@ -78,92 +66,40 @@ class SnapshotHandler:
                 timeout=3.0,
                 grace_ms=50.0,
             )
-        if contract_mode == "CANONICAL":
-            visual_region = kwargs.get("visual_region")
-            budget = None
-            if isinstance(visual_region, dict):
-                raw_budget = visual_region.get("budget")
-                if isinstance(raw_budget, dict):
-                    budget = ObservationBudget(
-                        capture_nodes=int(raw_budget["capture_nodes"]),
-                        output_targets=int(raw_budget["output_targets"]),
-                        hard_maximum=int(raw_budget["hard_maximum"]),
-                    )
-            capture = await build_canonical_snapshot(session, budget=budget)
-            _control_clear_observation_required(state, tab_id)
-            _control_clear_visual_observation(state, tab_id)
-            payload = _canonical_snapshot_payload(
-                state,
-                tab_id=tab_id,
-                request_context=request_context,
-                capture=capture,
-                observed_urls=getattr(
-                    session,
-                    "_canonical_observed_urls",
-                    {},
-                ),
-            )
-            if isinstance(visual_region, dict):
-                payload = await _canonical_visual_grounding_payload(
-                    session,
-                    state=state,
-                    payload=payload,
-                    request=visual_region,
+        visual_region = kwargs.get("visual_region")
+        budget = None
+        if isinstance(visual_region, dict):
+            raw_budget = visual_region.get("budget")
+            if isinstance(raw_budget, dict):
+                budget = ObservationBudget(
+                    capture_nodes=int(raw_budget["capture_nodes"]),
+                    output_targets=int(raw_budget["output_targets"]),
+                    hard_maximum=int(raw_budget["hard_maximum"]),
                 )
-            return _tool_response(
-                json.dumps(payload, ensure_ascii=False, indent=2),
-            )
-        snapshot, refs, degraded_snapshot = await build_control_snapshot(
-            session,
-        )
-        snapshot_hash = _control_snapshot_hash(snapshot)
-        snapshot, refs, ref_scope = _control_scope_snapshot_refs(
-            state,
-            tab_id,
-            snapshot,
-            refs,
-        )
-        escalated, escalation_info = _click_effect_check(
-            state,
-            tab_id,
-            snapshot_hash,
-        )
-        _click_effect_record_snapshot(state, tab_id, snapshot_hash)
-        state.refs[str(tab_id)] = refs
+        capture = await build_canonical_snapshot(session, budget=budget)
         _control_clear_observation_required(state, tab_id)
         _control_clear_visual_observation(state, tab_id)
-        payload = {
-            "ok": True,
-            "mode": "control",
-            "tab_id": tab_id,
-            "snapshot": snapshot,
-            "refs": _control_snapshot_payload_refs(refs),
-        }
-        if ref_scope:
-            payload["ref_scope"] = ref_scope
-        if escalated:
-            payload["escalation"] = _control_escalation_payload(
-                escalation_info,
+        payload = _canonical_snapshot_payload(
+            state,
+            tab_id=tab_id,
+            request_context=request_context,
+            capture=capture,
+            observed_urls=getattr(
+                session,
+                "_canonical_observed_urls",
+                {},
+            ),
+        )
+        if isinstance(visual_region, dict):
+            payload = await _canonical_visual_grounding_payload(
+                session,
+                state=state,
+                payload=payload,
+                request=visual_region,
             )
-        if escalation_info.get("verification_pending"):
-            network = escalation_info.get("network")
-            payload[
-                "state_verification"
-            ] = _control_state_verification_payload(
-                status="stale_view_possible",
-                reason="previous_async_state_change_not_reflected_in_snapshot",
-                network_metadata=network if isinstance(network, dict) else {},
-            )
-        blocks = []
-        if degraded_snapshot or escalated:
-            visual_block = await _control_visual_context_block(session)
-            if visual_block is not None:
-                blocks.append(visual_block)
-
-        text = json.dumps(payload, ensure_ascii=False, indent=2)
-        if blocks:
-            return _tool_response_with_blocks(text, blocks)
-        return _tool_response(text)
+        return _tool_response(
+            json.dumps(payload, ensure_ascii=False, indent=2),
+        )
 
 
 def _canonical_snapshot_payload(
@@ -211,7 +147,9 @@ def _canonical_snapshot_payload(
             ),
             geometry_digest="",
             visual_context_ref=None,
-            allowed_actions=("click", "hover", "drag") if target.executable else (),
+            allowed_actions=("click", "hover", "drag")
+            if target.executable
+            else (),
             effect_ceiling=(
                 ("PRESENTATION", "SESSION_STATE", "UNKNOWN")
                 if target.executable
@@ -291,7 +229,10 @@ async def _canonical_visual_grounding_payload(
             "_trusted_bindings": {},
             "_trusted_surface_candidates": {},
         }
-    grounding_state, _surface_backend_ids = await canonical_visual_candidate_backend_ids(
+    (
+        grounding_state,
+        _surface_backend_ids,
+    ) = await canonical_visual_candidate_backend_ids(
         session,
         request,
     )
@@ -319,6 +260,8 @@ async def _canonical_visual_grounding_payload(
         if not isinstance(binding, dict):
             continue
         native_id = _binding_backend_node_id(binding)
+        if native_id is None:
+            continue
         geometry = await canonical_visual_geometry_in_region(
             session,
             native_id,
@@ -359,7 +302,10 @@ async def _canonical_visual_grounding_payload(
         }
         if not executable:
             role = str(target.get("role") or "").lower()
-            if role not in {"canvas", "map"} or native_id not in _surface_backend_ids:
+            if (
+                role not in {"canvas", "map"}
+                or native_id not in _surface_backend_ids
+            ):
                 continue
             surface_identity = (
                 f"{role}:{str(target.get('owner') or 'main')}:{native_id}"

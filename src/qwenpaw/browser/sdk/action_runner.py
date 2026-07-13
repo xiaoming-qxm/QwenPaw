@@ -2,7 +2,7 @@
 """Thin Canonical Browser action preflight and exact binding skeleton."""
 
 # pylint: disable=protected-access,too-many-boolean-expressions
-# pylint: disable=too-many-return-statements
+# pylint: disable=too-many-branches,too-many-return-statements
 
 from __future__ import annotations
 
@@ -36,7 +36,7 @@ from .canonical.contracts import (
     _serialize_browser_condition,
     issue_operation_id,
 )
-from .contracts import BrowserAPIContract
+from .canonical.action_contract import BrowserAPIContract
 from .condition_evaluator import (
     ConditionBaseline,
     ConditionEvaluation,
@@ -965,7 +965,11 @@ class ActionRunner:
                 None,
             )
             if callable(request_exact) and preflight.preview is not None:
-                resolution = await request_exact(preflight.preview)
+                resolution = (
+                    await request_exact(  # pylint: disable=not-callable
+                        preflight.preview,
+                    )
+                )
                 candidate_grant = getattr(resolution, "grant", None)
                 if isinstance(candidate_grant, ApprovalGrant):
                     approval_grant = candidate_grant

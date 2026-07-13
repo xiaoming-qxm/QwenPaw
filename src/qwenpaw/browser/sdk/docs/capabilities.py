@@ -129,8 +129,7 @@ def compute_session_capabilities(
             key: str(manifest.get(key) or "") for key in _FINGERPRINT_KEYS
         },
         retirement_limits={
-            key: int(manifest.get(key) or 0)
-            for key in _RETIREMENT_LIMIT_KEYS
+            key: int(manifest.get(key) or 0) for key in _RETIREMENT_LIMIT_KEYS
         },
     )
 
@@ -199,6 +198,7 @@ def _generated_capabilities() -> dict[str, Any]:
     artifact = (
         resources.files("qwenpaw.browser.sdk")
         / "generated"
+        / "canonical"
         / "capabilities.json"
     )
     return json.loads(artifact.read_text(encoding="utf-8"))
