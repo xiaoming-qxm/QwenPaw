@@ -1179,7 +1179,11 @@ class BrowserSessionOwnerRegistry:
     ) -> None:
         """Apply an owner close fact without fallback selection."""
         state = self._require_current_lease(owner)
-        self.resolve_tab_summary(tab, owner=owner)
+        tab_state = self.resolve_tab_summary(tab, owner=owner)
+        self._revoke_tab_observation_state(
+            state,
+            receiver_tab=tab_state.receiver_tab_key,
+        )
         state.tabs.pop(tab, None)
         state.closed_tab_refs.add(str(tab.tab_ref))
         if state.selected_tab is tab:
@@ -1478,12 +1482,52 @@ class BrowserSessionOwnerRegistry:
             version_ref=_new_handle_token("context"),
             safe_receiver=str(safe_receiver or receiver),
         )
+        self._revoke_tab_observation_state(state, receiver_tab=receiver)
         state.contexts[context] = _ContextState(
             native=native,
             receiver_tab_key=receiver,
             expires_at=expiry,
         )
         return context
+
+    def invalidate_tab_observation(
+        self,
+        owner: BrowserRequestBinding,
+        *,
+        receiver_tab: str,
+    ) -> None:
+        """Revoke all observation-derived values after a page mutation."""
+        state = self._require_current_lease(owner)
+        self._revoke_tab_observation_state(
+            state,
+            receiver_tab=_require_handle_text(receiver_tab, "receiver_tab"),
+        )
+
+    @staticmethod
+    def _revoke_tab_observation_state(
+        state: _OwnerState,
+        *,
+        receiver_tab: str,
+    ) -> None:
+        """Drop context, target, and visual facts tied to one native tab."""
+        state.contexts = {
+            context: binding
+            for context, binding in state.contexts.items()
+            if binding.receiver_tab_key != receiver_tab
+        }
+        state.targets = {
+            target: binding
+            for target, binding in state.targets.items()
+            if binding.receiver_tab_key != receiver_tab
+        }
+        state.visual_contexts = {
+            visual: binding
+            for visual, binding in state.visual_contexts.items()
+            if binding.receiver_tab_key != receiver_tab
+        }
+        from .observation_store import cleanup_observation_tab
+
+        cleanup_observation_tab(state.binding.owner_key, receiver_tab)
 
     def resolve_context(
         self,
@@ -1511,11 +1555,6 @@ class BrowserSessionOwnerRegistry:
             raise BrowserSDKError(
                 "context receiver mismatch",
                 code="context_wrong_receiver",
-            )
-        if self._clock() > stored.expires_at:
-            raise BrowserSDKError(
-                "context binding expired",
-                code="context_expired",
             )
         return stored.native
 
@@ -1606,11 +1645,6 @@ class BrowserSessionOwnerRegistry:
                 "visual context receiver mismatch",
                 code="visual_context_wrong_receiver",
             )
-        if self._clock() > binding.expires_at:
-            raise BrowserSDKError(
-                "visual context binding expired",
-                code="visual_context_expired",
-            )
         return binding
 
     def issue_target(
@@ -1694,7 +1728,6 @@ class BrowserSessionOwnerRegistry:
             )
         if (
             candidate.use_state != "FRESH"
-            or self._clock() > candidate.expires_at
             or not candidate.visual_context_ref
             or not candidate.geometry_digest
             or not candidate.native_identity
@@ -1722,7 +1755,6 @@ class BrowserSessionOwnerRegistry:
             return None
         context_current = any(
             context_state.receiver_tab_key == receiver
-            and self._clock() <= context_state.expires_at
             and str(context.version_ref) == candidate.context_ref
             for context, context_state in state.contexts.items()
         )
@@ -1799,7 +1831,6 @@ class BrowserSessionOwnerRegistry:
             )
         if (
             candidate.use_state != "FRESH"
-            or self._clock() > candidate.expires_at
             or not candidate.visual_context_ref
             or not candidate.geometry_digest
             or not candidate.native_identity
@@ -1826,7 +1857,6 @@ class BrowserSessionOwnerRegistry:
             return None
         context_current = any(
             context_state.receiver_tab_key == receiver
-            and self._clock() <= context_state.expires_at
             and str(context.version_ref) == candidate.context_ref
             for context, context_state in state.contexts.items()
         )
@@ -1971,11 +2001,6 @@ class BrowserSessionOwnerRegistry:
             raise BrowserSDKError(
                 "target receiver mismatch",
                 code="target_wrong_receiver",
-            )
-        if self._clock() > binding.expires_at:
-            raise BrowserSDKError(
-                "target binding expired",
-                code="target_expired",
             )
         if (
             binding.surface_policy_expires_at > 0

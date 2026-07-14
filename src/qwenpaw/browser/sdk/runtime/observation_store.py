@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Callable, Literal
 from uuid import uuid4
 
@@ -180,12 +180,12 @@ class ObservationStore:
             root_session_id=root_session_id,
             tab_id=tab_id,
             generation=generation,
-            expires_at=self._clock() + timedelta(seconds=self.ttl_seconds),
+            expires_at=self._clock(),
         )
 
     def collection_expiry(self) -> datetime:
-        """Return the immutable collection expiry under this store's clock."""
-        return self._clock() + timedelta(seconds=self.ttl_seconds)
+        """Retain a legacy timestamp; collection validity is state-driven."""
+        return self._clock()
 
     def issue_evidence(
         self,
@@ -220,7 +220,7 @@ class ObservationStore:
             tab_id=self.tab_id,
             context=self.context,
             generation=self.generation,
-            expires_at=captured_at + timedelta(seconds=self.ttl_seconds),
+            expires_at=captured_at,
             meta=meta,
         )
         return meta
@@ -247,8 +247,6 @@ class ObservationStore:
         if stored is None:
             raise ObservationStoreError("cursor_collection_unavailable")
         collection = stored.collection
-        if self._clock() >= collection.expires_at:
-            raise ObservationStoreError("cursor_expired")
         end = min(entry.offset + limit, len(collection.segments))
         segments = collection.segments[slice(entry.offset, end)]
         exhausted = end >= len(collection.segments)
@@ -280,9 +278,6 @@ class ObservationStore:
             generation=entry.generation,
             prefix="evidence",
         )
-        if self._clock() >= entry.expires_at:
-            _EVIDENCE.pop(evidence_id, None)
-            raise ObservationStoreError("evidence_expired")
         return entry.meta
 
     def require_context_baseline(
@@ -303,9 +298,6 @@ class ObservationStore:
             raise ObservationStoreError("context_tab_mismatch")
         if entry.generation > self.generation:
             raise ObservationStoreError("context_generation_mismatch")
-        if self._clock() >= entry.expires_at:
-            _CONTEXTS.pop(id(context), None)
-            raise ObservationStoreError("context_expired")
         return entry.context
 
     def require_region_evidence_baseline(
@@ -350,10 +342,6 @@ class ObservationStore:
         scope = evidence_entry.meta.scope
         if not isinstance(scope, RegionScope) or scope.region is not region:
             raise ObservationStoreError("region_evidence_scope_mismatch")
-        if self._clock() >= region_entry.expires_at:
-            raise ObservationStoreError("region_expired")
-        if self._clock() >= evidence_entry.expires_at:
-            raise ObservationStoreError("evidence_expired")
         return region_entry.binding, evidence_entry.meta
 
     def issue_region(
@@ -387,7 +375,7 @@ class ObservationStore:
             tab_id=self.tab_id,
             context=self.context,
             generation=self.generation,
-            expires_at=self._clock() + timedelta(seconds=self.ttl_seconds),
+            expires_at=self._clock(),
             binding=binding,
             native_identity=native_identity,
         )
@@ -414,9 +402,6 @@ class ObservationStore:
         )
         if entry.binding.kind != kind:
             raise ObservationStoreError("region_type_mismatch")
-        if self._clock() >= entry.expires_at:
-            _REGIONS.pop(region_id, None)
-            raise ObservationStoreError("region_expired")
         return entry.binding
 
     def release_owner(self, owner_key: OwnerKey) -> None:
@@ -458,8 +443,6 @@ class ObservationStore:
         )
         if entry.kind != "READ":
             raise ObservationStoreError("cursor_type_mismatch")
-        if self._clock() >= entry.expires_at:
-            raise ObservationStoreError("cursor_expired")
         return entry
 
     def _validate_binding(
@@ -512,29 +495,57 @@ class ObservationStore:
         return cursor
 
 
+def cleanup_observation_tab(owner_key: OwnerKey, tab_id: str) -> None:
+    """Remove every observation value for one exact owner and tab."""
+    _require_owner_key(owner_key)
+    if not isinstance(tab_id, str) or not tab_id.strip():
+        raise ValueError("tab_id is required")
+    _cleanup_observation_values(owner_key, tab_id=tab_id)
+
+
 def cleanup_observation_store(owner_key: OwnerKey) -> None:
     """Remove every evidence, cursor, and collection owned by owner_key."""
+    _require_owner_key(owner_key)
+    _cleanup_observation_values(owner_key)
+
+
+def _cleanup_observation_values(
+    owner_key: OwnerKey,
+    *,
+    tab_id: str | None = None,
+) -> None:
+    """Delete state selected by one owner and optional native tab id."""
     collection_ids = {
         key
         for key, entry in _COLLECTIONS.items()
         if entry.collection.owner_key == owner_key
+        and (tab_id is None or entry.collection.tab_id == tab_id)
     }
     for key in collection_ids:
         _COLLECTIONS.pop(key, None)
     for key, cursor_entry in tuple(_CURSORS.items()):
         if (
-            cursor_entry.owner_key == owner_key
+            (
+                cursor_entry.owner_key == owner_key
+                and (tab_id is None or cursor_entry.tab_id == tab_id)
+            )
             or cursor_entry.collection_id in collection_ids
         ):
             _CURSORS.pop(key, None)
     for key, evidence_entry in tuple(_EVIDENCE.items()):
-        if evidence_entry.owner_key == owner_key:
+        if evidence_entry.owner_key == owner_key and (
+            tab_id is None or evidence_entry.tab_id == tab_id
+        ):
             _EVIDENCE.pop(key, None)
     for key, region_entry in tuple(_REGIONS.items()):
-        if region_entry.owner_key == owner_key:
+        if region_entry.owner_key == owner_key and (
+            tab_id is None or region_entry.tab_id == tab_id
+        ):
             _REGIONS.pop(key, None)
     for context_key, context_entry in tuple(_CONTEXTS.items()):
-        if context_entry.owner_key == owner_key:
+        if context_entry.owner_key == owner_key and (
+            tab_id is None or context_entry.tab_id == tab_id
+        ):
             _CONTEXTS.pop(context_key, None)
 
 
@@ -564,5 +575,6 @@ __all__ = [
     "ObservationStoreError",
     "ReadPage",
     "RegionBinding",
+    "cleanup_observation_tab",
     "cleanup_observation_store",
 ]

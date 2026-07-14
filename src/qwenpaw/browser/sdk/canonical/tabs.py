@@ -35,6 +35,7 @@ from ..runtime.observation_store import (
     ImmutableReadCollection,
     ObservationStore,
     ObservationStoreError,
+    cleanup_observation_tab,
 )
 from ..runtime.snapshot import (
     ObservationBudget,
@@ -73,6 +74,7 @@ from .contracts import (
     ResourceHandle,
     SelectionGap,
     ScreenshotResult,
+    SnapshotCursor,
     SnapshotResult,
     SurfaceCondition,
     StateRequirement,
@@ -129,6 +131,10 @@ class TabActions:
         repr=False,
     )
     _condition_receiver: ConditionReceiver | None = field(
+        default=None,
+        repr=False,
+    )
+    _invalidate_observation: Callable[[], None] | None = field(
         default=None,
         repr=False,
     )
@@ -796,6 +802,9 @@ class TabActions:
             ),
         )
         typed = cast(ActionResult, result)
+        if typed.status not in {"BLOCKED", "CANCELLED"}:
+            if self._invalidate_observation is not None:
+                self._invalidate_observation()
         record_browser_result(typed)
         return typed
 
@@ -854,8 +863,11 @@ class Tab:
         default=None,
         repr=False,
     )
+    _observation_generation: int = field(default=0, repr=False)
 
     def __post_init__(self) -> None:
+        if self._observations is not None:
+            self._observation_generation = self._observations.generation
         self._refresh_actions()
 
     def _refresh_actions(self) -> None:
@@ -885,6 +897,7 @@ class Tab:
             _session=self._session,
             _condition_evaluator=self._condition_evaluator,
             _condition_receiver=condition_receiver,
+            _invalidate_observation=self._invalidate_observation,
             _max_paste_chars=int(
                 (self._profile.hard_limits if self._profile else {}).get(
                     "max_paste_chars",
@@ -896,18 +909,29 @@ class Tab:
     def _replace_observation_store(self, capture: SnapshotCapture) -> None:
         if self._owner_binding is None:
             raise _capability_blocked("tab.snapshot")
-        previous_generation = (
-            self._observations.generation
-            if self._observations is not None
-            else 0
-        )
+        cleanup_observation_tab(self._owner_binding.owner_key, self.id)
+        self._target_facts = ()
+        self._observation_generation += 1
         self._observations = ObservationStore(
             owner_key=self._owner_binding.owner_key,
             root_session_id=self._owner_binding.root_session_id,
             tab_id=self.id,
             context=capture.context,
-            generation=previous_generation + 1,
+            generation=self._observation_generation,
         )
+        self._refresh_actions()
+
+    def _invalidate_observation(self) -> None:
+        """Revoke values captured before an action may have changed the page."""
+        if self._owner_binding is not None and self._target_registry is not None:
+            self._target_registry.invalidate_tab_observation(
+                self._owner_binding,
+                receiver_tab=self.id,
+            )
+        elif self._observations is not None:
+            cleanup_observation_tab(self._observations.owner_key, self.id)
+        self._observations = None
+        self._target_facts = ()
         self._refresh_actions()
 
     async def close(self) -> ActionResult:
@@ -1106,7 +1130,7 @@ class Tab:
                 action=api_id,
             )
         receiver = self._condition_receiver_for_action()
-        return await self._action_runner.run(
+        result = await self._action_runner.run(
             binding=cast(BrowserRequestBinding, self._owner_binding),
             receiver_tab=self._tab_summary,
             contract=canonical_mutation_contract(api_id),
@@ -1126,6 +1150,7 @@ class Tab:
                 else None
             ),
         )
+        return result
 
     def _condition_receiver_for_action(self) -> ConditionReceiver | None:
         if self._observations is None or self._resources is None:
@@ -1240,9 +1265,16 @@ class Tab:
         *,
         scope: ObservationScope | None = None,
         query: TargetQuery | None = None,
-        limit: int | None = None,
+        cursor: SnapshotCursor | None = None,
+        limit: int,
     ) -> SnapshotResult:
-        """Capture neutral bounded evidence for this exact Tab receiver."""
+        """Capture one caller-sized source page for this Tab receiver."""
+        if cursor is not None:
+            raise BrowserSDKGap(
+                "Snapshot continuation requires the bridge traversal source.",
+                action="tab.snapshot",
+            )
+        effective_limit = _snapshot_limit(limit)
         requested_scope = scope or CurrentSurface()
         if isinstance(requested_scope, VisualRegion):
             return await self._snapshot_visual_region(requested_scope)
@@ -1267,7 +1299,6 @@ class Tab:
             )
             else None
         )
-        requested_limit, effective_limit, clamp_gap = _snapshot_limit(limit)
         discovery_budget = 4096 if query is not None else 512
         capture = await self._session.capture_snapshot(
             self.id,
@@ -1299,8 +1330,6 @@ class Tab:
                 region_owner_chain=query_owner_chain,
             )
         gaps = list(capture.gaps)
-        if clamp_gap is not None:
-            gaps.append(clamp_gap)
         if len(candidates) > effective_limit:
             gaps.append(
                 CoverageGap(
@@ -1309,7 +1338,7 @@ class Tab:
                         reason="OUTPUT_LIMIT",
                         examined=effective_limit,
                         omitted=len(candidates) - effective_limit,
-                        requested=requested_limit,
+                        requested=effective_limit,
                         effective=effective_limit,
                     ),
                 ),
@@ -1387,6 +1416,8 @@ class Tab:
             targets=target_summaries,
             regions=region_summaries,
             grounding=None,
+            next_cursor=None,
+            end_of_collection=True,
             source_summary=",".join(
                 f"{item.source}:{'ok' if item.available else 'unavailable'}"
                 for item in capture.sources
@@ -1538,6 +1569,8 @@ class Tab:
                 targets=summaries,
                 regions=region_summaries,
                 grounding=grounding,
+                next_cursor=None,
+                end_of_collection=True,
                 source_summary=sources,
             ),
         )
@@ -1547,12 +1580,12 @@ class Tab:
         *,
         scope: ObservationScope | None = None,
         cursor: ReadCursor | None = None,
-        limit: int | None = None,
+        limit: int,
     ) -> ReadResult:
-        """Read one page from a single bounded immutable capture."""
+        """Read one caller-sized page from the current source."""
+        effective_limit = _snapshot_limit(limit)
         if self._session is None or self._observations is None:
             raise _capability_blocked("tab.read")
-        requested_limit, effective_limit, clamp_gap = _snapshot_limit(limit)
         if cursor is None:
             requested_scope = scope or CurrentSurface()
             if isinstance(requested_scope, VisualRegion):
@@ -1625,7 +1658,6 @@ class Tab:
         )
         status, retry, problem = _read_terminal(observation.coverage)
         notices = ()
-        clamp_notice = clamp_gap.notice if clamp_gap is not None else ""
         result = ReadResult(
             operation_id=issue_operation_id(),
             status=status,
@@ -1637,7 +1669,7 @@ class Tab:
             model_text=_read_model_text(
                 status=status,
                 observation=observation,
-                clamp_notice=clamp_notice,
+                clamp_notice="",
                 segments=segments,
                 end_of_collection=page.end_of_collection,
             ),
@@ -1646,7 +1678,6 @@ class Tab:
             end_of_collection=page.end_of_collection,
         )
         record_browser_result(result)
-        del requested_limit
         return result
 
     async def screenshot(
@@ -2343,26 +2374,11 @@ def _region_owner_chain(
 
 
 def _snapshot_limit(
-    limit: int | None,
-) -> tuple[int, int, CoverageGap | None]:
-    requested = 64 if limit is None else int(limit)
-    if requested < 1:
+    limit: int,
+) -> int:
+    if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
         raise ValueError("snapshot limit must be positive")
-    effective = min(requested, 128)
-    if requested == effective:
-        return requested, effective, None
-    return (
-        requested,
-        effective,
-        CoverageGap(
-            stage="SELECTION",
-            detail=SelectionGap(
-                reason="LIMIT_CLAMPED",
-                requested=requested,
-                effective=effective,
-            ),
-        ),
-    )
+    return limit
 
 
 def _query_matches(target: SnapshotTarget, query: TargetQuery) -> bool:

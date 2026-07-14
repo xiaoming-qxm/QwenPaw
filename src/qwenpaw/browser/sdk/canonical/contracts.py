@@ -70,6 +70,7 @@ class VisualContextRef(_OpaqueRuntimeValue):
 class Grounding(StrEnum):
     """Closed VisualRegion-to-semantic-target outcome."""
 
+    INCOMPLETE = "INCOMPLETE"
     EXACT = "EXACT"
     MULTIPLE = "MULTIPLE"
     NO_MATCH = "NO_MATCH"
@@ -83,6 +84,10 @@ class TargetRef(_OpaqueRuntimeValue):
 
 class RegionRef(_OpaqueRuntimeValue):
     """Opaque grounded region reference."""
+
+
+class SnapshotCursor(_OpaqueRuntimeValue):
+    """Opaque incremental snapshot cursor."""
 
 
 class ReadCursor(_OpaqueRuntimeValue):
@@ -1460,6 +1465,30 @@ class _TerminalFields:
             )
 
 
+def _validate_collection_state(
+    *,
+    next_cursor: _OpaqueRuntimeValue | None,
+    cursor_type: type[_OpaqueRuntimeValue],
+    end_of_collection: bool | None,
+) -> None:
+    """Validate one page's cursor/end-of-collection relationship."""
+    if next_cursor is not None:
+        _require_runtime_value(next_cursor, cursor_type, "next_cursor")
+    if end_of_collection is not None and not isinstance(
+        end_of_collection,
+        bool,
+    ):
+        raise TypeError("end_of_collection must be a bool")
+    if end_of_collection is True and next_cursor is not None:
+        raise ResultContractError(
+            "completed collection cannot provide a next cursor",
+        )
+    if end_of_collection is False and next_cursor is None:
+        raise ResultContractError(
+            "unfinished collection requires a next cursor",
+        )
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class SnapshotResult(_TerminalFields):
     evidence: EvidenceRef | None = None
@@ -1468,9 +1497,16 @@ class SnapshotResult(_TerminalFields):
     targets: tuple[TargetSummary, ...] = ()
     regions: tuple[RegionSummary, ...] = ()
     grounding: Grounding | None = None
+    next_cursor: SnapshotCursor | None = None
+    end_of_collection: bool | None = None
     source_summary: str = ""
 
     def __post_init__(self) -> None:
+        _validate_collection_state(
+            next_cursor=self.next_cursor,
+            cursor_type=SnapshotCursor,
+            end_of_collection=self.end_of_collection,
+        )
         if self.grounding is Grounding.EXACT and len(self.targets) != 1:
             raise ResultContractError("EXACT grounding requires one target")
         if self.grounding is Grounding.MULTIPLE and len(self.targets) < 2:
@@ -1489,6 +1525,19 @@ class SnapshotResult(_TerminalFields):
             raise ResultContractError(
                 "negative grounding cannot contain targets",
             )
+        visual_scope = (
+            self.observation is not None
+            and isinstance(self.observation.scope, VisualRegion)
+        )
+        if visual_scope and self.end_of_collection is False:
+            if self.grounding is not Grounding.INCOMPLETE:
+                raise ResultContractError(
+                    "incomplete visual grounding requires INCOMPLETE",
+                )
+        elif self.grounding is Grounding.INCOMPLETE:
+            raise ResultContractError(
+                "INCOMPLETE grounding requires an unfinished visual page",
+            )
         validate_result_contract(self)
 
 
@@ -1502,6 +1551,11 @@ class ReadResult(_TerminalFields):
     end_of_collection: bool | None = None
 
     def __post_init__(self) -> None:
+        _validate_collection_state(
+            next_cursor=self.next_cursor,
+            cursor_type=ReadCursor,
+            end_of_collection=self.end_of_collection,
+        )
         validate_result_contract(self)
 
 
@@ -1703,8 +1757,12 @@ def validate_result_contract(result: RichBrowserResult) -> None:
     result.validate_terminal()
     if result.status not in {"SUCCEEDED", "PARTIAL"}:
         return
-    if isinstance(result, SnapshotResult) and result.evidence is None:
-        raise ResultContractError("SnapshotResult requires evidence")
+    if isinstance(result, SnapshotResult) and (
+        result.evidence is None or result.end_of_collection is None
+    ):
+        raise ResultContractError(
+            "SnapshotResult requires evidence and collection state",
+        )
     if isinstance(result, ReadResult) and (
         result.evidence is None or result.end_of_collection is None
     ):
@@ -2132,7 +2190,8 @@ def canonical_api_catalog() -> dict[str, Any]:
                 (
                     "async snapshot(*, scope: ObservationScope | None = None, "
                     "query: TargetQuery | None = None, "
-                    "limit: int | None = None) "
+                    "cursor: SnapshotCursor | None = None, "
+                    "limit: int) "
                     "-> SnapshotResult"
                 ),
                 mutates=False,
@@ -2158,11 +2217,17 @@ def canonical_api_catalog() -> dict[str, Any]:
                         "annotation": "TargetQuery | None",
                     },
                     {
-                        "name": "limit",
+                        "name": "cursor",
                         "kind": "KEYWORD_ONLY",
                         "required": False,
                         "default": None,
-                        "annotation": "int | None",
+                        "annotation": "SnapshotCursor | None",
+                    },
+                    {
+                        "name": "limit",
+                        "kind": "KEYWORD_ONLY",
+                        "required": True,
+                        "annotation": "int",
                     },
                 ],
             ),
@@ -2172,14 +2237,14 @@ def canonical_api_catalog() -> dict[str, Any]:
                 (
                     "async read(*, scope: ObservationScope | None = None, "
                     "cursor: ReadCursor | None = None, "
-                    "limit: int | None = None) "
+                    "limit: int) "
                     "-> ReadResult"
                 ),
                 mutates=False,
                 kind="primitive",
                 satisfies_observation=True,
                 return_type="ReadResult",
-                summary="Read one page from an immutable bounded collection.",
+                summary="Read one page from an immutable collection.",
                 parameters=[
                     {
                         "name": "scope",
@@ -2198,9 +2263,8 @@ def canonical_api_catalog() -> dict[str, Any]:
                     {
                         "name": "limit",
                         "kind": "KEYWORD_ONLY",
-                        "required": False,
-                        "default": None,
-                        "annotation": "int | None",
+                        "required": True,
+                        "annotation": "int",
                     },
                 ],
             ),
@@ -2320,6 +2384,7 @@ OPAQUE_VALUE_NAMES = (
     "VisualContextRef",
     "TargetRef",
     "RegionRef",
+    "SnapshotCursor",
     "ReadCursor",
     "ReadSegment",
     "ReadSegmentKind",
@@ -2382,6 +2447,7 @@ __all__ = [
     "ScreenshotResult",
     "SelectionGap",
     "SelectionGapReason",
+    "SnapshotCursor",
     "SnapshotResult",
     "StateRequirement",
     "SurfaceCondition",
