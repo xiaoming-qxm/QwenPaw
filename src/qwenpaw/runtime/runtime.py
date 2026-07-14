@@ -145,12 +145,9 @@ class Runtime:
 
         except (asyncio.CancelledError, KeyboardInterrupt) as e:
             ctx.error = e
-            # The Task's _must_cancel flag may still be True after
-            # catching CancelledError, causing the next await to raise
-            # CancelledError again.  Wrap ON_ERROR hooks so that
-            # cancel_envelope is always yielded — the frontend SDK
-            # needs the {object:response, status:completed} event to
-            # exit loading state.
+            # Never emit after cancellation: when an async generator is
+            # being closed, yielding here becomes ``ignored GeneratorExit``.
+            # The caller owns cancellation state and terminal delivery.
             try:
                 await hooks.run(Phase.ON_ERROR, ctx)
             except asyncio.CancelledError:
@@ -163,9 +160,6 @@ class Runtime:
             # Persist agent state so the interrupted turn is not lost.
             # asyncio.shield protects the save from task re-cancellation.
             await self._try_save_on_cancel(ctx)
-
-            async for ev in envelope.cancel_envelope():
-                yield ev
             raise
         except BaseException as e:
             await self._try_save_on_cancel(ctx)
