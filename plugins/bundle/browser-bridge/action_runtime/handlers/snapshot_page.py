@@ -17,9 +17,11 @@ from qwenpaw.browser.sdk.canonical.contracts import (
 from qwenpaw.browser.sdk.runtime.responses import _tool_response
 from qwenpaw.browser.sdk.runtime.snapshot import SnapshotCapture
 from ..session_manager import _control_get_session
+from ..ref_scope import _control_note_canonical_document
 from ..source_traversal import (
     CDPSourceTraversalAdapter,
     SourceTraversalManager,
+    SourceTraversalUnavailable,
 )
 from ..state import ControlState
 from ..tab_manager import _control_ensure_tab_available, _control_page_id
@@ -74,6 +76,17 @@ class SnapshotPageHandler:
             request_context=kwargs.get("request_context") or {},
         )
         source = CDPSourceTraversalAdapter(session)
+        try:
+            generation = await source.generation()
+        except SourceTraversalUnavailable:
+            # The manager preserves the existing typed unavailable result.
+            pass
+        else:
+            _control_note_canonical_document(
+                state,
+                tab_id=tab_id,
+                document_token=generation,
+            )
         if cursor is None:
             page = await manager.start(
                 tab_id=tab_id,
@@ -109,6 +122,7 @@ class SnapshotPageHandler:
             tab_id=tab_id,
             request_context=kwargs.get("request_context") or {},
             capture=capture,
+            include_trusted_bindings=False,
         )
         return _tool_response(
             json.dumps(

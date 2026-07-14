@@ -137,7 +137,13 @@ class CDPSourceTraversalAdapter:
             owner_chain=owner_chain,
             hidden_by_ancestor=hidden_by_ancestor,
         )
-        children, gaps = _child_positions(raw, effective_chain, hidden)
+        frame_accessible = await self._frame_accessible(raw)
+        children, gaps = _child_positions(
+            raw,
+            effective_chain,
+            hidden,
+            frame_accessible=frame_accessible,
+        )
         ax_nodes: tuple[ProbeNode, ...] = ()
         unavailable: tuple[str, ...] = ()
         backend_id = raw.get("backendNodeId") or raw.get("backendDOMNodeId")
@@ -168,6 +174,39 @@ class CDPSourceTraversalAdapter:
             unavailable_sources=unavailable,
             gaps=gaps,
         )
+
+    async def _frame_accessible(self, raw: dict[str, Any]) -> bool | None:
+        """Return whether a frame owner has the main frame's origin.
+
+        CDP DOM.Node deliberately does not expose a ``crossOrigin`` flag.  A
+        frame owner does expose its child ``frameId``; Page.getFrameTree then
+        supplies the protocol-owned parent/child security origins needed for
+        this coverage decision.
+        """
+        content_document = raw.get("contentDocument")
+        if not isinstance(content_document, dict):
+            return None
+        frame_id = str(
+            raw.get("frameId") or content_document.get("frameId") or "",
+        ).strip()
+        if not frame_id:
+            return False
+        try:
+            payload = await self._send("Page.getFrameTree")
+        except SourceTraversalUnavailable:
+            return False
+        records = _frame_records(payload)
+        frame = records.get(frame_id)
+        if frame is None:
+            return False
+        parent_id, origin = frame
+        parent = records.get(parent_id)
+        if parent is None:
+            return False
+        parent_origin = parent[1]
+        if not origin or not parent_origin:
+            return False
+        return origin == parent_origin
 
     async def _send(
         self,
@@ -297,6 +336,8 @@ def _child_positions(
     raw: dict[str, Any],
     owner_chain: tuple[str, ...],
     hidden_by_ancestor: bool,
+    *,
+    frame_accessible: bool | None,
 ) -> tuple[tuple[str, ...], tuple[CoverageGap, ...]]:
     children: list[str] = []
     gaps: list[CoverageGap] = []
@@ -311,7 +352,7 @@ def _child_positions(
     if isinstance(backend_id, int) and backend_id > 0:
         content_document = raw.get("contentDocument")
         if isinstance(content_document, dict):
-            if raw.get("crossOrigin"):
+            if frame_accessible is False:
                 gaps.append(
                     CoverageGap(
                         stage="CAPTURE",
@@ -322,12 +363,19 @@ def _child_positions(
                     ),
                 )
             else:
-                frame_id = str(content_document.get("frameId") or "").strip()
+                frame_id = str(
+                    raw.get("frameId")
+                    or content_document.get("frameId")
+                    or "",
+                ).strip()
                 frame_owner = frame_id or f"backend-{backend_id}"
+                child_chain = (*owner_chain, f"frame:{frame_owner}")
+                if owner_chain[-1] == f"frame:{frame_owner}":
+                    child_chain = owner_chain
                 children.append(
                     _position_from_node(
                         content_document,
-                        (*owner_chain, f"frame:{frame_owner}"),
+                        child_chain,
                         False,
                     ),
                 )
@@ -358,6 +406,34 @@ def _child_positions(
                     ),
                 )
     return tuple(children), tuple(gaps)
+
+
+def _frame_records(
+    payload: dict[str, Any],
+) -> dict[str, tuple[str, str]]:
+    """Flatten CDP Page.FrameTree to child -> (parent, security origin)."""
+    tree = payload.get("frameTree")
+    records: dict[str, tuple[str, str]] = {}
+
+    def collect(value: object, parent_id: str = "") -> None:
+        if not isinstance(value, dict):
+            return
+        frame = value.get("frame")
+        if not isinstance(frame, dict):
+            return
+        frame_id = str(frame.get("id") or "").strip()
+        if not frame_id:
+            return
+        parent = str(frame.get("parentId") or parent_id or "").strip()
+        origin = str(frame.get("securityOrigin") or "").strip()
+        records[frame_id] = (parent, origin)
+        children = value.get("childFrames")
+        if isinstance(children, list):
+            for child in children:
+                collect(child, frame_id)
+
+    collect(tree)
+    return records
 
 
 def _is_transport_timeout(exc: BaseException) -> bool:

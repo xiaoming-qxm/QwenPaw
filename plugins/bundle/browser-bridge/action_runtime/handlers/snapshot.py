@@ -111,6 +111,7 @@ def _canonical_snapshot_payload(
     request_context: dict[str, Any],
     capture: Any,
     observed_urls: dict[str, str] | None = None,
+    include_trusted_bindings: bool = True,
 ) -> dict[str, Any]:
     """Build safe evidence plus a private trusted binding side channel."""
     root_task_id = str(request_context.get("root_task_id") or "").strip()
@@ -183,7 +184,7 @@ def _canonical_snapshot_payload(
                 ),
             },
         )
-    return {
+    payload = {
         "ok": capture.coverage not in {"UNAVAILABLE", "STALE"},
         "mode": "canonical",
         "tab_id": tab_id,
@@ -212,8 +213,10 @@ def _canonical_snapshot_payload(
             }
             for region in capture.regions
         ],
-        "_trusted_bindings": trusted_bindings,
     }
+    if include_trusted_bindings:
+        payload["_trusted_bindings"] = trusted_bindings
+    return payload
 
 
 async def _canonical_visual_grounding_payload(

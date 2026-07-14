@@ -1242,6 +1242,11 @@ class ChromeExtensionBrowserSession:
             owner=owner,
             receiver_tab=str(tab_id),
             expires_at=monotonic() + 30.0,
+            trusted_bindings=_canonical_bindings_from_session_state(
+                self._state,
+                payload,
+                owner=owner,
+            ),
         )
         return SourceTraversalCapture(
             capture=capture,
@@ -2425,6 +2430,7 @@ def _canonical_capture_from_payload(
     receiver_tab: str,
     expires_at: float,
     scope: Any = None,
+    trusted_bindings: dict[str, dict[str, Any]] | None = None,
 ) -> SnapshotCapture:
     """Convert trusted Bridge side-channel facts into owner-issued handles."""
     context_payload = payload.get("context")
@@ -2460,7 +2466,11 @@ def _canonical_capture_from_payload(
         safe_receiver=receiver_tab,
         expires_at=expires_at,
     )
-    trusted = payload.get("_trusted_bindings")
+    trusted = (
+        trusted_bindings
+        if trusted_bindings is not None
+        else payload.get("_trusted_bindings")
+    )
     raw_targets = payload.get("targets")
     if not isinstance(trusted, dict) or not isinstance(raw_targets, list):
         raise BrowserSDKError(
@@ -2730,6 +2740,51 @@ def _require_canonical_payload_owner(
             "Canonical target receiver mismatch.",
             code="target_wrong_receiver",
         )
+
+
+def _canonical_bindings_from_session_state(
+    state: Mapping[str, Any],
+    payload: Mapping[str, Any],
+    *,
+    owner: BrowserRequestBinding,
+) -> dict[str, dict[str, Any]]:
+    """Resolve page tokens from server state without serializing native IDs."""
+    raw_targets = payload.get("targets")
+    bindings = state.get("canonical_target_bindings")
+    if not isinstance(raw_targets, list):
+        raise BrowserSDKError(
+            "Canonical target bindings are unavailable.",
+            code="snapshot_payload_invalid",
+        )
+    if not raw_targets:
+        return {}
+    if not isinstance(bindings, dict):
+        raise BrowserSDKError(
+            "Canonical target bindings are unavailable.",
+            code="snapshot_payload_invalid",
+        )
+    resolved: dict[str, dict[str, Any]] = {}
+    for target in raw_targets:
+        if not isinstance(target, Mapping):
+            raise BrowserSDKError(
+                "Canonical target projection is malformed.",
+                code="snapshot_payload_invalid",
+            )
+        token = str(target.get("binding_token") or "")
+        binding = bindings.get(token)
+        if not token.startswith("target_") or not isinstance(binding, dict):
+            raise BrowserSDKError(
+                "Canonical target token is not trusted.",
+                code="runtime_issued_value",
+            )
+        resolved[token] = {
+            **binding,
+            "root_task_id": owner.root_task_id,
+            "browser_owner_id": owner.browser_owner_id,
+            "session_id": owner.root_session_id,
+            "backend_id": BACKEND_ID,
+        }
+    return resolved
 
 
 def _binding_pairs(
