@@ -78,7 +78,6 @@ repos:
           | \.md$
           | \.html$
           | .*/skills/.*
-          | ^src/qwenpaw/agents/tools/browser/
           | ^e2e/
           )
         args: [
