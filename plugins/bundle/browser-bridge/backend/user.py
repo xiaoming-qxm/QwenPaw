@@ -2731,6 +2731,8 @@ def _require_canonical_payload_owner(
         str(payload.get("root_task_id") or "") != owner.root_task_id
         or str(payload.get("browser_owner_id") or "") != owner.browser_owner_id
         or str(payload.get("session_id") or "") != owner.root_session_id
+        or str(payload.get("root_session_id") or "")
+        != owner.root_session_id
     ):
         raise BrowserSDKError(
             "Canonical target owner mismatch.",
@@ -2797,6 +2799,13 @@ def _canonical_bindings_from_session_state(
                     "Canonical target owner mismatch.",
                     code="target_wrong_owner",
                 )
+        if str(binding.get("root_session_id") or "") != (
+            owner.root_session_id
+        ):
+            raise BrowserSDKError(
+                "Canonical target session owner mismatch.",
+                code="target_wrong_owner",
+            )
         bound_tab = binding.get("tab_id")
         if (
             isinstance(bound_tab, bool)
@@ -2811,6 +2820,7 @@ def _canonical_bindings_from_session_state(
             **binding,
             "root_task_id": owner.root_task_id,
             "browser_owner_id": owner.browser_owner_id,
+            "root_session_id": owner.root_session_id,
             "session_id": owner.root_session_id,
             "backend_id": BACKEND_ID,
         }

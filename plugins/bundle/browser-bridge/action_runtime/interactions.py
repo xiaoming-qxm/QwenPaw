@@ -162,6 +162,7 @@ async def _canonical_execute_interaction(
             state,
             token=token,
             owner_key=owner_key,
+            root_session_id=context.session_id,
             receiver_tab=receiver_tab,
             current_native_identity=native_identity,
             visual=bool(binding.get("visual_context_ref")),

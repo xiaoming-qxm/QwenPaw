@@ -119,6 +119,7 @@ def _control_bind_canonical_target(
     state: StateMapping,
     *,
     owner_key: tuple[str, str],
+    root_session_id: str,
     tab_id: int,
     frame_key: str,
     context: dict[str, int],
@@ -136,6 +137,12 @@ def _control_bind_canonical_target(
             "canonical target owner is invalid",
             code="target_wrong_owner",
         )
+    session_owner = str(root_session_id or "").strip()
+    if not session_owner:
+        raise BrowserSDKError(
+            "canonical target session owner is invalid",
+            code="target_wrong_owner",
+        )
     if not native_identity:
         raise BrowserSDKError(
             "canonical native identity is missing",
@@ -145,6 +152,7 @@ def _control_bind_canonical_target(
     bindings = state.setdefault(_CANONICAL_TARGET_STATE_KEY, {})
     bindings[token] = {
         "owner_key": tuple(owner_key),
+        "root_session_id": session_owner,
         "tab_id": int(tab_id),
         "frame_key": str(frame_key),
         "context": dict(context),
@@ -165,6 +173,7 @@ def _control_canonical_binding_status(
     *,
     token: str,
     owner_key: tuple[str, str],
+    root_session_id: str,
     receiver_tab: int,
     current_native_identity: tuple[tuple[str, str | int], ...],
     visual: bool = False,
@@ -176,6 +185,13 @@ def _control_canonical_binding_status(
     if tuple(binding.get("owner_key", ())) != tuple(owner_key):
         raise BrowserSDKError(
             "canonical target owner mismatch",
+            code="target_wrong_owner",
+        )
+    if str(binding.get("root_session_id") or "") != str(
+        root_session_id or "",
+    ):
+        raise BrowserSDKError(
+            "canonical target session owner mismatch",
             code="target_wrong_owner",
         )
     if int(binding.get("tab_id", -1)) != int(receiver_tab):

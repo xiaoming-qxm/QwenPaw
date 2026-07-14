@@ -140,6 +140,7 @@ def _canonical_snapshot_payload(
         token = _control_bind_canonical_target(
             state,
             owner_key=(root_task_id, browser_owner_id),
+            root_session_id=session_id,
             tab_id=tab_id,
             frame_key=str(target.owner),
             context=context,
