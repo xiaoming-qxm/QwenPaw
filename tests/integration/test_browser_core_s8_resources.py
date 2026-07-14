@@ -17,7 +17,7 @@ from scripts.verify.browser.core_lab.runner import (
     registered_case_ids,
     run_case,
 )
-from qwenpaw.browser.sdk.runtime import resources
+from qwenpaw.browser.runtime import resources
 
 
 def test_resource_file_current_build_case_report_binding_exists() -> None:

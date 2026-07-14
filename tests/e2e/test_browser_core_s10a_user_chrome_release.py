@@ -50,19 +50,19 @@ sys.path.insert(0, str(installed))
 
 import qwenpaw
 from qwenpaw.app.migration import migrate_browser_contract_rollout_config
-from qwenpaw.browser.sdk import Browser
-from qwenpaw.browser.sdk.backends.protocols import BackendProfile
-from qwenpaw.browser.sdk.backends.registry import get_default_backend_registry
-from qwenpaw.browser.sdk.canonical.facade import Browser as CanonicalBrowser
-from qwenpaw.browser.sdk.docs.capabilities import browser_support_manifest
-from qwenpaw.browser.sdk.governance.errors import BrowserContextUnavailable
-from qwenpaw.browser.sdk.primitives.types import BrowserBackendCapabilities
-from qwenpaw.browser.sdk.runtime.kernel import (
+from qwenpaw.browser import Browser
+from qwenpaw.browser.backends.protocols import BackendProfile
+from qwenpaw.browser.backends.registry import get_default_backend_registry
+from qwenpaw.browser.canonical.facade import Browser as CanonicalBrowser
+from qwenpaw.browser.docs.capabilities import browser_support_manifest
+from qwenpaw.browser.governance.errors import BrowserContextUnavailable
+from qwenpaw.browser.primitives.types import BrowserBackendCapabilities
+from qwenpaw.browser.runtime.kernel import (
     BrowserExecutionContext,
     reset_current_execution_context,
     set_current_execution_context,
 )
-from qwenpaw.browser.sdk.runtime.session_owner import RootTaskOutcome
+from qwenpaw.browser.runtime.session_owner import RootTaskOutcome
 from qwenpaw.config.utils import load_config_strict
 from qwenpaw.runtime import root_request_coordinator as coordinator
 

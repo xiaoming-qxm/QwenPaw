@@ -7,9 +7,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from qwenpaw.browser.sdk.canonical.contracts import SurfaceCondition
-from qwenpaw.browser.sdk.condition_evaluator import _surface_condition_matches
-from qwenpaw.browser.sdk.runtime.session_owner import (
+from qwenpaw.browser.canonical.contracts import SurfaceCondition
+from qwenpaw.browser.condition_evaluator import _surface_condition_matches
+from qwenpaw.browser.runtime.session_owner import (
     BrowserSessionOwnerRegistry,
     ContractMode,
     NativeContextVersion,

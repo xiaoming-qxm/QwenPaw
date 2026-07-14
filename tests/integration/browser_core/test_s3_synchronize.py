@@ -12,12 +12,12 @@ import pytest
 
 from scripts.verify.browser.core_lab.model import CapabilityFamily
 from scripts.verify.browser.core_lab.runner import registered_case_ids
-from qwenpaw.browser.sdk.backends.protocols import BackendProfile
-from qwenpaw.browser.sdk.canonical import contracts
-from qwenpaw.browser.sdk.canonical.tabs import Tab
-from qwenpaw.browser.sdk.condition_evaluator import ConditionEvaluator
-from qwenpaw.browser.sdk.runtime.observation_store import ObservationStore
-from qwenpaw.browser.sdk.runtime.result_delivery import (
+from qwenpaw.browser.backends.protocols import BackendProfile
+from qwenpaw.browser.canonical import contracts
+from qwenpaw.browser.canonical.tabs import Tab
+from qwenpaw.browser.condition_evaluator import ConditionEvaluator
+from qwenpaw.browser.runtime.observation_store import ObservationStore
+from qwenpaw.browser.runtime.result_delivery import (
     BrowserExecutionCollector,
     install_result_collector,
     reset_result_collector,
@@ -58,7 +58,7 @@ def test_synchronize_required_cases_and_current_build_evidence_exist() -> None:
     assert required <= case_ids
     manifest = json.loads(
         Path(
-            "src/qwenpaw/browser/sdk/generated/browser-support.json",
+            "src/qwenpaw/browser/generated/browser-support.json",
         ).read_text(encoding="utf-8"),
     )
     build = manifest["build_fingerprint"]

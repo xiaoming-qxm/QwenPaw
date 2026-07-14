@@ -28,11 +28,11 @@ def test_release_wheel_contains_exact_browser_contract_assets() -> None:
         "qwenpaw/app/_app.py",
         "qwenpaw/app/migration.py",
         "qwenpaw/app/routers/browser_core.py",
-        "qwenpaw/browser/sdk/__init__.py",
-        "qwenpaw/browser/sdk/canonical/facade.py",
-        "qwenpaw/browser/sdk/facade/browser.py",
-        "qwenpaw/browser/sdk/generated/browser-support.json",
-        "qwenpaw/browser/sdk/runtime/session_owner.py",
+        "qwenpaw/browser/__init__.py",
+        "qwenpaw/browser/canonical/facade.py",
+        "qwenpaw/browser/facade/browser.py",
+        "qwenpaw/browser/generated/browser-support.json",
+        "qwenpaw/browser/runtime/session_owner.py",
         "qwenpaw/config/config.py",
         "qwenpaw/config/utils.py",
         "qwenpaw/runtime/root_request_coordinator.py",
@@ -42,7 +42,7 @@ def test_release_wheel_contains_exact_browser_contract_assets() -> None:
         assert required.issubset(names)
         support = json.loads(
             archive.read(
-                "qwenpaw/browser/sdk/generated/browser-support.json",
+                "qwenpaw/browser/generated/browser-support.json",
             ),
         )
     fingerprints = {
@@ -96,8 +96,8 @@ import sys
 installed_dir = Path(sys.argv[1]).resolve()
 sys.path.insert(0, str(installed_dir))
 import qwenpaw
-from qwenpaw.browser.sdk import Browser
-from qwenpaw.browser.sdk.canonical.facade import Browser as CanonicalBrowser
+from qwenpaw.browser import Browser
+from qwenpaw.browser.canonical.facade import Browser as CanonicalBrowser
 from qwenpaw.config.config import Config
 from qwenpaw.app.routers.browser_core import router
 

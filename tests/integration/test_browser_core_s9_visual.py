@@ -163,7 +163,7 @@ def test_visual_canvas_support_keeps_required_and_optional_separate(
             case_report(case, run_case(case), from_report="report.json"),
         )
     payload = {"family": "VisualCanvas", "cases": cases}
-    source = "src/qwenpaw/browser/sdk/generated/browser-support.json"
+    source = "src/qwenpaw/browser/generated/browser-support.json"
     manifest_path = tmp_path / "browser-support.json"
     manifest_path.write_text(
         Path(source).read_text(encoding="utf-8"),

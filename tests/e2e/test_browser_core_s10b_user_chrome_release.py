@@ -142,16 +142,16 @@ from fastapi import FastAPI
 import qwenpaw
 from qwenpaw.app._app import _bundled_plugins_dir
 from qwenpaw.app.migration import migrate_browser_contract_rollout_config
-from qwenpaw.browser.sdk import Browser
-from qwenpaw.browser.sdk.backends.registry import get_default_backend_registry
-from qwenpaw.browser.sdk.canonical.facade import Browser as CanonicalBrowser
-from qwenpaw.browser.sdk.docs.capabilities import browser_support_manifest
-from qwenpaw.browser.sdk.runtime.kernel import (
+from qwenpaw.browser import Browser
+from qwenpaw.browser.backends.registry import get_default_backend_registry
+from qwenpaw.browser.canonical.facade import Browser as CanonicalBrowser
+from qwenpaw.browser.docs.capabilities import browser_support_manifest
+from qwenpaw.browser.runtime.kernel import (
     BrowserExecutionContext,
     reset_current_execution_context,
     set_current_execution_context,
 )
-from qwenpaw.browser.sdk.runtime.session_owner import RootTaskOutcome
+from qwenpaw.browser.runtime.session_owner import RootTaskOutcome
 from qwenpaw.config.utils import load_config_strict
 from qwenpaw.plugins.loader import PluginLoader
 from qwenpaw.plugins.state import PluginStateStore

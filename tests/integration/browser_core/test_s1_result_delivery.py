@@ -12,7 +12,7 @@ from qwenpaw.agents.provider_blocks import (
     build_provider_block_profile,
     prepare_required_blocks,
 )
-from qwenpaw.browser.sdk.canonical.contracts import (
+from qwenpaw.browser.canonical.contracts import (
     EvidenceRef,
     ScreenshotResult,
     VisualContextRef,
@@ -20,12 +20,12 @@ from qwenpaw.browser.sdk.canonical.contracts import (
     _issue_opaque_value,
     issue_operation_id,
 )
-from qwenpaw.browser.sdk.runtime.resources import (
+from qwenpaw.browser.runtime.resources import (
     ResourceLimits,
     ResourceStore,
     TrustedOutputSource,
 )
-from qwenpaw.browser.sdk.runtime.result_delivery import (
+from qwenpaw.browser.runtime.result_delivery import (
     BrowserExecutionCollector,
     BrowserResultProjector,
     RequiredBlock,

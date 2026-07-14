@@ -8,10 +8,10 @@ from datetime import UTC, datetime
 import pytest
 
 from qwenpaw.agents.provider_blocks import build_provider_block_profile
-from qwenpaw.browser.sdk.canonical import contracts
-from qwenpaw.browser.sdk.canonical.tabs import Tab
-from qwenpaw.browser.sdk.runtime import observation_store, resources, snapshot
-from qwenpaw.browser.sdk.runtime.result_delivery import (
+from qwenpaw.browser.canonical import contracts
+from qwenpaw.browser.canonical.tabs import Tab
+from qwenpaw.browser.runtime import observation_store, resources, snapshot
+from qwenpaw.browser.runtime.result_delivery import (
     BrowserExecutionCollector,
     BrowserResultProjector,
     install_result_collector,

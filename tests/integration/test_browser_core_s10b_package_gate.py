@@ -12,18 +12,18 @@ import zipfile
 
 
 _RETIRED_HOST_PATHS = {
-    "qwenpaw/browser/sdk/facade/__init__.py",
-    "qwenpaw/browser/sdk/facade/browser.py",
-    "qwenpaw/browser/sdk/contracts.py",
-    "qwenpaw/browser/sdk/actions/__init__.py",
-    "qwenpaw/browser/sdk/actions/tab_actions.py",
-    "qwenpaw/browser/sdk/primitives/tab.py",
-    "qwenpaw/browser/sdk/primitives/tabs.py",
-    "qwenpaw/browser/sdk/runtime/proxy.py",
-    "qwenpaw/browser/sdk/runtime/guard.py",
-    "qwenpaw/browser/sdk/generated/api_catalog.json",
-    "qwenpaw/browser/sdk/generated/capabilities.json",
-    "qwenpaw/browser/sdk/generated/help/index.md",
+    "qwenpaw/browser/facade/__init__.py",
+    "qwenpaw/browser/facade/browser.py",
+    "qwenpaw/browser/contracts.py",
+    "qwenpaw/browser/actions/__init__.py",
+    "qwenpaw/browser/actions/tab_actions.py",
+    "qwenpaw/browser/primitives/tab.py",
+    "qwenpaw/browser/primitives/tabs.py",
+    "qwenpaw/browser/runtime/proxy.py",
+    "qwenpaw/browser/runtime/guard.py",
+    "qwenpaw/browser/generated/api_catalog.json",
+    "qwenpaw/browser/generated/capabilities.json",
+    "qwenpaw/browser/generated/help/index.md",
 }
 _RETIRED_ROOT_TOKENS = (
     "_LEGACY_FALLBACK_ACTIONS",
@@ -65,11 +65,11 @@ def test_release_wheel_is_post_retirement_and_excludes_offline_verifier() -> (
     required = {
         "qwenpaw/app/_app.py",
         "qwenpaw/app/migration.py",
-        "qwenpaw/browser/sdk/__init__.py",
-        "qwenpaw/browser/sdk/canonical/action_contract.py",
-        "qwenpaw/browser/sdk/canonical/facade.py",
-        "qwenpaw/browser/sdk/generated/browser-support.json",
-        "qwenpaw/browser/sdk/runtime/session_owner.py",
+        "qwenpaw/browser/__init__.py",
+        "qwenpaw/browser/canonical/action_contract.py",
+        "qwenpaw/browser/canonical/facade.py",
+        "qwenpaw/browser/generated/browser-support.json",
+        "qwenpaw/browser/runtime/session_owner.py",
         "qwenpaw/config/config.py",
         "qwenpaw/runtime/root_request_coordinator.py",
     }
@@ -94,7 +94,7 @@ def test_release_wheel_is_post_retirement_and_excludes_offline_verifier() -> (
             if name.endswith(".py")
         )
         support = json.loads(
-            archive.read("qwenpaw/browser/sdk/generated/browser-support.json"),
+            archive.read("qwenpaw/browser/generated/browser-support.json"),
         )
     assert not any(token in python_text for token in _RETIRED_ROOT_TOKENS)
     assert support["legacy_state"] == "RETIRED"
@@ -122,8 +122,8 @@ installed_dir = Path(sys.argv[1]).resolve()
 sys.path.insert(0, str(installed_dir))
 from fastapi import FastAPI
 import qwenpaw
-from qwenpaw.browser.sdk import Browser
-from qwenpaw.browser.sdk.canonical.facade import Browser as CanonicalBrowser
+from qwenpaw.browser import Browser
+from qwenpaw.browser.canonical.facade import Browser as CanonicalBrowser
 from qwenpaw.config.config import Config
 from qwenpaw.app._app import _bundled_plugins_dir
 from qwenpaw.plugins.loader import PluginLoader
@@ -164,7 +164,7 @@ except ModuleNotFoundError:
 else:
     raise AssertionError("temporary browser_core endpoint module is packaged")
 try:
-    __import__("qwenpaw.browser.sdk.contracts")
+    __import__("qwenpaw.browser.contracts")
 except ModuleNotFoundError:
     pass
 else:

@@ -11,7 +11,7 @@ import pytest
 from agentscope.message import TextBlock, ToolResultBlock
 from agentscope.tool import ToolResponse
 
-from qwenpaw.browser.sdk.runtime.session_owner import ContractMode
+from qwenpaw.browser.runtime.session_owner import ContractMode
 from qwenpaw.tool_calls import ToolCoordinator, ToolCoordinatorMiddleware
 from qwenpaw.tool_calls._context import ToolCallContext
 from qwenpaw.tool_calls._entry import ToolCallEntry

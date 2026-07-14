@@ -9,10 +9,10 @@ from pathlib import Path
 
 import pytest
 
-from qwenpaw.browser.sdk.canonical.tabs import TabActions
-from qwenpaw.browser.sdk.runtime.executor import InProcessBrowserCodeExecutor
-from qwenpaw.browser.sdk.runtime.kernel import BrowserExecutionContext
-from qwenpaw.browser.sdk.runtime.session_owner import (
+from qwenpaw.browser.canonical.tabs import TabActions
+from qwenpaw.browser.runtime.executor import InProcessBrowserCodeExecutor
+from qwenpaw.browser.runtime.kernel import BrowserExecutionContext
+from qwenpaw.browser.runtime.session_owner import (
     BrowserSessionOwnerRegistry,
     ContractMode,
     RootTaskOutcome,
@@ -141,13 +141,13 @@ async def test_capture_only_mode_namespace_has_no_shadow_effect() -> None:
 
 def test_legacy_generated_golden_is_byte_identical() -> None:
     expected = {
-        "src/qwenpaw/browser/sdk/generated/api_catalog.json": (
+        "src/qwenpaw/browser/generated/api_catalog.json": (
             "24e8e77d70ac879d0d0a6668aac39b8914176b8945b82960daaede02cc5e278e"
         ),
-        "src/qwenpaw/browser/sdk/generated/capabilities.json": (
+        "src/qwenpaw/browser/generated/capabilities.json": (
             "d5ab97a94115f0694a5e82ef422051a1993955a579e368810e08b21af0e688a5"
         ),
-        "src/qwenpaw/browser/sdk/generated/help/index.md": (
+        "src/qwenpaw/browser/generated/help/index.md": (
             "5ccab803e6f46a41d1aa1125d2a9dcd1d6d869783ba447ad9d228524b34d6abc"
         ),
     }

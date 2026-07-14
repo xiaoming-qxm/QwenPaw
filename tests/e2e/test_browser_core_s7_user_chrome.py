@@ -7,8 +7,8 @@ from hashlib import sha256
 from pathlib import Path
 from types import SimpleNamespace
 
-from qwenpaw.browser.sdk.canonical.contracts import ActionResult, Problem
-from qwenpaw.browser.sdk.runtime.result_delivery import (
+from qwenpaw.browser.canonical.contracts import ActionResult, Problem
+from qwenpaw.browser.runtime.result_delivery import (
     BrowserExecutionCollector,
     BrowserResultProjector,
 )

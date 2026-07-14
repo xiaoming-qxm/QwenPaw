@@ -64,7 +64,7 @@ def reset_langfuse_context(monkeypatch):
 
 
 def _make_hook_context(**overrides) -> Any:
-    from qwenpaw.browser.sdk.runtime.session_owner import ContractMode
+    from qwenpaw.browser.runtime.session_owner import ContractMode
     from qwenpaw.runtime.hooks import HookContext
 
     defaults = {
