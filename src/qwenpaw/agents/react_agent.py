@@ -53,13 +53,14 @@ def _apply_final_message_override(
     final_text = str(stop_result.final_message or "")
     if not final_text:
         return final_msg
+    metadata = getattr(final_msg, "metadata", None)
     return Msg(
         name=final_msg.name,
         role=final_msg.role,
         content=[
             TextBlock(type="text", text=final_text),
         ],
-        metadata=getattr(final_msg, "metadata", None),
+        metadata=metadata if isinstance(metadata, dict) else {},
     )
 
 

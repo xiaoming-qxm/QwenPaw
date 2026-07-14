@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-import yaml
+import yaml  # type: ignore[import-untyped]  # PyYAML ships no PEP 561 stubs.
 
 POLICY_SEVERITY = {
     "allow": 0,
