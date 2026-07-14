@@ -563,7 +563,7 @@ def _parse_sse_payload(line: str) -> Optional[Dict[str, Any]]:
     summary="Submit a background chat task",
 )
 async def post_console_chat_task(
-    request_data: Union[AgentRequest, dict],
+    request_data: Union[dict, AgentRequest],
     request: Request,
 ) -> dict:
     """Run an agent chat as a background task.
