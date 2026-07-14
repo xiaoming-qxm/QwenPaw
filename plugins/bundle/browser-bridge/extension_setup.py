@@ -72,10 +72,6 @@ def native_manifest_path(
     )
 
 
-def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[3]
-
-
 def _plugin_root() -> Path:
     return Path(__file__).resolve().parent
 
@@ -90,11 +86,9 @@ def _first_existing_path(candidates: list[Path], label: str) -> Path:
 
 def _extension_source_dir() -> Path:
     plugin_root = _plugin_root()
-    repo_root = _repo_root()
     return _first_existing_path(
         [
             plugin_root / "assets" / "extensions" / "qwenpaw-browser-bridge",
-            repo_root / "extensions" / "qwenpaw-browser-bridge",
         ],
         "Browser bridge extension assets",
     )
@@ -102,11 +96,9 @@ def _extension_source_dir() -> Path:
 
 def _native_host_source_path() -> Path:
     plugin_root = _plugin_root()
-    repo_root = _repo_root()
     return _first_existing_path(
         [
             plugin_root / "assets" / "scripts" / "nm_host.py",
-            repo_root / "scripts" / "nm_host.py",
         ],
         "Native Messaging host script",
     )

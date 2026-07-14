@@ -68,7 +68,6 @@ BRIDGE_SYMBOL_PATHS = (
     "plugins/bundle/browser-bridge/engine_impl.py",
     "plugins/bundle/browser-bridge/transport/native_messaging.py",
     "plugins/bundle/browser-bridge/assets/extensions/qwenpaw-browser-bridge/service_worker.js",
-    "extensions/qwenpaw-browser-bridge/service_worker.js",
 )
 _BRIDGE_SYMBOL_ROOTS = (
     (
