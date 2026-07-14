@@ -37,7 +37,7 @@ class SessionCapabilityTruth:
 def browser_support_manifest() -> dict[str, Any]:
     """Return the reviewed release/build support manifest."""
     artifact = (
-        resources.files("qwenpaw.browser.sdk")
+        resources.files("qwenpaw.browser")
         / "generated"
         / "browser-support.json"
     )
@@ -196,7 +196,7 @@ def capability_gap(action: str, message: str) -> dict[str, Any]:
 @lru_cache(maxsize=1)
 def _generated_capabilities() -> dict[str, Any]:
     artifact = (
-        resources.files("qwenpaw.browser.sdk")
+        resources.files("qwenpaw.browser")
         / "generated"
         / "canonical"
         / "capabilities.json"

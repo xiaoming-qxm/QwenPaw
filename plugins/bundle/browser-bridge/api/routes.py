@@ -24,14 +24,14 @@ from fastapi import (
 )
 from starlette.responses import JSONResponse
 
-from qwenpaw.browser.sdk.backends.registry import get_default_backend_registry
-from qwenpaw.browser.sdk.governance.error_codes import BrowserErrorCode
-from qwenpaw.browser.sdk.telemetry.trace import (
+from qwenpaw.browser.backends.registry import get_default_backend_registry
+from qwenpaw.browser.governance.error_codes import BrowserErrorCode
+from qwenpaw.browser.telemetry.trace import (
     BrowserTraceEvent,
     get_browser_trace_store,
     summarize_browser_tab_ownership,
 )
-from qwenpaw.browser.sdk.primitives.types import (
+from qwenpaw.browser.primitives.types import (
     BrowserBackendDiagnostic,
     BrowserContext,
     BrowserDiagnosticCheck,

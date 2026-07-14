@@ -6,7 +6,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from qwenpaw.browser.sdk.governance.errors import BrowserSDKError
+from qwenpaw.browser.governance.errors import BrowserSDKError
 
 from ..interactions import canonical_paste_control
 from ..state import ControlState

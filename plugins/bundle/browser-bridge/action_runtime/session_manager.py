@@ -8,9 +8,9 @@ import asyncio
 from typing import Any
 from uuid import uuid4
 
-from qwenpaw.browser.sdk.runtime.session_owner import OwnerKey
-from qwenpaw.browser.sdk.runtime.responses import logger
-from qwenpaw.browser.sdk.governance.errors import BrowserSDKError
+from qwenpaw.browser.runtime.session_owner import OwnerKey
+from qwenpaw.browser.runtime.responses import logger
+from qwenpaw.browser.governance.errors import BrowserSDKError
 from .errors import RECOVERABLE_CONTROL_EXCEPTIONS
 from .ref_scope import _control_advance_canonical_generation
 from .state import StateMapping

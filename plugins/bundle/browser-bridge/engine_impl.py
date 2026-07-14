@@ -9,8 +9,8 @@ from typing import Any
 
 from agentscope.tool import ToolChunk
 
-from qwenpaw.browser.sdk.governance.errors import BrowserSDKError
-from qwenpaw.browser.sdk.runtime.responses import _tool_response
+from qwenpaw.browser.governance.errors import BrowserSDKError
+from qwenpaw.browser.runtime.responses import _tool_response
 from .action_runtime import tab_manager as control_tab_manager
 from .action_runtime import navigation as control_navigation
 from .action_runtime.handlers import SUPPORTED_ACTIONS
@@ -59,7 +59,7 @@ class ControlEngineImpl:
         manager = self._bridge_manager
         bridge = manager.get_connection() if manager is not None else None
         request_context = _control_request_context()
-        from qwenpaw.browser.sdk.runtime.kernel import (
+        from qwenpaw.browser.runtime.kernel import (
             get_current_execution_context,
         )
 

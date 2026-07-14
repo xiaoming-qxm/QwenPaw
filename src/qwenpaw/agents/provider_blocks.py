@@ -8,11 +8,11 @@ from dataclasses import dataclass, field
 from functools import wraps
 from typing import Any, cast
 
-from qwenpaw.browser.sdk.canonical.contracts import (
+from qwenpaw.browser.canonical.contracts import (
     Problem,
     TransportProblemDetails,
 )
-from qwenpaw.browser.sdk.runtime.result_delivery import (
+from qwenpaw.browser.runtime.result_delivery import (
     BlockKind,
     ProjectedBlock,
     reset_provider_block_profile,

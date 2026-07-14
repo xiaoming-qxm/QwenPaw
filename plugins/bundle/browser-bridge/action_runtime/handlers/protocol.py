@@ -10,7 +10,7 @@ from typing import Any, Mapping, Protocol
 
 from agentscope.tool import ToolChunk
 
-from qwenpaw.browser.sdk.action_runner import DispatchContext
+from qwenpaw.browser.action_runner import DispatchContext
 from ..state import ControlState
 
 

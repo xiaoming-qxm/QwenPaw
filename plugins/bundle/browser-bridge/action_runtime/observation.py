@@ -13,7 +13,7 @@ from typing import Any
 
 from agentscope.tool import ToolChunk
 
-from qwenpaw.browser.sdk.runtime.responses import _tool_response
+from qwenpaw.browser.runtime.responses import _tool_response
 from .state import StateMapping
 from .tab_manager import _CONTROL_MUTATING_ACTIONS
 

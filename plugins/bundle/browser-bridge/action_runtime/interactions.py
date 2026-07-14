@@ -13,12 +13,12 @@ from time import monotonic
 from typing import Any
 from urllib.parse import urlsplit
 
-from qwenpaw.browser.sdk.action_runner import DispatchContext
-from qwenpaw.browser.sdk.governance.errors import BrowserSDKError
-from qwenpaw.browser.sdk.governance.policy import (
+from qwenpaw.browser.action_runner import DispatchContext
+from qwenpaw.browser.governance.errors import BrowserSDKError
+from qwenpaw.browser.governance.policy import (
     trusted_surface_rule_fingerprint,
 )
-from qwenpaw.browser.sdk.runtime.responses import _tool_response
+from qwenpaw.browser.runtime.responses import _tool_response
 from .network_settle import _network_quiescence_wait as _default_network_wait
 from .ref_scope import (
     _control_canonical_binding_status,

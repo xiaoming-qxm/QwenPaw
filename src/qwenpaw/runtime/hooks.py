@@ -26,7 +26,7 @@ from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from ..browser.sdk.runtime.session_owner import ContractMode
+from ..browser.runtime.session_owner import ContractMode
 
 from ..exceptions import HookCycleError
 from .phases import Phase

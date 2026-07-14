@@ -14,15 +14,15 @@ from dataclasses import dataclass, replace
 from typing import Any, Protocol
 from uuid import uuid4
 
-from qwenpaw.browser.sdk.canonical.contracts import (
+from qwenpaw.browser.canonical.contracts import (
     CaptureGap,
     Coverage,
     CoverageGap,
     TargetQuery,
     coverage_from_gaps,
 )
-from qwenpaw.browser.sdk.primitives.matching import normalize_visible_text
-from qwenpaw.browser.sdk.runtime.snapshot import (
+from qwenpaw.browser.primitives.matching import normalize_visible_text
+from qwenpaw.browser.runtime.snapshot import (
     ProbeNode,
     SnapshotTarget,
     SourceOutcome,

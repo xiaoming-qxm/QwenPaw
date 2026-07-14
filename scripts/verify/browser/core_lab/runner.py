@@ -12,7 +12,7 @@ from importlib import import_module
 from types import SimpleNamespace
 from typing import TypedDict
 
-from qwenpaw.browser.sdk.primitives.matching import (
+from qwenpaw.browser.primitives.matching import (
     match_page_url,
     normalize_visible_text,
 )
@@ -878,16 +878,16 @@ async def _run_visual_canvas_production(
     case: LabCase,
 ) -> _VisualProductionObservation:
     """Execute actual snapshot, User promotion, and Bridge input seams."""
-    contracts = import_module("qwenpaw.browser.sdk.canonical.contracts")
+    contracts = import_module("qwenpaw.browser.canonical.contracts")
     condition_runtime = import_module(
-        "qwenpaw.browser.sdk.condition_evaluator",
+        "qwenpaw.browser.condition_evaluator",
     )
-    snapshot_runtime = import_module("qwenpaw.browser.sdk.runtime.snapshot")
-    owner_runtime = import_module("qwenpaw.browser.sdk.runtime.session_owner")
-    policy_runtime = import_module("qwenpaw.browser.sdk.governance.policy")
-    action_runtime = import_module("qwenpaw.browser.sdk.action_runner")
+    snapshot_runtime = import_module("qwenpaw.browser.runtime.snapshot")
+    owner_runtime = import_module("qwenpaw.browser.runtime.session_owner")
+    policy_runtime = import_module("qwenpaw.browser.governance.policy")
+    action_runtime = import_module("qwenpaw.browser.action_runner")
     api_contracts = import_module(
-        "qwenpaw.browser.sdk.canonical.action_contract",
+        "qwenpaw.browser.canonical.action_contract",
     )
     snapshot_handler = import_module(
         "plugins.bundle.browser-bridge.action_runtime.handlers.snapshot",
@@ -899,8 +899,8 @@ async def _run_visual_canvas_production(
     engine_runtime = import_module(
         "plugins.bundle.browser-bridge.engine_impl",
     )
-    primitives_runtime = import_module("qwenpaw.browser.sdk.primitives.types")
-    kernel_runtime = import_module("qwenpaw.browser.sdk.runtime.kernel")
+    primitives_runtime = import_module("qwenpaw.browser.primitives.types")
+    kernel_runtime = import_module("qwenpaw.browser.runtime.kernel")
     coordinator_runtime = import_module(
         "qwenpaw.runtime.root_request_coordinator",
     )
@@ -1438,7 +1438,7 @@ def _action_fault_facts(case: LabCase) -> ActionFaultFacts:
         FaultCutPoint.DURING_RESULT_MAPPING,
         FaultCutPoint.DROP_REQUIRED_RESOURCE_BLOCK,
     }:
-        kernel = import_module("qwenpaw.browser.sdk.runtime.kernel")
+        kernel = import_module("qwenpaw.browser.runtime.kernel")
         token = kernel._install_core_lab_fault(
             case.fault.value,
             kernel._CORE_LAB_FAULT_AUTHORITY,

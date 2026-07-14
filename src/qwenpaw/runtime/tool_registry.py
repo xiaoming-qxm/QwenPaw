@@ -167,7 +167,7 @@ _REGISTERED_IDS: set[int] = set()
 # ``get_builtin_tool_funcs()``.
 _BUILTIN_TOOLS_PREFIXES = (
     "qwenpaw.agents.tools.",
-    "qwenpaw.browser.sdk.runtime.tool_entrypoint",
+    "qwenpaw.browser.runtime.tool_entrypoint",
 )
 
 

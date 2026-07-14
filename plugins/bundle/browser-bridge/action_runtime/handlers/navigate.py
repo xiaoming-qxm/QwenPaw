@@ -7,7 +7,7 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
-from qwenpaw.browser.sdk.runtime.responses import _tool_response
+from qwenpaw.browser.runtime.responses import _tool_response
 from ..claiming import claim_control_tab
 from ..errors import BrowserBridgeRecoverableError, NavigationFailed
 from .. import navigation as control_navigation

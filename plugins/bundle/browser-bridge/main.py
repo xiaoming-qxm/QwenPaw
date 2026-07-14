@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 from types import ModuleType
 
-from qwenpaw.browser.sdk.telemetry.trace import record_browser_trace_event
+from qwenpaw.browser.telemetry.trace import record_browser_trace_event
 from qwenpaw.plugins.api import PluginApi
 
 from .backend.user import register_user_backend_once

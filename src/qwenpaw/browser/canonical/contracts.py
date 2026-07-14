@@ -1873,7 +1873,7 @@ def _canonical_action_entry(
             )
     return _entry(
         f"tab.actions.{name}",
-        f"qwenpaw.browser.sdk.canonical.tabs:TabActions.{name}",
+        f"qwenpaw.browser.canonical.tabs:TabActions.{name}",
         signature,
         mutates=True,
         kind="action",
@@ -1892,14 +1892,14 @@ def canonical_api_catalog() -> dict[str, Any]:
         "apis": [
             _entry(
                 "browser.close",
-                "qwenpaw.browser.sdk.canonical.facade:Browser.close",
+                "qwenpaw.browser.canonical.facade:Browser.close",
                 "async close() -> None",
                 mutates=True,
                 summary="Release the current SDK lease only.",
             ),
             _entry(
                 "browser.connect",
-                "qwenpaw.browser.sdk.canonical.facade:Browser.connect",
+                "qwenpaw.browser.canonical.facade:Browser.connect",
                 (
                     "async connect(context: Literal['auto', 'user', "
                     "'isolated'] = 'auto') -> Browser"
@@ -2145,7 +2145,7 @@ def canonical_api_catalog() -> dict[str, Any]:
             ),
             _entry(
                 "tab.close",
-                "qwenpaw.browser.sdk.canonical.tabs:Tab.close",
+                "qwenpaw.browser.canonical.tabs:Tab.close",
                 "async close() -> ActionResult",
                 mutates=True,
                 kind="primitive",
@@ -2154,7 +2154,7 @@ def canonical_api_catalog() -> dict[str, Any]:
             ),
             _entry(
                 "browser.tabs.open",
-                "qwenpaw.browser.sdk.canonical.tabs:BrowserTabs.open",
+                "qwenpaw.browser.canonical.tabs:BrowserTabs.open",
                 "async open(url: str) -> ActionResult",
                 mutates=True,
                 kind="primitive",
@@ -2171,7 +2171,7 @@ def canonical_api_catalog() -> dict[str, Any]:
             ),
             _entry(
                 "browser.tabs.new",
-                "qwenpaw.browser.sdk.canonical.tabs:BrowserTabs.new",
+                "qwenpaw.browser.canonical.tabs:BrowserTabs.new",
                 "async new() -> ActionResult",
                 mutates=True,
                 kind="primitive",
@@ -2180,7 +2180,7 @@ def canonical_api_catalog() -> dict[str, Any]:
             ),
             _entry(
                 "tab.print_to_pdf",
-                "qwenpaw.browser.sdk.canonical.tabs:Tab.print_to_pdf",
+                "qwenpaw.browser.canonical.tabs:Tab.print_to_pdf",
                 (
                     "async print_to_pdf(*, options: PagePdfOptions | None "
                     "= None) -> PagePdfResult"
@@ -2201,7 +2201,7 @@ def canonical_api_catalog() -> dict[str, Any]:
             ),
             _entry(
                 "tab.snapshot",
-                "qwenpaw.browser.sdk.canonical.tabs:Tab.snapshot",
+                "qwenpaw.browser.canonical.tabs:Tab.snapshot",
                 (
                     "async snapshot(*, scope: ObservationScope | None = None, "
                     "query: TargetQuery | None = None, "
@@ -2248,7 +2248,7 @@ def canonical_api_catalog() -> dict[str, Any]:
             ),
             _entry(
                 "tab.read",
-                "qwenpaw.browser.sdk.canonical.tabs:Tab.read",
+                "qwenpaw.browser.canonical.tabs:Tab.read",
                 (
                     "async read(*, scope: ObservationScope | None = None, "
                     "cursor: ReadCursor | None = None, "
@@ -2285,7 +2285,7 @@ def canonical_api_catalog() -> dict[str, Any]:
             ),
             _entry(
                 "tab.screenshot",
-                "qwenpaw.browser.sdk.canonical.tabs:Tab.screenshot",
+                "qwenpaw.browser.canonical.tabs:Tab.screenshot",
                 (
                     "async screenshot(*, scope: Literal['viewport', "
                     "'full_page'] = 'viewport') -> ScreenshotResult"
@@ -2307,7 +2307,7 @@ def canonical_api_catalog() -> dict[str, Any]:
             ),
             _entry(
                 "tab.wait_for",
-                "qwenpaw.browser.sdk.canonical.tabs:Tab.wait_for",
+                "qwenpaw.browser.canonical.tabs:Tab.wait_for",
                 (
                     "async wait_for(condition: BrowserCondition, *, "
                     "timeout_ms: int, stable_ms: int = 0) -> WaitResult"

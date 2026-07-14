@@ -14,13 +14,13 @@ from dataclasses import dataclass
 from time import monotonic
 from typing import Any
 
-from qwenpaw.browser.sdk.action_runner import (
+from .action_runner import (
     ActionPreview,
     ApprovalGrant,
     issue_exact_grant,
 )
-from qwenpaw.browser.sdk.governance.policy import TrustedSurfacePolicy
-from qwenpaw.browser.sdk.primitives.types import (
+from .governance.policy import TrustedSurfacePolicy
+from .primitives.types import (
     BrowserActionRequest,
     BrowserContextRequest,
     BrowserPolicyDecision,

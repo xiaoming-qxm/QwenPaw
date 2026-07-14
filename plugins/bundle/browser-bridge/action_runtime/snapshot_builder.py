@@ -10,7 +10,7 @@ import asyncio
 import hashlib
 import re
 from typing import Any
-from qwenpaw.browser.sdk.canonical.contracts import (
+from qwenpaw.browser.canonical.contracts import (
     ContextVersion,
     Coverage,
     CurrentSurface,
@@ -19,11 +19,11 @@ from qwenpaw.browser.sdk.canonical.contracts import (
     _issue_opaque_value,
     _RUNTIME_VALUE_ISSUER,
 )
-from qwenpaw.browser.sdk.primitives.matching import (
+from qwenpaw.browser.primitives.matching import (
     canonicalize_http_url,
     normalize_visible_text,
 )
-from qwenpaw.browser.sdk.runtime.snapshot import (
+from qwenpaw.browser.runtime.snapshot import (
     ObservationBudget,
     ProbeBatch,
     ProbeNode,

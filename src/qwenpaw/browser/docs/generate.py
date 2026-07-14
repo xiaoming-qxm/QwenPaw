@@ -263,7 +263,7 @@ def _canonical_resource_entries() -> list[dict[str, Any]]:
             "api_id": "browser.resources.list",
             "public_name": "browser.resources.list",
             "callable_path": (
-                "qwenpaw.browser.sdk.canonical.facade:BrowserResources.list"
+                "qwenpaw.browser.canonical.facade:BrowserResources.list"
             ),
             "signature": "list() -> list[ResourceHandle]",
             "parameters": [],
@@ -275,7 +275,7 @@ def _canonical_resource_entries() -> list[dict[str, Any]]:
             "api_id": "browser.resources.require",
             "public_name": "browser.resources.require",
             "callable_path": (
-                "qwenpaw.browser.sdk.canonical.facade:BrowserResources.require"
+                "qwenpaw.browser.canonical.facade:BrowserResources.require"
             ),
             "signature": "require(resource_id: str) -> ResourceHandle",
             "parameters": [
@@ -294,7 +294,7 @@ def _canonical_resource_entries() -> list[dict[str, Any]]:
             "api_id": "browser.resources.from_workspace",
             "public_name": "browser.resources.from_workspace",
             "callable_path": (
-                "qwenpaw.browser.sdk.canonical.facade:"
+                "qwenpaw.browser.canonical.facade:"
                 "BrowserResources.from_workspace"
             ),
             "signature": "from_workspace(path: str) -> ResourceHandle",

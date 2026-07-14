@@ -552,7 +552,7 @@ class Runtime:
 
 async def _register_browser_attachments(ctx: Any) -> None:
     """Publish only host-issued attachment descriptors under this owner."""
-    from qwenpaw.browser.sdk.runtime.resources import (
+    from qwenpaw.browser.runtime.resources import (
         get_or_create_resource_store,
     )
     from qwenpaw.runtime.message_convert import TrustedAttachmentDescriptor

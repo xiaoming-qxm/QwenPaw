@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from ..browser.sdk.runtime.session_owner import (
+from ..browser.runtime.session_owner import (
     BrowserContractRolloutSnapshot,
     BrowserOwnerRegistryError,
     BrowserRequestBinding,
@@ -199,10 +199,10 @@ async def _cleanup_root_owner(
     *,
     reason: str,
 ) -> None:
-    from ..browser.sdk.backends.registry import (
+    from ..browser.backends.registry import (
         cleanup_browser_backend_request_resources,
     )
-    from ..browser.sdk.runtime.kernel import (
+    from ..browser.runtime.kernel import (
         cleanup_browser_kernels_for_lifecycle,
     )
 

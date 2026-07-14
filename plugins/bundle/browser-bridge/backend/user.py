@@ -15,9 +15,9 @@ from time import monotonic, perf_counter
 from typing import Any, Callable, Literal, Mapping, cast
 from urllib.parse import urlparse
 
-from qwenpaw.browser.sdk.backends.registry import get_default_backend_registry
-from qwenpaw.browser.sdk.action_runner import DispatchContext
-from qwenpaw.browser.sdk.canonical.contracts import (
+from qwenpaw.browser.backends.registry import get_default_backend_registry
+from qwenpaw.browser.action_runner import DispatchContext
+from qwenpaw.browser.canonical.contracts import (
     ActionResult,
     BrowserPrompt,
     CaptureGap,
@@ -37,7 +37,7 @@ from qwenpaw.browser.sdk.canonical.contracts import (
     _issue_opaque_value,
     issue_operation_id,
 )
-from qwenpaw.browser.sdk.condition_evaluator import (
+from qwenpaw.browser.condition_evaluator import (
     ConditionProbe,
     PageFacts,
     ProbeHint,
@@ -46,28 +46,28 @@ from qwenpaw.browser.sdk.condition_evaluator import (
     ProbeSubscription,
     RegionFacts,
 )
-from qwenpaw.browser.sdk.governance.errors import (
+from qwenpaw.browser.governance.errors import (
     BrowserContextUnavailable,
     BrowserPolicyDenied,
     BrowserSDKError,
 )
-from qwenpaw.browser.sdk.governance.error_codes import classify_browser_error
-from qwenpaw.browser.sdk.primitives.observation import (
+from qwenpaw.browser.governance.error_codes import classify_browser_error
+from qwenpaw.browser.primitives.observation import (
     coerce_observation,
     coerce_screenshot,
 )
-from qwenpaw.browser.sdk.governance.policy import (
+from qwenpaw.browser.governance.policy import (
     BrowserPolicy,
     DefaultBrowserPolicy,
 )
-from qwenpaw.browser.sdk.governance.boundary import (
+from qwenpaw.browser.governance.boundary import (
     evaluate_browser_boundary,
     raise_if_boundary_denied,
     require_canonical_effect_floor,
 )
-from qwenpaw.browser.sdk.governance.effects import EffectClassification
-from qwenpaw.browser.sdk.telemetry.trace import record_browser_trace_event
-from qwenpaw.browser.sdk.primitives.types import (
+from qwenpaw.browser.governance.effects import EffectClassification
+from qwenpaw.browser.telemetry.trace import record_browser_trace_event
+from qwenpaw.browser.primitives.types import (
     BrowserActionResult,
     BrowserBackendCapabilities,
     BrowserBackendDiagnostic,
@@ -80,17 +80,17 @@ from qwenpaw.browser.sdk.primitives.types import (
     ResolvedBrowserContext,
     build_browser_ownership_context,
 )
-from qwenpaw.browser.sdk.primitives.types import (
+from qwenpaw.browser.primitives.types import (
     BrowserObservation,
     BrowserScreenshot,
 )
-from qwenpaw.browser.sdk.runtime.resources import (
+from qwenpaw.browser.runtime.resources import (
     DownloadCapture,
     PagePdfCapture,
     ScreenshotCapture,
     ScreenshotInvariant,
 )
-from qwenpaw.browser.sdk.runtime.session_owner import (
+from qwenpaw.browser.runtime.session_owner import (
     BrowserRequestBinding,
     BrowserSessionOwnerRegistry,
     ContractMode,
@@ -99,7 +99,7 @@ from qwenpaw.browser.sdk.runtime.session_owner import (
     NativeContextVersion,
     TargetBinding,
 )
-from qwenpaw.browser.sdk.runtime.snapshot import (
+from qwenpaw.browser.runtime.snapshot import (
     RegionSummary as SnapshotRegionSummary,
     SnapshotCapture,
     SnapshotTarget,
@@ -265,7 +265,7 @@ class ChromeExtensionBrowserBackend:
 
     def profile(self):
         """Return exact reviewed variants; diagnostics may only narrow them."""
-        from qwenpaw.browser.sdk.backends.protocols import BackendProfile
+        from qwenpaw.browser.backends.protocols import BackendProfile
 
         from ..action_runtime.handlers.capabilities import backend_profile
 
@@ -512,7 +512,7 @@ class ChromeExtensionBrowserBackend:
                 code="browser_bridge_disconnected",
                 backend_id=self.backend_id,
             )
-        from qwenpaw.browser.sdk.runtime.kernel import (
+        from qwenpaw.browser.runtime.kernel import (
             get_current_execution_context,
         )
 
@@ -915,7 +915,7 @@ class ChromeExtensionBrowserSession:
         tab: TabSummary,
     ) -> BrowserPrompt | None:
         """Project the exact captured Canonical prompt into owner authority."""
-        from qwenpaw.browser.sdk.runtime.kernel import (
+        from qwenpaw.browser.runtime.kernel import (
             get_current_execution_context,
         )
         from qwenpaw.runtime.root_request_coordinator import _OWNER_REGISTRY
@@ -1129,7 +1129,7 @@ class ChromeExtensionBrowserSession:
                 "Canonical snapshot returned an invalid payload.",
                 code="snapshot_payload_invalid",
             )
-        from qwenpaw.browser.sdk.runtime.kernel import (
+        from qwenpaw.browser.runtime.kernel import (
             get_current_execution_context,
         )
         from qwenpaw.runtime.root_request_coordinator import _OWNER_REGISTRY
@@ -1221,7 +1221,7 @@ class ChromeExtensionBrowserSession:
                 "Canonical source traversal state is invalid.",
                 code="snapshot_payload_invalid",
             )
-        from qwenpaw.browser.sdk.runtime.kernel import (
+        from qwenpaw.browser.runtime.kernel import (
             get_current_execution_context,
         )
         from qwenpaw.runtime.root_request_coordinator import _OWNER_REGISTRY
@@ -1284,7 +1284,7 @@ class ChromeExtensionBrowserSession:
             )
         if not isinstance(scope, VisualRegion):
             raise TypeError("scope must be a VisualRegion")
-        from qwenpaw.browser.sdk.runtime.kernel import (
+        from qwenpaw.browser.runtime.kernel import (
             get_current_execution_context,
         )
         from qwenpaw.runtime.root_request_coordinator import _OWNER_REGISTRY
@@ -1365,7 +1365,7 @@ class ChromeExtensionBrowserSession:
         budget: Any,
     ) -> SnapshotCapture:
         """Ground one registry-bound viewport region through the Bridge."""
-        from qwenpaw.browser.sdk.runtime.kernel import (
+        from qwenpaw.browser.runtime.kernel import (
             get_current_execution_context,
         )
         from qwenpaw.runtime.root_request_coordinator import _OWNER_REGISTRY
@@ -1960,7 +1960,7 @@ class ChromeExtensionBrowserSession:
         **kwargs: Any,
     ) -> BrowserActionResult:
         self._touch_activity()
-        from qwenpaw.browser.sdk.runtime.kernel import (
+        from qwenpaw.browser.runtime.kernel import (
             get_current_execution_context,
         )
         from qwenpaw.runtime.root_request_coordinator import _OWNER_REGISTRY

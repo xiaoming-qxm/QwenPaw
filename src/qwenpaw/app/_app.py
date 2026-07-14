@@ -828,10 +828,10 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
         # These three cleanup tasks are independent; run in parallel.
         from ..agents.skill_system.hub import aclose_hub_client
-        from ..browser.sdk.backends.registry import (
+        from ..browser.backends.registry import (
             shutdown_registered_browser_backends,
         )
-        from ..browser.sdk.runtime.responses import stop_all_browsers
+        from ..browser.runtime.responses import stop_all_browsers
 
         async def _stop_token_usage():
             logger.info("Stopping TokenUsageManager...")

@@ -33,14 +33,14 @@ FRONTEND_EVIDENCE_PATHS = (
     "plugins/bundle/browser-bridge/api/routes.py",
 )
 SDK_API_PATHS = (
-    "src/qwenpaw/browser/sdk/facade/browser.py",
-    "src/qwenpaw/browser/sdk/primitives/tab.py",
-    "src/qwenpaw/browser/sdk/primitives/tabs.py",
-    "src/qwenpaw/browser/sdk/actions/tab_actions.py",
+    "src/qwenpaw/browser/facade/browser.py",
+    "src/qwenpaw/browser/primitives/tab.py",
+    "src/qwenpaw/browser/primitives/tabs.py",
+    "src/qwenpaw/browser/actions/tab_actions.py",
 )
 BACKEND_PATHS = (
-    "src/qwenpaw/browser/sdk/backends/isolated.py",
-    "src/qwenpaw/browser/sdk/backends/user.py",
+    "src/qwenpaw/browser/backends/isolated.py",
+    "src/qwenpaw/browser/backends/user.py",
     "plugins/bundle/browser-bridge/action_runtime/handlers/__init__.py",
 )
 LEGACY_EVIDENCE_FIXTURES = (

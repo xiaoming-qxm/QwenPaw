@@ -9,8 +9,8 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import uuid4
 
-from qwenpaw.browser.sdk.runtime.responses import _tool_response
-from qwenpaw.browser.sdk.runtime.snapshot import ObservationBudget
+from qwenpaw.browser.runtime.responses import _tool_response
+from qwenpaw.browser.runtime.snapshot import ObservationBudget
 from ..network_settle import _network_quiescence_wait
 from ..observation import (
     _control_clear_observation_required,

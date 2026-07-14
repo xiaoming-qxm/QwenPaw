@@ -25,18 +25,18 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
-from qwenpaw.browser.sdk.governance.error_codes import (
+from qwenpaw.browser.governance.error_codes import (
     BrowserErrorCode,
     BrowserOutcome,
     classify_browser_error,
 )
-from qwenpaw.browser.sdk.governance.risk import (
+from qwenpaw.browser.governance.risk import (
     RISK_ACTIONS_BY_KIND,
     RISK_KEYWORDS_BY_KIND,
 )
-from qwenpaw.browser.sdk.telemetry.progress import detect_no_progress
-from qwenpaw.browser.sdk.recovery import classify_browser_runtime_outcome
-from qwenpaw.browser.sdk.telemetry.trace import (
+from qwenpaw.browser.telemetry.progress import detect_no_progress
+from qwenpaw.browser.recovery import classify_browser_runtime_outcome
+from qwenpaw.browser.telemetry.trace import (
     BrowserTraceEvent,
     validate_browser_trace_events,
 )
@@ -501,7 +501,7 @@ def scan_browser_bridge_entropy_guardrails(
 
 def _browser_bridge_entropy_scan_paths(root: Path) -> tuple[Path, ...]:
     candidates: list[Path] = []
-    sdk_root = root / "src/qwenpaw/browser/sdk"
+    sdk_root = root / "src/qwenpaw/browser"
     if sdk_root.exists():
         candidates.extend(sorted(sdk_root.glob("*.py")))
     plugin_root = root / "plugins/bundle/browser-bridge"

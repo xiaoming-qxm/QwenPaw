@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from typing import Callable
 
-from qwenpaw.browser.sdk.runtime.tool_entrypoint import browser
+from qwenpaw.browser.runtime.tool_entrypoint import browser
 
 # Each import triggers the @tool_descriptor decorator, which auto-
 # collects the function into the global registry.

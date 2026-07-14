@@ -7,13 +7,13 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
-from qwenpaw.browser.sdk.canonical.contracts import (
+from qwenpaw.browser.canonical.contracts import (
     Coverage,
     OptionChoice,
     OptionSummary,
 )
-from qwenpaw.browser.sdk.governance.errors import BrowserSDKError
-from qwenpaw.browser.sdk.primitives.matching import normalize_visible_text
+from qwenpaw.browser.governance.errors import BrowserSDKError
+from qwenpaw.browser.primitives.matching import normalize_visible_text
 from ..errors import BrowserBridgeRecoverableError
 from ..interactions import canonical_interaction_control
 from ..state import ControlState

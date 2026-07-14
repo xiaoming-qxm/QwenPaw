@@ -9,8 +9,8 @@ from typing import Any, cast
 
 from agentscope.tool import ToolChunk
 
-from qwenpaw.browser.sdk.runtime.responses import _tool_response
-from qwenpaw.browser.sdk.governance.errors import BrowserSDKError
+from qwenpaw.browser.runtime.responses import _tool_response
+from qwenpaw.browser.governance.errors import BrowserSDKError
 from ..navigation import _control_tab_id
 from ..observation import (
     _control_mark_observation_required,

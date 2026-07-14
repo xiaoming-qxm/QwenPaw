@@ -22,7 +22,7 @@ from qwenpaw.config import (
 from qwenpaw.config.context import get_current_workspace_dir
 from qwenpaw.constant import EnvVarLoader, WORKING_DIR
 
-logger = logging.getLogger("qwenpaw.browser.sdk")
+logger = logging.getLogger("qwenpaw.browser")
 
 _TRUSTED_BROWSER_KEYWORDS = frozenset(
     {

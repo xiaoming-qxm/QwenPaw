@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from qwenpaw.browser.sdk.governance.error_codes import BrowserErrorCode
+from qwenpaw.browser.governance.error_codes import BrowserErrorCode
 
 
 class BrowserBridgeError(Exception):

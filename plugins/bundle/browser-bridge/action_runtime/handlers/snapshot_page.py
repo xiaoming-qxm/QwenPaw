@@ -7,15 +7,15 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
-from qwenpaw.browser.sdk.canonical.contracts import (
+from qwenpaw.browser.canonical.contracts import (
     ContextVersion,
     CurrentSurface,
     TargetQuery,
     _issue_opaque_value,
     _RUNTIME_VALUE_ISSUER,
 )
-from qwenpaw.browser.sdk.runtime.responses import _tool_response
-from qwenpaw.browser.sdk.runtime.snapshot import SnapshotCapture
+from qwenpaw.browser.runtime.responses import _tool_response
+from qwenpaw.browser.runtime.snapshot import SnapshotCapture
 from ..session_manager import _control_get_session
 from ..ref_scope import _control_note_canonical_document
 from ..source_traversal import (

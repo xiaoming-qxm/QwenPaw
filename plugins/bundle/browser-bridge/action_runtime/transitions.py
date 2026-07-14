@@ -9,7 +9,7 @@ import time
 from collections.abc import Callable
 from typing import Any
 
-from qwenpaw.browser.sdk.runtime.responses import (
+from qwenpaw.browser.runtime.responses import (
     _CONTROL_BANNER_TIMEOUT_SECONDS,
     logger,
 )

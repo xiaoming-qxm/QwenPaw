@@ -5,7 +5,7 @@
 V11 should replace `InProcessBrowserCodeExecutor` with a
 `SubprocessBrowserCodeExecutor` behind the existing `BrowserCodeExecutor`
 protocol. The public `browser(code=...)` tool, `BrowserKernelRuntime`, and
-`qwenpaw.browser.sdk` import shape should stay stable.
+`qwenpaw.browser` import shape should stay stable.
 
 ## Process Boundary
 

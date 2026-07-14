@@ -265,7 +265,7 @@ async def restore_backup(
     request: Request,
 ):
     manager = getattr(request.app.state, "multi_agent_manager", None)
-    from ...browser.sdk.runtime.responses import (
+    from ...browser.runtime.responses import (
         stop_browsers_for_workspace_dirs,
     )
 

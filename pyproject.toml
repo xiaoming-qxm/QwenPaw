@@ -90,7 +90,7 @@ include-package-data = true
     "agents/md_files/**",
     "agents/skills/**",
     "tokenizer/**",
-    "browser/sdk/generated/**",
+    "browser/generated/**",
     "_plugins/**",
     "security/tool_guard/rules/**",
     "security/skill_scanner/rules/**",

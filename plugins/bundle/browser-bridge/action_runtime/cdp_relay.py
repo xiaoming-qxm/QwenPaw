@@ -10,7 +10,7 @@ from collections import defaultdict
 from collections.abc import Callable
 from typing import Any
 
-from qwenpaw.browser.sdk.governance.error_codes import BrowserErrorCode
+from qwenpaw.browser.governance.error_codes import BrowserErrorCode
 
 _TRUSTED_READONLY_SNAPSHOT_EVALUATE_PURPOSES = {
     "snapshot.action_targets": "_CONTROL_ACTION_TARGETS_SCRIPT",

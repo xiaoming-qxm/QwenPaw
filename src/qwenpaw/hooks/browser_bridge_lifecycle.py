@@ -9,14 +9,14 @@ from time import perf_counter
 from typing import Any
 
 from .base import LifecycleHook
-from ..browser.sdk.backends.registry import (
+from ..browser.backends.registry import (
     cleanup_browser_backend_request_resources,
 )
-from ..browser.sdk.primitives.types import build_browser_ownership_context
-from ..browser.sdk.governance.errors import BrowserPolicyDenied
-from ..browser.sdk.runtime.kernel import cleanup_browser_kernels_for_lifecycle
-from ..browser.sdk.runtime.session_owner import ContractMode
-from ..browser.sdk.telemetry.trace import record_browser_trace_event
+from ..browser.primitives.types import build_browser_ownership_context
+from ..browser.governance.errors import BrowserPolicyDenied
+from ..browser.runtime.kernel import cleanup_browser_kernels_for_lifecycle
+from ..browser.runtime.session_owner import ContractMode
+from ..browser.telemetry.trace import record_browser_trace_event
 from ..runtime.hooks import HookContext, HookResult
 from ..runtime.phases import Phase
 

@@ -5,7 +5,7 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
-from qwenpaw.browser.sdk.runtime.responses import _tool_response
+from qwenpaw.browser.runtime.responses import _tool_response
 from ..navigation import _control_tab_id
 from ..observation import _control_clear_observation_required
 from ..session_manager import _control_close_session

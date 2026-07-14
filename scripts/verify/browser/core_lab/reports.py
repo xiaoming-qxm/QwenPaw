@@ -26,18 +26,18 @@ from .model import CapabilityFamily, LabCase, OracleResult
 RELEASE_HANDOFF_SCHEMA = "browser-core-release-handoff-v1"
 DEPLOYMENT_ATTESTATION_SCHEMA = "browser-core-deployment-attestation-v1"
 LEGACY_PUBLIC_PATHS = (
-    "src/qwenpaw/browser/sdk/facade/__init__.py",
-    "src/qwenpaw/browser/sdk/facade/browser.py",
-    "src/qwenpaw/browser/sdk/contracts.py",
-    "src/qwenpaw/browser/sdk/actions/__init__.py",
-    "src/qwenpaw/browser/sdk/actions/tab_actions.py",
-    "src/qwenpaw/browser/sdk/primitives/tab.py",
-    "src/qwenpaw/browser/sdk/primitives/tabs.py",
-    "src/qwenpaw/browser/sdk/runtime/proxy.py",
-    "src/qwenpaw/browser/sdk/runtime/guard.py",
-    "src/qwenpaw/browser/sdk/generated/api_catalog.json",
-    "src/qwenpaw/browser/sdk/generated/capabilities.json",
-    "src/qwenpaw/browser/sdk/generated/help/index.md",
+    "src/qwenpaw/browser/facade/__init__.py",
+    "src/qwenpaw/browser/facade/browser.py",
+    "src/qwenpaw/browser/contracts.py",
+    "src/qwenpaw/browser/actions/__init__.py",
+    "src/qwenpaw/browser/actions/tab_actions.py",
+    "src/qwenpaw/browser/primitives/tab.py",
+    "src/qwenpaw/browser/primitives/tabs.py",
+    "src/qwenpaw/browser/runtime/proxy.py",
+    "src/qwenpaw/browser/runtime/guard.py",
+    "src/qwenpaw/browser/generated/api_catalog.json",
+    "src/qwenpaw/browser/generated/capabilities.json",
+    "src/qwenpaw/browser/generated/help/index.md",
 )
 BRIDGE_SYMBOL_PATHS = (
     "plugins/bundle/browser-bridge/action_runtime/handlers/__init__.py",
@@ -263,7 +263,7 @@ _S10B_ENDPOINT_FIELDS = _DEPLOYMENT_BASE_ENDPOINT_FIELDS | {
 }
 
 _SUPPORT_PATH = Path(
-    "src/qwenpaw/browser/sdk/generated/browser-support.json",
+    "src/qwenpaw/browser/generated/browser-support.json",
 )
 RETIREMENT_REPORT_SCHEMA = "browser-core-retirement-authorization-v1"
 _HOST_ZERO_KEYS = {

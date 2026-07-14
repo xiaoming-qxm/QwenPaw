@@ -16,8 +16,8 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any, Mapping
 
-from qwenpaw.browser.sdk.governance.error_codes import BrowserErrorCode
-from qwenpaw.browser.sdk.telemetry.trace import record_browser_trace_event
+from qwenpaw.browser.governance.error_codes import BrowserErrorCode
+from qwenpaw.browser.telemetry.trace import record_browser_trace_event
 
 from .state import get_nm_bridge_route_state
 

@@ -6,7 +6,7 @@ from __future__ import annotations
 from typing import Literal
 from uuid import uuid4
 
-from qwenpaw.browser.sdk.governance.errors import BrowserSDKError
+from qwenpaw.browser.governance.errors import BrowserSDKError
 
 from .state import StateMapping
 

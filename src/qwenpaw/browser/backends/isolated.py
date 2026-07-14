@@ -1358,7 +1358,7 @@ def _default_policy_for_context(
     context: ResolvedBrowserContext,
 ) -> BrowserPolicy:
     if _is_degraded_isolated_context(context):
-        from qwenpaw.browser.approval_policy import (
+        from ..approval_policy import (
             QwenPawBrowserApprovalPolicy,
         )
 

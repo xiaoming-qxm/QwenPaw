@@ -7,7 +7,7 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
-from qwenpaw.browser.sdk.runtime.responses import _tool_response
+from qwenpaw.browser.runtime.responses import _tool_response
 from ..cdp_relay import (
     SCREENSHOT_FOCUSED_NODE_EXPRESSION,
     SCREENSHOT_VIEWPORT_METRICS_EXPRESSION,

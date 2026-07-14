@@ -289,7 +289,7 @@ def _run(args: argparse.Namespace) -> int:
         update_s6_support_from_report(
             payload,
             manifest_path=(
-                "src/qwenpaw/browser/sdk/generated/browser-support.json"
+                "src/qwenpaw/browser/generated/browser-support.json"
             ),
         )
     if args.gate != "pre-release" and family in {
@@ -301,7 +301,7 @@ def _run(args: argparse.Namespace) -> int:
         update_s7_support_from_report(
             payload,
             manifest_path=(
-                "src/qwenpaw/browser/sdk/generated/browser-support.json"
+                "src/qwenpaw/browser/generated/browser-support.json"
             ),
         )
     if args.gate != "pre-release" and family in {
@@ -312,14 +312,14 @@ def _run(args: argparse.Namespace) -> int:
         update_s8_support_from_report(
             payload,
             manifest_path=(
-                "src/qwenpaw/browser/sdk/generated/browser-support.json"
+                "src/qwenpaw/browser/generated/browser-support.json"
             ),
         )
     if args.gate != "pre-release" and family is CapabilityFamily.VISUAL_CANVAS:
         update_s9_support_from_report(
             payload,
             manifest_path=(
-                "src/qwenpaw/browser/sdk/generated/browser-support.json"
+                "src/qwenpaw/browser/generated/browser-support.json"
             ),
         )
     return _exit_for(reports)
