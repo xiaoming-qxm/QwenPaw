@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Native Messaging host for the QwenPaw Chrome Chrome."""
+"""Native Messaging host for QwenPaw Chrome."""
 
 from __future__ import annotations
 

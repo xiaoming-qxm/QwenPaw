@@ -163,8 +163,7 @@ const messages = {
     copied: "已复制",
     chrome_disconnected: "重载扩展，或重新打开目标浏览器标签页。",
     browser_backend_unavailable: "后端可用后刷新状态。",
-    chrome_action_runtime_missing:
-      "重启 QwenPaw，或重新加载 Chrome 插件。",
+    chrome_action_runtime_missing: "重启 QwenPaw，或重新加载 Chrome 插件。",
     isolated_backend_unavailable: "安装或重启隔离浏览器运行时。",
   },
 } as const;

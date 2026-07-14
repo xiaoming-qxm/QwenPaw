@@ -60,8 +60,7 @@ V9_SOURCE_LABELS = (
     "commerce_live",
 )
 V9_ACCEPTANCE_DEFAULT_REPORT_DIR = (
-    "../MyNotebook/_QwenPaw/feats/"
-    "chrome-v9-f-live-product-acceptance"
+    "../MyNotebook/_QwenPaw/feats/" "chrome-v9-f-live-product-acceptance"
 )
 V9_ACCEPTANCE_JSON_NAME = "v9-acceptance-report.json"
 V9_ACCEPTANCE_MARKDOWN_NAME = "acceptance-report.md"
@@ -152,9 +151,7 @@ CHROME_ENTROPY_ALLOWED_SCENARIO_PATHS = (
     "scripts/verify/browser/cli.py",
     "scripts/verify/browser/truth_audit.py",
 )
-CHROME_ENTROPY_EXCLUDED_PATHS = (
-    "scripts/verify/browser/product_matrix.py",
-)
+CHROME_ENTROPY_EXCLUDED_PATHS = ("scripts/verify/browser/product_matrix.py",)
 CHROME_ENTROPY_GENERIC_COMMERCE_PATHS = (
     "plugins/bundle/chrome/action_runtime/snapshot_builder.py",
     "plugins/bundle/chrome/action_runtime/targets.py",
@@ -3271,9 +3268,7 @@ def run_v8_capability_isolated(
     preflight = run_preflight(args)
     if preflight.status != "passed":
         return _copy_report(preflight, scenario="v8-capability-isolated")
-    session_id = (
-        f"chrome-v8-capability-isolated-" f"{int(time.time() * 1000)}"
-    )
+    session_id = f"chrome-v8-capability-isolated-" f"{int(time.time() * 1000)}"
     prompt_spec = _v8_capability_prompt_spec(
         fixture.resolve().as_uri(),
         context="isolated",
@@ -3331,9 +3326,7 @@ def run_v8_capability_user(args: argparse.Namespace) -> ChromeReport:
             error_code=BrowserErrorCode.BRIDGE_DISCONNECTED.value,
             artifact_paths=[str(fixture)],
         )
-    session_id = (
-        f"chrome-v8-capability-user-" f"{int(time.time() * 1000)}"
-    )
+    session_id = f"chrome-v8-capability-user-" f"{int(time.time() * 1000)}"
     prompt_spec = _v8_capability_prompt_spec(
         fixture.resolve().as_uri(),
         context="user",
@@ -7377,11 +7370,7 @@ def _local_plugin_fingerprint() -> str:
     return _hash_existing_files(
         [
             plugin_root / "plugin.json",
-            plugin_root
-            / "assets"
-            / "extensions"
-            / "chrome"
-            / "manifest.json",
+            plugin_root / "assets" / "extensions" / "chrome" / "manifest.json",
             plugin_root / "api" / "routes.py",
         ],
     )

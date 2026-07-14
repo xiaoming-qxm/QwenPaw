@@ -74,10 +74,10 @@ _ERROR_HINTS = {
         "another mutating action."
     ),
     "invalid_sdk_usage": (
-    "Use the documented Canonical SDK only: connect with "
-    "`await Browser.connect(...)`, select a `TabSummary`, observe with "
-    "`await tab.snapshot(limit=...)`, and use `tab.actions.click`, `paste`, "
-    "`tab.actions.scroll`, or `upload_file`. Do not invent browser APIs."
+        "Use the documented Canonical SDK only: connect with "
+        "`await Browser.connect(...)`, select a `TabSummary`, observe with "
+        "`await tab.snapshot(limit=...)`, and use `tab.actions.click`, `paste`, "
+        "`tab.actions.scroll`, or `upload_file`. Do not invent browser APIs."
     ),
     "click_without_navigation": (
         "Observe the page after the click before deciding whether to retry, "

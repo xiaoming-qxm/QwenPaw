@@ -536,10 +536,7 @@ def canonical_probe_surface_from_dom(payload: dict[str, Any]) -> ProbeBatch:
             and isinstance(backend_id, int)
             and backend_id > 0
             and role
-            and (
-                role in _CANONICAL_ACTIONABLE_ROLES
-                or is_explicitly_semantic
-            )
+            and (role in _CANONICAL_ACTIONABLE_ROLES or is_explicitly_semantic)
         ):
             name = next(
                 (

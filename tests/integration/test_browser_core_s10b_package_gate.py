@@ -42,8 +42,7 @@ _REQUIRED_BRIDGE_PATHS = {
     _BRIDGE_ROOT + "action_runtime/handlers/dispatcher.py",
     _BRIDGE_ROOT + "action_runtime/snapshot_builder.py",
     _BRIDGE_ROOT + "action_runtime/targets.py",
-    _BRIDGE_ROOT
-    + "assets/extensions/chrome/service_worker.js",
+    _BRIDGE_ROOT + "assets/extensions/chrome/service_worker.js",
 }
 
 

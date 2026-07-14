@@ -1502,9 +1502,9 @@ class SnapshotResult(_TerminalFields):
     source_summary: str = ""
 
     def __post_init__(self) -> None:
-        visual_scope = (
-            self.observation is not None
-            and isinstance(self.observation.scope, VisualRegion)
+        visual_scope = self.observation is not None and isinstance(
+            self.observation.scope,
+            VisualRegion,
         )
         _validate_collection_state(
             next_cursor=self.next_cursor,
@@ -1513,8 +1513,10 @@ class SnapshotResult(_TerminalFields):
         )
         if self.grounding is Grounding.EXACT and len(self.targets) != 1:
             raise ResultContractError("EXACT grounding requires one target")
-        if self.grounding is Grounding.MULTIPLE and len(self.targets) < 2 and not (
-            visual_scope and len(self.targets) == 1
+        if (
+            self.grounding is Grounding.MULTIPLE
+            and len(self.targets) < 2
+            and not (visual_scope and len(self.targets) == 1)
         ):
             raise ResultContractError(
                 "MULTIPLE grounding requires multiple target witnesses",

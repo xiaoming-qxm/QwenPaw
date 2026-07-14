@@ -57,8 +57,7 @@ def test_s7_canonical_user_chrome_flow_projects_terminal_and_build_facts() -> (
     assert "retry=RECONCILE_ONLY" in blocks[0].text
 
     extension = Path(
-        "plugins/bundle/chrome/assets/extensions/"
-        "chrome/service_worker.js",
+        "plugins/bundle/chrome/assets/extensions/" "chrome/service_worker.js",
     )
     native = Path(
         "plugins/bundle/chrome/action_runtime/interactions.py",

@@ -986,10 +986,7 @@ class ActionRunner:
                 approval_grant=approval_grant,
                 dispatcher=dispatcher,
             )
-        if (
-            contract.api_id == "tab.actions.scroll"
-            and expectation is None
-        ):
+        if contract.api_id == "tab.actions.scroll" and expectation is None:
             if (
                 preflight.preview is None
                 or dispatcher is None

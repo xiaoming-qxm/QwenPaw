@@ -42,8 +42,7 @@ def test_user_chrome_generic_resource_flow_has_one_native_effect(
 
 def test_user_chrome_native_resource_paths_avoid_clipboard() -> None:
     capabilities = Path(
-        "plugins/bundle/chrome/action_runtime/handlers/"
-        "capabilities.py",
+        "plugins/bundle/chrome/action_runtime/handlers/" "capabilities.py",
     ).read_text(encoding="utf-8")
     paste = Path(
         "plugins/bundle/chrome/action_runtime/handlers/paste.py",

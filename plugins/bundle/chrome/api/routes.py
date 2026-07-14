@@ -58,11 +58,7 @@ REPO_ROOT = PLUGIN_ROOT.parents[2]
 DEFAULT_CONFIG_PATH = Path.home() / ".qwenpaw" / "nm-bridge.json"
 CANONICAL_SETUP_URL = "/plugin/chrome"
 EXTENSION_MANIFEST_PATH = (
-    PLUGIN_ROOT
-    / "assets"
-    / "extensions"
-    / "chrome"
-    / "manifest.json"
+    PLUGIN_ROOT / "assets" / "extensions" / "chrome" / "manifest.json"
 )
 
 _bridge_state = get_nm_bridge_route_state()

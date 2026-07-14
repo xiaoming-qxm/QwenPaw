@@ -949,7 +949,10 @@ class Tab:
     def _invalidate_observation(self) -> None:
         """Revoke values captured before an action may have changed the page."""
         self._clear_source_continuations()
-        if self._owner_binding is not None and self._target_registry is not None:
+        if (
+            self._owner_binding is not None
+            and self._target_registry is not None
+        ):
             self._target_registry.invalidate_tab_observation(
                 self._owner_binding,
                 receiver_tab=self.id,
@@ -1552,11 +1555,15 @@ class Tab:
             )
         if self._session is None:
             raise _capability_blocked("tab.snapshot")
-        if continuation is None and self._observations is None and (
-            not isinstance(requested_scope, CurrentSurface)
-            or (
-                requested_query is not None
-                and requested_query.region is not None
+        if (
+            continuation is None
+            and self._observations is None
+            and (
+                not isinstance(requested_scope, CurrentSurface)
+                or (
+                    requested_query is not None
+                    and requested_query.region is not None
+                )
             )
         ):
             raise _capability_blocked("tab.snapshot")
@@ -1767,8 +1774,10 @@ class Tab:
                 end_of_collection=source.end_of_collection,
             )
         witnesses = tuple(
-            (*((continuation.visual_witnesses) if continuation else ()),
-             *capture.targets)
+            (
+                *((continuation.visual_witnesses) if continuation else ()),
+                *capture.targets,
+            ),
         )
         # Exact-versus-multiple only needs two witnesses, never a full cache.
         witnesses = witnesses[:2]
@@ -1963,9 +1972,7 @@ class Tab:
             coverage=capture.coverage,
             gaps=capture.gaps,
         )
-        segments = tuple(
-            _read_segment(target) for target in capture.targets
-        )
+        segments = tuple(_read_segment(target) for target in capture.targets)
         status, retry, problem = _read_terminal(capture.coverage)
         next_cursor = self._issue_source_continuation(
             kind="READ",
@@ -2272,10 +2279,7 @@ class BrowserTabs:
                     "Canonical tab-create dispatcher returned invalid data",
                     code="tab_create_result_invalid",
                 )
-            if (
-                self._target_registry is None
-                or self._owner_binding is None
-            ):
+            if self._target_registry is None or self._owner_binding is None:
                 raise BrowserSDKError(
                     "Canonical tab registry is unavailable",
                     code="browser_ownership_context_missing",
@@ -2459,7 +2463,9 @@ def _command_arguments(
 ) -> Mapping[str, object]:
     """Expose only sealed public action arguments at the backend boundary."""
     payload = getattr(command, "_payload", None)
-    arguments = payload.get("arguments") if isinstance(payload, Mapping) else None
+    arguments = (
+        payload.get("arguments") if isinstance(payload, Mapping) else None
+    )
     if not isinstance(arguments, Mapping):
         raise BrowserSDKError(message, code=code)
     return arguments

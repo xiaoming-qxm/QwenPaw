@@ -78,6 +78,7 @@ class SnapshotPageHandler:
             request_context=kwargs.get("request_context") or {},
         )
         source = CDPSourceTraversalAdapter(session)
+
         def note_generation(generation: str) -> None:
             _control_note_canonical_document(
                 state,

@@ -195,9 +195,10 @@ class CDPRelaySession:
             raise CDPPermissionDenied(
                 f"CDP command {method} denied by trusted readonly policy",
             )
-        expected_expression, expected_return_by_value = (
-            _trusted_readonly_evaluate_spec(purpose)
-        )
+        (
+            expected_expression,
+            expected_return_by_value,
+        ) = _trusted_readonly_evaluate_spec(purpose)
         if str(params.get("expression") or "") != expected_expression:
             raise CDPPermissionDenied(
                 "CDP Runtime.evaluate expression denied by trusted "

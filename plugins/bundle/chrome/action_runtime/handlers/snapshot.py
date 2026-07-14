@@ -383,8 +383,10 @@ async def _canonical_visual_scope_payload(
     if coverage != "PARTIAL":
         return None
     gaps = payload.get("gaps")
-    if not isinstance(gaps, list) or not gaps or not all(
-        _is_closed_shadow_gap(gap) for gap in gaps
+    if (
+        not isinstance(gaps, list)
+        or not gaps
+        or not all(_is_closed_shadow_gap(gap) for gap in gaps)
     ):
         return None
     regions = payload.get("regions")
@@ -421,8 +423,7 @@ async def _canonical_visual_scope_payload(
             for region in regions
             if not (
                 isinstance(region, dict)
-                and str(region.get("boundary") or "")
-                == "CLOSED_SHADOW"
+                and str(region.get("boundary") or "") == "CLOSED_SHADOW"
             )
         ],
     }

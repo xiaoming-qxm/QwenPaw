@@ -573,7 +573,7 @@ class ToolResultPruningMiddleware(MiddlewareBase):
             if (
                 self._block_type(block) == "text"
                 and not self._block_id(block).startswith(
-                    "qwenpaw-browser-terminal"
+                    "qwenpaw-browser-terminal",
                 )
             )
         ]

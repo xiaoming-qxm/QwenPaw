@@ -14,10 +14,7 @@ _PACKAGE_NAME = "qwenpaw_chrome_cli"
 
 def _chrome_plugin_dir() -> Path:
     return (
-        Path(__file__).resolve().parents[3]
-        / "plugins"
-        / "bundle"
-        / "chrome"
+        Path(__file__).resolve().parents[3] / "plugins" / "bundle" / "chrome"
     )
 
 

@@ -171,9 +171,7 @@ def scan_entropy_findings(repo_root: Path = REPO_ROOT) -> list[dict[str, Any]]:
                 "path": "",
                 "line": 0,
                 "matched": "",
-                "message": (
-                    "No Chrome hot-path legacy instructions found."
-                ),
+                "message": ("No Chrome hot-path legacy instructions found."),
             },
         )
     return findings

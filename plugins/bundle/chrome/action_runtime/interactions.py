@@ -536,11 +536,7 @@ async def canonical_native_interaction_control(
         )
         return {
             "tab_id": tab_id,
-            **(
-                native_receipt
-                if isinstance(native_receipt, Mapping)
-                else {}
-            ),
+            **(native_receipt if isinstance(native_receipt, Mapping) else {}),
         }
 
     result = await _canonical_execute_interaction(

@@ -525,12 +525,9 @@ def _cleanup_observation_values(
         _COLLECTIONS.pop(key, None)
     for key, cursor_entry in tuple(_CURSORS.items()):
         if (
-            (
-                cursor_entry.owner_key == owner_key
-                and (tab_id is None or cursor_entry.tab_id == tab_id)
-            )
-            or cursor_entry.collection_id in collection_ids
-        ):
+            cursor_entry.owner_key == owner_key
+            and (tab_id is None or cursor_entry.tab_id == tab_id)
+        ) or cursor_entry.collection_id in collection_ids:
             _CURSORS.pop(key, None)
     for key, evidence_entry in tuple(_EVIDENCE.items()):
         if evidence_entry.owner_key == owner_key and (

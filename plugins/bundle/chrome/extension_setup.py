@@ -32,8 +32,8 @@ BRIDGE_MANIFEST_FILENAME = "chrome-hosts.json"
 BRIDGE_MANIFEST_SCHEMA_VERSION = 1
 BRIDGE_PROTOCOL_VERSION = 2
 NATIVE_HOST_REPAIR_INSTRUCTION = (
-    "Run qwenpaw setup-extension --yes --reset, then reload the Browser "
-    "Bridge Chrome extension."
+    "Run qwenpaw setup-extension --yes --reset, then reload the Chrome "
+    "extension."
 )
 
 
@@ -280,7 +280,7 @@ def _write_native_manifest(
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     manifest = {
         "name": NATIVE_HOST_NAME,
-        "description": "QwenPaw Chrome Chrome Native Messaging host",
+        "description": "QwenPaw Chrome Native Messaging host",
         "path": str(host_path),
         "type": "stdio",
         "allowed_origins": [f"chrome-extension://{extension_id}/"],
@@ -359,9 +359,7 @@ def setup_extension_files(
 def extension_install_status() -> dict[str, str | bool | None]:
     """Return install paths and whether the local registration exists."""
     qwenpaw_home = _qwenpaw_home()
-    extension_dir = (
-        qwenpaw_home / "chrome-extension" / "qwenpaw-chrome"
-    )
+    extension_dir = qwenpaw_home / "chrome-extension" / "qwenpaw-chrome"
     manifest_path = native_manifest_path()
     host_path = qwenpaw_home / "bin" / "qwenpaw-nm-host"
     config_path = qwenpaw_home / "nm-bridge.json"

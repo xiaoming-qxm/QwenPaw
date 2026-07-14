@@ -371,9 +371,9 @@ def _child_positions(
                     ),
                 ),
             )
-        elif (
-            frame_accessibility == "SAME_ORIGIN"
-            and isinstance(content_document, dict)
+        elif frame_accessibility == "SAME_ORIGIN" and isinstance(
+            content_document,
+            dict,
         ):
             frame_id = str(
                 raw.get("frameId") or content_document.get("frameId") or "",
@@ -522,7 +522,9 @@ class SourceTraversalManager:
             "query": _query_state(query),
             "region_owner_chain": list(region_owner_chain or ()),
             "visual_region": (
-                dict(visual_region) if isinstance(visual_region, dict) else None
+                dict(visual_region)
+                if isinstance(visual_region, dict)
+                else None
             ),
             "unavailable_sources": {},
             "examined": {"AX": 0, "DOM": 0},
@@ -819,9 +821,9 @@ class SourceTraversalManager:
         )
 
     def _is_active(self, tab_id: int, cursor: str) -> bool:
-        return (
-            self.active_cursor_for_tab(tab_id) == cursor
-            and isinstance(self._sessions().get(str(cursor)), dict)
+        return self.active_cursor_for_tab(tab_id) == cursor and isinstance(
+            self._sessions().get(str(cursor)),
+            dict,
         )
 
     def _unavailable(
@@ -925,8 +927,7 @@ def _query_from_state(value: object) -> dict[str, str] | None:
     return {
         key: str(item)
         for key, item in value.items()
-        if key in {"role", "name", "text", "match"}
-        and isinstance(item, str)
+        if key in {"role", "name", "text", "match"} and isinstance(item, str)
     }
 
 

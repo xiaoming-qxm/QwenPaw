@@ -1126,9 +1126,7 @@ def _resolve_auto_update_targets(
     explicit = entry.get("auto_update_targets")
     if isinstance(explicit, list) and explicit:
         wanted = {str(agent_id) for agent_id in explicit}
-        candidates = [
-            ws for ws in workspaces if ws.get("agent_id") in wanted
-        ]
+        candidates = [ws for ws in workspaces if ws.get("agent_id") in wanted]
         return [
             ws
             for ws in candidates

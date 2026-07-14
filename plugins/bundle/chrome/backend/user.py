@@ -314,7 +314,7 @@ class ChromeExtensionBrowserBackend:
     def unavailable_error(self) -> BrowserContextUnavailable:
         """Return the precise error for resolver availability failures."""
         return BrowserContextUnavailable(
-            "Chrome Extension Chrome is not connected.",
+            "Chrome extension is not connected.",
             code="chrome_disconnected",
             backend_id=self.backend_id,
         )
@@ -2756,9 +2756,7 @@ def _canonical_capture_from_payload(
             boundary=cast(Any, str(item.get("boundary") or "DEFAULT")),
             accessible=bool(item.get("accessible")),
             native_identity=str(
-                item.get("region_token")
-                or item.get("native_identity")
-                or ""
+                item.get("region_token") or item.get("native_identity") or "",
             ),
         )
         for item in payload.get("regions", ())
@@ -2814,8 +2812,7 @@ def _require_canonical_payload_owner(
         str(payload.get("root_task_id") or "") != owner.root_task_id
         or str(payload.get("browser_owner_id") or "") != owner.browser_owner_id
         or str(payload.get("session_id") or "") != owner.root_session_id
-        or str(payload.get("root_session_id") or "")
-        != owner.root_session_id
+        or str(payload.get("root_session_id") or "") != owner.root_session_id
     ):
         raise BrowserSDKError(
             "Canonical target owner mismatch.",

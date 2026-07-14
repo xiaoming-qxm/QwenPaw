@@ -899,11 +899,14 @@ def ensure_skill_pool_initialized(
         migrate_pool_builtin_language_fields()
         changed = False
         for skill_name, migrations in _TARGETED_BUILTIN_SKILL_CONTRACTS:
-            changed = _migrate_targeted_builtin_skill_contract(
-                skill_name=skill_name,
-                migrations=migrations,
-                workspace_dir=workspace_dir,
-            ) or changed
+            changed = (
+                _migrate_targeted_builtin_skill_contract(
+                    skill_name=skill_name,
+                    migrations=migrations,
+                    workspace_dir=workspace_dir,
+                )
+                or changed
+            )
         return changed
     return created
 
@@ -1010,9 +1013,7 @@ def _migrate_targeted_builtin_workspace_copies(
         return 0
 
     legacy_versions = {
-        version
-        for versions in migrations.values()
-        for version in versions
+        version for versions in migrations.values() for version in versions
     }
     workspaces = list_workspaces()
     if workspace_dir is not None:
@@ -1036,9 +1037,13 @@ def _migrate_targeted_builtin_workspace_copies(
         workspace_dir = Path(str(raw_workspace_dir)).expanduser()
         manifest = read_skill_manifest(workspace_dir)
         entry = manifest.get("skills", {}).get(skill_name)
-        if not isinstance(entry, dict) or str(
-            entry.get("source", "") or "",
-        ) != "builtin":
+        if (
+            not isinstance(entry, dict)
+            or str(
+                entry.get("source", "") or "",
+            )
+            != "builtin"
+        ):
             continue
         metadata = entry.get("metadata")
         raw_version = (
@@ -1070,9 +1075,13 @@ def _migrate_targeted_builtin_workspace_copies(
             ) -> None:
                 skills = payload.setdefault("skills", {})
                 current = skills.get(skill_name)
-                if not isinstance(current, dict) or str(
-                    current.get("source", "") or "",
-                ) != "builtin":
+                if (
+                    not isinstance(current, dict)
+                    or str(
+                        current.get("source", "") or "",
+                    )
+                    != "builtin"
+                ):
                     return
                 current["metadata"] = _metadata
                 current["requirements"] = _metadata["requirements"]
