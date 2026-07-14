@@ -86,6 +86,26 @@ def _synthetic_failure(message: str) -> ActionResult:
     )
 
 
+def _syntax_error_failure() -> ActionResult:
+    """Return a model-actionable result for invalid Browser Python."""
+    return ActionResult(
+        operation_id=issue_operation_id(),
+        status="FAILED",
+        problem=Problem(
+            code="invalid_sdk_usage",
+            phase="PREFLIGHT",
+            safe_message=(
+                "Browser code has a Python syntax error and cannot run."
+            ),
+            remediation=(
+                "Use valid module-level Python and documented Browser SDK "
+                "calls; browser(code=...) does not allow top-level return."
+            ),
+        ),
+        retry="SAFE",
+    )
+
+
 def _synthetic_uncertain() -> ActionResult:
     return ActionResult(
         operation_id=issue_operation_id(),
@@ -144,8 +164,13 @@ class BrowserExecutionCollector:
         del python_value
         if error is not None:
             self.record(
-                _synthetic_failure(
-                    "Browser code raised before result delivery completed.",
+                (
+                    _syntax_error_failure()
+                    if isinstance(error, SyntaxError)
+                    else _synthetic_failure(
+                        "Browser code raised before result delivery "
+                        "completed.",
+                    )
                 ),
             )
         if not self._records:

@@ -371,6 +371,8 @@ def _coerce_error_code(error: object = None) -> BrowserErrorCode:
         return BrowserErrorCode.UNKNOWN
     if isinstance(error, BrowserErrorCode):
         return error
+    if isinstance(error, SyntaxError):
+        return BrowserErrorCode.INVALID_SDK_USAGE
     if isinstance(error, str):
         return _coerce_error_string(error)
     code = getattr(error, "browser_error_code", None) or getattr(

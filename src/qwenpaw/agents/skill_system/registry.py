@@ -61,9 +61,24 @@ _BUILTIN_CACHE_LOCK = threading.Lock()
 
 _CANONICAL_BROWSER_SKILL_NAME = "browser"
 _CANONICAL_BROWSER_CONTRACT_MIGRATIONS = {
-    "en": {"12.0": "12.1"},
-    "zh": {"15.0": "15.1"},
+    "en": {"12.0": "12.2", "12.1": "12.2"},
+    "zh": {"15.0": "15.2", "15.1": "15.2"},
 }
+_MAKE_SKILL_NAME = "make-skill"
+_MAKE_SKILL_BROWSER_CONTRACT_MIGRATIONS = {
+    "en": {"1.1": "1.2"},
+    "zh": {"1.1": "1.2"},
+}
+_TARGETED_BUILTIN_SKILL_CONTRACTS = (
+    (
+        _CANONICAL_BROWSER_SKILL_NAME,
+        _CANONICAL_BROWSER_CONTRACT_MIGRATIONS,
+    ),
+    (
+        _MAKE_SKILL_NAME,
+        _MAKE_SKILL_BROWSER_CONTRACT_MIGRATIONS,
+    ),
+)
 _LEGACY_BROWSER_SKILL_NAMES = (
     "browser-sdk",
     "browser_visible",
@@ -882,35 +897,42 @@ def ensure_skill_pool_initialized(
         import_builtin_skills()
     else:
         migrate_pool_builtin_language_fields()
-        return _migrate_canonical_browser_skill_contract(
-            workspace_dir=workspace_dir,
-        )
+        changed = False
+        for skill_name, migrations in _TARGETED_BUILTIN_SKILL_CONTRACTS:
+            changed = _migrate_targeted_builtin_skill_contract(
+                skill_name=skill_name,
+                migrations=migrations,
+                workspace_dir=workspace_dir,
+            ) or changed
+        return changed
     return created
 
 
-def _migrate_canonical_browser_skill_contract(
+def _migrate_targeted_builtin_skill_contract(
     *,
+    skill_name: str,
+    migrations: dict[str, dict[str, str]],
     workspace_dir: Path | None,
 ) -> bool:
-    """Refresh the one stale Browser instruction contract released in v12/v15.
+    """Refresh one reviewed builtin contract without touching custom skills.
 
     Builtins otherwise follow the normal review-driven update workflow. This
-    narrowly replaces only the known pre-canonical Browser instructions and
-    never touches a customized skill with the same name.
+    narrowly replaces only the known unsafe instruction versions and never
+    touches a customized skill with the same name.
     """
     registry = _get_packaged_builtin_registry()
-    variants = registry.get(_CANONICAL_BROWSER_SKILL_NAME) or {}
+    variants = registry.get(skill_name) or {}
     if not variants:
         return False
 
     manifest = read_skill_pool_manifest()
-    entry = manifest.get("skills", {}).get(_CANONICAL_BROWSER_SKILL_NAME)
+    entry = manifest.get("skills", {}).get(skill_name)
     if not is_pool_builtin_entry(entry):
         return False
 
     preferred_language = get_builtin_skill_language_preference()
     language = _resolve_pool_builtin_language(
-        _CANONICAL_BROWSER_SKILL_NAME,
+        skill_name,
         entry,
         registry,
         preferred_language=preferred_language,
@@ -920,14 +942,11 @@ def _migrate_canonical_browser_skill_contract(
         return False
 
     current_version = str(entry.get("version_text", "") or "")
-    target_version = _CANONICAL_BROWSER_CONTRACT_MIGRATIONS.get(
-        language,
-        {},
-    ).get(current_version)
+    target_version = migrations.get(language, {}).get(current_version)
     if target_version != variant.version_text:
         target_versions = {
             version
-            for versions in _CANONICAL_BROWSER_CONTRACT_MIGRATIONS.values()
+            for versions in migrations.values()
             for version in versions.values()
         }
         if (
@@ -935,7 +954,9 @@ def _migrate_canonical_browser_skill_contract(
             and variant.version_text in target_versions
         ):
             return bool(
-                _migrate_canonical_browser_workspace_copies(
+                _migrate_targeted_builtin_workspace_copies(
+                    skill_name=skill_name,
+                    migrations=migrations,
                     language=language,
                     workspace_dir=workspace_dir,
                 ),
@@ -944,24 +965,28 @@ def _migrate_canonical_browser_skill_contract(
 
     try:
         update_single_builtin(
-            _CANONICAL_BROWSER_SKILL_NAME,
+            skill_name,
             language=language,
         )
     except (OSError, SkillsError) as exc:
         logger.warning(
-            "Failed to migrate Browser skill contract from %s to %s: %s",
+            "Failed to migrate %s skill contract from %s to %s: %s",
+            skill_name,
             current_version,
             target_version,
             exc,
         )
         return False
 
-    migrated_workspaces = _migrate_canonical_browser_workspace_copies(
+    migrated_workspaces = _migrate_targeted_builtin_workspace_copies(
+        skill_name=skill_name,
+        migrations=migrations,
         language=language,
         workspace_dir=workspace_dir,
     )
     logger.info(
-        "Migrated Browser skill contract from %s to %s in %d workspace(s)",
+        "Migrated %s skill contract from %s to %s in %d workspace(s)",
+        skill_name,
         current_version,
         target_version,
         migrated_workspaces,
@@ -969,22 +994,24 @@ def _migrate_canonical_browser_skill_contract(
     return True
 
 
-def _migrate_canonical_browser_workspace_copies(
+def _migrate_targeted_builtin_workspace_copies(
     *,
+    skill_name: str,
+    migrations: dict[str, dict[str, str]],
     language: str,
     workspace_dir: Path | None,
 ) -> int:
-    """Replace stale builtin Browser copies without relying on auto-update."""
+    """Replace stale builtin copies without relying on auto-update."""
     source_dir = safe_skill_dir(
         get_skill_pool_dir(),
-        _CANONICAL_BROWSER_SKILL_NAME,
+        skill_name,
     )
     if not (source_dir.is_dir() and (source_dir / "SKILL.md").is_file()):
         return 0
 
     legacy_versions = {
         version
-        for versions in _CANONICAL_BROWSER_CONTRACT_MIGRATIONS.values()
+        for versions in migrations.values()
         for version in versions
     }
     workspaces = list_workspaces()
@@ -1008,9 +1035,7 @@ def _migrate_canonical_browser_workspace_copies(
             continue
         workspace_dir = Path(str(raw_workspace_dir)).expanduser()
         manifest = read_skill_manifest(workspace_dir)
-        entry = manifest.get("skills", {}).get(
-            _CANONICAL_BROWSER_SKILL_NAME,
-        )
+        entry = manifest.get("skills", {}).get(skill_name)
         if not isinstance(entry, dict) or str(
             entry.get("source", "") or "",
         ) != "builtin":
@@ -1028,12 +1053,12 @@ def _migrate_canonical_browser_workspace_copies(
         try:
             target_dir = safe_skill_dir(
                 get_workspace_skills_dir(workspace_dir),
-                _CANONICAL_BROWSER_SKILL_NAME,
+                skill_name,
             )
             target_dir.parent.mkdir(parents=True, exist_ok=True)
             copy_skill_dir(source_dir, target_dir)
             metadata = build_skill_metadata(
-                _CANONICAL_BROWSER_SKILL_NAME,
+                skill_name,
                 target_dir,
                 source="builtin",
                 protected=False,
@@ -1044,7 +1069,7 @@ def _migrate_canonical_browser_workspace_copies(
                 _metadata: dict[str, Any] = metadata,
             ) -> None:
                 skills = payload.setdefault("skills", {})
-                current = skills.get(_CANONICAL_BROWSER_SKILL_NAME)
+                current = skills.get(skill_name)
                 if not isinstance(current, dict) or str(
                     current.get("source", "") or "",
                 ) != "builtin":
@@ -1061,7 +1086,8 @@ def _migrate_canonical_browser_workspace_copies(
             )
         except (OSError, SkillsError) as exc:
             logger.warning(
-                "Failed to migrate Browser skill in workspace '%s': %s",
+                "Failed to migrate %s skill in workspace '%s': %s",
+                skill_name,
                 workspace.get("agent_id", raw_workspace_dir),
                 exc,
             )

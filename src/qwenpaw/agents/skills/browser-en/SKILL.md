@@ -2,7 +2,7 @@
 name: browser
 description: "Use browser(code=...) with the Browser SDK for web research, tab work, and user Chrome tasks."
 metadata:
-  builtin_skill_version: "12.1"
+  builtin_skill_version: "12.2"
   qwenpaw:
     emoji: ""
     requires: {}
@@ -16,11 +16,13 @@ code, connect with the Canonical Browser SDK:
 ```python
 browser = await Browser.connect(context="auto")
 open_result = await browser.tabs.open("https://example.com")
-if open_result.status not in {"SUCCEEDED", "PARTIAL"}:
-    return open_result
-tabs: list[TabSummary] = await browser.tabs.list()
-tab = await browser.tabs.select(open_result.opened_tabs[0])
-snapshot = await tab.snapshot()
+if (
+    open_result.status in {"SUCCEEDED", "PARTIAL"}
+    and open_result.opened_tabs
+):
+    tabs: list[TabSummary] = await browser.tabs.list()
+    tab = await browser.tabs.select(open_result.opened_tabs[0])
+    snapshot = await tab.snapshot()
 ```
 
 Action-First, Controlled Primitive:
@@ -39,8 +41,7 @@ read_result = await tab.read(limit=100)
 snapshot = await tab.snapshot(limit=50)
 target: TargetRef = snapshot.targets[0].ref
 terminal = await tab.actions.click(target)
-if terminal.status not in {"SUCCEEDED", "PARTIAL"}:
-    return terminal
+terminal
 ```
 
 Waits use a typed `BrowserCondition`, never natural-language guessing:
@@ -64,6 +65,10 @@ terminal = await tab.actions.upload_file(target, (resource,))
   Chrome state.
 - Use `context="user"` when login state, carts, accounts, or existing user
   tabs are required; that request fails closed if user Chrome is unavailable.
+
+`browser(code=...)` runs module-level async Python. Do not use `return` in
+its code; assign the SDK result to a variable or leave it as the final
+expression. Canonical results are recorded by the tool automatically.
 
 Do not use fixed sleeps, private backend objects, JavaScript execution,
 CSS-target shortcuts, low-level protocol escape hatches, or direct backend

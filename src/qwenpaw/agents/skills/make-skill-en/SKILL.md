@@ -2,7 +2,7 @@
 name: make-skill
 description: "Use this skill when sedimenting a session into a reusable workspace skill. Triggers when the user wants to turn the current conversation, workflow, or troubleshooting path into a SKILL.md. Phrases like 'turn this into a skill', 'remember how I did X', 'save this workflow', 'make a skill from this', and any /make-skill <focus> invocation should fire this skill."
 metadata:
-  builtin_skill_version: "1.1"
+  builtin_skill_version: "1.2"
   qwenpaw:
     emoji: "✍️"
     requires: {}
@@ -284,8 +284,9 @@ in sequence** should go into the batch.
   items = [
       m.group(1)
       for m in re.finditer(
-          r'heading "([^"]*' + re.escape(keyword) + r'[^"]*)" \[ref=(\w+)\]',
+          r'^target role=heading name=([^\n]*' + re.escape(keyword) + r'[^\n]*)$',
           text,
+          re.MULTILINE,
       )
   ]
   print(json.dumps(items, ensure_ascii=False))
@@ -297,7 +298,7 @@ in sequence** should go into the batch.
     {
       "tool_name": "browser",
       "arguments": {
-        "code": "browser = await Browser.connect(context=\"auto\")\nopen_result = await browser.tabs.open(\"${args.url}\")\nif open_result.status not in {\"SUCCEEDED\", \"PARTIAL\"}:\n    return open_result\ntabs: list[TabSummary] = await browser.tabs.list()\ntab = await browser.tabs.select(open_result.opened_tabs[0])\nread_result = await tab.read(limit=100)\nprint(read_result.model_text)"
+        "code": "browser = await Browser.connect(context=\"auto\")\nopen_result = await browser.tabs.open(\"${args.url}\")\nif (\n    open_result.status in {\"SUCCEEDED\", \"PARTIAL\"}\n    and open_result.opened_tabs\n):\n    tab = await browser.tabs.select(open_result.opened_tabs[0])\n    snapshot = await tab.snapshot(limit=100)"
       }
     },
     {
