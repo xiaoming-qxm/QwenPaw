@@ -12,7 +12,7 @@ from typing import Any
 
 from qwenpaw.browser.governance.error_codes import BrowserErrorCode
 
-from transport.native_messaging import StaleLeaseError, TabOccupiedError
+from ..transport.native_messaging import StaleLeaseError, TabOccupiedError
 
 _TRUSTED_READONLY_SNAPSHOT_EVALUATE_PURPOSES = {
     "snapshot.action_targets": "_CONTROL_ACTION_TARGETS_SCRIPT",
