@@ -1246,6 +1246,7 @@ class ChromeExtensionBrowserSession:
                 self._state,
                 payload,
                 owner=owner,
+                receiver_tab=str(tab_id),
             ),
         )
         return SourceTraversalCapture(
@@ -2747,6 +2748,7 @@ def _canonical_bindings_from_session_state(
     payload: Mapping[str, Any],
     *,
     owner: BrowserRequestBinding,
+    receiver_tab: str,
 ) -> dict[str, dict[str, Any]]:
     """Resolve page tokens from server state without serializing native IDs."""
     raw_targets = payload.get("targets")
@@ -2776,6 +2778,34 @@ def _canonical_bindings_from_session_state(
             raise BrowserSDKError(
                 "Canonical target token is not trusted.",
                 code="runtime_issued_value",
+            )
+        if tuple(binding.get("owner_key", ())) != (
+            owner.root_task_id,
+            owner.browser_owner_id,
+        ):
+            raise BrowserSDKError(
+                "Canonical target owner mismatch.",
+                code="target_wrong_owner",
+            )
+        for field, expected in (
+            ("root_task_id", owner.root_task_id),
+            ("browser_owner_id", owner.browser_owner_id),
+            ("session_id", owner.root_session_id),
+        ):
+            if field in binding and str(binding[field]) != expected:
+                raise BrowserSDKError(
+                    "Canonical target owner mismatch.",
+                    code="target_wrong_owner",
+                )
+        bound_tab = binding.get("tab_id")
+        if (
+            isinstance(bound_tab, bool)
+            or not isinstance(bound_tab, int)
+            or str(bound_tab) != str(receiver_tab)
+        ):
+            raise BrowserSDKError(
+                "Canonical target receiver mismatch.",
+                code="target_wrong_receiver",
             )
         resolved[token] = {
             **binding,

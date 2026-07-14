@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import MutableMapping
+from collections.abc import Callable, MutableMapping
 from dataclasses import dataclass, replace
 from typing import Any, Protocol
 from uuid import uuid4
@@ -137,12 +137,12 @@ class CDPSourceTraversalAdapter:
             owner_chain=owner_chain,
             hidden_by_ancestor=hidden_by_ancestor,
         )
-        frame_accessible = await self._frame_accessible(raw)
+        frame_accessibility = await self._frame_accessibility(raw)
         children, gaps = _child_positions(
             raw,
             effective_chain,
             hidden,
-            frame_accessible=frame_accessible,
+            frame_accessibility=frame_accessibility,
         )
         ax_nodes: tuple[ProbeNode, ...] = ()
         unavailable: tuple[str, ...] = ()
@@ -175,38 +175,47 @@ class CDPSourceTraversalAdapter:
             gaps=gaps,
         )
 
-    async def _frame_accessible(self, raw: dict[str, Any]) -> bool | None:
-        """Return whether a frame owner has the main frame's origin.
+    async def _frame_accessibility(self, raw: dict[str, Any]) -> str | None:
+        """Classify a frame owner from protocol-owned frame-tree facts.
 
         CDP DOM.Node deliberately does not expose a ``crossOrigin`` flag.  A
         frame owner does expose its child ``frameId``; Page.getFrameTree then
         supplies the protocol-owned parent/child security origins needed for
         this coverage decision.
         """
-        content_document = raw.get("contentDocument")
-        if not isinstance(content_document, dict):
+        tag = str(raw.get("nodeName") or "").strip().lower()
+        if tag not in {"frame", "iframe"}:
             return None
+        content_document = raw.get("contentDocument")
         frame_id = str(
-            raw.get("frameId") or content_document.get("frameId") or "",
+            raw.get("frameId")
+            or (
+                content_document.get("frameId")
+                if isinstance(content_document, dict)
+                else ""
+            )
+            or "",
         ).strip()
         if not frame_id:
-            return False
+            return "UNAVAILABLE"
         try:
             payload = await self._send("Page.getFrameTree")
-        except SourceTraversalUnavailable:
-            return False
+        except Exception as exc:  # noqa: BLE001 - preserve transport timeout
+            if _is_transport_timeout(exc):
+                raise
+            return "UNAVAILABLE"
         records = _frame_records(payload)
         frame = records.get(frame_id)
         if frame is None:
-            return False
+            return "UNAVAILABLE"
         parent_id, origin = frame
         parent = records.get(parent_id)
         if parent is None:
-            return False
+            return "UNAVAILABLE"
         parent_origin = parent[1]
         if not origin or not parent_origin:
-            return False
-        return origin == parent_origin
+            return "UNAVAILABLE"
+        return "SAME_ORIGIN" if origin == parent_origin else "CROSS_ORIGIN"
 
     async def _send(
         self,
@@ -337,7 +346,7 @@ def _child_positions(
     owner_chain: tuple[str, ...],
     hidden_by_ancestor: bool,
     *,
-    frame_accessible: bool | None,
+    frame_accessibility: str | None,
 ) -> tuple[tuple[str, ...], tuple[CoverageGap, ...]]:
     children: list[str] = []
     gaps: list[CoverageGap] = []
@@ -348,37 +357,52 @@ def _child_positions(
             for child in raw_children
             if isinstance(child, dict)
         )
+    tag = str(raw.get("nodeName") or "").strip().lower()
+    content_document = raw.get("contentDocument")
+    if tag in {"frame", "iframe"}:
+        if frame_accessibility == "CROSS_ORIGIN":
+            gaps.append(
+                CoverageGap(
+                    stage="CAPTURE",
+                    detail=CaptureGap(
+                        source="FRAME",
+                        reason="CROSS_ORIGIN",
+                    ),
+                ),
+            )
+        elif (
+            frame_accessibility == "SAME_ORIGIN"
+            and isinstance(content_document, dict)
+        ):
+            frame_id = str(
+                raw.get("frameId") or content_document.get("frameId") or "",
+            ).strip()
+            backend_id = raw.get("backendNodeId") or raw.get(
+                "backendDOMNodeId",
+            )
+            frame_owner = frame_id or f"backend-{backend_id}"
+            child_chain = (*owner_chain, f"frame:{frame_owner}")
+            if owner_chain[-1] == f"frame:{frame_owner}":
+                child_chain = owner_chain
+            children.append(
+                _position_from_node(
+                    content_document,
+                    child_chain,
+                    False,
+                ),
+            )
+        else:
+            gaps.append(
+                CoverageGap(
+                    stage="CAPTURE",
+                    detail=CaptureGap(
+                        source="FRAME",
+                        reason="SOURCE_UNAVAILABLE",
+                    ),
+                ),
+            )
     backend_id = raw.get("backendNodeId") or raw.get("backendDOMNodeId")
     if isinstance(backend_id, int) and backend_id > 0:
-        content_document = raw.get("contentDocument")
-        if isinstance(content_document, dict):
-            if frame_accessible is False:
-                gaps.append(
-                    CoverageGap(
-                        stage="CAPTURE",
-                        detail=CaptureGap(
-                            source="FRAME",
-                            reason="CROSS_ORIGIN",
-                        ),
-                    ),
-                )
-            else:
-                frame_id = str(
-                    raw.get("frameId")
-                    or content_document.get("frameId")
-                    or "",
-                ).strip()
-                frame_owner = frame_id or f"backend-{backend_id}"
-                child_chain = (*owner_chain, f"frame:{frame_owner}")
-                if owner_chain[-1] == f"frame:{frame_owner}":
-                    child_chain = owner_chain
-                children.append(
-                    _position_from_node(
-                        content_document,
-                        child_chain,
-                        False,
-                    ),
-                )
         shadow_roots = raw.get("shadowRoots")
         if isinstance(shadow_roots, list):
             for shadow in shadow_roots:
@@ -447,6 +471,15 @@ def _is_transport_timeout(exc: BaseException) -> bool:
     }
 
 
+def _note_generation(
+    callback: Callable[[str], None] | None,
+    generation: str,
+) -> None:
+    """Commit a trusted generation before exposing its traversal state."""
+    if callback is not None:
+        callback(str(generation))
+
+
 class SourceTraversalManager:
     """Own opaque, per-tab cursor state for incremental source traversal."""
 
@@ -461,6 +494,7 @@ class SourceTraversalManager:
         limit: int,
         query: TargetQuery | None = None,
         region_owner_chain: tuple[str, ...] | None = None,
+        on_generation: Callable[[str], None] | None = None,
     ) -> SourceTraversalPage:
         """Replace any tab cursor and return the first source-derived page."""
         _validate_limit(limit)
@@ -469,6 +503,7 @@ class SourceTraversalManager:
         generation = ""
         try:
             generation = await source.generation()
+            _note_generation(on_generation, generation)
             root = await source.root_position()
         except SourceTraversalUnavailable as exc:
             return _unavailable_page(generation, exc)
@@ -494,6 +529,7 @@ class SourceTraversalManager:
             source=source,
             cursor=cursor,
             limit=limit,
+            on_generation=on_generation,
         )
 
     async def continue_(
@@ -503,6 +539,7 @@ class SourceTraversalManager:
         source: SourceTraversalSource,
         cursor: str,
         limit: int,
+        on_generation: Callable[[str], None] | None = None,
     ) -> SourceTraversalPage:
         """Resume exactly one current tab cursor from its source position."""
         _validate_limit(limit)
@@ -525,6 +562,7 @@ class SourceTraversalManager:
             source=source,
             cursor=cursor,
             limit=limit,
+            on_generation=on_generation,
         )
 
     def cancel(self, *, tab_id: int, cursor: str) -> bool:
@@ -564,19 +602,21 @@ class SourceTraversalManager:
         source: SourceTraversalSource,
         cursor: str,
         limit: int,
+        on_generation: Callable[[str], None] | None,
     ) -> SourceTraversalPage:
         session = self._session(cursor)
         expected_generation = str(session["generation"])
         try:
             generation_before = await source.generation()
+            _note_generation(on_generation, generation_before)
         except SourceTraversalUnavailable as exc:
             if not self._is_active(tab_id, cursor):
                 return self._stale(cursor, expected_generation, session)
             return self._unavailable(cursor, expected_generation, exc)
-        if not self._is_active(tab_id, cursor):
-            return self._stale(cursor, expected_generation, session)
         if generation_before != expected_generation:
             return self._stale(cursor, generation_before, session)
+        if not self._is_active(tab_id, cursor):
+            return self._stale(cursor, expected_generation, session)
 
         targets: list[SnapshotTarget] = []
         pending = session["pending"]
@@ -639,14 +679,15 @@ class SourceTraversalManager:
 
         try:
             generation_after = await source.generation()
+            _note_generation(on_generation, generation_after)
         except SourceTraversalUnavailable as exc:
             if not self._is_active(tab_id, cursor):
                 return self._stale(cursor, expected_generation, session)
             return self._unavailable(cursor, expected_generation, exc)
-        if not self._is_active(tab_id, cursor):
-            return self._stale(cursor, expected_generation, session)
         if generation_after != expected_generation:
             return self._stale(cursor, generation_after, session)
+        if not self._is_active(tab_id, cursor):
+            return self._stale(cursor, expected_generation, session)
 
         end_of_collection = not pending
         sources = _sources(session)

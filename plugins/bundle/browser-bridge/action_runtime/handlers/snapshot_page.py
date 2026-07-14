@@ -21,7 +21,6 @@ from ..ref_scope import _control_note_canonical_document
 from ..source_traversal import (
     CDPSourceTraversalAdapter,
     SourceTraversalManager,
-    SourceTraversalUnavailable,
 )
 from ..state import ControlState
 from ..tab_manager import _control_ensure_tab_available, _control_page_id
@@ -76,17 +75,13 @@ class SnapshotPageHandler:
             request_context=kwargs.get("request_context") or {},
         )
         source = CDPSourceTraversalAdapter(session)
-        try:
-            generation = await source.generation()
-        except SourceTraversalUnavailable:
-            # The manager preserves the existing typed unavailable result.
-            pass
-        else:
+        def note_generation(generation: str) -> None:
             _control_note_canonical_document(
                 state,
                 tab_id=tab_id,
                 document_token=generation,
             )
+
         if cursor is None:
             page = await manager.start(
                 tab_id=tab_id,
@@ -94,6 +89,7 @@ class SnapshotPageHandler:
                 limit=request["limit"],
                 query=request["query"],
                 region_owner_chain=request["region_owner_chain"],
+                on_generation=note_generation,
             )
         else:
             page = await manager.continue_(
@@ -101,6 +97,7 @@ class SnapshotPageHandler:
                 source=source,
                 cursor=cursor,
                 limit=request["limit"],
+                on_generation=note_generation,
             )
         context = _issue_opaque_value(
             ContextVersion,
