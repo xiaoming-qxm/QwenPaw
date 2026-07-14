@@ -86,6 +86,9 @@ def _control_advance_canonical_generation(
         current[field] += 1
         contexts = state.setdefault(_CANONICAL_CONTEXT_STATE_KEY, {})
         contexts[str(int(tab_id))] = current
+        from .source_traversal import invalidate_source_traversals
+
+        invalidate_source_traversals(state, tab_id=tab_id)
     return dict(current)
 
 

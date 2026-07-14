@@ -26,6 +26,7 @@ from .set_checked import SET_CHECKED_HANDLER
 from .select_option import SELECT_OPTION_HANDLER
 from .screenshot import SCREENSHOT_HANDLER
 from .snapshot import SNAPSHOT_HANDLER
+from .snapshot_page import SNAPSHOT_PAGE_HANDLER
 from .start import START_HANDLER
 from .stop import STOP_HANDLER
 from .tabs import TABS_HANDLER
@@ -58,6 +59,7 @@ register_handler("page_pdf", PAGE_PDF_HANDLER)
 register_handler("paste", PASTE_HANDLER)
 register_handler("dialog", DIALOG_HANDLER)
 register_handler("snapshot", SNAPSHOT_HANDLER)
+register_handler("snapshot_page", SNAPSHOT_PAGE_HANDLER)
 register_handler("screenshot", SCREENSHOT_HANDLER)
 register_handler("wait_for", WAIT_FOR_HANDLER)
 

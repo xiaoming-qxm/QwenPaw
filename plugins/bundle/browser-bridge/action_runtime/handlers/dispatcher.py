@@ -34,6 +34,7 @@ _ENVELOPE_FREE_CANONICAL_ACTIONS = {
     "claim_tab",
     "release_tab",
     "snapshot",
+    "snapshot_page",
     "screenshot",
     "wait_for",
     "stop",
@@ -41,6 +42,7 @@ _ENVELOPE_FREE_CANONICAL_ACTIONS = {
 
 _TRANSITION_OBSERVATION_ACTIONS = {
     "snapshot",
+    "snapshot_page",
     "screenshot",
     "click",
     "type",

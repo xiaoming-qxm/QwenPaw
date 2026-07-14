@@ -9,6 +9,7 @@ from qwenpaw.browser.sdk.runtime.responses import _tool_response
 from ..navigation import _control_tab_id
 from ..observation import _control_clear_observation_required
 from ..session_manager import _control_close_session
+from ..source_traversal import SourceTraversalManager
 from ..state import ControlState
 from ..tab_manager import _control_page_id
 from .protocol import ActionMeta
@@ -41,6 +42,7 @@ class ReleaseTabHandler:
             holder_id=holder_id,
             bridge=bridge,
         )
+        SourceTraversalManager(state).invalidate_tab(tab_id)
         _control_clear_observation_required(state, tab_id)
         state.tabs.pop(str(tab_id), None)
         return _tool_response(

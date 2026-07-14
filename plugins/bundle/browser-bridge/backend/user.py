@@ -30,6 +30,7 @@ from qwenpaw.browser.sdk.canonical.contracts import (
     RegionRef,
     Problem,
     TabSummary,
+    TargetQuery,
     TargetRef,
     VisualRegion,
     _RUNTIME_VALUE_ISSUER,
@@ -102,6 +103,7 @@ from qwenpaw.browser.sdk.runtime.snapshot import (
     RegionSummary as SnapshotRegionSummary,
     SnapshotCapture,
     SnapshotTarget,
+    SourceTraversalCapture,
     SourceOutcome,
 )
 from ..action_runtime.handlers.protocol import (
@@ -1154,6 +1156,126 @@ class ChromeExtensionBrowserSession:
             expires_at=monotonic() + 30.0,
             scope=scope,
         )
+
+    async def capture_source_page(
+        self,
+        tab_id: str,
+        *,
+        limit: int,
+        query: TargetQuery | None = None,
+        cursor: str | None = None,
+        region_owner_chain: tuple[str, ...] = (),
+    ) -> SourceTraversalCapture:
+        """Request one opaque, source-owned canonical traversal page."""
+        if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
+            raise ValueError("source traversal limit must be positive")
+        if query is not None and not isinstance(query, TargetQuery):
+            raise TypeError("query must be a TargetQuery")
+        if cursor is not None and (not isinstance(cursor, str) or not cursor):
+            raise ValueError("source traversal cursor is invalid")
+        if not all(
+            isinstance(owner, str) and owner for owner in region_owner_chain
+        ):
+            raise ValueError("region owner chain is invalid")
+        traversal: dict[str, object] = {
+            "cursor": cursor,
+            "limit": limit,
+            "region_owner_chain": list(region_owner_chain),
+        }
+        if query is not None:
+            traversal["query"] = {
+                key: value
+                for key, value in {
+                    "role": query.role,
+                    "name": query.name,
+                    "text": query.text,
+                    "match": query.match,
+                }.items()
+                if isinstance(value, str) and value
+            }
+        payload = await self._bridge_or_engine_action(
+            "snapshot_page",
+            tab_id,
+            traversal=traversal,
+        )
+        if not isinstance(payload, dict):
+            raise BrowserSDKError(
+                "Canonical source traversal returned an invalid payload.",
+                code="snapshot_payload_invalid",
+            )
+        continuation = payload.get("continuation")
+        if continuation is not None and (
+            not isinstance(continuation, str) or not continuation
+        ):
+            raise BrowserSDKError(
+                "Canonical source traversal continuation is invalid.",
+                code="snapshot_payload_invalid",
+            )
+        end_of_collection = payload.get("end_of_collection")
+        if not isinstance(end_of_collection, bool):
+            raise BrowserSDKError(
+                "Canonical source traversal state is invalid.",
+                code="snapshot_payload_invalid",
+            )
+        from qwenpaw.browser.sdk.runtime.kernel import (
+            get_current_execution_context,
+        )
+        from qwenpaw.runtime.root_request_coordinator import _OWNER_REGISTRY
+
+        execution = get_current_execution_context()
+        if execution is None:
+            raise BrowserSDKError(
+                "Canonical snapshot owner is unavailable.",
+                code="browser_ownership_context_missing",
+            )
+        owner = BrowserRequestBinding(
+            root_session_id=execution.root_session_id,
+            root_task_id=execution.root_task_id,
+            browser_owner_id=execution.browser_owner_id,
+            contract_mode=execution.contract_mode,
+            lease_generation=execution.lease_generation,
+        )
+        capture = _canonical_capture_from_payload(
+            payload,
+            registry=_OWNER_REGISTRY,
+            owner=owner,
+            receiver_tab=str(tab_id),
+            expires_at=monotonic() + 30.0,
+        )
+        return SourceTraversalCapture(
+            capture=capture,
+            cursor=continuation,
+            end_of_collection=end_of_collection,
+        )
+
+    async def cancel_source_page(
+        self,
+        tab_id: str,
+        *,
+        cursor: str,
+    ) -> bool:
+        """Release one private bridge traversal cursor without observation."""
+        if not isinstance(cursor, str) or not cursor:
+            raise ValueError("source traversal cursor is invalid")
+        payload = await self._bridge_or_engine_action(
+            "snapshot_page",
+            tab_id,
+            traversal={
+                "cursor": cursor,
+                "limit": 1,
+                "cancel": True,
+                "region_owner_chain": [],
+            },
+        )
+        if not isinstance(payload, dict) or not isinstance(
+            payload.get("cancelled"),
+            bool,
+        ):
+            raise BrowserSDKError(
+                "Canonical source traversal cancellation is invalid.",
+                code="snapshot_payload_invalid",
+            )
+        return bool(payload["cancelled"])
 
     async def capture_visual_snapshot(
         self,

@@ -172,6 +172,21 @@ class SnapshotCapture:
 
 
 @dataclass(frozen=True, slots=True)
+class SourceTraversalCapture:
+    """One bridge-owned source page and its private continuation token."""
+
+    capture: SnapshotCapture
+    cursor: str | None
+    end_of_collection: bool
+
+    def __post_init__(self) -> None:
+        if self.end_of_collection and self.cursor is not None:
+            raise ValueError("finished source traversal cannot keep a cursor")
+        if not self.end_of_collection and not self.cursor:
+            raise ValueError("unfinished source traversal requires a cursor")
+
+
+@dataclass(frozen=True, slots=True)
 class ReadCapture:
     """Bounded normalized content captured once before immutable paging."""
 
@@ -601,6 +616,7 @@ __all__ = [
     "ReadCapture",
     "refs_from_snapshot_payload",
     "SnapshotCapture",
+    "SourceTraversalCapture",
     "SnapshotProbe",
     "SnapshotTarget",
     "SourceOutcome",
