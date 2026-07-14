@@ -360,7 +360,7 @@ class ChromeExtensionBrowserBackend:
         if not bridge_connected:
             status: BrowserDiagnosticStatus = "unavailable"
             code = "chrome_disconnected"
-            message = "Chrome Extension Chrome is not connected."
+            message = "Chrome extension is not connected."
             hint_key = code
         elif not control_engine_registered:
             status = "degraded"
@@ -486,7 +486,7 @@ class ChromeExtensionBrowserBackend:
     ) -> "ChromeExtensionBrowserSession":
         if not self.is_available():
             raise BrowserContextUnavailable(
-                "Chrome Extension Chrome is not connected.",
+                "Chrome extension is not connected.",
                 code="chrome_disconnected",
                 backend_id=self.backend_id,
             )
@@ -508,7 +508,7 @@ class ChromeExtensionBrowserBackend:
         bridge = self._bridge()
         if bridge is None:
             raise BrowserContextUnavailable(
-                "Chrome Extension Chrome is not connected.",
+                "Chrome extension is not connected.",
                 code="chrome_disconnected",
                 backend_id=self.backend_id,
             )
