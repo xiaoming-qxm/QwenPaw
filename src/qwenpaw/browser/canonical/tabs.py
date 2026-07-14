@@ -1516,7 +1516,7 @@ class Tab:
         scope: ObservationScope | None = None,
         query: TargetQuery | None = None,
         cursor: SnapshotCursor | None = None,
-        limit: int,
+        limit: int = 100,
     ) -> SnapshotResult:
         """Capture one caller-sized source page for this Tab receiver."""
         _snapshot_limit(limit)
