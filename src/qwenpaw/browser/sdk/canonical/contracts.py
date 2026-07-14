@@ -1529,6 +1529,19 @@ class SnapshotResult(_TerminalFields):
             self.observation is not None
             and isinstance(self.observation.scope, VisualRegion)
         )
+        if (
+            visual_scope
+            and self.grounding
+            in {
+                Grounding.EXACT,
+                Grounding.MULTIPLE,
+                Grounding.NO_MATCH,
+            }
+            and self.end_of_collection is not True
+        ):
+            raise ResultContractError(
+                "exact visual grounding requires a completed collection",
+            )
         if visual_scope and self.end_of_collection is False:
             if self.grounding is not Grounding.INCOMPLETE:
                 raise ResultContractError(

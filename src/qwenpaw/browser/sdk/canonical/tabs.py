@@ -756,13 +756,17 @@ class TabActions:
         dispatcher = getattr(self.dispatch, "respond_prompt", None)
         if dispatcher is None and callable(self.dispatch):
             dispatcher = self.dispatch
-        return await self._action_runner.continue_prompt(
+        result = await self._action_runner.continue_prompt(
             binding=self._owner_binding,
             prompt=prompt,
             decision=decision,
             text=text,
             dispatcher=dispatcher,
         )
+        if result.status not in {"BLOCKED", "CANCELLED"}:
+            if self._invalidate_observation is not None:
+                self._invalidate_observation()
+        return result
 
     async def _run_mutation(
         self,
@@ -950,7 +954,19 @@ class Tab:
             "tab.close",
             expectation=expectation,
         )
-        return cast(ActionResult, result)
+        typed = cast(ActionResult, result)
+        if typed.status not in {"BLOCKED", "CANCELLED"}:
+            self._invalidate_observation()
+            if (
+                typed.status == "SUCCEEDED"
+                and self._target_registry is not None
+                and self._owner_binding is not None
+            ):
+                self._target_registry.prove_tab_closed(
+                    self._owner_binding,
+                    self._tab_summary,
+                )
+        return typed
 
     async def current_prompt(self) -> BrowserPrompt | None:
         """Return the exact non-mutating prompt waiting on this tab."""
