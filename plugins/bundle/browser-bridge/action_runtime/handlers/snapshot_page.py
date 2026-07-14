@@ -26,7 +26,10 @@ from ..state import ControlState
 from ..tab_manager import _control_ensure_tab_available, _control_page_id
 from ..navigation import _control_tab_id
 from .protocol import ActionMeta
-from .snapshot import _canonical_snapshot_payload
+from .snapshot import (
+    _canonical_snapshot_payload,
+    _canonical_visual_grounding_payload,
+)
 
 
 @dataclass(frozen=True)
@@ -119,8 +122,20 @@ class SnapshotPageHandler:
             tab_id=tab_id,
             request_context=kwargs.get("request_context") or {},
             capture=capture,
-            include_trusted_bindings=False,
+            include_trusted_bindings=request["visual_region"] is not None,
         )
+        visual_region = request["visual_region"]
+        if isinstance(visual_region, dict):
+            payload = await _canonical_visual_grounding_payload(
+                session,
+                state=state,
+                payload=payload,
+                request=visual_region,
+            )
+            # Native identity bindings remain only in the trusted session
+            # side channel; they must never cross the relay payload.
+            payload.pop("_trusted_bindings", None)
+            payload.pop("_trusted_surface_candidates", None)
         return _tool_response(
             json.dumps(
                 {
@@ -142,6 +157,7 @@ def _traversal_request(value: object) -> dict[str, object]:
         "limit",
         "query",
         "region_owner_chain",
+        "visual_region",
         "cancel",
     }:
         raise ValueError(
@@ -173,12 +189,16 @@ def _traversal_request(value: object) -> dict[str, object]:
                 if key in raw_query
             },
         )
+    visual_region = value.get("visual_region")
+    if visual_region is not None and not isinstance(visual_region, dict):
+        raise TypeError("visual source traversal region is invalid")
     return {
         "cursor": cursor,
         "limit": limit,
         "query": query,
         "region_owner_chain": tuple(raw_chain),
         "cancel": cancel,
+        "visual_region": visual_region,
     }
 
 

@@ -882,19 +882,25 @@
           "required": false
         },
         {
-          "annotation": "int | None",
+          "annotation": "SnapshotCursor | None",
           "default": null,
           "kind": "KEYWORD_ONLY",
-          "name": "limit",
+          "name": "cursor",
           "required": false
+        },
+        {
+          "annotation": "int",
+          "kind": "KEYWORD_ONLY",
+          "name": "limit",
+          "required": true
         }
       ],
       "public_name": "tab.snapshot",
       "requires_observation": false,
       "return_type": "SnapshotResult",
       "satisfies_observation": true,
-      "signature": "async snapshot(*, scope: ObservationScope | None = None, query: TargetQuery | None = None, limit: int | None = None) -> SnapshotResult",
-      "summary": "Capture neutral bounded evidence for this Tab receiver.",
+      "signature": "async snapshot(*, scope: ObservationScope | None = None, query: TargetQuery | None = None, cursor: SnapshotCursor | None = None, limit: int) -> SnapshotResult",
+      "summary": "Capture one caller-sized source page for this Tab receiver.",
       "visibility": "default"
     },
     {
@@ -919,19 +925,18 @@
           "required": false
         },
         {
-          "annotation": "int | None",
-          "default": null,
+          "annotation": "int",
           "kind": "KEYWORD_ONLY",
           "name": "limit",
-          "required": false
+          "required": true
         }
       ],
       "public_name": "tab.read",
       "requires_observation": false,
       "return_type": "ReadResult",
       "satisfies_observation": true,
-      "signature": "async read(*, scope: ObservationScope | None = None, cursor: ReadCursor | None = None, limit: int | None = None) -> ReadResult",
-      "summary": "Read one page from an immutable bounded collection.",
+      "signature": "async read(*, scope: ObservationScope | None = None, cursor: ReadCursor | None = None, limit: int) -> ReadResult",
+      "summary": "Read one caller-sized page from a source continuation.",
       "visibility": "default"
     },
     {

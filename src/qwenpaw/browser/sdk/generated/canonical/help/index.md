@@ -33,9 +33,9 @@ Use `Browser.help(api_id="tab.actions.click")` for one API.
 - `browser.tabs.open` - Create and navigate a task tab without selecting it.
 - `tab.close` - Close this exact tab through the ActionRunner.
 - `tab.print_to_pdf` - Capture one context-bound PDF through ActionRunner.
-- `tab.read` - Read one page from an immutable bounded collection.
+- `tab.read` - Read one caller-sized page from a source continuation.
 - `tab.screenshot` - Capture a non-mutating exact screenshot variant.
-- `tab.snapshot` - Capture neutral bounded evidence for this Tab receiver.
+- `tab.snapshot` - Capture one caller-sized source page for this Tab receiver.
 - `tab.wait_for` - Wait for one bounded flat typed condition.
 
 ## Diagnostics

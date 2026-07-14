@@ -1608,18 +1608,17 @@
           "required": false
         },
         {
-          "annotation": "int | None",
-          "default": null,
+          "annotation": "int",
           "kind": "KEYWORD_ONLY",
           "name": "limit",
-          "required": false
+          "required": true
         }
       ],
       "requires_observation": false,
       "return_type": "ReadResult",
       "satisfies_observation": true,
-      "signature": "async read(*, scope: ObservationScope | None = None, cursor: ReadCursor | None = None, limit: int | None = None) -> ReadResult",
-      "summary": "Read one page from an immutable bounded collection."
+      "signature": "async read(*, scope: ObservationScope | None = None, cursor: ReadCursor | None = None, limit: int) -> ReadResult",
+      "summary": "Read one caller-sized page from a source continuation."
     },
     "tab.screenshot": {
       "api_id": "tab.screenshot",
@@ -1664,18 +1663,24 @@
           "required": false
         },
         {
-          "annotation": "int | None",
+          "annotation": "SnapshotCursor | None",
           "default": null,
           "kind": "KEYWORD_ONLY",
-          "name": "limit",
+          "name": "cursor",
           "required": false
+        },
+        {
+          "annotation": "int",
+          "kind": "KEYWORD_ONLY",
+          "name": "limit",
+          "required": true
         }
       ],
       "requires_observation": false,
       "return_type": "SnapshotResult",
       "satisfies_observation": true,
-      "signature": "async snapshot(*, scope: ObservationScope | None = None, query: TargetQuery | None = None, limit: int | None = None) -> SnapshotResult",
-      "summary": "Capture neutral bounded evidence for this Tab receiver."
+      "signature": "async snapshot(*, scope: ObservationScope | None = None, query: TargetQuery | None = None, cursor: SnapshotCursor | None = None, limit: int) -> SnapshotResult",
+      "summary": "Capture one caller-sized source page for this Tab receiver."
     },
     "tab.wait_for": {
       "api_id": "tab.wait_for",
@@ -1747,17 +1752,17 @@
       "tab.actions.upload_file": "# `tab.actions.upload_file`\n\nSelect current task-owned resources on one exact target.\n\nKind: `action`\nSignature: `async upload_file(target: TargetRef, resources: ResourceHandle | Sequence[ResourceHandle], *, expect=None, state=None, timeout_ms=None) -> ActionResult`\n\nMetadata:\n- mutates: `True`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `False`\n",
       "tab.close": "# `tab.close`\n\nClose this exact tab through the ActionRunner.\n\nKind: `primitive`\nSignature: `async close() -> ActionResult`\n\nMetadata:\n- mutates: `True`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `False`\n",
       "tab.print_to_pdf": "# `tab.print_to_pdf`\n\nCapture one context-bound PDF through ActionRunner.\n\nKind: `primitive`\nSignature: `async print_to_pdf(*, options: PagePdfOptions | None = None) -> PagePdfResult`\n\nMetadata:\n- mutates: `True`\n- requires_observation: `False`\n- satisfies_observation: `False`\n- invalidates_observation: `False`\n",
-      "tab.read": "# `tab.read`\n\nRead one page from an immutable bounded collection.\n\nKind: `primitive`\nSignature: `async read(*, scope: ObservationScope | None = None, cursor: ReadCursor | None = None, limit: int | None = None) -> ReadResult`\n\nMetadata:\n- mutates: `False`\n- requires_observation: `False`\n- satisfies_observation: `True`\n- invalidates_observation: `False`\n",
+      "tab.read": "# `tab.read`\n\nRead one caller-sized page from a source continuation.\n\nKind: `primitive`\nSignature: `async read(*, scope: ObservationScope | None = None, cursor: ReadCursor | None = None, limit: int) -> ReadResult`\n\nMetadata:\n- mutates: `False`\n- requires_observation: `False`\n- satisfies_observation: `True`\n- invalidates_observation: `False`\n",
       "tab.screenshot": "# `tab.screenshot`\n\nCapture a non-mutating exact screenshot variant.\n\nKind: `primitive`\nSignature: `async screenshot(*, scope: Literal['viewport', 'full_page'] = 'viewport') -> ScreenshotResult`\n\nMetadata:\n- mutates: `False`\n- requires_observation: `False`\n- satisfies_observation: `True`\n- invalidates_observation: `False`\n",
-      "tab.snapshot": "# `tab.snapshot`\n\nCapture neutral bounded evidence for this Tab receiver.\n\nKind: `primitive`\nSignature: `async snapshot(*, scope: ObservationScope | None = None, query: TargetQuery | None = None, limit: int | None = None) -> SnapshotResult`\n\nMetadata:\n- mutates: `False`\n- requires_observation: `False`\n- satisfies_observation: `True`\n- invalidates_observation: `False`\n",
+      "tab.snapshot": "# `tab.snapshot`\n\nCapture one caller-sized source page for this Tab receiver.\n\nKind: `primitive`\nSignature: `async snapshot(*, scope: ObservationScope | None = None, query: TargetQuery | None = None, cursor: SnapshotCursor | None = None, limit: int) -> SnapshotResult`\n\nMetadata:\n- mutates: `False`\n- requires_observation: `False`\n- satisfies_observation: `True`\n- invalidates_observation: `False`\n",
       "tab.wait_for": "# `tab.wait_for`\n\nWait for one bounded flat typed condition.\n\nKind: `primitive`\nSignature: `async wait_for(condition: BrowserCondition, *, timeout_ms: int, stable_ms: int = 0) -> WaitResult`\n\nMetadata:\n- mutates: `False`\n- requires_observation: `False`\n- satisfies_observation: `True`\n- invalidates_observation: `False`\n"
     },
-    "index": "# Browser SDK Generated Help\n\nGenerated from `api_catalog.json`.\n\nUse `Browser.capabilities(scope=\"actions\")` for compact indexes.\nUse `Browser.help(api_id=\"tab.actions.click\")` for one API.\n\n## Actions\n\n- `tab.actions.back` - Navigate backward in this tab's history.\n- `tab.actions.click` - Click one Runtime-issued target with closed input values.\n- `tab.actions.download_file` - Download once from one exact target into ResourceStore.\n- `tab.actions.drag` - Drag between two ordered Runtime-issued targets.\n- `tab.actions.fill` - Replace the complete value of one target.\n- `tab.actions.forward` - Navigate forward in this tab's history.\n- `tab.actions.hover` - Hover one Runtime-issued target.\n- `tab.actions.navigate` - Navigate this tab to one safe HTTP(S) URL.\n- `tab.actions.paste` - Insert bounded caller-provided content into one target.\n- `tab.actions.press_key` - Press one closed key value on an explicit target.\n- `tab.actions.reload` - Reload this exact tab.\n- `tab.actions.scroll` - Scroll this tab or one Runtime-issued target.\n- `tab.actions.select_option` - Select one exact OptionChoice on a target.\n- `tab.actions.set_checked` - Ensure one target has the exact checked state.\n- `tab.actions.type_text` - Append browser input events to one target.\n- `tab.actions.upload_file` - Select current task-owned resources on one exact target.\n\n## Primitives\n\n- `browser.resources.from_workspace` - Authorize one workspace file as a resource handle.\n- `browser.resources.list` - List current task-owned resource handles.\n- `browser.resources.require` - Resolve one current task-owned resource handle.\n- `browser.tabs.new` - Create one blank task tab without selecting it.\n- `browser.tabs.open` - Create and navigate a task tab without selecting it.\n- `tab.close` - Close this exact tab through the ActionRunner.\n- `tab.print_to_pdf` - Capture one context-bound PDF through ActionRunner.\n- `tab.read` - Read one page from an immutable bounded collection.\n- `tab.screenshot` - Capture a non-mutating exact screenshot variant.\n- `tab.snapshot` - Capture neutral bounded evidence for this Tab receiver.\n- `tab.wait_for` - Wait for one bounded flat typed condition.\n\n## Diagnostics\n\n\n## Lifecycle\n\n- `browser.close` - Release the current SDK lease only.\n- `browser.connect` - Connect with the trusted root-task binding.\n\n## Release Truth\n\n- `build_fingerprint`: `build-1`\n- `contract_fingerprint`: `contract-v1`\n- `profile_fingerprint`: `profile-v1`\n- `extension_fingerprint`: `extension@build-1`\n- `provider_fingerprint`: `provider-v1`\n- `max_retained_state_ttl_seconds`: `3600`\n- `max_legacy_token_ttl_seconds`: `3600`\n",
+    "index": "# Browser SDK Generated Help\n\nGenerated from `api_catalog.json`.\n\nUse `Browser.capabilities(scope=\"actions\")` for compact indexes.\nUse `Browser.help(api_id=\"tab.actions.click\")` for one API.\n\n## Actions\n\n- `tab.actions.back` - Navigate backward in this tab's history.\n- `tab.actions.click` - Click one Runtime-issued target with closed input values.\n- `tab.actions.download_file` - Download once from one exact target into ResourceStore.\n- `tab.actions.drag` - Drag between two ordered Runtime-issued targets.\n- `tab.actions.fill` - Replace the complete value of one target.\n- `tab.actions.forward` - Navigate forward in this tab's history.\n- `tab.actions.hover` - Hover one Runtime-issued target.\n- `tab.actions.navigate` - Navigate this tab to one safe HTTP(S) URL.\n- `tab.actions.paste` - Insert bounded caller-provided content into one target.\n- `tab.actions.press_key` - Press one closed key value on an explicit target.\n- `tab.actions.reload` - Reload this exact tab.\n- `tab.actions.scroll` - Scroll this tab or one Runtime-issued target.\n- `tab.actions.select_option` - Select one exact OptionChoice on a target.\n- `tab.actions.set_checked` - Ensure one target has the exact checked state.\n- `tab.actions.type_text` - Append browser input events to one target.\n- `tab.actions.upload_file` - Select current task-owned resources on one exact target.\n\n## Primitives\n\n- `browser.resources.from_workspace` - Authorize one workspace file as a resource handle.\n- `browser.resources.list` - List current task-owned resource handles.\n- `browser.resources.require` - Resolve one current task-owned resource handle.\n- `browser.tabs.new` - Create one blank task tab without selecting it.\n- `browser.tabs.open` - Create and navigate a task tab without selecting it.\n- `tab.close` - Close this exact tab through the ActionRunner.\n- `tab.print_to_pdf` - Capture one context-bound PDF through ActionRunner.\n- `tab.read` - Read one caller-sized page from a source continuation.\n- `tab.screenshot` - Capture a non-mutating exact screenshot variant.\n- `tab.snapshot` - Capture one caller-sized source page for this Tab receiver.\n- `tab.wait_for` - Wait for one bounded flat typed condition.\n\n## Diagnostics\n\n\n## Lifecycle\n\n- `browser.close` - Release the current SDK lease only.\n- `browser.connect` - Connect with the trusted root-task binding.\n\n## Release Truth\n\n- `build_fingerprint`: `build-1`\n- `contract_fingerprint`: `contract-v1`\n- `profile_fingerprint`: `profile-v1`\n- `extension_fingerprint`: `extension@build-1`\n- `provider_fingerprint`: `provider-v1`\n- `max_retained_state_ttl_seconds`: `3600`\n- `max_legacy_token_ttl_seconds`: `3600`\n",
     "scopes": {
       "actions": "# Browser SDK Actions\n\nGenerated from `api_catalog.json`.\n\n## `tab.actions.back`\n\nNavigate backward in this tab's history.\n\nSignature: `async back(*, expect=None, state=None, timeout_ms=None) -> ActionResult`\n\n## `tab.actions.click`\n\nClick one Runtime-issued target with closed input values.\n\nSignature: `async click(target: TargetRef, *, button: Literal['primary', 'secondary', 'middle'] = 'primary', count: Literal[1, 2] = 1, modifiers: tuple[Literal['alt', 'control', 'meta', 'shift'], ...] = (), expect=None, state=None, timeout_ms=None) -> ActionResult`\n\n## `tab.actions.download_file`\n\nDownload once from one exact target into ResourceStore.\n\nSignature: `async download_file(target: TargetRef, *, expect=None, state=None, timeout_ms=None) -> ActionResult`\n\n## `tab.actions.drag`\n\nDrag between two ordered Runtime-issued targets.\n\nSignature: `async drag(source: TargetRef, destination: TargetRef, *, expect=None, state=None, timeout_ms=None) -> ActionResult`\n\n## `tab.actions.fill`\n\nReplace the complete value of one target.\n\nSignature: `async fill(target: TargetRef, value: str, *, expect=None, state=None, timeout_ms=None) -> ActionResult`\n\n## `tab.actions.forward`\n\nNavigate forward in this tab's history.\n\nSignature: `async forward(*, expect=None, state=None, timeout_ms=None) -> ActionResult`\n\n## `tab.actions.hover`\n\nHover one Runtime-issued target.\n\nSignature: `async hover(target: TargetRef, *, expect=None, timeout_ms=None) -> ActionResult`\n\n## `tab.actions.navigate`\n\nNavigate this tab to one safe HTTP(S) URL.\n\nSignature: `async navigate(url: str, *, expect=None, state=None, timeout_ms=None) -> ActionResult`\n\n## `tab.actions.paste`\n\nInsert bounded caller-provided content into one target.\n\nSignature: `async paste(target: TargetRef, content: str, *, expect=None, state=None, timeout_ms=None) -> ActionResult`\n\n## `tab.actions.press_key`\n\nPress one closed key value on an explicit target.\n\nSignature: `async press_key(target: TargetRef, key: str, *, modifiers: tuple[Literal['shift'], ...] = (), expect=None, state=None, timeout_ms=None) -> ActionResult`\n\n## `tab.actions.reload`\n\nReload this exact tab.\n\nSignature: `async reload(*, expect=None, state=None, timeout_ms=None) -> ActionResult`\n\n## `tab.actions.scroll`\n\nScroll this tab or one Runtime-issued target.\n\nSignature: `async scroll(*, target: TargetRef | None = None, direction: Literal['up', 'down', 'left', 'right'] = 'down', amount: Literal['line', 'page', 'start', 'end'] = 'page', expect=None, timeout_ms=None) -> ActionResult`\n\n## `tab.actions.select_option`\n\nSelect one exact OptionChoice on a target.\n\nSignature: `async select_option(target: TargetRef, option: OptionChoice, *, expect=None, state=None, timeout_ms=None) -> ActionResult`\n\n## `tab.actions.set_checked`\n\nEnsure one target has the exact checked state.\n\nSignature: `async set_checked(target: TargetRef, checked: bool, *, expect=None, state=None, timeout_ms=None) -> ActionResult`\n\n## `tab.actions.type_text`\n\nAppend browser input events to one target.\n\nSignature: `async type_text(target: TargetRef, text: str, *, expect=None, state=None, timeout_ms=None) -> ActionResult`\n\n## `tab.actions.upload_file`\n\nSelect current task-owned resources on one exact target.\n\nSignature: `async upload_file(target: TargetRef, resources: ResourceHandle | Sequence[ResourceHandle], *, expect=None, state=None, timeout_ms=None) -> ActionResult`\n",
       "diagnostics": "# Browser SDK Diagnostics\n\nGenerated from `api_catalog.json`.\n",
       "lifecycle": "# Browser SDK Lifecycle\n\nGenerated from `api_catalog.json`.\n\n## `browser.close`\n\nRelease the current SDK lease only.\n\nSignature: `async close() -> None`\n\n## `browser.connect`\n\nConnect with the trusted root-task binding.\n\nSignature: `async connect(context: Literal['auto', 'user', 'isolated'] = 'auto') -> Browser`\n",
-      "primitives": "# Browser SDK Primitives\n\nGenerated from `api_catalog.json`.\n\n## `browser.resources.from_workspace`\n\nAuthorize one workspace file as a resource handle.\n\nSignature: `from_workspace(path: str) -> ResourceHandle`\n\n## `browser.resources.list`\n\nList current task-owned resource handles.\n\nSignature: `list() -> list[ResourceHandle]`\n\n## `browser.resources.require`\n\nResolve one current task-owned resource handle.\n\nSignature: `require(resource_id: str) -> ResourceHandle`\n\n## `browser.tabs.new`\n\nCreate one blank task tab without selecting it.\n\nSignature: `async new() -> ActionResult`\n\n## `browser.tabs.open`\n\nCreate and navigate a task tab without selecting it.\n\nSignature: `async open(url: str) -> ActionResult`\n\n## `tab.close`\n\nClose this exact tab through the ActionRunner.\n\nSignature: `async close() -> ActionResult`\n\n## `tab.print_to_pdf`\n\nCapture one context-bound PDF through ActionRunner.\n\nSignature: `async print_to_pdf(*, options: PagePdfOptions | None = None) -> PagePdfResult`\n\n## `tab.read`\n\nRead one page from an immutable bounded collection.\n\nSignature: `async read(*, scope: ObservationScope | None = None, cursor: ReadCursor | None = None, limit: int | None = None) -> ReadResult`\n\n## `tab.screenshot`\n\nCapture a non-mutating exact screenshot variant.\n\nSignature: `async screenshot(*, scope: Literal['viewport', 'full_page'] = 'viewport') -> ScreenshotResult`\n\n## `tab.snapshot`\n\nCapture neutral bounded evidence for this Tab receiver.\n\nSignature: `async snapshot(*, scope: ObservationScope | None = None, query: TargetQuery | None = None, limit: int | None = None) -> SnapshotResult`\n\n## `tab.wait_for`\n\nWait for one bounded flat typed condition.\n\nSignature: `async wait_for(condition: BrowserCondition, *, timeout_ms: int, stable_ms: int = 0) -> WaitResult`\n"
+      "primitives": "# Browser SDK Primitives\n\nGenerated from `api_catalog.json`.\n\n## `browser.resources.from_workspace`\n\nAuthorize one workspace file as a resource handle.\n\nSignature: `from_workspace(path: str) -> ResourceHandle`\n\n## `browser.resources.list`\n\nList current task-owned resource handles.\n\nSignature: `list() -> list[ResourceHandle]`\n\n## `browser.resources.require`\n\nResolve one current task-owned resource handle.\n\nSignature: `require(resource_id: str) -> ResourceHandle`\n\n## `browser.tabs.new`\n\nCreate one blank task tab without selecting it.\n\nSignature: `async new() -> ActionResult`\n\n## `browser.tabs.open`\n\nCreate and navigate a task tab without selecting it.\n\nSignature: `async open(url: str) -> ActionResult`\n\n## `tab.close`\n\nClose this exact tab through the ActionRunner.\n\nSignature: `async close() -> ActionResult`\n\n## `tab.print_to_pdf`\n\nCapture one context-bound PDF through ActionRunner.\n\nSignature: `async print_to_pdf(*, options: PagePdfOptions | None = None) -> PagePdfResult`\n\n## `tab.read`\n\nRead one caller-sized page from a source continuation.\n\nSignature: `async read(*, scope: ObservationScope | None = None, cursor: ReadCursor | None = None, limit: int) -> ReadResult`\n\n## `tab.screenshot`\n\nCapture a non-mutating exact screenshot variant.\n\nSignature: `async screenshot(*, scope: Literal['viewport', 'full_page'] = 'viewport') -> ScreenshotResult`\n\n## `tab.snapshot`\n\nCapture one caller-sized source page for this Tab receiver.\n\nSignature: `async snapshot(*, scope: ObservationScope | None = None, query: TargetQuery | None = None, cursor: SnapshotCursor | None = None, limit: int) -> SnapshotResult`\n\n## `tab.wait_for`\n\nWait for one bounded flat typed condition.\n\nSignature: `async wait_for(condition: BrowserCondition, *, timeout_ms: int, stable_ms: int = 0) -> WaitResult`\n"
     }
   },
   "lifecycle": {
@@ -1942,18 +1947,17 @@
           "required": false
         },
         {
-          "annotation": "int | None",
-          "default": null,
+          "annotation": "int",
           "kind": "KEYWORD_ONLY",
           "name": "limit",
-          "required": false
+          "required": true
         }
       ],
       "requires_observation": false,
       "return_type": "ReadResult",
       "satisfies_observation": true,
-      "signature": "async read(*, scope: ObservationScope | None = None, cursor: ReadCursor | None = None, limit: int | None = None) -> ReadResult",
-      "summary": "Read one page from an immutable bounded collection."
+      "signature": "async read(*, scope: ObservationScope | None = None, cursor: ReadCursor | None = None, limit: int) -> ReadResult",
+      "summary": "Read one caller-sized page from a source continuation."
     },
     "tab.screenshot": {
       "api_id": "tab.screenshot",
@@ -1998,18 +2002,24 @@
           "required": false
         },
         {
-          "annotation": "int | None",
+          "annotation": "SnapshotCursor | None",
           "default": null,
           "kind": "KEYWORD_ONLY",
-          "name": "limit",
+          "name": "cursor",
           "required": false
+        },
+        {
+          "annotation": "int",
+          "kind": "KEYWORD_ONLY",
+          "name": "limit",
+          "required": true
         }
       ],
       "requires_observation": false,
       "return_type": "SnapshotResult",
       "satisfies_observation": true,
-      "signature": "async snapshot(*, scope: ObservationScope | None = None, query: TargetQuery | None = None, limit: int | None = None) -> SnapshotResult",
-      "summary": "Capture neutral bounded evidence for this Tab receiver."
+      "signature": "async snapshot(*, scope: ObservationScope | None = None, query: TargetQuery | None = None, cursor: SnapshotCursor | None = None, limit: int) -> SnapshotResult",
+      "summary": "Capture one caller-sized source page for this Tab receiver."
     },
     "tab.wait_for": {
       "api_id": "tab.wait_for",

@@ -1502,6 +1502,10 @@ class SnapshotResult(_TerminalFields):
     source_summary: str = ""
 
     def __post_init__(self) -> None:
+        visual_scope = (
+            self.observation is not None
+            and isinstance(self.observation.scope, VisualRegion)
+        )
         _validate_collection_state(
             next_cursor=self.next_cursor,
             cursor_type=SnapshotCursor,
@@ -1509,9 +1513,11 @@ class SnapshotResult(_TerminalFields):
         )
         if self.grounding is Grounding.EXACT and len(self.targets) != 1:
             raise ResultContractError("EXACT grounding requires one target")
-        if self.grounding is Grounding.MULTIPLE and len(self.targets) < 2:
+        if self.grounding is Grounding.MULTIPLE and len(self.targets) < 2 and not (
+            visual_scope and len(self.targets) == 1
+        ):
             raise ResultContractError(
-                "MULTIPLE grounding requires multiple targets",
+                "MULTIPLE grounding requires multiple target witnesses",
             )
         if (
             self.grounding
@@ -1525,10 +1531,6 @@ class SnapshotResult(_TerminalFields):
             raise ResultContractError(
                 "negative grounding cannot contain targets",
             )
-        visual_scope = (
-            self.observation is not None
-            and isinstance(self.observation.scope, VisualRegion)
-        )
         if (
             visual_scope
             and self.grounding
@@ -2212,7 +2214,7 @@ def canonical_api_catalog() -> dict[str, Any]:
                 satisfies_observation=True,
                 return_type="SnapshotResult",
                 summary=(
-                    "Capture neutral bounded evidence for this Tab receiver."
+                    "Capture one caller-sized source page for this Tab receiver."
                 ),
                 parameters=[
                     {
@@ -2257,7 +2259,7 @@ def canonical_api_catalog() -> dict[str, Any]:
                 kind="primitive",
                 satisfies_observation=True,
                 return_type="ReadResult",
-                summary="Read one page from an immutable collection.",
+                summary="Read one caller-sized page from a source continuation.",
                 parameters=[
                     {
                         "name": "scope",

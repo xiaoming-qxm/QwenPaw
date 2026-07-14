@@ -9,6 +9,7 @@ from hashlib import sha256
 from time import monotonic
 from typing import Any, Awaitable, Callable, Literal, cast
 from urllib.parse import urlsplit
+from uuid import uuid4
 
 from ..action_runner import ActionRunner
 from ..backends.protocols import BackendProfile
@@ -32,16 +33,14 @@ from ..runtime.resources import (
 )
 from ..runtime.result_delivery import RequiredBlock, record_browser_result
 from ..runtime.observation_store import (
-    ImmutableReadCollection,
     ObservationStore,
     ObservationStoreError,
     cleanup_observation_tab,
 )
 from ..runtime.snapshot import (
-    ObservationBudget,
-    ReadCapture,
     SnapshotCapture,
     SnapshotTarget,
+    SourceTraversalCapture,
 )
 from ..runtime.session_owner import (
     BrowserRequestBinding,
@@ -72,7 +71,6 @@ from .contracts import (
     RegionSummary,
     ResourceCondition,
     ResourceHandle,
-    SelectionGap,
     ScreenshotResult,
     SnapshotCursor,
     SnapshotResult,
@@ -95,6 +93,20 @@ from .contracts import (
 )
 
 Dispatch = Callable[..., Awaitable[Any]]
+
+
+@dataclass(frozen=True, slots=True)
+class _SourceContinuation:
+    """Private binding for one bridge-owned observation continuation."""
+
+    bridge_cursor: str
+    scope: ObservationScope
+    query: TargetQuery | None
+    region_owner_chain: tuple[str, ...]
+    context: Any
+    generation: int
+    visual: bool = False
+    visual_witnesses: tuple[SnapshotTarget, ...] = ()
 
 
 async def _invoke_async(
@@ -868,6 +880,14 @@ class Tab:
         repr=False,
     )
     _observation_generation: int = field(default=0, repr=False)
+    _snapshot_continuations: dict[str, _SourceContinuation] = field(
+        default_factory=dict,
+        repr=False,
+    )
+    _read_continuations: dict[str, _SourceContinuation] = field(
+        default_factory=dict,
+        repr=False,
+    )
 
     def __post_init__(self) -> None:
         if self._observations is not None:
@@ -914,6 +934,7 @@ class Tab:
         if self._owner_binding is None:
             raise _capability_blocked("tab.snapshot")
         cleanup_observation_tab(self._owner_binding.owner_key, self.id)
+        self._clear_source_continuations()
         self._target_facts = ()
         self._observation_generation += 1
         self._observations = ObservationStore(
@@ -927,6 +948,7 @@ class Tab:
 
     def _invalidate_observation(self) -> None:
         """Revoke values captured before an action may have changed the page."""
+        self._clear_source_continuations()
         if self._owner_binding is not None and self._target_registry is not None:
             self._target_registry.invalidate_tab_observation(
                 self._owner_binding,
@@ -937,6 +959,208 @@ class Tab:
         self._observations = None
         self._target_facts = ()
         self._refresh_actions()
+
+    def _clear_source_continuations(self) -> None:
+        """Forget public cursors when their observation chain is revoked."""
+        self._snapshot_continuations.clear()
+        self._read_continuations.clear()
+
+    async def _capture_source_page(
+        self,
+        tab_id: str,
+        *,
+        limit: int,
+        query: TargetQuery | None,
+        cursor: str | None,
+        region_owner_chain: tuple[str, ...],
+        visual_scope: VisualRegion | None = None,
+    ) -> SourceTraversalCapture:
+        """Invoke the only canonical source-owned observation page path."""
+        if visual_scope is not None:
+            capture_visual_page = getattr(
+                self._session,
+                "capture_visual_source_page",
+                None,
+            )
+            if callable(capture_visual_page):
+                capture = await capture_visual_page(  # pylint: disable=not-callable
+                    tab_id,
+                    scope=visual_scope,
+                    limit=limit,
+                    query=query,
+                    cursor=cursor,
+                    region_owner_chain=region_owner_chain,
+                )
+                if not isinstance(capture, SourceTraversalCapture):
+                    raise BrowserSDKGap(
+                        "Canonical visual source traversal returned invalid "
+                        "evidence.",
+                        action="tab.snapshot.visual_region",
+                    )
+                return capture
+        capture_page = getattr(self._session, "capture_source_page", None)
+        if not callable(capture_page):
+            raise _capability_blocked("tab.snapshot.source_continuation")
+        capture = await capture_page(  # pylint: disable=not-callable
+            tab_id,
+            limit=limit,
+            query=query,
+            cursor=cursor,
+            region_owner_chain=region_owner_chain,
+        )
+        if not isinstance(capture, SourceTraversalCapture):
+            raise BrowserSDKGap(
+                "Canonical source traversal returned invalid evidence.",
+                action="tab.snapshot",
+            )
+        return capture
+
+    def _source_owner_chain(
+        self,
+        scope: ObservationScope,
+        query: TargetQuery | None,
+    ) -> tuple[str, ...]:
+        """Resolve the one narrowest region chain before starting a cursor."""
+        if self._observations is None:
+            if not isinstance(scope, CurrentSurface) or (
+                query is not None and query.region is not None
+            ):
+                raise _capability_blocked("tab.snapshot")
+            return ()
+        scope_chain = _scope_owner_chain(self._observations, scope) or ()
+        query_chain = (
+            _region_owner_chain(self._observations, query.region)
+            if query is not None and query.region is not None
+            else ()
+        )
+        if not scope_chain:
+            return query_chain
+        if not query_chain:
+            return scope_chain
+        if query_chain[: len(scope_chain)] == scope_chain:
+            return query_chain
+        if scope_chain[: len(query_chain)] == query_chain:
+            return scope_chain
+        raise ObservationStoreError("query_scope_mismatch")
+
+    def _require_source_continuation(
+        self,
+        cursor: object,
+        *,
+        kind: Literal["SNAPSHOT", "READ"],
+    ) -> _SourceContinuation:
+        expected = SnapshotCursor if kind == "SNAPSHOT" else ReadCursor
+        if not isinstance(cursor, expected):
+            raise ObservationStoreError("cursor_invalid")
+        cursor_id = str(cursor.to_dict().get("id") or "")
+        records = (
+            self._snapshot_continuations
+            if kind == "SNAPSHOT"
+            else self._read_continuations
+        )
+        continuation = records.get(cursor_id)
+        if continuation is None:
+            raise ObservationStoreError("cursor_invalid")
+        if self._observations is None:
+            raise ObservationStoreError("cursor_generation_mismatch")
+        if (
+            continuation.context is not self._observations.context
+            or continuation.generation != self._observations.generation
+        ):
+            raise ObservationStoreError("cursor_generation_mismatch")
+        return continuation
+
+    def _consume_source_continuation(
+        self,
+        cursor: object,
+        *,
+        kind: Literal["SNAPSHOT", "READ"],
+    ) -> None:
+        cursor_id = str(getattr(cursor, "to_dict")().get("id") or "")
+        records = (
+            self._snapshot_continuations
+            if kind == "SNAPSHOT"
+            else self._read_continuations
+        )
+        records.pop(cursor_id, None)
+
+    def _issue_source_continuation(
+        self,
+        *,
+        kind: Literal["SNAPSHOT", "READ"],
+        source: SourceTraversalCapture,
+        scope: ObservationScope,
+        query: TargetQuery | None,
+        region_owner_chain: tuple[str, ...],
+        visual: bool = False,
+        visual_witnesses: tuple[SnapshotTarget, ...] = (),
+    ) -> SnapshotCursor | ReadCursor | None:
+        if source.end_of_collection:
+            return None
+        assert source.cursor is not None
+        assert self._observations is not None
+        cursor_type = SnapshotCursor if kind == "SNAPSHOT" else ReadCursor
+        issued = _issue_opaque_value(
+            cursor_type,
+            _RUNTIME_VALUE_ISSUER,
+            id=f"{kind.lower()}-cursor-{uuid4().hex}",
+        )
+        cursor_id = str(issued.to_dict().get("id") or "")
+        record = _SourceContinuation(
+            bridge_cursor=source.cursor,
+            scope=scope,
+            query=query,
+            region_owner_chain=region_owner_chain,
+            context=self._observations.context,
+            generation=self._observations.generation,
+            visual=visual,
+            visual_witnesses=visual_witnesses,
+        )
+        records = (
+            self._snapshot_continuations
+            if kind == "SNAPSHOT"
+            else self._read_continuations
+        )
+        records[cursor_id] = record
+        return cast(SnapshotCursor | ReadCursor, issued)
+
+    def _source_context_is_current(
+        self,
+        continuation: _SourceContinuation,
+        capture: SnapshotCapture,
+    ) -> bool:
+        return (
+            self._observations is not None
+            and continuation.context is self._observations.context
+            and continuation.generation == self._observations.generation
+            and capture.context is self._observations.context
+        )
+
+    def _stale_snapshot_result(
+        self,
+        scope: ObservationScope,
+        capture: SnapshotCapture,
+    ) -> SnapshotResult:
+        status, retry, problem = _snapshot_terminal("STALE")
+        return _record_snapshot_result(
+            SnapshotResult(
+                operation_id=issue_operation_id(),
+                status=status,
+                retry=retry,
+                problem=problem,
+                model_text=_snapshot_model_text(
+                    status=status,
+                    coverage="STALE",
+                    gaps=capture.gaps,
+                    targets=(),
+                ),
+                end_of_collection=True,
+                source_summary=",".join(
+                    f"{item.source}:{'ok' if item.available else 'unavailable'}"
+                    for item in capture.sources
+                ),
+            ),
+        )
 
     async def close(self) -> ActionResult:
         """Route explicit close through the sole ActionRunner."""
@@ -1285,89 +1509,76 @@ class Tab:
         limit: int,
     ) -> SnapshotResult:
         """Capture one caller-sized source page for this Tab receiver."""
+        _snapshot_limit(limit)
+        continuation: _SourceContinuation | None = None
         if cursor is not None:
-            raise BrowserSDKGap(
-                "Snapshot continuation requires the bridge traversal source.",
-                action="tab.snapshot",
+            continuation = self._require_source_continuation(
+                cursor,
+                kind="SNAPSHOT",
             )
-        effective_limit = _snapshot_limit(limit)
-        requested_scope = scope or CurrentSurface()
-        if isinstance(requested_scope, VisualRegion):
-            return await self._snapshot_visual_region(requested_scope)
+            if scope is not None:
+                raise ObservationStoreError("cursor_scope_mismatch")
+            if query is not None:
+                raise ObservationStoreError("cursor_query_mismatch")
+            if continuation.visual:
+                return await self._snapshot_visual_region(
+                    cast(VisualRegion, continuation.scope),
+                    limit=limit,
+                    continuation=continuation,
+                    cursor=cursor,
+                    query=continuation.query,
+                )
+            requested_scope = continuation.scope
+            requested_query = continuation.query
+            owner_chain = continuation.region_owner_chain
+        else:
+            requested_scope = scope or CurrentSurface()
+            requested_query = query
+            if isinstance(requested_scope, VisualRegion):
+                return await self._snapshot_visual_region(
+                    requested_scope,
+                    limit=limit,
+                    query=requested_query,
+                )
+            owner_chain = self._source_owner_chain(
+                requested_scope,
+                requested_query,
+            )
         if self._session is None:
             raise _capability_blocked("tab.snapshot")
-        if self._observations is None and (
+        if continuation is None and self._observations is None and (
             not isinstance(requested_scope, CurrentSurface)
-            or (query is not None and query.region is not None)
+            or (
+                requested_query is not None
+                and requested_query.region is not None
+            )
         ):
             raise _capability_blocked("tab.snapshot")
-        owner_chain = (
-            _scope_owner_chain(self._observations, requested_scope)
-            if self._observations is not None
-            else None
-        )
-        query_owner_chain = (
-            _region_owner_chain(self._observations, query.region)
-            if (
-                self._observations is not None
-                and query is not None
-                and query.region is not None
-            )
-            else None
-        )
-        discovery_budget = 4096 if query is not None else 512
-        capture = await self._session.capture_snapshot(
+        if continuation is None and self._observations is not None:
+            self._invalidate_observation()
+        capture = await self._capture_source_page(
             self.id,
-            scope=requested_scope,
-            budget=ObservationBudget(
-                capture_nodes=discovery_budget,
-                output_targets=effective_limit,
-                hard_maximum=discovery_budget,
-            ),
+            limit=limit,
+            query=requested_query if continuation is None else None,
+            cursor=(continuation.bridge_cursor if continuation else None),
+            region_owner_chain=owner_chain,
         )
-        if not isinstance(capture, SnapshotCapture):
-            raise BrowserSDKGap(
-                "Canonical snapshot producer returned invalid evidence.",
-                action="tab.snapshot",
-            )
-        self._replace_observation_store(capture)
+        if continuation is not None:
+            self._consume_source_continuation(cursor, kind="SNAPSHOT")
+        source_capture = capture.capture
+        if continuation is None:
+            self._replace_observation_store(source_capture)
+        elif not self._source_context_is_current(continuation, source_capture):
+            return self._stale_snapshot_result(requested_scope, source_capture)
         assert self._observations is not None
-        candidates = tuple(capture.targets)
-        if owner_chain is not None:
-            candidates = tuple(
-                target
-                for target in candidates
-                if target.owner_chain[: len(owner_chain)] == owner_chain
-            )
-        if query is not None:
-            candidates = apply_target_query(
-                candidates,
-                query,
-                region_owner_chain=query_owner_chain,
-            )
-        gaps = list(capture.gaps)
-        if len(candidates) > effective_limit:
-            gaps.append(
-                CoverageGap(
-                    stage="SELECTION",
-                    detail=SelectionGap(
-                        reason="OUTPUT_LIMIT",
-                        examined=effective_limit,
-                        omitted=len(candidates) - effective_limit,
-                        requested=effective_limit,
-                        effective=effective_limit,
-                    ),
-                ),
-            )
-            candidates = candidates[:effective_limit]
-        coverage = capture.coverage
-        if coverage == "COMPLETE" and gaps:
-            coverage = "PARTIAL"
+        candidates = tuple(source_capture.targets)
+        coverage = source_capture.coverage
+        gaps = source_capture.gaps
         observation = self._observations.issue_evidence(
             kind="SNAPSHOT",
             scope=requested_scope,
             coverage=coverage,
-            gaps=tuple(gaps),
+            gaps=gaps,
         )
         target_summaries = tuple(
             _target_summary(target, index)
@@ -1387,7 +1598,7 @@ class Tab:
         self._refresh_actions()
         region_summaries = tuple(
             _region_summary(self._observations, region)
-            for region in capture.regions
+            for region in source_capture.regions
         )
         register_baseline = getattr(
             self._session,
@@ -1397,14 +1608,14 @@ class Tab:
         if callable(register_baseline):
             register = cast(Callable[[Any, Any, str], None], register_baseline)
             for captured_region, summary in zip(
-                capture.regions,
+                source_capture.regions,
                 region_summaries,
                 strict=True,
             ):
                 text = normalize_visible_text(
                     " ".join(
                         target.name
-                        for target in capture.targets
+                        for target in source_capture.targets
                         if tuple(target.owner_chain)
                         == tuple(captured_region.owner_chain)
                     ),
@@ -1416,6 +1627,13 @@ class Tab:
                     sha256(text.encode()).hexdigest(),
                 )
         status, retry, problem = _snapshot_terminal(coverage)
+        next_cursor = self._issue_source_continuation(
+            kind="SNAPSHOT",
+            source=capture,
+            scope=requested_scope,
+            query=requested_query,
+            region_owner_chain=owner_chain,
+        )
         result = SnapshotResult(
             operation_id=issue_operation_id(),
             status=status,
@@ -1426,17 +1644,17 @@ class Tab:
             model_text=_snapshot_model_text(
                 status=status,
                 coverage=coverage,
-                gaps=tuple(gaps),
+                gaps=gaps,
                 targets=target_summaries,
             ),
             targets=target_summaries,
             regions=region_summaries,
             grounding=None,
-            next_cursor=None,
-            end_of_collection=True,
+            next_cursor=cast(SnapshotCursor | None, next_cursor),
+            end_of_collection=capture.end_of_collection,
             source_summary=",".join(
                 f"{item.source}:{'ok' if item.available else 'unavailable'}"
-                for item in capture.sources
+                for item in source_capture.sources
             ),
         )
         return _record_snapshot_result(result)
@@ -1444,8 +1662,13 @@ class Tab:
     async def _snapshot_visual_region(
         self,
         scope: VisualRegion,
+        *,
+        limit: int,
+        continuation: _SourceContinuation | None = None,
+        cursor: SnapshotCursor | None = None,
+        query: TargetQuery | None = None,
     ) -> SnapshotResult:
-        """Ground one fresh viewport region without coordinate authority."""
+        """Ground a viewport region only after its source walk is complete."""
         if (
             self._session is None
             or self._observations is None
@@ -1476,45 +1699,98 @@ class Tab:
                 targets=(),
                 sources="visual-binding:stale",
             )
-        capture_visual = getattr(
-            self._session,
-            "capture_visual_snapshot",
-            None,
+        source = await self._capture_source_page(
+            self.id,
+            limit=limit,
+            query=query,
+            cursor=(continuation.bridge_cursor if continuation else None),
+            region_owner_chain=self._source_owner_chain(scope, query),
+            visual_scope=scope,
         )
-        if not callable(capture_visual):
+        if continuation is not None:
+            assert cursor is not None
+            self._consume_source_continuation(cursor, kind="SNAPSHOT")
+            if not self._source_context_is_current(
+                continuation,
+                source.capture,
+            ):
+                return self._visual_grounding_result(
+                    scope,
+                    coverage="STALE",
+                    targets=(),
+                    sources="visual-binding:stale",
+                )
+        capture = source.capture
+        if capture.coverage in {"STALE", "UNAVAILABLE"}:
             return self._visual_grounding_result(
                 scope,
-                coverage="UNAVAILABLE",
+                coverage=capture.coverage,
                 targets=(),
-                sources="visual-hit-test:unavailable",
+                gaps=capture.gaps,
+                sources=",".join(
+                    f"{item.source}:{'ok' if item.available else 'unavailable'}"
+                    for item in capture.sources
+                ),
             )
-        capture_call = cast(Callable[..., Awaitable[object]], capture_visual)
-        capture = await capture_call(  # pylint: disable=not-callable
-            self.id,
-            scope=scope,
-            budget=ObservationBudget(
-                capture_nodes=4096,
-                output_targets=4096,
-                hard_maximum=4096,
-            ),
+        if capture.coverage == "PARTIAL":
+            next_cursor = self._issue_source_continuation(
+                kind="SNAPSHOT",
+                source=source,
+                scope=scope,
+                query=query,
+                region_owner_chain=self._source_owner_chain(scope, query),
+                visual=True,
+                visual_witnesses=(
+                    continuation.visual_witnesses if continuation else ()
+                ),
+            )
+            return self._visual_grounding_result(
+                scope,
+                coverage="PARTIAL",
+                targets=(),
+                gaps=capture.gaps,
+                sources=",".join(
+                    f"{item.source}:{'ok' if item.available else 'unavailable'}"
+                    for item in capture.sources
+                ),
+                next_cursor=cast(SnapshotCursor | None, next_cursor),
+                end_of_collection=source.end_of_collection,
+            )
+        witnesses = tuple(
+            (*((continuation.visual_witnesses) if continuation else ()),
+             *capture.targets)
         )
-        if not isinstance(capture, SnapshotCapture):
-            raise BrowserSDKGap(
-                "Visual grounding returned invalid capture facts.",
-                action="tab.snapshot.visual_region",
-            )
-        targets = tuple(capture.targets)
-        if capture.coverage != "COMPLETE":
-            targets = ()
+        # Exact-versus-multiple only needs two witnesses, never a full cache.
+        witnesses = witnesses[:2]
+        next_cursor = self._issue_source_continuation(
+            kind="SNAPSHOT",
+            source=source,
+            scope=scope,
+            query=query,
+            region_owner_chain=self._source_owner_chain(scope, query),
+            visual=True,
+            visual_witnesses=witnesses,
+        )
         return self._visual_grounding_result(
             scope,
-            coverage=capture.coverage,
-            targets=targets,
+            coverage="COMPLETE",
+            targets=(
+                tuple(capture.targets)
+                if not source.end_of_collection
+                else witnesses[:limit]
+            ),
             regions=tuple(capture.regions),
             gaps=tuple(capture.gaps),
             sources=",".join(
                 f"{item.source}:{'ok' if item.available else 'unavailable'}"
                 for item in capture.sources
+            ),
+            next_cursor=cast(SnapshotCursor | None, next_cursor),
+            end_of_collection=source.end_of_collection,
+            grounding=(
+                Grounding.MULTIPLE
+                if source.end_of_collection and len(witnesses) > 1
+                else None
             ),
         )
 
@@ -1527,21 +1803,32 @@ class Tab:
         sources: str,
         regions: tuple[Any, ...] = (),
         gaps: tuple[CoverageGap, ...] = (),
+        next_cursor: SnapshotCursor | None = None,
+        end_of_collection: bool = True,
+        grounding: Grounding | None = None,
     ) -> SnapshotResult:
         assert self._observations is not None
-        grounding = (
+        grounding = grounding or (
             Grounding.STALE
             if coverage == "STALE"
             else (
                 Grounding.UNAVAILABLE
-                if coverage in {"UNAVAILABLE", "PARTIAL"}
+                if coverage == "UNAVAILABLE"
                 else (
-                    Grounding.NO_MATCH
-                    if not targets
+                    Grounding.INCOMPLETE
+                    if not end_of_collection
                     else (
-                        Grounding.EXACT
-                        if len(targets) == 1
-                        else Grounding.MULTIPLE
+                        Grounding.UNAVAILABLE
+                        if coverage == "PARTIAL"
+                        else (
+                            Grounding.NO_MATCH
+                            if not targets
+                            else (
+                                Grounding.EXACT
+                                if len(targets) == 1
+                                else Grounding.MULTIPLE
+                            )
+                        )
                     )
                 )
             )
@@ -1585,8 +1872,8 @@ class Tab:
                 targets=summaries,
                 regions=region_summaries,
                 grounding=grounding,
-                next_cursor=None,
-                end_of_collection=True,
+                next_cursor=next_cursor,
+                end_of_collection=end_of_collection,
                 source_summary=sources,
             ),
         )
@@ -1599,9 +1886,10 @@ class Tab:
         limit: int,
     ) -> ReadResult:
         """Read one caller-sized page from the current source."""
-        effective_limit = _snapshot_limit(limit)
-        if self._session is None or self._observations is None:
+        _snapshot_limit(limit)
+        if self._session is None:
             raise _capability_blocked("tab.read")
+        continuation: _SourceContinuation | None = None
         if cursor is None:
             requested_scope = scope or CurrentSurface()
             if isinstance(requested_scope, VisualRegion):
@@ -1622,64 +1910,65 @@ class Tab:
                 )
                 record_browser_result(result)
                 return result
-            _scope_owner_chain(self._observations, requested_scope)
-            capture = await self._session.capture_read(
-                self.id,
-                scope=requested_scope,
-                budget=ObservationBudget(
-                    capture_nodes=512,
-                    output_targets=512,
-                    hard_maximum=512,
-                ),
-            )
-            if not isinstance(capture, ReadCapture):
-                raise BrowserSDKGap(
-                    "Canonical read producer returned invalid evidence.",
-                    action="tab.read",
-                )
-            observation = self._observations.issue_evidence(
-                kind="READ",
-                scope=requested_scope,
-                coverage=capture.coverage,
-                gaps=capture.gaps,
-            )
-            collection = ImmutableReadCollection(
-                owner_key=self._observations.owner_key,
-                root_session_id=self._observations.root_session_id,
-                tab_id=self._observations.tab_id,
-                context=self._observations.context,
-                generation=self._observations.generation,
-                evidence=observation,
-                segments=capture.segments,
-                expires_at=self._observations.collection_expiry(),
-            )
-            first_cursor = self._observations.save_collection(collection)
-            page = self._observations.page(
-                first_cursor,
-                limit=effective_limit,
-            )
+            owner_chain = self._source_owner_chain(requested_scope, None)
+            if self._observations is not None:
+                self._invalidate_observation()
         else:
-            page = self._observations.page(cursor, limit=effective_limit)
-            observation = page.evidence
-            if scope is not None and observation.scope != scope:
+            continuation = self._require_source_continuation(
+                cursor,
+                kind="READ",
+            )
+            if scope is not None:
                 raise ObservationStoreError("cursor_scope_mismatch")
-        if not all(
-            isinstance(segment, ReadSegment) for segment in page.segments
-        ):
-            raise ObservationStoreError("read_collection_invalid")
-        segments = tuple(
-            segment
-            for segment in page.segments
-            if isinstance(segment, ReadSegment)
+            requested_scope = continuation.scope
+            owner_chain = continuation.region_owner_chain
+        source = await self._capture_source_page(
+            self.id,
+            limit=limit,
+            query=None,
+            cursor=(continuation.bridge_cursor if continuation else None),
+            region_owner_chain=owner_chain,
         )
-        status, retry, problem = _read_terminal(observation.coverage)
-        notices = ()
+        if continuation is not None:
+            self._consume_source_continuation(cursor, kind="READ")
+        capture = source.capture
+        if continuation is None:
+            self._replace_observation_store(capture)
+        elif not self._source_context_is_current(continuation, capture):
+            status, retry, problem = _read_terminal("STALE")
+            result = ReadResult(
+                operation_id=issue_operation_id(),
+                status=status,
+                retry=retry,
+                problem=problem,
+                model_text="status=BLOCKED coverage=STALE",
+                end_of_collection=True,
+            )
+            record_browser_result(result)
+            return result
+        assert self._observations is not None
+        observation = self._observations.issue_evidence(
+            kind="READ",
+            scope=requested_scope,
+            coverage=capture.coverage,
+            gaps=capture.gaps,
+        )
+        segments = tuple(
+            _read_segment(target) for target in capture.targets
+        )
+        status, retry, problem = _read_terminal(capture.coverage)
+        next_cursor = self._issue_source_continuation(
+            kind="READ",
+            source=source,
+            scope=requested_scope,
+            query=None,
+            region_owner_chain=owner_chain,
+        )
         result = ReadResult(
             operation_id=issue_operation_id(),
             status=status,
             retry=retry,
             problem=problem,
-            notices=notices,
             evidence=observation.ref,
             observation=observation,
             model_text=_read_model_text(
@@ -1687,11 +1976,11 @@ class Tab:
                 observation=observation,
                 clamp_notice="",
                 segments=segments,
-                end_of_collection=page.end_of_collection,
+                end_of_collection=source.end_of_collection,
             ),
             segments=segments,
-            next_cursor=page.next_cursor,
-            end_of_collection=page.end_of_collection,
+            next_cursor=cast(ReadCursor | None, next_cursor),
+            end_of_collection=source.end_of_collection,
         )
         record_browser_result(result)
         return result
@@ -1822,7 +2111,7 @@ class Tab:
                     image_sha256=str(handle.sha256),
                     resource_id=str(handle.id),
                     generation=captured.before.generation,
-                    expires_at=monotonic() + 30.0,
+                    expires_at=0.0,
                     actionable=not bool(invariant_gap),
                 )
         status: TerminalStatus = "PARTIAL" if invariant_gap else "SUCCEEDED"
@@ -2458,6 +2747,14 @@ def _target_summary(target: SnapshotTarget, index: int) -> TargetSummary:
         states=target.states,
         allowed_actions=tuple(cast(Any, ref.allowed_actions)),
         observed_url=str(ref.observed_url or ""),
+    )
+
+
+def _read_segment(target: SnapshotTarget) -> ReadSegment:
+    """Project one source-owned semantic record as a neutral read segment."""
+    return ReadSegment(
+        kind="link" if target.role == "link" else "text",
+        text=target.name,
     )
 
 

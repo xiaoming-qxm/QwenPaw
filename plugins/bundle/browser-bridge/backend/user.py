@@ -287,8 +287,6 @@ class ChromeExtensionBrowserBackend:
             },
             hard_limits={
                 **base.hard_limits,
-                "max_targets": 128,
-                "max_page_segments": 128,
                 "max_wait_ms": 30_000,
                 "max_stable_ms": 5_000,
                 "max_condition_atoms": 16,
@@ -1154,7 +1152,6 @@ class ChromeExtensionBrowserSession:
             registry=_OWNER_REGISTRY,
             owner=owner,
             receiver_tab=str(tab_id),
-            expires_at=monotonic() + 30.0,
             scope=scope,
         )
 
@@ -1166,6 +1163,7 @@ class ChromeExtensionBrowserSession:
         query: TargetQuery | None = None,
         cursor: str | None = None,
         region_owner_chain: tuple[str, ...] = (),
+        visual_region: dict[str, object] | None = None,
     ) -> SourceTraversalCapture:
         """Request one opaque, source-owned canonical traversal page."""
         if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
@@ -1178,6 +1176,8 @@ class ChromeExtensionBrowserSession:
             isinstance(owner, str) and owner for owner in region_owner_chain
         ):
             raise ValueError("region owner chain is invalid")
+        if visual_region is not None and not isinstance(visual_region, dict):
+            raise TypeError("visual source traversal region is invalid")
         traversal: dict[str, object] = {
             "cursor": cursor,
             "limit": limit,
@@ -1194,6 +1194,8 @@ class ChromeExtensionBrowserSession:
                 }.items()
                 if isinstance(value, str) and value
             }
+        if visual_region is not None:
+            traversal["visual_region"] = dict(visual_region)
         payload = await self._bridge_or_engine_action(
             "snapshot_page",
             tab_id,
@@ -1241,7 +1243,6 @@ class ChromeExtensionBrowserSession:
             registry=_OWNER_REGISTRY,
             owner=owner,
             receiver_tab=str(tab_id),
-            expires_at=monotonic() + 30.0,
             trusted_bindings=_canonical_bindings_from_session_state(
                 self._state,
                 payload,
@@ -1253,6 +1254,63 @@ class ChromeExtensionBrowserSession:
             capture=capture,
             cursor=continuation,
             end_of_collection=end_of_collection,
+        )
+
+    async def capture_visual_source_page(
+        self,
+        tab_id: str,
+        *,
+        scope: VisualRegion,
+        limit: int,
+        query: TargetQuery | None = None,
+        cursor: str | None = None,
+        region_owner_chain: tuple[str, ...] = (),
+    ) -> SourceTraversalCapture:
+        """Page one VisualRegion through the same bridge-owned traversal."""
+        if not isinstance(scope, VisualRegion):
+            raise TypeError("scope must be a VisualRegion")
+        from qwenpaw.browser.sdk.runtime.kernel import (
+            get_current_execution_context,
+        )
+        from qwenpaw.runtime.root_request_coordinator import _OWNER_REGISTRY
+
+        execution = get_current_execution_context()
+        if execution is None:
+            raise BrowserSDKError(
+                "Canonical visual owner is unavailable.",
+                code="browser_ownership_context_missing",
+            )
+        owner = BrowserRequestBinding(
+            root_session_id=execution.root_session_id,
+            root_task_id=execution.root_task_id,
+            browser_owner_id=execution.browser_owner_id,
+            contract_mode=execution.contract_mode,
+            lease_generation=execution.lease_generation,
+        )
+        binding = _OWNER_REGISTRY.resolve_visual_context(
+            scope.visual_context,
+            owner=owner,
+            receiver_tab=str(tab_id),
+        )
+        return await self.capture_source_page(
+            tab_id,
+            limit=limit,
+            query=query,
+            cursor=cursor,
+            region_owner_chain=region_owner_chain,
+            visual_region={
+                "x": scope.x,
+                "y": scope.y,
+                "width": scope.width,
+                "height": scope.height,
+                "generation": binding.generation,
+                "viewport": binding.viewport,
+                "scroll": binding.scroll,
+                "zoom": binding.zoom,
+                "device_pixel_ratio": binding.device_pixel_ratio,
+                "layout": binding.layout,
+                "visual_context_ref": str(scope.visual_context.id),
+            },
         )
 
     async def cancel_source_page(
@@ -1347,7 +1405,6 @@ class ChromeExtensionBrowserSession:
             registry=_OWNER_REGISTRY,
             owner=owner,
             receiver_tab=str(tab_id),
-            expires_at=monotonic() + 30.0,
             scope=scope,
         )
 
@@ -2429,7 +2486,7 @@ def _canonical_capture_from_payload(
     registry: BrowserSessionOwnerRegistry,
     owner: BrowserRequestBinding,
     receiver_tab: str,
-    expires_at: float,
+    expires_at: float | None = None,
     scope: Any = None,
     trusted_bindings: dict[str, dict[str, Any]] | None = None,
 ) -> SnapshotCapture:
@@ -2460,12 +2517,13 @@ def _canonical_capture_from_payload(
             "Canonical snapshot context is malformed.",
             code="snapshot_payload_invalid",
         ) from exc
+    expiry = 0.0 if expires_at is None else float(expires_at)
     context = registry.issue_context(
         owner,
         receiver_tab=receiver_tab,
         native=native_context,
         safe_receiver=receiver_tab,
-        expires_at=expires_at,
+        expires_at=expiry,
     )
     trusted = (
         trusted_bindings
@@ -2534,7 +2592,7 @@ def _canonical_capture_from_payload(
                 str(item) for item in binding_payload.get("effect_ceiling", ())
             ),
             use_state="FRESH",
-            expires_at=float(expires_at),
+            expires_at=expiry,
             bridge_token=token,
         )
         ref = registry.issue_target(
@@ -2607,7 +2665,7 @@ def _canonical_capture_from_payload(
             allowed_actions=(),
             effect_ceiling=(),
             use_state="FRESH",
-            expires_at=float(expires_at),
+            expires_at=expiry,
             bridge_token=str(token),
             surface_origin=str(binding_payload.get("surface_origin") or ""),
             surface_identity=str(

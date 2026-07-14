@@ -36,9 +36,7 @@
       "family": "ObserveRead",
       "requirement": "REQUIRED",
       "status": "READY",
-      "limits": {
-        "max_targets": 128
-      },
+      "limits": {},
       "required_blocks": [],
       "validation_evidence": [
         "observe.snapshot-neutral@build-1"
@@ -49,12 +47,10 @@
       "family": "ObserveRead",
       "requirement": "REQUIRED",
       "status": "READY",
-      "limits": {
-        "max_page_segments": 128
-      },
+      "limits": {},
       "required_blocks": [],
       "validation_evidence": [
-        "observe.read-immutable@build-1"
+        "observe.read-source-continuation@build-1"
       ]
     },
     {

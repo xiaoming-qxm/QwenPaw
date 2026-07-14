@@ -1477,6 +1477,17 @@ class BrowserSessionOwnerRegistry:
                 "context native version is invalid",
                 code="runtime_issued_value",
             )
+        existing = next(
+            (
+                context
+                for context, binding in state.contexts.items()
+                if binding.receiver_tab_key == receiver
+                and binding.native == native
+            ),
+            None,
+        )
+        if existing is not None:
+            return existing
         expiry = float(expires_at)
         context = _issue_context_version(
             version_ref=_new_handle_token("context"),
