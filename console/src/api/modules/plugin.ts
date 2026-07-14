@@ -86,7 +86,7 @@ export interface BrowserDiagnostics {
   backends: BrowserBackendDiagnostic[];
 }
 
-export interface BrowserBridgeBridgeLifecycle {
+export interface ChromeBridgeLifecycle {
   connected?: boolean;
   connected_since?: string | null;
   last_connected_at?: string | null;
@@ -95,19 +95,19 @@ export interface BrowserBridgeBridgeLifecycle {
   reconnect_count?: number;
 }
 
-export interface BrowserBridgeBuildFingerprint {
+export interface ChromeBuildFingerprint {
   git_commit?: string;
   repo_dirty?: boolean;
   frontend_fingerprint?: string;
 }
 
-export interface BrowserBridgeBuildFreshness {
+export interface ChromeBuildFreshness {
   status: string;
   message?: string;
-  repair_action?: BrowserBridgeRepairAction;
+  repair_action?: ChromeRepairAction;
 }
 
-export type BrowserBridgeRepairAction =
+export type ChromeRepairAction =
   | "none"
   | "reload_extension"
   | "run_setup"
@@ -121,13 +121,13 @@ export type BrowserBridgeRepairAction =
   | "retry"
   | string;
 
-export interface BrowserBridgeNativeHostStatus {
+export interface ChromeNativeHostStatus {
   status: string;
   message?: string;
-  repair_action?: BrowserBridgeRepairAction;
+  repair_action?: ChromeRepairAction;
 }
 
-export interface BrowserBridgeTraceSummary {
+export interface ChromeTraceSummary {
   event_count: number;
   session_count: number;
   latest_event?: {
@@ -141,21 +141,21 @@ export interface BrowserBridgeTraceSummary {
   } | null;
 }
 
-export interface BrowserBridgeSelfTestCheck {
+export interface ChromeSelfTestCheck {
   name: string;
   passed: boolean;
   code: string;
   message: string;
   status?: "passed" | "failed" | "warning" | string;
-  repair_action?: BrowserBridgeRepairAction;
+  repair_action?: ChromeRepairAction;
   metadata?: Record<string, unknown>;
 }
 
-export interface BrowserBridgeSelfTestResult {
+export interface ChromeSelfTestResult {
   status: "passed" | "failed";
   checked_at: string;
   duration_ms?: number;
-  checks: BrowserBridgeSelfTestCheck[];
+  checks: ChromeSelfTestCheck[];
 }
 
 export interface PluginManifest {
@@ -175,17 +175,17 @@ export interface PluginRuntimeStatus {
   installed?: boolean;
   connected?: boolean;
   readiness_state?: string;
-  repair_action?: BrowserBridgeRepairAction;
-  native_host_status?: BrowserBridgeNativeHostStatus;
+  repair_action?: ChromeRepairAction;
+  native_host_status?: ChromeNativeHostStatus;
   selected_backend_id?: string | null;
   version?: string | null;
   extension_version?: string | null;
   connected_since?: string | null;
-  bridge_lifecycle?: BrowserBridgeBridgeLifecycle;
-  build_fingerprint?: BrowserBridgeBuildFingerprint;
-  build_freshness?: BrowserBridgeBuildFreshness;
-  trace_summary?: BrowserBridgeTraceSummary;
-  last_self_test?: BrowserBridgeSelfTestResult | null;
+  bridge_lifecycle?: ChromeBridgeLifecycle;
+  build_fingerprint?: ChromeBuildFingerprint;
+  build_freshness?: ChromeBuildFreshness;
+  trace_summary?: ChromeTraceSummary;
+  last_self_test?: ChromeSelfTestResult | null;
   install_mode?: string | null;
   extension_id?: string;
   extension_dir?: string;

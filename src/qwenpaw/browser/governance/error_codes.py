@@ -19,7 +19,7 @@ class BrowserOutcome(StrEnum):
 
 
 class BrowserErrorCode(StrEnum):
-    """Stable machine-readable Browser Bridge error codes."""
+    """Stable machine-readable Chrome error codes."""
 
     NONE = "none"
     UNKNOWN = "unknown"
@@ -337,7 +337,7 @@ _ERROR_INFO: dict[BrowserErrorCode, BrowserErrorInfo] = {
         code=BrowserErrorCode.BROWSER_PROTOCOL_VERSION_MISMATCH,
         outcome=BrowserOutcome.FAILED,
         recovery_hint=(
-            "Reload the Chrome Extension and Browser Bridge so both sides "
+            "Reload the Chrome Extension and Chrome so both sides "
             "speak the same Browser protocol version."
         ),
     ),
@@ -392,7 +392,7 @@ def _coerce_error_string(value: str) -> BrowserErrorCode:
         if normalized in {code.value.casefold(), code.name.casefold()}:
             return code
     legacy_map = {
-        "browser_bridge_disconnected": BrowserErrorCode.BRIDGE_DISCONNECTED,
+        "chrome_disconnected": BrowserErrorCode.BRIDGE_DISCONNECTED,
         "browser_action_approval_timeout": BrowserErrorCode.APPROVAL_TIMEOUT,
         "browser_action_denied": BrowserErrorCode.APPROVAL_DENIED,
         "canceled": BrowserErrorCode.CANCELLED,

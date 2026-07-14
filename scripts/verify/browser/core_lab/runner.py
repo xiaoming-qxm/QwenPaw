@@ -890,14 +890,14 @@ async def _run_visual_canvas_production(
         "qwenpaw.browser.canonical.action_contract",
     )
     snapshot_handler = import_module(
-        "plugins.bundle.browser-bridge.action_runtime.handlers.snapshot",
+        "plugins.bundle.chrome.action_runtime.handlers.snapshot",
     )
     state_runtime = import_module(
-        "plugins.bundle.browser-bridge.action_runtime.state",
+        "plugins.bundle.chrome.action_runtime.state",
     )
-    user_runtime = import_module("plugins.bundle.browser-bridge.backend.user")
+    user_runtime = import_module("plugins.bundle.chrome.backend.user")
     engine_runtime = import_module(
-        "plugins.bundle.browser-bridge.engine_impl",
+        "plugins.bundle.chrome.engine_impl",
     )
     primitives_runtime = import_module("qwenpaw.browser.primitives.types")
     kernel_runtime = import_module("qwenpaw.browser.runtime.kernel")
@@ -1496,13 +1496,13 @@ def _action_fault_facts(case: LabCase) -> ActionFaultFacts:
 def _target_control_facts(case: LabCase) -> TargetControlFacts:
     """Run the real private boundary and expose only fake-native logs."""
     ref_scope = import_module(
-        "plugins.bundle.browser-bridge.action_runtime.ref_scope",
+        "plugins.bundle.chrome.action_runtime.ref_scope",
     )
     state_module = import_module(
-        "plugins.bundle.browser-bridge.action_runtime.state",
+        "plugins.bundle.chrome.action_runtime.state",
     )
     target_module = import_module(
-        "plugins.bundle.browser-bridge.action_runtime.targets",
+        "plugins.bundle.chrome.action_runtime.targets",
     )
     state = state_module.ControlState()
     root_session_id = "target-lab-session-a"

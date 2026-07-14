@@ -90,7 +90,7 @@ or account-changing live-site actions without explicit approval.
 
 V7-D removes compatibility remnants only after replacement behavior is covered
 by focused tests. The Browser Control Native Host now requires the manifest
-entry file `browser-bridge-hosts.json`. Setup writes that file, and status or
+entry file `chrome-hosts.json`. Setup writes that file, and status or
 self-test checks report `native_host_repair_required` when a machine only has
 the old single-config shape. The repair command is:
 

@@ -17,9 +17,9 @@ esac
 
 CONSOLE_DIR="$REPO_ROOT/console"
 CONSOLE_DEST="$REPO_ROOT/src/qwenpaw/console"
-PLUGIN_SRC="$REPO_ROOT/plugins/bundle/browser-bridge"
+PLUGIN_SRC="$REPO_ROOT/plugins/bundle/chrome"
 PLUGIN_STAGE_ROOT="$REPO_ROOT/src/qwenpaw/_plugins"
-PLUGIN_DEST="$PLUGIN_STAGE_ROOT/bundle/browser-bridge"
+PLUGIN_DEST="$PLUGIN_STAGE_ROOT/bundle/chrome"
 
 cleanup_plugin_stage() {
   rm -rf "$PLUGIN_STAGE_ROOT"
@@ -58,7 +58,7 @@ rm -rf "$DOCS_DEST"
 mkdir -p "$DOCS_DEST"
 cp "$DOCS_SRC/"*.md "$DOCS_DEST/"
 
-echo "[wheel_build] Staging Browser Bridge inside the wheel..."
+echo "[wheel_build] Staging Chrome inside the wheel..."
 cleanup_plugin_stage
 mkdir -p "$PLUGIN_DEST"
 rsync -a \

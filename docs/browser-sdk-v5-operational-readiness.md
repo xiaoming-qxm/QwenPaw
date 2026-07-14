@@ -12,7 +12,7 @@ approval, status surfaces, and model-facing error recovery for the unified
 | --- | --- | --- |
 | Public research route for Loop Engineering | `browser(code=...)` with `Browser.connect(context="auto")` selects `isolated.playwright` when isolated is available. | Browser SDK unified flow and diagnostics contracts. |
 | User Chrome route for Taobao-style user state | `browser(code=...)` with `Browser.connect(context="user")` selects `user.chrome_extension`; there is no isolated fallback for explicit user context. | User backend resolver, status, and policy registration contracts. |
-| Bridge disconnected | A user-context operation fails closed with `browser_bridge_disconnected` and an actionable diagnostic hint. | Backend diagnostics, status payload, console rendering, and tool error text contracts. |
+| Bridge disconnected | A user-context operation fails closed with `chrome_disconnected` and an actionable diagnostic hint. | Backend diagnostics, status payload, console rendering, and tool error text contracts. |
 | Sensitive action risk classification | Delete, clear, purchase, checkout, pay, submit, upload, download, and credential actions are classified as sensitive. | V5 risk classifier contract. |
 | Browser tool error recovery | Visible text includes code, message, hint, and diagnostics summary while full traceback remains in metadata only. | `test_browser_tool_v5_errors`. |
 
@@ -30,7 +30,7 @@ changes.
 
 ## Failure Diagnostics
 
-- Bridge disconnected: show `browser_bridge_disconnected`, selected backend
+- Bridge disconnected: show `chrome_disconnected`, selected backend
   `user.chrome_extension` when known, and the hint to reload the extension or
   reopen the target browser tab.
 - Backend unavailable: show `browser_backend_unavailable` or

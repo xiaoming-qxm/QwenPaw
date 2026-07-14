@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Runtime helpers shared by Browser SDK and Browser Bridge."""
+"""Runtime helpers shared by Browser SDK and Chrome."""
 
 from __future__ import annotations
 

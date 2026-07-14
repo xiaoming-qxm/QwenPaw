@@ -28,7 +28,7 @@ export function browserDiagnosticHint(
     return fallback;
   }
 
-  return t(`browserBridge.diagnostics.${hintKey}`, fallback);
+  return t(`chrome.diagnostics.${hintKey}`, fallback);
 }
 
 export function browserDiagnosticStatusLabel(
@@ -36,7 +36,7 @@ export function browserDiagnosticStatusLabel(
   backend: BrowserBackendDiagnostic,
 ): string {
   return t(
-    `browserBridge.diagnostics.status.${backend.status}`,
+    `chrome.diagnostics.status.${backend.status}`,
     backend.status,
   );
 }

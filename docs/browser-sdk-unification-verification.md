@@ -47,7 +47,7 @@ model-facing error recovery, and manual live acceptance gates.
 - Auto route: `context="auto"` prefers `user.chrome_extension` when user Chrome is available.
 - Degraded isolated fallback: public or ambiguous `auto` can select `isolated.playwright` only when user Chrome is unavailable, with `selected_backend_degraded=True`.
 - User-state route: `context="user"` or `context="auto"` with `requires_user_state=True` selects `user.chrome_extension` or blocks with `user_browser_unavailable`.
-- Disconnected user bridge route: `user.chrome_extension` returns `browser_bridge_disconnected`; no Playwright fallback is allowed.
+- Disconnected user bridge route: `user.chrome_extension` returns `chrome_disconnected`; no Playwright fallback is allowed.
 
 ## Policy Checkpoints
 
@@ -67,7 +67,7 @@ model-facing error recovery, and manual live acceptance gates.
 - `browser` is the only default browser automation tool in the runtime surface.
 - Auto route logs include `browser(code=...)`, `Browser.connect(context="auto")`, `auto_user_chrome_first`, and either `user.chrome_extension` or degraded isolated fallback metadata.
 - User-state flow logs include `browser(code=...)`, `Browser.connect(context="user")`, `user.chrome_extension`, and policy evaluation before sensitive mutations.
-- Disconnected bridge logs include `browser_bridge_disconnected`.
+- Disconnected bridge logs include `chrome_disconnected`.
 - Legacy browser action imports/tool lookup are absent; there is no SDK shim.
 - V4 hard removal leaves `/ws/nm-bridge` as the Chrome Extension bridge route
   and removes the old plugin SDK, old remote bridge class, and old SDK
@@ -114,7 +114,7 @@ Raw CDP and remote browser attachment have no public callable entrypoint.
 | --- | --- | --- |
 | Latest backend/frontend deployment smoke | PASS | `uv run qwenpaw app --port 8099` reached Ready at `http://127.0.0.1:8099` from latest local code and stopped cleanly. |
 | Public research prompt: Loop Engineering blog | ROUTE-PASS / LIVE-CONTENT BLOCKED | V12 expects `auto_user_chrome_first`; if user Chrome is unavailable, degraded isolated fallback is acceptable only with explicit fallback metadata. Live content extraction may still be blocked by the current browser/network environment and is not marked PASS. |
-| User-state Taobao cart prompt | SAFETY-GATED BLOCKED | With Browser Control user backend registered, a safe non-mutating `Browser.connect(context="user")` probe returned `browser_bridge_disconnected` with `backend_id=user.chrome_extension`. No isolated fallback occurred. Real Taobao cart mutation is blocked until the Chrome Extension bridge is live and the user explicitly approves account-mutating actions. |
+| User-state Taobao cart prompt | SAFETY-GATED BLOCKED | With Browser Control user backend registered, a safe non-mutating `Browser.connect(context="user")` probe returned `chrome_disconnected` with `backend_id=user.chrome_extension`. No isolated fallback occurred. Real Taobao cart mutation is blocked until the Chrome Extension bridge is live and the user explicitly approves account-mutating actions. |
 | Destructive/purchase-like Taobao actions | SAFETY-GATED BLOCKED unless explicitly approved | Add-to-cart, clear cart, checkout-like, delete, submit, purchase, or account-changing actions require approval before bridge mutation. |
 
 Manual live prompts that operate on real user Chrome and Taobao remain gated

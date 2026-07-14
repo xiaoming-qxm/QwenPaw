@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
-"""Browser Bridge operational verifier.
+"""Chrome operational verifier.
 
 The default verifier is local and deterministic: it checks a running QwenPaw
-service for code freshness, Browser Bridge status, and trace evidence. Live
+service for code freshness, Chrome status, and trace evidence. Live
 Taobao validation is intentionally opt-in and blocked by default.
 """
 
@@ -51,7 +51,7 @@ DEFAULT_TIMEOUT = 10.0
 DEFAULT_TASK_TIMEOUT = 180.0
 DETERMINISTIC_COMPLEX_TASK_TIMEOUT = 300.0
 V9_RUNTIME_STALE_CODE = "RUNTIME_STALE"
-V9_REPORT_SCHEMA_VERSION = "browser-bridge-v9-a"
+V9_REPORT_SCHEMA_VERSION = "chrome-v9-a"
 V9_SOURCE_LABELS = (
     "fixture",
     "local_service",
@@ -61,7 +61,7 @@ V9_SOURCE_LABELS = (
 )
 V9_ACCEPTANCE_DEFAULT_REPORT_DIR = (
     "../MyNotebook/_QwenPaw/feats/"
-    "browser-bridge-v9-f-live-product-acceptance"
+    "chrome-v9-f-live-product-acceptance"
 )
 V9_ACCEPTANCE_JSON_NAME = "v9-acceptance-report.json"
 V9_ACCEPTANCE_MARKDOWN_NAME = "acceptance-report.md"
@@ -156,8 +156,8 @@ BROWSER_BRIDGE_ENTROPY_EXCLUDED_PATHS = (
     "scripts/verify/browser/product_matrix.py",
 )
 BROWSER_BRIDGE_ENTROPY_GENERIC_COMMERCE_PATHS = (
-    "plugins/bundle/browser-bridge/action_runtime/snapshot_builder.py",
-    "plugins/bundle/browser-bridge/action_runtime/targets.py",
+    "plugins/bundle/chrome/action_runtime/snapshot_builder.py",
+    "plugins/bundle/chrome/action_runtime/targets.py",
 )
 MUTATING_TRACE_ACTIONS = {
     "back",
@@ -179,7 +179,7 @@ MUTATING_TRACE_ACTIONS = {
 
 
 @dataclass(frozen=True)
-class BrowserBridgeReport:
+class ChromeReport:
     """Structured result emitted by one verifier scenario."""
 
     scenario: str
@@ -322,7 +322,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Verify Browser Bridge operational readiness.",
+        description="Verify Chrome operational readiness.",
     )
     parser.add_argument("--base-url", default=DEFAULT_BASE_URL)
     parser.add_argument("--port", type=int, default=8088)
@@ -388,7 +388,7 @@ def _add_v8_command_parsers(
     report.add_argument("--output-json", default="")
     report.add_argument(
         "--output",
-        default="docs/browser-bridge-v8-product-readiness-report.md",
+        default="docs/chrome-v8-product-readiness-report.md",
     )
     report.add_argument("result_files", nargs="*")
 
@@ -451,7 +451,7 @@ def _add_v9_command_parsers(
     report = subparsers.add_parser("v9-report")
     report.add_argument(
         "--output",
-        default="docs/browser-bridge-v9-runtime-truth-evidence-report.json",
+        default="docs/chrome-v9-runtime-truth-evidence-report.json",
     )
     report.add_argument("result_files", nargs="*")
 
@@ -475,14 +475,14 @@ def detect_forbidden_tools(text: str | list[str]) -> list[str]:
     return [tool for tool in FORBIDDEN_TOOLS if tool in haystack]
 
 
-def scan_browser_bridge_entropy_guardrails(
+def scan_chrome_entropy_guardrails(
     root: str | Path | None = None,
 ) -> dict[str, Any]:
-    """Scan Browser Bridge hot paths for prompt and legacy-tool entropy."""
+    """Scan Chrome hot paths for prompt and legacy-tool entropy."""
     repo_root = Path(root or Path.cwd())
     scanned_files: list[str] = []
     violations: list[dict[str, str]] = []
-    for path in _browser_bridge_entropy_scan_paths(repo_root):
+    for path in _chrome_entropy_scan_paths(repo_root):
         relative = path.relative_to(repo_root).as_posix()
         scanned_files.append(relative)
         try:
@@ -490,7 +490,7 @@ def scan_browser_bridge_entropy_guardrails(
         except UnicodeDecodeError:
             continue
         violations.extend(
-            _browser_bridge_entropy_violations_for_text(relative, text),
+            _chrome_entropy_violations_for_text(relative, text),
         )
     return {
         "ok": not violations,
@@ -499,15 +499,15 @@ def scan_browser_bridge_entropy_guardrails(
     }
 
 
-def _browser_bridge_entropy_scan_paths(root: Path) -> tuple[Path, ...]:
+def _chrome_entropy_scan_paths(root: Path) -> tuple[Path, ...]:
     candidates: list[Path] = []
     sdk_root = root / "src/qwenpaw/browser"
     if sdk_root.exists():
         candidates.extend(sorted(sdk_root.glob("*.py")))
-    plugin_root = root / "plugins/bundle/browser-bridge"
+    plugin_root = root / "plugins/bundle/chrome"
     for relative in ("*.py", "engine/**/*.py"):
         candidates.extend(sorted(plugin_root.glob(relative)))
-    skill_root = plugin_root / "skills/browser-bridge"
+    skill_root = plugin_root / "skills/chrome"
     if skill_root.exists():
         candidates.extend(sorted(skill_root.glob("*.md")))
     excluded = set(BROWSER_BRIDGE_ENTROPY_EXCLUDED_PATHS)
@@ -518,7 +518,7 @@ def _browser_bridge_entropy_scan_paths(root: Path) -> tuple[Path, ...]:
     )
 
 
-def _browser_bridge_entropy_violations_for_text(
+def _chrome_entropy_violations_for_text(
     relative_path: str,
     text: str,
 ) -> list[dict[str, str]]:
@@ -582,7 +582,7 @@ def _entropy_violation(
         "token": token,
         "category": category,
         "message": (
-            "Browser Bridge progress and recovery must stay generic; "
+            "Chrome progress and recovery must stay generic; "
             f"remove {token!r} from {relative_path}."
         ),
     }
@@ -601,7 +601,7 @@ def classify_verification_evidence(
     backend_route: str = "",
     artifact_paths: list[str] | None = None,
     actual_metrics: dict[str, Any] | None = None,
-) -> BrowserBridgeReport:
+) -> ChromeReport:
     """Classify synthetic verifier evidence into a scenario report."""
     events = trace_events or []
     forbidden = list(forbidden_tools or [])
@@ -617,7 +617,7 @@ def classify_verification_evidence(
     def scenario_report(
         status: str,
         **kwargs: Any,
-    ) -> BrowserBridgeReport:
+    ) -> ChromeReport:
         kwargs.setdefault("scenario_budget", budget)
         kwargs.setdefault("actual_metrics", metrics)
         return _report(scenario, status, started, **kwargs)
@@ -809,7 +809,7 @@ def classify_v9_public_live_evidence(
     browser_tool_calls: int,
     runtime_evidence: dict[str, Any],
     actual_metrics: dict[str, Any] | None = None,
-) -> BrowserBridgeReport:
+) -> ChromeReport:
     """Classify the V9 public isolated live scenario contract."""
     route = _backend_route_from_traces(trace_events)
     normalized_metrics = _v9_normalize_actual_metrics(
@@ -826,7 +826,7 @@ def classify_v9_public_live_evidence(
         error_code: str = "",
         failure_reason: str = "",
         content_evidence: dict[str, Any] | None = None,
-    ) -> BrowserBridgeReport:
+    ) -> ChromeReport:
         return _report(
             "v9-public-live",
             status,
@@ -943,7 +943,7 @@ def classify_v9_user_live_evidence(
     *,
     started: float,
     scenario_reports: list[dict[str, Any]],
-) -> BrowserBridgeReport:
+) -> ChromeReport:
     """Classify V9 user Chrome lifecycle acceptance evidence."""
     required = _v9_user_live_required_scenarios()
     observed = {
@@ -1191,7 +1191,7 @@ def classify_v9_capability_matrix_evidence(
     *,
     started: float,
     scenario_reports: list[dict[str, Any]],
-) -> BrowserBridgeReport:
+) -> ChromeReport:
     """Classify deterministic V9 complex capability matrix evidence."""
     capabilities = _v9_matrix_capabilities(scenario_reports)
     missing = sorted(
@@ -1411,7 +1411,7 @@ def classify_v9_taobao_live_evidence(
     browser_tool_calls: int,
     cart_state: dict[str, Any],
     actual_metrics: dict[str, Any] | None = None,
-) -> BrowserBridgeReport:
+) -> ChromeReport:
     """Classify the explicit opt-in V9 Taobao live mutation gate."""
     route = _backend_route_from_traces(trace_events)
     metrics = _v9_normalize_actual_metrics(
@@ -1434,7 +1434,7 @@ def classify_v9_taobao_live_evidence(
         blocked_reason: str = "",
         failure_reason: str = "",
         blocker_classification: dict[str, Any] | None = None,
-    ) -> BrowserBridgeReport:
+    ) -> ChromeReport:
         return _report(
             "v9-taobao-live",
             status,
@@ -1809,7 +1809,7 @@ def _v9_capability_gap_blocker(reason: str) -> dict[str, Any]:
     }
 
 
-def run_preflight(args: argparse.Namespace) -> BrowserBridgeReport:
+def run_preflight(args: argparse.Namespace) -> ChromeReport:
     started = time.perf_counter()
     base_url = _normalize_base_url(args.base_url)
     try:
@@ -1851,7 +1851,7 @@ def run_preflight(args: argparse.Namespace) -> BrowserBridgeReport:
 
     try:
         status = _http_json(
-            f"{base_url}/api/browser-bridge/status",
+            f"{base_url}/api/chrome/status",
             timeout=args.timeout,
         )
     except RuntimeError as exc:
@@ -1871,7 +1871,7 @@ def run_preflight(args: argparse.Namespace) -> BrowserBridgeReport:
     )
 
 
-def run_v8_preflight(args: argparse.Namespace) -> BrowserBridgeReport:
+def run_v8_preflight(args: argparse.Namespace) -> ChromeReport:
     started = time.perf_counter()
     base_url = _normalize_base_url(args.base_url)
     try:
@@ -1915,7 +1915,7 @@ def run_v8_preflight(args: argparse.Namespace) -> BrowserBridgeReport:
     ):
         with contextlib.suppress(RuntimeError):
             _http_json(
-                f"{base_url}/api/browser-bridge/self-test",
+                f"{base_url}/api/chrome/self-test",
                 timeout=args.timeout,
                 method="POST",
             )
@@ -1950,7 +1950,7 @@ def run_v8_preflight(args: argparse.Namespace) -> BrowserBridgeReport:
     )
 
 
-def run_v9_preflight(args: argparse.Namespace) -> BrowserBridgeReport:
+def run_v9_preflight(args: argparse.Namespace) -> ChromeReport:
     """Validate runtime evidence before trusting V9 scenarios."""
     started = time.perf_counter()
     base_url = _v9_base_url(args)
@@ -2022,7 +2022,7 @@ def run_v9_preflight(args: argparse.Namespace) -> BrowserBridgeReport:
     )
 
 
-def run_v9_report(args: argparse.Namespace) -> BrowserBridgeReport:
+def run_v9_report(args: argparse.Namespace) -> ChromeReport:
     """Write the V9 evidence report JSON from scenario result files."""
     return write_v9_evidence_report(
         output=Path(str(args.output)),
@@ -2032,7 +2032,7 @@ def run_v9_report(args: argparse.Namespace) -> BrowserBridgeReport:
     )
 
 
-def run_v9_public_live(args: argparse.Namespace) -> BrowserBridgeReport:
+def run_v9_public_live(args: argparse.Namespace) -> ChromeReport:
     """Run the opt-in V9 public isolated live scenario."""
     started = time.perf_counter()
     if not getattr(args, "live_public", False):
@@ -2053,7 +2053,7 @@ def run_v9_public_live(args: argparse.Namespace) -> BrowserBridgeReport:
     return _run_v8_live_task(args, spec)
 
 
-def run_v9_user_live(args: argparse.Namespace) -> BrowserBridgeReport:
+def run_v9_user_live(args: argparse.Namespace) -> ChromeReport:
     """Run the opt-in V9 user Chrome lifecycle scenario set."""
     started = time.perf_counter()
     if not getattr(args, "live_user", False):
@@ -2079,7 +2079,7 @@ def run_v9_user_live(args: argparse.Namespace) -> BrowserBridgeReport:
     )
 
 
-def run_v9_capability_matrix(args: argparse.Namespace) -> BrowserBridgeReport:
+def run_v9_capability_matrix(args: argparse.Namespace) -> ChromeReport:
     """Run deterministic complex matrix through existing fixture scenarios."""
     started = time.perf_counter()
     child_reports = [
@@ -2105,7 +2105,7 @@ def run_v9_capability_matrix(args: argparse.Namespace) -> BrowserBridgeReport:
     )
 
 
-def run_v9_taobao_live(args: argparse.Namespace) -> BrowserBridgeReport:
+def run_v9_taobao_live(args: argparse.Namespace) -> ChromeReport:
     """Run the explicitly authorized V9 Taobao live mutation scenario."""
     started = time.perf_counter()
     if not getattr(args, "live_taobao", False):
@@ -2128,9 +2128,9 @@ def run_v9_taobao_live(args: argparse.Namespace) -> BrowserBridgeReport:
 def _v9_capability_matrix_reports(
     *,
     started: float,
-    child_reports: list[BrowserBridgeReport],
-    approval_reports: list[BrowserBridgeReport],
-) -> list[BrowserBridgeReport]:
+    child_reports: list[ChromeReport],
+    approval_reports: list[ChromeReport],
+) -> list[ChromeReport]:
     return [
         _v9_capability_summary_report(
             started=started,
@@ -2143,8 +2143,8 @@ def _v9_capability_matrix_reports(
 def _v9_capability_summary_report(
     *,
     started: float,
-    child_reports: list[BrowserBridgeReport],
-) -> BrowserBridgeReport:
+    child_reports: list[ChromeReport],
+) -> ChromeReport:
     payloads = [report.to_dict() for report in child_reports]
     passed = {
         report.scenario: report.status == "passed" for report in child_reports
@@ -2207,7 +2207,7 @@ def _v9_capability_summary_report(
 def _run_v9_approval_probe(
     args: argparse.Namespace,
     approval_level: str,
-) -> BrowserBridgeReport:
+) -> ChromeReport:
     started = time.perf_counter()
     base_url = _normalize_base_url(args.base_url)
     fixture = _fixture_path("cart.html")
@@ -2254,7 +2254,7 @@ def _run_v9_approval_probe(
         )
 
     session_id = (
-        "browser-bridge-v9-approval-"
+        "chrome-v9-approval-"
         f"{normalized_level.lower()}-{int(time.time() * 1000)}"
     )
     prompt_spec = _v9_approval_probe_prompt_spec(
@@ -2324,7 +2324,7 @@ def _classify_v9_approval_probe_report(
     trace_events: list[dict[str, Any]],
     backend_route: str,
     browser_tool_calls: int,
-) -> BrowserBridgeReport:
+) -> ChromeReport:
     evidence = _v9_approval_execution_from_trace(
         trace_events,
         approval_level=approval_level,
@@ -2458,14 +2458,14 @@ def _v9_sensitive_probe_event(event: dict[str, Any]) -> bool:
     )
 
 
-def run_v9_acceptance(args: argparse.Namespace) -> BrowserBridgeReport:
+def run_v9_acceptance(args: argparse.Namespace) -> ChromeReport:
     """Run V9 live-product acceptance orchestration."""
     started = time.perf_counter()
     preflight = run_v9_preflight(args)
-    reports: list[BrowserBridgeReport] = []
+    reports: list[ChromeReport] = []
     if preflight.status == "passed":
         reports = _run_v9_acceptance_scenarios(args)
-    forbidden_scan = scan_browser_bridge_entropy_guardrails(Path.cwd())
+    forbidden_scan = scan_chrome_entropy_guardrails(Path.cwd())
     report = _aggregate_v9_acceptance_report(
         started=started,
         preflight=preflight,
@@ -2484,7 +2484,7 @@ def run_v9_acceptance(args: argparse.Namespace) -> BrowserBridgeReport:
 
 def _run_v9_acceptance_scenarios(
     args: argparse.Namespace,
-) -> list[BrowserBridgeReport]:
+) -> list[ChromeReport]:
     reports = [_run_v9_named_acceptance_scenario("v9-capability-matrix", args)]
     if getattr(args, "live_public", False):
         reports.append(
@@ -2502,7 +2502,7 @@ def _run_v9_acceptance_scenarios(
 def _run_v9_named_acceptance_scenario(
     scenario: str,
     args: argparse.Namespace,
-) -> BrowserBridgeReport:
+) -> ChromeReport:
     runners = {
         "v9-public-live": globals().get("run_v9_public_live"),
         "v9-user-live": globals().get("run_v9_user_live"),
@@ -2523,11 +2523,11 @@ def _run_v9_named_acceptance_scenario(
 def _aggregate_v9_acceptance_report(
     *,
     started: float,
-    preflight: BrowserBridgeReport,
-    reports: list[BrowserBridgeReport],
+    preflight: ChromeReport,
+    reports: list[ChromeReport],
     forbidden_scan: dict[str, Any],
     args: argparse.Namespace,
-) -> BrowserBridgeReport:
+) -> ChromeReport:
     status = _v9_acceptance_status(preflight, reports, forbidden_scan)
     blocker = _v9_blocker_classification(status, [preflight, *reports])
     manifest = _v9_acceptance_manifest(
@@ -2588,8 +2588,8 @@ def _aggregate_v9_acceptance_report(
 
 
 def _v9_acceptance_status(
-    preflight: BrowserBridgeReport,
-    reports: list[BrowserBridgeReport],
+    preflight: ChromeReport,
+    reports: list[ChromeReport],
     forbidden_scan: dict[str, Any],
 ) -> str:
     if forbidden_scan.get("ok") is False:
@@ -2601,15 +2601,15 @@ def _v9_acceptance_status(
 
 def _v9_acceptance_manifest(
     *,
-    preflight: BrowserBridgeReport,
-    reports: list[BrowserBridgeReport],
+    preflight: ChromeReport,
+    reports: list[ChromeReport],
     args: argparse.Namespace,
 ) -> dict[str, Any]:
     evidence = dict(preflight.runtime_evidence or {})
     service = dict(evidence.get("service") or {})
     local = dict(evidence.get("local") or {})
     return {
-        "schema_version": "browser-bridge-v9-f-acceptance-manifest",
+        "schema_version": "chrome-v9-f-acceptance-manifest",
         "base_url": _v9_base_url(args),
         "reuse_service": bool(getattr(args, "reuse_service", False)),
         "approval_level": str(getattr(args, "approval_level", "DEFAULT")),
@@ -2667,12 +2667,12 @@ def _v9_acceptance_manifest(
 
 def _write_v9_acceptance_artifacts(
     *,
-    report: BrowserBridgeReport,
-    reports: list[BrowserBridgeReport],
-    preflight: BrowserBridgeReport,
+    report: ChromeReport,
+    reports: list[ChromeReport],
+    preflight: ChromeReport,
     forbidden_scan: dict[str, Any],
     report_dir: Path,
-) -> BrowserBridgeReport:
+) -> ChromeReport:
     report_dir.mkdir(parents=True, exist_ok=True)
     json_path = report_dir / V9_ACCEPTANCE_JSON_NAME
     markdown_path = report_dir / V9_ACCEPTANCE_MARKDOWN_NAME
@@ -2698,9 +2698,9 @@ def _write_v9_acceptance_artifacts(
 
 def _render_v9_acceptance_markdown(
     *,
-    report: BrowserBridgeReport,
-    reports: list[BrowserBridgeReport],
-    preflight: BrowserBridgeReport,
+    report: ChromeReport,
+    reports: list[ChromeReport],
+    preflight: ChromeReport,
     forbidden_scan: dict[str, Any],
 ) -> str:
     manifest = report.runtime_evidence.get("run_manifest")
@@ -2711,7 +2711,7 @@ def _render_v9_acceptance_markdown(
     )
     return "\n".join(
         [
-            "# Browser Bridge V9-F Live Product Acceptance Report",
+            "# Chrome V9-F Live Product Acceptance Report",
             "",
             "## Runtime Truth",
             f"- Preflight status: `{preflight.status}`",
@@ -2853,7 +2853,7 @@ def _v9_runtime_evidence(
     }
     failed = [name for name, value in checks.items() if value != "passed"]
     return {
-        "schema_version": "browser-bridge-v9-a-runtime-truth",
+        "schema_version": "chrome-v9-a-runtime-truth",
         "local": local,
         "service": service,
         "checks": checks,
@@ -2879,7 +2879,7 @@ def _v9_runtime_repair_action(failed: list[str]) -> str:
         "backend_commit": "restart_qwenpaw",
         "backend_dirty": "commit_or_revert_local_changes",
         "frontend_fingerprint": "rebuild_frontend",
-        "plugin_fingerprint": "reload_browser_bridge_plugin",
+        "plugin_fingerprint": "reload_chrome_plugin",
         "bridge_freshness": "reload_extension",
     }
     for name, action in repair_actions.items():
@@ -2937,7 +2937,7 @@ def _v8_preflight_checks(
     }
 
 
-def run_v8_deterministic(args: argparse.Namespace) -> BrowserBridgeReport:
+def run_v8_deterministic(args: argparse.Namespace) -> ChromeReport:
     started = time.perf_counter()
     reports = [
         _run_named_scenario(args, scenario)
@@ -2953,7 +2953,7 @@ def run_v8_deterministic(args: argparse.Namespace) -> BrowserBridgeReport:
 def _run_named_scenario(
     args: argparse.Namespace,
     scenario: str,
-) -> BrowserBridgeReport:
+) -> ChromeReport:
     runners = {
         "preflight": run_v8_preflight,
         "public-search": run_public_search,
@@ -2965,7 +2965,7 @@ def _run_named_scenario(
     return runners[scenario](args)
 
 
-def run_v8_public_live(args: argparse.Namespace) -> BrowserBridgeReport:
+def run_v8_public_live(args: argparse.Namespace) -> ChromeReport:
     started = time.perf_counter()
     if not getattr(args, "public_live", False):
         return _report(
@@ -2986,7 +2986,7 @@ def run_v8_public_live(args: argparse.Namespace) -> BrowserBridgeReport:
     )
 
 
-def run_v8_user_live(args: argparse.Namespace) -> BrowserBridgeReport:
+def run_v8_user_live(args: argparse.Namespace) -> ChromeReport:
     started = time.perf_counter()
     if not getattr(args, "live_taobao_preflight", False):
         return _report(
@@ -3010,7 +3010,7 @@ def run_v8_user_live(args: argparse.Namespace) -> BrowserBridgeReport:
     )
 
 
-def run_v8_taobao_live(args: argparse.Namespace) -> BrowserBridgeReport:
+def run_v8_taobao_live(args: argparse.Namespace) -> ChromeReport:
     started = time.perf_counter()
     if not getattr(args, "live_taobao", False):
         return _report(
@@ -3038,7 +3038,7 @@ def run_v8_taobao_live(args: argparse.Namespace) -> BrowserBridgeReport:
     return _run_v8_live_task(args, _v8_taobao_live_task_spec())
 
 
-def run_v8_lifecycle_live(args: argparse.Namespace) -> BrowserBridgeReport:
+def run_v8_lifecycle_live(args: argparse.Namespace) -> ChromeReport:
     started = time.perf_counter()
     reports = [
         _run_v8_live_task(args, spec)
@@ -3051,7 +3051,7 @@ def run_v8_lifecycle_live(args: argparse.Namespace) -> BrowserBridgeReport:
     )
 
 
-def run_v8_report(args: argparse.Namespace) -> BrowserBridgeReport:
+def run_v8_report(args: argparse.Namespace) -> ChromeReport:
     return write_v8_product_report(
         output=Path(args.output),
         result_files=[
@@ -3060,7 +3060,7 @@ def run_v8_report(args: argparse.Namespace) -> BrowserBridgeReport:
     )
 
 
-def run_taobao_live(args: argparse.Namespace) -> BrowserBridgeReport:
+def run_taobao_live(args: argparse.Namespace) -> ChromeReport:
     started = time.perf_counter()
     if not getattr(args, "live_taobao", False):
         return _report(
@@ -3083,7 +3083,7 @@ def run_taobao_live(args: argparse.Namespace) -> BrowserBridgeReport:
     )
 
 
-def run_fixture(args: argparse.Namespace) -> BrowserBridgeReport:
+def run_fixture(args: argparse.Namespace) -> ChromeReport:
     started = time.perf_counter()
     base_url = _normalize_base_url(args.base_url)
     preflight = run_preflight(args)
@@ -3120,7 +3120,7 @@ def run_fixture(args: argparse.Namespace) -> BrowserBridgeReport:
             artifact_paths=[str(fixture)],
         )
 
-    session_id = f"browser-bridge-fixture-{int(time.time() * 1000)}"
+    session_id = f"chrome-fixture-{int(time.time() * 1000)}"
     prompt_spec = _fixture_prompt_spec(fixture.resolve().as_uri())
     return _run_chat_trace_scenario(
         scenario="fixture",
@@ -3139,13 +3139,13 @@ def run_fixture(args: argparse.Namespace) -> BrowserBridgeReport:
     )
 
 
-def run_public_search(args: argparse.Namespace) -> BrowserBridgeReport:
+def run_public_search(args: argparse.Namespace) -> ChromeReport:
     started = time.perf_counter()
     base_url = _normalize_base_url(args.base_url)
     preflight = run_preflight(args)
     if preflight.status != "passed":
         return _copy_report(preflight, scenario="public-search")
-    session_id = f"browser-bridge-public-search-{int(time.time() * 1000)}"
+    session_id = f"chrome-public-search-{int(time.time() * 1000)}"
     prompt_spec = _public_search_prompt_spec()
     return _run_chat_trace_scenario(
         scenario="public-search",
@@ -3161,7 +3161,7 @@ def run_public_search(args: argparse.Namespace) -> BrowserBridgeReport:
     )
 
 
-def run_complex_isolated(args: argparse.Namespace) -> BrowserBridgeReport:
+def run_complex_isolated(args: argparse.Namespace) -> ChromeReport:
     started = time.perf_counter()
     base_url = _normalize_base_url(args.base_url)
     fixture = _fixture_path("complex.html")
@@ -3175,7 +3175,7 @@ def run_complex_isolated(args: argparse.Namespace) -> BrowserBridgeReport:
     preflight = run_preflight(args)
     if preflight.status != "passed":
         return _copy_report(preflight, scenario="complex-isolated")
-    session_id = f"browser-bridge-complex-isolated-{int(time.time() * 1000)}"
+    session_id = f"chrome-complex-isolated-{int(time.time() * 1000)}"
     prompt_spec = _complex_prompt_spec(
         fixture.resolve().as_uri(),
         context="isolated",
@@ -3197,7 +3197,7 @@ def run_complex_isolated(args: argparse.Namespace) -> BrowserBridgeReport:
     )
 
 
-def run_complex_user(args: argparse.Namespace) -> BrowserBridgeReport:
+def run_complex_user(args: argparse.Namespace) -> ChromeReport:
     started = time.perf_counter()
     base_url = _normalize_base_url(args.base_url)
     fixture = _fixture_path("complex.html")
@@ -3233,7 +3233,7 @@ def run_complex_user(args: argparse.Namespace) -> BrowserBridgeReport:
             error_code=BrowserErrorCode.BRIDGE_DISCONNECTED.value,
             artifact_paths=[str(fixture)],
         )
-    session_id = f"browser-bridge-complex-user-{int(time.time() * 1000)}"
+    session_id = f"chrome-complex-user-{int(time.time() * 1000)}"
     prompt_spec = _complex_prompt_spec(
         fixture.resolve().as_uri(),
         context="user",
@@ -3257,7 +3257,7 @@ def run_complex_user(args: argparse.Namespace) -> BrowserBridgeReport:
 
 def run_v8_capability_isolated(
     args: argparse.Namespace,
-) -> BrowserBridgeReport:
+) -> ChromeReport:
     started = time.perf_counter()
     base_url = _normalize_base_url(args.base_url)
     fixture = _fixture_path("v8_capability.html")
@@ -3272,7 +3272,7 @@ def run_v8_capability_isolated(
     if preflight.status != "passed":
         return _copy_report(preflight, scenario="v8-capability-isolated")
     session_id = (
-        f"browser-bridge-v8-capability-isolated-" f"{int(time.time() * 1000)}"
+        f"chrome-v8-capability-isolated-" f"{int(time.time() * 1000)}"
     )
     prompt_spec = _v8_capability_prompt_spec(
         fixture.resolve().as_uri(),
@@ -3295,7 +3295,7 @@ def run_v8_capability_isolated(
     )
 
 
-def run_v8_capability_user(args: argparse.Namespace) -> BrowserBridgeReport:
+def run_v8_capability_user(args: argparse.Namespace) -> ChromeReport:
     started = time.perf_counter()
     base_url = _normalize_base_url(args.base_url)
     fixture = _fixture_path("v8_capability.html")
@@ -3332,7 +3332,7 @@ def run_v8_capability_user(args: argparse.Namespace) -> BrowserBridgeReport:
             artifact_paths=[str(fixture)],
         )
     session_id = (
-        f"browser-bridge-v8-capability-user-" f"{int(time.time() * 1000)}"
+        f"chrome-v8-capability-user-" f"{int(time.time() * 1000)}"
     )
     prompt_spec = _v8_capability_prompt_spec(
         fixture.resolve().as_uri(),
@@ -3355,12 +3355,12 @@ def run_v8_capability_user(args: argparse.Namespace) -> BrowserBridgeReport:
     )
 
 
-def run_bridge_disconnected(args: argparse.Namespace) -> BrowserBridgeReport:
+def run_bridge_disconnected(args: argparse.Namespace) -> ChromeReport:
     started = time.perf_counter()
     base_url = _normalize_base_url(args.base_url)
     try:
         status = _http_json(
-            f"{base_url}/api/browser-bridge/status",
+            f"{base_url}/api/chrome/status",
             timeout=args.timeout,
         )
     except RuntimeError as exc:
@@ -3417,7 +3417,7 @@ def _v9_public_live_task_spec() -> V8LiveTaskSpec:
     return V8LiveTaskSpec(
         scenario="v9-public-live",
         prompt=(
-            "Use Browser Bridge through normal QwenPaw chat to find a Loop "
+            "Use Chrome through normal QwenPaw chat to find a Loop "
             "Engineering blog or engineering article on the public web. Use "
             'context="isolated" only and do not touch user Chrome or Chrome '
             "Extension user state. Report the exact marker "
@@ -3443,7 +3443,7 @@ def _v9_user_live_task_specs() -> list[V8LiveTaskSpec]:
         V8LiveTaskSpec(
             scenario="multi-tab-workspace",
             prompt=(
-                'Use Browser Bridge with context="user" and '
+                'Use Chrome with context="user" and '
                 "requires_user_state=True to create a Browser-Control-owned "
                 "second tab, switch back and forth, then close or release the "
                 "owned tab. Report V9_USER_MULTITAB_PASS and zero residual "
@@ -3457,7 +3457,7 @@ def _v9_user_live_task_specs() -> list[V8LiveTaskSpec]:
         V8LiveTaskSpec(
             scenario="bridge-disconnect-fail-closed",
             prompt=(
-                "Verify user-context Browser Bridge fails closed when the "
+                "Verify user-context Chrome fails closed when the "
                 "Chrome Extension bridge is disconnected and never falls back "
                 "to isolated browser state. Report V9_USER_DISCONNECT_PASS "
                 "with bridge_disconnected evidence."
@@ -3471,7 +3471,7 @@ def _v9_user_live_task_specs() -> list[V8LiveTaskSpec]:
             scenario="bridge-reconnect-recovered",
             prompt=(
                 "After reconnecting the Chrome Extension bridge, verify a "
-                "user-context Browser Bridge read succeeds again. Report "
+                "user-context Chrome read succeeds again. Report "
                 "V9_USER_RECONNECT_PASS with reconnect evidence."
             ),
             required_context="user",
@@ -3482,7 +3482,7 @@ def _v9_user_live_task_specs() -> list[V8LiveTaskSpec]:
         V8LiveTaskSpec(
             scenario="user-cancellation-cleanup",
             prompt=(
-                'Use Browser Bridge with context="user" and '
+                'Use Chrome with context="user" and '
                 "requires_user_state=True to start a cancellable read-only "
                 "browser task, cancel it, and report V9_USER_CANCEL_PASS with "
                 "cancellation outcome plus zero residual owned tabs."
@@ -3512,7 +3512,7 @@ def _v9_user_readonly_prompt_spec() -> HarnessPromptSpec:
             "    console_tabs = [\n"
             "        tab for tab in tabs\n"
             "        if 'QwenPaw Console' in tab.title\n"
-            "        or 'browser-bridge' in tab.url\n"
+            "        or 'chrome' in tab.url\n"
             "        or 'plugin-manager' in tab.url\n"
             "    ]\n"
             f"    print('{marker}')\n"
@@ -3538,7 +3538,7 @@ def _v8_user_live_task_specs() -> list[V8LiveTaskSpec]:
         V8LiveTaskSpec(
             scenario="user-chrome-readonly",
             prompt=(
-                'Use Browser Bridge with context="user" and '
+                'Use Chrome with context="user" and '
                 "requires_user_state=True to observe the current user Chrome "
                 "state without modifying any page. Report the active page title "
                 "or URL and the marker V8_USER_READONLY_PASS. Do not fall back "
@@ -3553,7 +3553,7 @@ def _v8_user_live_task_specs() -> list[V8LiveTaskSpec]:
         V8LiveTaskSpec(
             scenario="taobao-cart-preflight",
             prompt=(
-                'Use Browser Bridge with context="user" and '
+                'Use Chrome with context="user" and '
                 "requires_user_state=True to open and read the Taobao cart "
                 "page. This is read-only preflight: do not add, remove, clear, "
                 "checkout, pay, submit an order, or enter credentials. If "
@@ -3575,7 +3575,7 @@ def _v8_taobao_live_task_spec() -> V8LiveTaskSpec:
     return V8LiveTaskSpec(
         scenario="v8-taobao-live",
         prompt=(
-            'Use Browser Bridge with context="user" and '
+            'Use Chrome with context="user" and '
             "requires_user_state=True. First open the Taobao cart and confirm "
             "it is readable. Then search for men's shampoo, add one ordinary "
             "item to the cart, list cart contents before clearing, clear the "
@@ -3602,7 +3602,7 @@ def _v9_taobao_live_task_spec() -> V8LiveTaskSpec:
     return V8LiveTaskSpec(
         scenario="v9-taobao-live",
         prompt=(
-            'Use Browser Bridge with context="user" and '
+            'Use Chrome with context="user" and '
             "requires_user_state=True. The user has prepared Taobao login. "
             "With approval_level=OFF only, open the cart, search for one "
             "ordinary men's shampoo item, add exactly one item to the cart, "
@@ -3634,7 +3634,7 @@ def _v8_lifecycle_live_task_specs() -> list[V8LiveTaskSpec]:
         V8LiveTaskSpec(
             scenario="multi-tab-user-lifecycle",
             prompt=(
-                'Use Browser Bridge with context="user" and '
+                'Use Chrome with context="user" and '
                 "requires_user_state=True. Open a second tab, switch between "
                 "tabs, complete a small read-only observation, then close the "
                 "Browser SDK session. Report V8_LIFECYCLE_MULTI_TAB_PASS with "
@@ -3649,7 +3649,7 @@ def _v8_lifecycle_live_task_specs() -> list[V8LiveTaskSpec]:
         V8LiveTaskSpec(
             scenario="bridge-disconnected-user-context",
             prompt=(
-                "Attempt a user-context Browser Bridge read while the bridge "
+                "Attempt a user-context Chrome read while the bridge "
                 "is disconnected or unavailable. The expected result is a "
                 "blocked bridge_disconnected outcome and no isolated fallback."
             ),
@@ -3664,7 +3664,7 @@ def _v8_lifecycle_live_task_specs() -> list[V8LiveTaskSpec]:
 def _run_v9_user_live_task(
     args: argparse.Namespace,
     spec: V8LiveTaskSpec,
-) -> BrowserBridgeReport:
+) -> ChromeReport:
     if spec.scenario == "bridge-disconnect-fail-closed":
         event = _v9_force_bridge_disconnect_event(args)
         report = _run_v8_live_task(args, spec)
@@ -3687,7 +3687,7 @@ def _v9_force_bridge_disconnect_event(
     payload: dict[str, Any] = {}
     try:
         payload = _http_json(
-            f"{base_url}/api/browser-bridge/test/bridge/disconnect?confirm=true",
+            f"{base_url}/api/chrome/test/bridge/disconnect?confirm=true",
             timeout=timeout,
             method="POST",
         )
@@ -3746,9 +3746,9 @@ def _safe_extension_status(base_url: str, timeout: float) -> dict[str, Any]:
 
 
 def _v9_augment_controlled_lifecycle(
-    report: BrowserBridgeReport,
+    report: ChromeReport,
     event: dict[str, Any],
-) -> BrowserBridgeReport:
+) -> ChromeReport:
     return replace(
         report,
         content_evidence={
@@ -3761,7 +3761,7 @@ def _v9_augment_controlled_lifecycle(
 def _run_v9_cancellation_live_task(
     args: argparse.Namespace,
     spec: V8LiveTaskSpec,
-) -> BrowserBridgeReport:
+) -> ChromeReport:
     started = time.perf_counter()
     base_url = _normalize_base_url(args.base_url)
     backend_route = ""
@@ -3791,7 +3791,7 @@ def _run_v9_cancellation_live_task(
             _v9_cancel_control_event(False, False, False, {}),
         )
 
-    session_id = f"browser-bridge-v9-{spec.scenario}-{int(time.time() * 1000)}"
+    session_id = f"chrome-v9-{spec.scenario}-{int(time.time() * 1000)}"
     try:
         task = _submit_console_task(
             base_url,
@@ -3960,9 +3960,9 @@ def _v9_cancel_control_event(
 def _run_v8_live_task(
     args: argparse.Namespace,
     spec: V8LiveTaskSpec,
-) -> BrowserBridgeReport:
+) -> ChromeReport:
     started = time.perf_counter()
-    early_report: BrowserBridgeReport | None = None
+    early_report: ChromeReport | None = None
     if spec.requires_flag and not getattr(args, spec.requires_flag, False):
         early_report = _report(
             spec.scenario,
@@ -3999,7 +3999,7 @@ def _run_v8_live_task(
             early_report,
         )
 
-    session_id = f"browser-bridge-v8-{spec.scenario}-{int(time.time() * 1000)}"
+    session_id = f"chrome-v8-{spec.scenario}-{int(time.time() * 1000)}"
     try:
         task = _submit_console_task(
             base_url,
@@ -4094,8 +4094,8 @@ def _run_v8_live_task(
 
 def _v9_maybe_augment_early_lifecycle_report(
     scenario: str,
-    report: BrowserBridgeReport,
-) -> BrowserBridgeReport:
+    report: ChromeReport,
+) -> ChromeReport:
     if scenario not in _v9_user_live_lifecycle_states():
         return report
     return replace(
@@ -4118,7 +4118,7 @@ def _classify_special_live_task_report(
     summary: dict[str, Any],
     trace_events: list[dict[str, Any]],
     browser_tool_calls: int,
-) -> BrowserBridgeReport | None:
+) -> ChromeReport | None:
     if spec.scenario == "v9-taobao-live":
         transcript = str(summary.get("final_text") or "")
         return classify_v9_taobao_live_evidence(
@@ -4219,7 +4219,7 @@ def _json_objects_from_text(text: str) -> list[dict[str, Any]]:
 def _v9_user_live_lifecycle_evidence(
     scenario: str,
     *,
-    report: BrowserBridgeReport,
+    report: ChromeReport,
     task_status: dict[str, Any],
     summary: dict[str, Any],
     trace_events: list[dict[str, Any]],
@@ -4245,7 +4245,7 @@ def _v9_user_live_lifecycle_evidence(
 
 def _v9_user_live_early_lifecycle_evidence(
     scenario: str,
-    report: BrowserBridgeReport,
+    report: ChromeReport,
 ) -> dict[str, Any]:
     state = ""
     if (
@@ -4265,7 +4265,7 @@ def _v9_user_live_early_lifecycle_evidence(
 
 
 def _v9_readonly_lifecycle_state(
-    report: BrowserBridgeReport,
+    report: ChromeReport,
     summary: dict[str, Any],
     trace_events: list[dict[str, Any]],
 ) -> str:
@@ -4278,14 +4278,14 @@ def _v9_readonly_lifecycle_state(
     return ""
 
 
-def _v9_multitab_lifecycle_state(report: BrowserBridgeReport) -> str:
+def _v9_multitab_lifecycle_state(report: ChromeReport) -> str:
     if report.status == "passed" and report.cleanup_ok:
         return "multi_tab_cleaned"
     return ""
 
 
 def _v9_disconnect_lifecycle_state(
-    report: BrowserBridgeReport,
+    report: ChromeReport,
     summary: dict[str, Any],
     trace_events: list[dict[str, Any]],
 ) -> str:
@@ -4304,7 +4304,7 @@ def _v9_disconnect_lifecycle_state(
 
 
 def _v9_reconnect_lifecycle_state(
-    report: BrowserBridgeReport,
+    report: ChromeReport,
     trace_events: list[dict[str, Any]],
 ) -> str:
     if report.status == "passed" and _has_user_backend_evidence(trace_events):
@@ -4313,7 +4313,7 @@ def _v9_reconnect_lifecycle_state(
 
 
 def _v9_cancellation_lifecycle_state(
-    report: BrowserBridgeReport,
+    report: ChromeReport,
     task_status: dict[str, Any],
 ) -> str:
     result = _dict_value(task_status.get("result"))
@@ -4335,9 +4335,9 @@ def _aggregate_v8_suite(
     *,
     scenario: str,
     started: float,
-    reports: list[BrowserBridgeReport],
+    reports: list[ChromeReport],
     user_preparation: list[str] | None = None,
-) -> BrowserBridgeReport:
+) -> ChromeReport:
     failed = next(
         (report for report in reports if report.status == "failed"),
         None,
@@ -4383,7 +4383,7 @@ def _join_unique(values: Any) -> str:
     return " | ".join(observed)
 
 
-def _join_forbidden(reports: list[BrowserBridgeReport]) -> list[str]:
+def _join_forbidden(reports: list[ChromeReport]) -> list[str]:
     observed: list[str] = []
     for report in reports:
         for tool in report.forbidden_tools:
@@ -4399,7 +4399,7 @@ def _classify_v8_taobao_live_evidence(
     transcript: str,
     artifact_paths: list[str],
     browser_tool_calls: int | None = None,
-) -> BrowserBridgeReport:
+) -> ChromeReport:
     effective_browser_tool_calls = (
         browser_tool_calls
         if browser_tool_calls is not None
@@ -4508,7 +4508,7 @@ def _classify_v8_lifecycle_evidence(
     trace_events: list[dict[str, Any]],
     transcript: str,
     browser_tool_calls: int | None = None,
-) -> BrowserBridgeReport:
+) -> ChromeReport:
     if _user_state_routed_to_isolated(trace_events):
         return _report(
             scenario,
@@ -4619,7 +4619,7 @@ def write_v8_product_report(
     *,
     output: Path,
     result_files: list[Path],
-) -> BrowserBridgeReport:
+) -> ChromeReport:
     started = time.perf_counter()
     reports = [_load_v8_report(path) for path in result_files]
     aggregate = _aggregate_v8_suite(
@@ -4640,7 +4640,7 @@ def write_v9_evidence_report(
     *,
     output: Path,
     result_files: list[Path],
-) -> BrowserBridgeReport:
+) -> ChromeReport:
     """Write a JSON V9 evidence report from scenario result files."""
     started = time.perf_counter()
     reports = [_load_v9_report(path) for path in result_files]
@@ -4658,7 +4658,7 @@ def write_v9_final_acceptance_report(
     output: Path,
     result_files: list[Path],
     issues: list[dict[str, Any]] | None = None,
-) -> BrowserBridgeReport:
+) -> ChromeReport:
     """Write the V9-F Markdown final acceptance report."""
     started = time.perf_counter()
     reports = [_load_v9_report(path) for path in result_files]
@@ -4714,7 +4714,7 @@ def _v9_issue_log_complete(issues: list[dict[str, Any]]) -> bool:
 
 
 def _v9_has_unresolved_non_external_blocker(
-    reports: list[BrowserBridgeReport],
+    reports: list[ChromeReport],
 ) -> bool:
     for report in reports:
         if report.status == "passed":
@@ -4726,15 +4726,15 @@ def _v9_has_unresolved_non_external_blocker(
 
 
 def _v9_final_preflight_report(
-    reports: list[BrowserBridgeReport],
-) -> BrowserBridgeReport:
+    reports: list[ChromeReport],
+) -> ChromeReport:
     preflight = next(
         (report for report in reports if report.scenario == "v9-preflight"),
         None,
     )
     if preflight is not None:
         return preflight
-    return BrowserBridgeReport(
+    return ChromeReport(
         scenario="v9-preflight",
         status="passed",
         fresh_observe_ok=True,
@@ -4744,11 +4744,11 @@ def _v9_final_preflight_report(
     )
 
 
-def _load_v8_report(path: Path) -> BrowserBridgeReport:
+def _load_v8_report(path: Path) -> ChromeReport:
     payload = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
         raise RuntimeError(f"{path} did not contain a JSON object")
-    return BrowserBridgeReport(
+    return ChromeReport(
         scenario=str(payload.get("scenario") or path.stem),
         status=str(payload.get("status") or "failed"),
         duration_ms=float(payload.get("duration_ms") or 0.0),
@@ -4778,11 +4778,11 @@ def _load_v8_report(path: Path) -> BrowserBridgeReport:
     )
 
 
-def _load_v9_report(path: Path) -> BrowserBridgeReport:
+def _load_v9_report(path: Path) -> ChromeReport:
     payload = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
         raise RuntimeError(f"{path} did not contain a JSON object")
-    return BrowserBridgeReport(
+    return ChromeReport(
         scenario=str(payload.get("scenario") or path.stem),
         status=str(payload.get("status") or "failed"),
         duration_ms=float(payload.get("duration_ms") or 0.0),
@@ -4827,8 +4827,8 @@ def _load_v9_report(path: Path) -> BrowserBridgeReport:
 def _aggregate_v9_evidence_report(
     *,
     started: float,
-    reports: list[BrowserBridgeReport],
-) -> BrowserBridgeReport:
+    reports: list[ChromeReport],
+) -> ChromeReport:
     status = _aggregate_status(reports)
     scenario_payloads = [report.to_dict() for report in reports]
     trace_summary = _aggregate_v9_trace_summary(reports)
@@ -4859,7 +4859,7 @@ def _aggregate_v9_evidence_report(
     )
 
 
-def _aggregate_status(reports: list[BrowserBridgeReport]) -> str:
+def _aggregate_status(reports: list[ChromeReport]) -> str:
     if any(report.status == "failed" for report in reports):
         return "failed"
     if any(report.status in {"cancelled", "canceled"} for report in reports):
@@ -4988,7 +4988,7 @@ def _budget_int(budget: dict[str, Any], key: str) -> int:
         return 0
 
 
-def _v9_actual_metrics(reports: list[BrowserBridgeReport]) -> dict[str, Any]:
+def _v9_actual_metrics(reports: list[ChromeReport]) -> dict[str, Any]:
     return {
         "scenario_count": len(reports),
         "elapsed_ms": round(sum(report.duration_ms for report in reports), 3),
@@ -5000,7 +5000,7 @@ def _v9_actual_metrics(reports: list[BrowserBridgeReport]) -> dict[str, Any]:
 
 
 def _sum_nested_metric(
-    reports: list[BrowserBridgeReport],
+    reports: list[ChromeReport],
     key: str,
 ) -> int:
     total = 0
@@ -5012,7 +5012,7 @@ def _sum_nested_metric(
 
 
 def _aggregate_v9_trace_summary(
-    reports: list[BrowserBridgeReport],
+    reports: list[ChromeReport],
 ) -> dict[str, Any]:
     missing: dict[str, Any] = {}
     complete = True
@@ -5030,7 +5030,7 @@ def _aggregate_v9_trace_summary(
 
 
 def _aggregate_v9_cleanup_summary(
-    reports: list[BrowserBridgeReport],
+    reports: list[ChromeReport],
 ) -> dict[str, Any]:
     last_cleanup_reason = ""
     protected_status = "clear"
@@ -5067,7 +5067,7 @@ def _summary_int(summary: dict[str, Any], key: str) -> int:
 
 def _v9_blocker_classification(
     status: str,
-    reports: list[BrowserBridgeReport],
+    reports: list[ChromeReport],
 ) -> dict[str, Any]:
     for report in reports:
         if report.blocker_classification:
@@ -5138,7 +5138,7 @@ def _v9_runtime_outcome_classification(
 
 
 def _aggregate_v9_source_labels(
-    reports: list[BrowserBridgeReport],
+    reports: list[ChromeReport],
 ) -> dict[str, Any]:
     observations: list[dict[str, Any]] = []
     for report in reports:
@@ -5203,8 +5203,8 @@ def v9_source_labels_for_scenario(scenario: str) -> dict[str, Any]:
 
 
 def _render_v8_markdown_report(
-    reports: list[BrowserBridgeReport],
-    aggregate: BrowserBridgeReport,
+    reports: list[ChromeReport],
+    aggregate: ChromeReport,
 ) -> str:
     deterministic = [
         report for report in reports if "deterministic" in report.scenario
@@ -5212,7 +5212,7 @@ def _render_v8_markdown_report(
     live = [report for report in reports if report not in deterministic]
     return "\n".join(
         [
-            "# Browser Bridge V8 Product Readiness Report",
+            "# Chrome V8 Product Readiness Report",
             "",
             "## Deterministic Results",
             _markdown_report_table(deterministic),
@@ -5254,7 +5254,7 @@ def _render_v8_markdown_report(
     )
 
 
-def _markdown_report_table(reports: list[BrowserBridgeReport]) -> str:
+def _markdown_report_table(reports: list[ChromeReport]) -> str:
     if not reports:
         return "_No results provided._"
     rows = ["| Scenario | Status | Blocked | Failure |", "|---|---|---|---|"]
@@ -5316,7 +5316,7 @@ def main(argv: list[str] | None = None) -> int:
     return 0 if report.status == "passed" else 1
 
 
-def run_product_verifier(args: argparse.Namespace) -> BrowserBridgeReport:
+def run_product_verifier(args: argparse.Namespace) -> ChromeReport:
     """Run the V10-D default product readiness verifier."""
     started = time.perf_counter()
     truth = run_truth_gates(root=_repo_root())
@@ -5416,7 +5416,7 @@ def _product_service_preflight(args: argparse.Namespace) -> dict[str, Any]:
             "cleanup_summary": {},
             "runtime_evidence": {"error": str(exc), **evidence},
             "preflight_checks": {
-                "browser_bridge_status_route": "blocked",
+                "chrome_status_route": "blocked",
             },
         }
     build = _dict_value(status.get("build_fingerprint"))
@@ -5439,7 +5439,7 @@ def _product_service_preflight(args: argparse.Namespace) -> dict[str, Any]:
         "native_host_version": str(status.get("native_host_version") or ""),
     }
     preflight_checks = {
-        "browser_bridge_status_route": "passed",
+        "chrome_status_route": "passed",
         "backend_commit": _product_check_match(
             local["git_commit"],
             service["git_commit"],
@@ -5468,13 +5468,13 @@ def _product_service_preflight(args: argparse.Namespace) -> dict[str, Any]:
         "bridge_connected": bool(status.get("connected")),
     }
     bridge_connected = bool(status.get("connected"))
-    preflight_checks["browser_bridge_connected"] = (
+    preflight_checks["chrome_connected"] = (
         "passed" if bridge_connected else "blocked"
     )
     service_ok = all(value == "passed" for value in preflight_checks.values())
     preflight_status = "passed" if service_ok else "failed"
     canonical_setup_url = str(
-        status.get("canonical_setup_url") or "/plugin/browser-bridge",
+        status.get("canonical_setup_url") or "/plugin/chrome",
     )
     recovery_hint = ""
     repair_action = "none"
@@ -5484,8 +5484,8 @@ def _product_service_preflight(args: argparse.Namespace) -> dict[str, Any]:
         recovery_hint = str(
             status.get("recovery_copy")
             or (
-                "Open the Browser Bridge setup page at "
-                "/plugin/browser-bridge, then reload the extension."
+                "Open the Chrome setup page at "
+                "/plugin/chrome, then reload the extension."
             ),
         )
     return {
@@ -5503,7 +5503,7 @@ def _product_service_preflight(args: argparse.Namespace) -> dict[str, Any]:
             "local": local,
             "service": service,
             "checks": preflight_checks,
-            "browser_bridge_status_route": "available",
+            "chrome_status_route": "available",
             "bridge_connected": bridge_connected,
             "canonical_setup_url": canonical_setup_url,
             "recovery_hint": recovery_hint,
@@ -5676,7 +5676,7 @@ def _run_product_bridge_disconnect(
 
 
 def _product_bridge_disconnect_fail_closed_ok(
-    disconnect: BrowserBridgeReport,
+    disconnect: ChromeReport,
 ) -> bool:
     event = _dict_value(
         disconnect.content_evidence.get("controlled_lifecycle_event"),
@@ -5695,7 +5695,7 @@ def _product_bridge_disconnect_fail_closed_ok(
 
 
 def _product_bridge_reconnect_observed_ok(
-    reconnect: BrowserBridgeReport,
+    reconnect: ChromeReport,
 ) -> bool:
     event = _dict_value(
         reconnect.content_evidence.get("controlled_lifecycle_event"),
@@ -5707,8 +5707,8 @@ def _product_bridge_reconnect_observed_ok(
 
 
 def _product_reconnect_delta(
-    disconnect: BrowserBridgeReport,
-    reconnect: BrowserBridgeReport,
+    disconnect: ChromeReport,
+    reconnect: ChromeReport,
 ) -> int:
     for report in (reconnect, disconnect):
         event = _dict_value(
@@ -5732,7 +5732,7 @@ def _product_reconnect_delta(
 
 def _product_report_from_child(
     scenario: Any,
-    child: BrowserBridgeReport,
+    child: ChromeReport,
     *,
     accepted: bool | None = None,
     failure_category: str = "",
@@ -5795,7 +5795,7 @@ def _product_repair_action(
     *,
     status: str,
     failure_category: str,
-    child: BrowserBridgeReport,
+    child: ChromeReport,
 ) -> str:
     if status == "passed":
         return "none"
@@ -5813,7 +5813,7 @@ def _product_repair_action(
     if (
         BrowserErrorCode.BRIDGE_DISCONNECTED.value in haystack
         or "bridge disconnected" in haystack
-        or "browser_bridge_disconnected" in haystack
+        or "chrome_disconnected" in haystack
     ):
         return "reload_extension"
     if status == "blocked":
@@ -5823,12 +5823,12 @@ def _product_repair_action(
 
 def _product_recovery_hint(status: str) -> str:
     if status == "blocked":
-        return "start latest QwenPaw service and reconnect Browser Bridge"
+        return "start latest QwenPaw service and reconnect Chrome"
     return "inspect Browser SDK trace, cleanup, and scenario evidence"
 
 
 def _render_product_readiness_markdown(
-    report: BrowserBridgeReport,
+    report: ChromeReport,
     gate_statuses: dict[str, str],
 ) -> str:
     rows = [
@@ -5872,7 +5872,7 @@ def _render_product_readiness_markdown(
     )
 
 
-def run_truth_gates_report() -> BrowserBridgeReport:
+def run_truth_gates_report() -> ChromeReport:
     started = time.perf_counter()
     result = run_truth_gates(root=_repo_root())
     status = str(result["status"])
@@ -5915,7 +5915,7 @@ def _report(
     cleanup_summary: dict[str, Any] | None = None,
     blocker_classification: dict[str, Any] | None = None,
     source_labels: dict[str, Any] | None = None,
-) -> BrowserBridgeReport:
+) -> ChromeReport:
     if status == "blocked" and not blocked_reason and error_code:
         blocked_reason = classify_browser_error(error_code).blocked_reason
     if status == "failed" and not failure_reason:
@@ -5942,7 +5942,7 @@ def _report(
             blocked_reason=blocked_reason,
             failure_reason=failure_reason,
         )
-    return BrowserBridgeReport(
+    return ChromeReport(
         scenario=scenario,
         status=status,
         duration_ms=round((time.perf_counter() - started) * 1000, 3),
@@ -5973,11 +5973,11 @@ def _report(
 
 
 def _copy_report(
-    report: BrowserBridgeReport,
+    report: ChromeReport,
     *,
     scenario: str,
-) -> BrowserBridgeReport:
-    return BrowserBridgeReport(
+) -> ChromeReport:
+    return ChromeReport(
         scenario=scenario,
         status=report.status,
         duration_ms=report.duration_ms,
@@ -6022,7 +6022,7 @@ def _run_chat_trace_scenario(
     required_success_marker: str = "",
     required_context: str = "",
     required_backend_id: str = "",
-) -> BrowserBridgeReport:
+) -> ChromeReport:
     try:
         task = _submit_console_task(
             base_url,
@@ -6094,9 +6094,9 @@ def _classify_chat_trace_result(
     required_context: str,
     required_backend_id: str,
     artifact_paths: list[str] | None,
-) -> BrowserBridgeReport:
+) -> ChromeReport:
     raw_evidence = json.dumps(task_status, ensure_ascii=False)
-    report: BrowserBridgeReport | None = None
+    report: ChromeReport | None = None
     actual_metrics = _v9_normalize_actual_metrics(
         started=started,
         browser_tool_calls=browser_tool_calls,
@@ -6213,7 +6213,7 @@ def _classify_completed_chat_trace_result(
     required_context: str,
     required_backend_id: str,
     artifact_paths: list[str] | None,
-) -> BrowserBridgeReport:
+) -> ChromeReport:
     status = "passed"
     calls = browser_tool_calls
     error_code = ""
@@ -6407,7 +6407,7 @@ def _transcript_error_info(text: str | list[str]) -> Any | None:
 
 def _extension_status(base_url: str, timeout: float) -> dict[str, Any]:
     return _http_json(
-        f"{_normalize_base_url(base_url)}/api/browser-bridge/status",
+        f"{_normalize_base_url(base_url)}/api/chrome/status",
         timeout=timeout,
     )
 
@@ -6461,7 +6461,7 @@ def _fetch_extension_traces(
 ) -> list[dict[str, Any]]:
     query = urllib.parse.urlencode({"session_id": session_id, "limit": 1000})
     payload = _http_json(
-        f"{_normalize_base_url(base_url)}/api/browser-bridge/traces?{query}",
+        f"{_normalize_base_url(base_url)}/api/chrome/traces?{query}",
         timeout=timeout,
     )
     events = payload.get("events")
@@ -6483,7 +6483,7 @@ def _task_payload(
     request_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
-        "user_id": "browser-bridge-verifier",
+        "user_id": "chrome-verifier",
         "session_id": session_id,
         "input": [
             {
@@ -7373,14 +7373,14 @@ def _local_frontend_fingerprint() -> str:
 
 
 def _local_plugin_fingerprint() -> str:
-    plugin_root = _repo_root() / "plugins" / "bundle" / "browser-bridge"
+    plugin_root = _repo_root() / "plugins" / "bundle" / "chrome"
     return _hash_existing_files(
         [
             plugin_root / "plugin.json",
             plugin_root
             / "assets"
             / "extensions"
-            / "qwenpaw-browser-bridge"
+            / "qwenpaw-chrome"
             / "manifest.json",
             plugin_root / "api" / "routes.py",
         ],

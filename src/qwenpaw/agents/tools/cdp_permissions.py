@@ -66,9 +66,9 @@ CDP_CAPABILITY_MAP: dict[str, str] = {
     # download/upload
     "Browser.setDownloadBehavior": "download_upload",
     "DOM.setFileInputFiles": "download_upload",
-    # browser bridge
-    "Target.createTarget": "browser_bridge",
-    "Target.closeTarget": "browser_bridge",
+    # Chrome
+    "Target.createTarget": "chrome",
+    "Target.closeTarget": "chrome",
     # debugger
     "Debugger.enable": "debugger",
     "Debugger.setBreakpoint": "debugger",
@@ -83,7 +83,7 @@ DEFAULT_POLICIES: dict[str, str] = {
     "storage": "deny",
     "network": "ask",
     "download_upload": "ask",
-    "browser_bridge": "deny",
+    "chrome": "deny",
     "debugger": "deny",
     "unknown": "deny",
 }

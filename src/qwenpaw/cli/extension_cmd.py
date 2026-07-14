@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Browser Bridge extension setup command loader."""
+"""Chrome extension setup command loader."""
 
 from __future__ import annotations
 
@@ -9,20 +9,20 @@ import types
 from pathlib import Path
 from types import ModuleType
 
-_PACKAGE_NAME = "qwenpaw_browser_bridge_cli"
+_PACKAGE_NAME = "qwenpaw_chrome_cli"
 
 
-def _browser_bridge_plugin_dir() -> Path:
+def _chrome_plugin_dir() -> Path:
     return (
         Path(__file__).resolve().parents[3]
         / "plugins"
         / "bundle"
-        / "browser-bridge"
+        / "chrome"
     )
 
 
 def _load_extension_setup() -> ModuleType:
-    plugin_dir = _browser_bridge_plugin_dir()
+    plugin_dir = _chrome_plugin_dir()
     package = sys.modules.get(_PACKAGE_NAME)
     if package is None:
         package = types.ModuleType(_PACKAGE_NAME)
@@ -37,7 +37,7 @@ def _load_extension_setup() -> ModuleType:
     module_path = plugin_dir / "extension_setup.py"
     spec = importlib.util.spec_from_file_location(module_name, module_path)
     if spec is None or spec.loader is None:
-        raise ImportError(f"Cannot load Browser Bridge setup: {module_path}")
+        raise ImportError(f"Cannot load Chrome setup: {module_path}")
     module = importlib.util.module_from_spec(spec)
     module.__package__ = _PACKAGE_NAME
     sys.modules[module_name] = module

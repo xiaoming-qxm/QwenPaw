@@ -165,13 +165,13 @@ def evaluate_lifecycle_gate(
         event
         for event in events
         if event.get("phase") == "cleanup"
-        and event.get("action") == "browser_bridge_lifecycle_cleanup"
+        and event.get("action") == "chrome_lifecycle_cleanup"
     ]
     cleanup_start_events = [
         event
         for event in events
         if event.get("phase") == "cleanup"
-        and event.get("action") == "browser_bridge_lifecycle_cleanup_start"
+        and event.get("action") == "chrome_lifecycle_cleanup_start"
     ]
     kernel_sweep_events = [
         event

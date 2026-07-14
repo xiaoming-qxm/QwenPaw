@@ -432,8 +432,8 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 ContextVarsSetupHook,
             )
             from ..hooks.request_setup.media_hook import MediaProcessHook
-            from ..hooks.browser_bridge_lifecycle import (
-                BrowserBridgeLifecycleCleanupHook,
+            from ..hooks.chrome_lifecycle import (
+                ChromeLifecycleCleanupHook,
             )
             from ..hooks.error.error_hook import (
                 ErrorNormalizeHook,
@@ -451,7 +451,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 SkillEnvHook,
                 SkillEnvCleanupHook,
                 ContextVarsSetupHook,
-                BrowserBridgeLifecycleCleanupHook,
+                ChromeLifecycleCleanupHook,
                 MediaProcessHook,
                 ErrorNormalizeHook,
                 CancelCleanupHook,

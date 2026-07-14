@@ -143,7 +143,7 @@ _ERROR_CODE_RECOVERY_TEMPLATES = {
     BrowserErrorCode.BRIDGE_DISCONNECTED.value: _RecoveryTemplate(
         BrowserRecoveryAction.BLOCKED,
         "bridge_disconnected",
-        "reconnect_browser_bridge",
+        "reconnect_chrome",
         ("isolated_fallback",),
     ),
     BrowserErrorCode.USER_BROWSER_UNAVAILABLE.value: _RecoveryTemplate(

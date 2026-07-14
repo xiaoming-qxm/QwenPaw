@@ -87,14 +87,14 @@ _ERROR_HINTS = {
         "Add or use a generic Browser SDK capability instead of a one-off "
         "workaround."
     ),
-    "browser_bridge_disconnected": (
+    "chrome_disconnected": (
         "Reload the extension or reopen the target browser tab."
     ),
     "browser_backend_unavailable": (
         "Refresh the status after the backend is available."
     ),
-    "browser_bridge_action_runtime_missing": (
-        "Restart QwenPaw or reload the Browser Bridge plugin."
+    "chrome_action_runtime_missing": (
+        "Restart QwenPaw or reload the Chrome plugin."
     ),
     "isolated_backend_unavailable": (
         "Install or restart the isolated browser runtime."

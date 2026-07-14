@@ -22,7 +22,7 @@ export function buildCommandSuggestions(
     {
       command: "/browser",
       value: "browser ",
-      description: t("chat.commands.browserBridge.description"),
+      description: t("chat.commands.chrome.description"),
     },
     {
       command: "/mission",

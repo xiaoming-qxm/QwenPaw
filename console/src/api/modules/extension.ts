@@ -3,7 +3,7 @@ import type { BrowserDiagnostics } from "./plugin";
 
 export type ExtensionInstallMode = "unpacked" | "cws";
 
-export interface BrowserBridgeBridgeLifecycle {
+export interface ChromeBridgeLifecycle {
   connected?: boolean;
   connected_since?: string | null;
   last_connected_at?: string | null;
@@ -12,19 +12,19 @@ export interface BrowserBridgeBridgeLifecycle {
   reconnect_count?: number;
 }
 
-export interface BrowserBridgeBuildFingerprint {
+export interface ChromeBuildFingerprint {
   git_commit?: string;
   repo_dirty?: boolean;
   frontend_fingerprint?: string;
 }
 
-export interface BrowserBridgeBuildFreshness {
+export interface ChromeBuildFreshness {
   status: string;
   message?: string;
-  repair_action?: BrowserBridgeRepairAction;
+  repair_action?: ChromeRepairAction;
 }
 
-export type BrowserBridgeRepairAction =
+export type ChromeRepairAction =
   | "none"
   | "reload_extension"
   | "run_setup"
@@ -38,16 +38,16 @@ export type BrowserBridgeRepairAction =
   | "retry"
   | string;
 
-export interface BrowserBridgeNativeHostStatus {
+export interface ChromeNativeHostStatus {
   status: string;
   message?: string;
-  repair_action?: BrowserBridgeRepairAction;
+  repair_action?: ChromeRepairAction;
 }
 
-export interface BrowserBridgeTraceSummary {
+export interface ChromeTraceSummary {
   event_count: number;
   session_count: number;
-  lifecycle?: BrowserBridgeLifecycleSummary;
+  lifecycle?: ChromeLifecycleSummary;
   ownership_summary?: {
     counts?: Record<string, number>;
     transition_count?: number;
@@ -64,14 +64,14 @@ export interface BrowserBridgeTraceSummary {
   } | null;
 }
 
-export interface BrowserBridgeLifecycleSummary {
+export interface ChromeLifecycleSummary {
   controlled_tab_count?: number;
   residual_tab_count?: number;
   last_cleanup_reason?: string;
   protected_origin_status?: string;
 }
 
-export interface BrowserBridgeCurrentTab {
+export interface ChromeCurrentTab {
   tab_id?: string;
   url?: string;
   domain?: string;
@@ -79,7 +79,7 @@ export interface BrowserBridgeCurrentTab {
   ownership?: string;
 }
 
-export interface BrowserBridgeProgressState {
+export interface ChromeProgressState {
   status?: string;
   action?: string;
   reason?: string;
@@ -89,7 +89,7 @@ export interface BrowserBridgeProgressState {
   approval_state?: string;
 }
 
-export interface BrowserBridgeCleanupResult {
+export interface ChromeCleanupResult {
   cleanup_ok?: boolean;
   cleanup_result?: string;
   last_cleanup_reason?: string;
@@ -97,21 +97,21 @@ export interface BrowserBridgeCleanupResult {
   residual_tab_count?: number;
 }
 
-export interface BrowserBridgeSelfTestCheck {
+export interface ChromeSelfTestCheck {
   name: string;
   passed: boolean;
   code: string;
   message: string;
   status?: "passed" | "failed" | "warning" | string;
-  repair_action?: BrowserBridgeRepairAction;
+  repair_action?: ChromeRepairAction;
   metadata?: Record<string, unknown>;
 }
 
-export interface BrowserBridgeSelfTestResult {
+export interface ChromeSelfTestResult {
   status: "passed" | "failed";
   checked_at: string;
   duration_ms?: number;
-  checks: BrowserBridgeSelfTestCheck[];
+  checks: ChromeSelfTestCheck[];
 }
 
 export interface ExtensionStatus {
@@ -120,12 +120,12 @@ export interface ExtensionStatus {
   install_mode: ExtensionInstallMode | string | null;
   canonical_setup_url?: string;
   setup_phase?: string;
-  recommended_action?: BrowserBridgeRepairAction;
-  repair_actions?: BrowserBridgeRepairAction[];
+  recommended_action?: ChromeRepairAction;
+  repair_actions?: ChromeRepairAction[];
   recovery_copy?: string;
   readiness_state?: string;
-  repair_action?: BrowserBridgeRepairAction;
-  native_host_status?: BrowserBridgeNativeHostStatus;
+  repair_action?: ChromeRepairAction;
+  native_host_status?: ChromeNativeHostStatus;
   selected_backend_id?: string | null;
   extension_id?: string;
   extension_dir?: string;
@@ -138,19 +138,19 @@ export interface ExtensionStatus {
   version?: string | null;
   extension_version?: string | null;
   connected_since?: string | null;
-  bridge_lifecycle?: BrowserBridgeBridgeLifecycle;
-  build_fingerprint?: BrowserBridgeBuildFingerprint;
-  build_freshness?: BrowserBridgeBuildFreshness;
-  trace_summary?: BrowserBridgeTraceSummary;
+  bridge_lifecycle?: ChromeBridgeLifecycle;
+  build_fingerprint?: ChromeBuildFingerprint;
+  build_freshness?: ChromeBuildFreshness;
+  trace_summary?: ChromeTraceSummary;
   controlled_tab_count?: number;
   residual_tab_count?: number;
   last_cleanup_reason?: string;
   protected_origin_status?: string;
-  current_tab?: BrowserBridgeCurrentTab | null;
+  current_tab?: ChromeCurrentTab | null;
   connection_state?: string;
-  browser_progress?: BrowserBridgeProgressState | null;
-  cleanup_result?: BrowserBridgeCleanupResult | null;
-  last_self_test?: BrowserBridgeSelfTestResult | null;
+  browser_progress?: ChromeProgressState | null;
+  cleanup_result?: ChromeCleanupResult | null;
+  last_self_test?: ChromeSelfTestResult | null;
   sdk_diagnostics?: BrowserDiagnostics;
 }
 
@@ -184,8 +184,8 @@ export const extensionApi = {
     });
   },
 
-  selfTest(): Promise<BrowserBridgeSelfTestResult> {
-    return request<BrowserBridgeSelfTestResult>("/chrome/self-test", {
+  selfTest(): Promise<ChromeSelfTestResult> {
+    return request<ChromeSelfTestResult>("/chrome/self-test", {
       method: "POST",
     });
   },

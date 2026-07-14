@@ -36,10 +36,10 @@ FORBIDDEN_HOT_PATH_TOKENS: tuple[str, ...] = (
 
 DEFAULT_HOT_PATHS: tuple[str, ...] = (
     "src/qwenpaw/browser",
-    "plugins/bundle/browser-bridge",
+    "plugins/bundle/chrome",
     "scripts/verify/browser",
-    "console/src/browserBridge",
-    "console/src/pages/Settings/browserBridgeReadiness.tsx",
+    "console/src/chrome",
+    "console/src/pages/Settings/chromeReadiness.tsx",
 )
 
 DEFAULT_SKIP_PREFIXES: tuple[str, ...] = (
@@ -49,7 +49,7 @@ DEFAULT_SKIP_PREFIXES: tuple[str, ...] = (
     "__pycache__/",
     "MyNotebook/",
     "node_modules/",
-    "plugins/bundle/browser-bridge/frontend/node_modules/",
+    "plugins/bundle/chrome/frontend/node_modules/",
     "scripts/verify/browser/fixtures/",
     "scripts/verify/browser/scenario_outputs/",
 )

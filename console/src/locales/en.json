@@ -33,7 +33,7 @@
     "yes": "Yes",
     "no": "No"
   },
-  "browserBridge": {
+  "chrome": {
     "name": "Chrome",
     "description": "Let QwenPaw inspect and operate your active Chrome tab through a local extension.",
     "status": {
@@ -56,9 +56,9 @@
     "diagnostics": {
       "title": "Advanced information",
       "backend": "Connection backend",
-      "browser_bridge_disconnected": "Reload the extension or reopen the target browser tab.",
+      "chrome_disconnected": "Reload the extension or reopen the target browser tab.",
       "browser_backend_unavailable": "Refresh the status after the backend is available.",
-      "browser_bridge_action_runtime_missing": "Restart QwenPaw or reload the Chrome plugin.",
+      "chrome_action_runtime_missing": "Restart QwenPaw or reload the Chrome plugin.",
       "isolated_backend_unavailable": "Install or restart the isolated browser runtime.",
       "status": {
         "available": "Available",

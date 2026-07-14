@@ -57,19 +57,19 @@ mypy --ignore-missing-imports src/qwenpaw/browser src/qwenpaw/app src/qwenpaw/ho
 ```
 
 The command still fails because of existing `src/qwenpaw/app` type debt outside
-the Browser Bridge migration surface. V11 should either fix the broad app mypy
+the Chrome migration surface. V11 should either fix the broad app mypy
 debt or define a repository-approved scoped type-check policy for Browser
 features so SPEC final verification is enforceable and unambiguous.
 
 ### Product Readiness Field Gate
 
 The V10 product verifier is now evidence-driven and blocks instead of reporting
-false success when the service, Browser Bridge extension, or scenario runners
+false success when the service, Chrome extension, or scenario runners
 are not ready. V11 should finish the remaining product-readiness field gate:
 
 - Start latest service and verify matching backend commit, frontend
   fingerprint, plugin fingerprint, extension version, and native host version.
-- Require Browser Bridge to be connected for user-context scenarios.
+- Require Chrome to be connected for user-context scenarios.
 - Require default product scenarios, including complex isolated/user fixtures
   and bridge reconnect evidence, to pass before publishing a green readiness
   report.

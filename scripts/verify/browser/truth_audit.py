@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Local Browser Bridge product truth audit."""
+"""Local Chrome product truth audit."""
 
 from __future__ import annotations
 
@@ -20,17 +20,17 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 
 MODEL_VISIBLE_PATHS = (
     "src/qwenpaw/agents/skills/browser-sdk-zh/SKILL.md",
-    "plugins/bundle/browser-bridge/skills/browser-bridge/SKILL.md",
-    "plugins/bundle/browser-bridge/skills/browser-bridge/ops.md",
-    "plugins/bundle/browser-bridge/skills/browser-bridge/blocker-report.md",
-    "plugins/bundle/browser-bridge/skills/browser-bridge/control-mode.md",
+    "plugins/bundle/chrome/skills/chrome/SKILL.md",
+    "plugins/bundle/chrome/skills/chrome/ops.md",
+    "plugins/bundle/chrome/skills/chrome/blocker-report.md",
+    "plugins/bundle/chrome/skills/chrome/control-mode.md",
 )
 VERIFIER_PATH = "scripts/verify/browser/cli.py"
 FRONTEND_EVIDENCE_PATHS = (
-    "console/src/pages/Settings/browserBridgeReadiness.tsx",
+    "console/src/pages/Settings/chromeReadiness.tsx",
     "console/src/pages/Settings/PluginDetail/index.tsx",
     "console/src/components/ApprovalCard/ApprovalCard.tsx",
-    "plugins/bundle/browser-bridge/api/routes.py",
+    "plugins/bundle/chrome/api/routes.py",
 )
 SDK_API_PATHS = (
     "src/qwenpaw/browser/facade/browser.py",
@@ -41,10 +41,10 @@ SDK_API_PATHS = (
 BACKEND_PATHS = (
     "src/qwenpaw/browser/backends/isolated.py",
     "src/qwenpaw/browser/backends/user.py",
-    "plugins/bundle/browser-bridge/action_runtime/handlers/__init__.py",
+    "plugins/bundle/chrome/action_runtime/handlers/__init__.py",
 )
 LEGACY_EVIDENCE_FIXTURES = (
-    "tests/local/fixtures/browser_bridge_historical_actions.json",
+    "tests/local/fixtures/chrome_historical_actions.json",
 )
 LEGACY_BROWSER_TOOL = "".join(("browser", "_use"))
 
@@ -105,7 +105,7 @@ ARCHIVED_LEGACY_CAPABILITY_MAP = {
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Audit Browser Bridge product truth from local files.",
+        description="Audit Chrome product truth from local files.",
     )
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--write-report", type=Path)
@@ -123,7 +123,7 @@ def build_audit(repo_root: Path = REPO_ROOT) -> dict[str, Any]:
     entropy = scan_entropy_findings(repo_root)
     legacy = classify_legacy_evidence(repo_root)
     return {
-        "schema_version": "browser-bridge-v8-a.truth-audit.v1",
+        "schema_version": "chrome-v8-a.truth-audit.v1",
         "repo_root": str(repo_root),
         "capabilities": capabilities,
         "gaps": gaps,
@@ -172,7 +172,7 @@ def scan_entropy_findings(repo_root: Path = REPO_ROOT) -> list[dict[str, Any]]:
                 "line": 0,
                 "matched": "",
                 "message": (
-                    "No Browser Bridge hot-path legacy instructions found."
+                    "No Chrome hot-path legacy instructions found."
                 ),
             },
         )
@@ -247,7 +247,7 @@ def render_markdown_report(payload: dict[str, Any]) -> str:
         next_specs = {}
 
     lines = [
-        "# Browser Bridge V8-A Product Truth Audit",
+        "# Chrome V8-A Product Truth Audit",
         "",
         "Generated from `scripts/verify/browser/truth_audit.py`.",
         "This report is a local repository audit; it does not start QwenPaw, "
@@ -441,7 +441,7 @@ def _scan_patterns(
                     "line": line_number,
                     "matched": match.group(0),
                     "message": (
-                        "Legacy or site-specific Browser Bridge wording "
+                        "Legacy or site-specific Chrome wording "
                         "appears on a hot-path surface."
                     ),
                 },
@@ -461,7 +461,7 @@ def _symbol_scan(
         "Tab.extract",
         "actions.navigate",
         "register_handler",
-        "browserBridgeReadiness",
+        "chromeReadiness",
         "ApprovalCard",
         "classify_verification_evidence",
     )

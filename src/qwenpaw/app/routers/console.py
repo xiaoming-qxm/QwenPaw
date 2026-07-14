@@ -152,12 +152,12 @@ def _extract_session_and_payload(request_data: Union[AgentRequest, dict]):
     return native_payload
 
 
-async def _cleanup_browser_bridge_for_chat(
+async def _cleanup_chrome_for_chat(
     workspace,
     chat_or_session_id: str,
 ) -> dict[str, int]:
-    from ...hooks.browser_bridge_lifecycle import (
-        cleanup_browser_bridge_request_resources,
+    from ...hooks.chrome_lifecycle import (
+        cleanup_chrome_request_resources,
     )
 
     session_id = chat_or_session_id
@@ -169,7 +169,7 @@ async def _cleanup_browser_bridge_for_chat(
 
     workspace_dir = getattr(workspace, "workspace_dir", None)
     workspace_id = Path(workspace_dir).name if workspace_dir else ""
-    return await cleanup_browser_bridge_request_resources(
+    return await cleanup_chrome_request_resources(
         session_id=session_id,
         root_session_id=session_id,
         workspace_id=workspace_id,
@@ -343,7 +343,7 @@ async def post_console_chat_stop(
                 )
                 control_cleanup_session_id = resolved_chat_id
 
-    control_cleanup = await _cleanup_browser_bridge_for_chat(
+    control_cleanup = await _cleanup_chrome_for_chat(
         workspace,
         control_cleanup_session_id,
     )
