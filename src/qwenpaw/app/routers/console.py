@@ -646,6 +646,12 @@ async def post_console_chat_task(
         async def _timeout_guard() -> None:
             await asyncio.sleep(task_timeout)
             if not atask.done():
+                bg.status = "finished"
+                bg.finished_at = time.time()
+                bg.result = {
+                    "status": "failed",
+                    "error": {"message": "Task timed out"},
+                }
                 atask.cancel()
 
         asyncio.create_task(_timeout_guard())
