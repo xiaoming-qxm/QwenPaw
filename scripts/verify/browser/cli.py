@@ -6898,15 +6898,15 @@ def _fixture_prompt_spec(fixture_url: str) -> HarnessPromptSpec:
             'browser = await Browser.connect(context="user", '
             "requires_user_state=True)\n"
             f'tab = await browser.tabs.open("{fixture_url}")\n'
-            "snapshot = await tab.snapshot()\n"
+            "snapshot = await tab.snapshot(limit=100)\n"
             'await tab.actions.click({"selector": "[data-testid=\'reset-fixture\']"})\n'
-            "snapshot = await tab.snapshot()\n"
+            "snapshot = await tab.snapshot(limit=100)\n"
             'assert "Cart is empty" in snapshot.text\n'
             'await tab.actions.click({"selector": "[data-testid=\'add-men-shampoo\']"})\n'
-            "snapshot = await tab.snapshot()\n"
+            "snapshot = await tab.snapshot(limit=100)\n"
             'assert "Men Shampoo x 1" in snapshot.text\n'
             'await tab.actions.click({"selector": "[data-testid=\'clear-cart\']"})\n'
-            "snapshot = await tab.snapshot()\n"
+            "snapshot = await tab.snapshot(limit=100)\n"
             'assert "Cart is empty" in snapshot.text\n'
             f'print("{marker} user backend cart add and clear verified")'
         ),
@@ -6929,7 +6929,7 @@ def _public_search_prompt_spec() -> HarnessPromptSpec:
         code=(
             'browser = await Browser.connect(context="auto")\n'
             'tab = await browser.tabs.open("https://example.com/")\n'
-            "snapshot = await tab.snapshot()\n"
+            "snapshot = await tab.snapshot(limit=100)\n"
             "info = await tab.page_info()\n"
             'assert "Example Domain" in snapshot.text\n'
             f'print("{marker}", info.title, browser.context)'
@@ -7054,15 +7054,15 @@ def _v9_approval_probe_prompt_spec(
             'browser = await Browser.connect(context="user", '
             "requires_user_state=True)\n"
             f'tab = await browser.tabs.open("{fixture_url}")\n'
-            "snapshot = await tab.snapshot()\n"
+            "snapshot = await tab.snapshot(limit=100)\n"
             'assert "Shopping cart" in snapshot.text\n'
             'await tab.actions.click({"selector": "[data-testid=\'add-men-shampoo\']", '
             '"text": "add men shampoo to cart"})\n'
-            "snapshot = await tab.snapshot()\n"
+            "snapshot = await tab.snapshot(limit=100)\n"
             'assert "Men Shampoo x 1" in snapshot.text\n'
             'await tab.actions.click({"selector": "[data-testid=\'clear-cart\']", '
             '"text": "clear cart"})\n'
-            "snapshot = await tab.snapshot()\n"
+            "snapshot = await tab.snapshot(limit=100)\n"
             'assert "Cart is empty" in snapshot.text\n'
             f'print("{marker} sensitive clear-cart action executed with OFF")'
         )
@@ -7071,7 +7071,7 @@ def _v9_approval_probe_prompt_spec(
             'browser = await Browser.connect(context="user", '
             "requires_user_state=True)\n"
             f'tab = await browser.tabs.open("{fixture_url}")\n'
-            "snapshot = await tab.snapshot()\n"
+            "snapshot = await tab.snapshot(limit=100)\n"
             'assert "Shopping cart" in snapshot.text\n'
             "try:\n"
             '    await tab.actions.click({"selector": "[data-testid=\'clear-cart\']", '
@@ -7111,44 +7111,44 @@ def _v8_capability_fixture_code(
         f"{connect}\n"
         "try:\n"
         f'    tab = await browser.tabs.open("{fixture_url}")\n'
-        "    snapshot = await tab.snapshot()\n"
+        "    snapshot = await tab.snapshot(limit=100)\n"
         "    assert 'V8 Browser SDK Capability Fixture' in snapshot.text\n"
         "    await tab.actions.click({"
         '"selector": "[data-testid=\'reset-v8-capability-fixture\']"})\n'
-        "    snapshot = await tab.snapshot()\n"
+        "    snapshot = await tab.snapshot(limit=100)\n"
         "    await tab.actions.upload({"
         '"selector": "[data-testid=\'capability-upload-input\']"}, '
         "str(upload_path))\n"
-        "    snapshot = await tab.snapshot()\n"
+        "    snapshot = await tab.snapshot(limit=100)\n"
         "    assert 'Upload received: qwenpaw-v8-capability-upload.txt' "
         "in snapshot.text\n"
         "    download = await tab.actions.download({"
         '"selector": "[data-testid=\'capability-download\']"}, '
         "max_wait_ms=5000)\n"
-        "    snapshot = await tab.snapshot()\n"
+        "    snapshot = await tab.snapshot(limit=100)\n"
         "    assert download.data.get('artifact', {}).get('kind') "
         "== 'download'\n"
         "    assert download.data.get('artifact', {}).get('metadata', {})"
         ".get('path')\n"
         "    assert 'Download triggered.' in snapshot.text\n"
         "    await tab.actions.dialog(accept=True)\n"
-        "    snapshot = await tab.snapshot()\n"
+        "    snapshot = await tab.snapshot(limit=100)\n"
         "    await tab.actions.click({"
         '"selector": "[data-testid=\'capability-open-dialog\']"})\n'
-        "    snapshot = await tab.snapshot()\n"
+        "    snapshot = await tab.snapshot(limit=100)\n"
         "    assert 'Dialog accepted.' in snapshot.text\n"
         "    await tab.actions.dialog("
         "accept=True, prompt_text='V9-D prompt text')\n"
-        "    snapshot = await tab.snapshot()\n"
+        "    snapshot = await tab.snapshot(limit=100)\n"
         "    await tab.actions.click({"
         '"selector": "[data-testid=\'capability-open-prompt\']"})\n'
-        "    snapshot = await tab.snapshot()\n"
+        "    snapshot = await tab.snapshot(limit=100)\n"
         "    assert 'Prompt received: V9-D prompt text' in snapshot.text\n"
         "    await tab.actions.click({"
         '"selector": "[data-testid=\'capability-frame-trigger\']"})\n'
         "    await tab.actions.wait_for('Frame pong received.', "
         "max_wait_ms=3000)\n"
-        "    snapshot = await tab.snapshot()\n"
+        "    snapshot = await tab.snapshot(limit=100)\n"
         "    assert 'Frame pong received.' in snapshot.text\n"
         "    shadow_text = await tab.evaluate("
         "'document.querySelector(\"#shadow-host\").shadowRoot.textContent', "
@@ -7156,7 +7156,7 @@ def _v8_capability_fixture_code(
         "    assert 'Shadow state: pending' in str(shadow_text)\n"
         "    await tab.actions.click({"
         '"selector": "[data-testid=\'capability-shadow-toggle\']"})\n'
-        "    snapshot = await tab.snapshot()\n"
+        "    snapshot = await tab.snapshot(limit=100)\n"
         "    assert 'Shadow toggled active.' in snapshot.text\n"
         "    shadow_text = await tab.evaluate("
         "'document.querySelector(\"#shadow-host\").shadowRoot.textContent', "
@@ -7181,28 +7181,28 @@ def _complex_fixture_code(
         f"{connect}\n"
         "try:\n"
         f'    tab = await browser.tabs.open("{fixture_url}")\n'
-        "    snapshot = await tab.snapshot()\n"
+        "    snapshot = await tab.snapshot(limit=100)\n"
         "    assert 'Complex Deterministic Browser Fixture' in snapshot.text\n"
         "    await tab.actions.click({"
         '"selector": "[data-testid=\'reset-complex-fixture\']"})\n'
-        "    snapshot = await tab.snapshot()\n"
+        "    snapshot = await tab.snapshot(limit=100)\n"
         "    await tab.actions.click({"
         '"selector": "[data-testid=\'load-async-items\']"})\n'
         "    await tab.actions.wait_for('Delayed content loaded.', "
         "max_wait_ms=5000)\n"
-        "    snapshot = await tab.snapshot()\n"
+        "    snapshot = await tab.snapshot(limit=100)\n"
         "    assert 'Async Result 14' in snapshot.text\n"
         "    await tab.actions.scroll('down', 400)\n"
-        "    snapshot = await tab.snapshot()\n"
+        "    snapshot = await tab.snapshot(limit=100)\n"
         "    await tab.actions.click({"
         '"selector": "[data-testid=\'select-secondary-plan\']"})\n'
-        "    snapshot = await tab.snapshot()\n"
+        "    snapshot = await tab.snapshot(limit=100)\n"
         "    assert 'Selected: secondary' in snapshot.text\n"
         "    await tab.actions.click({"
         '"selector": "[data-testid=\'save-details\']"})\n'
         "    await tab.actions.wait_for('Form validation failed.', "
         "max_wait_ms=3000)\n"
-        "    snapshot = await tab.snapshot()\n"
+        "    snapshot = await tab.snapshot(limit=100)\n"
         "    validation_text = await tab.evaluate("
         "'document.querySelector(\"[data-testid=form-error]\").textContent', "
         "read_only=True)\n"
@@ -7210,25 +7210,25 @@ def _complex_fixture_code(
         "    await tab.actions.type({"
         '"selector": "[data-testid=\'details-name\']"}, '
         "'Ada Lovelace')\n"
-        "    snapshot = await tab.snapshot()\n"
+        "    snapshot = await tab.snapshot(limit=100)\n"
         "    await tab.actions.type({"
         '"selector": "[data-testid=\'details-email\']"}, '
         "'ada@example.test')\n"
-        "    snapshot = await tab.snapshot()\n"
+        "    snapshot = await tab.snapshot(limit=100)\n"
         "    await tab.actions.click({"
         '"selector": "[data-testid=\'save-details\']"})\n'
         "    await tab.actions.wait_for('Form saved for deterministic user.', "
         "max_wait_ms=3000)\n"
-        "    snapshot = await tab.snapshot()\n"
+        "    snapshot = await tab.snapshot(limit=100)\n"
         "    form_status = await tab.evaluate("
         "'document.querySelector(\"[data-testid=form-status]\").textContent', "
         "read_only=True)\n"
         "    assert 'Form saved for deterministic user.' in str(form_status)\n"
         "    await tab.evaluate('window.confirm = () => true')\n"
-        "    snapshot = await tab.snapshot()\n"
+        "    snapshot = await tab.snapshot(limit=100)\n"
         "    await tab.actions.click({"
         '"selector": "[data-testid=\'open-confirm\']"})\n'
-        "    snapshot = await tab.snapshot()\n"
+        "    snapshot = await tab.snapshot(limit=100)\n"
         "    assert 'Selection confirmed.' in snapshot.text\n"
         "    shadow_text = await tab.evaluate("
         "'document.querySelector(\"#shadow-host\").shadowRoot.textContent', "
@@ -7247,7 +7247,7 @@ def _complex_fixture_code(
         "    assert frame_clicked is True\n"
         "    await tab.actions.wait_for('Frame action clicked.', "
         "max_wait_ms=3000)\n"
-        "    snapshot = await tab.snapshot()\n"
+        "    snapshot = await tab.snapshot(limit=100)\n"
         "    assert 'Frame action clicked.' in snapshot.text\n"
         f"    print('{marker} complex deterministic fixture verified')\n"
         "finally:\n"
@@ -7265,11 +7265,11 @@ def _complex_user_fixture_code(
         f"{connect}\n"
         "try:\n"
         f'    tab = await browser.tabs.open("{fixture_url}")\n'
-        "    snapshot = await tab.snapshot()\n"
+        "    snapshot = await tab.snapshot(limit=100)\n"
         "    assert 'Complex Deterministic Browser Fixture' in snapshot.text\n"
         "    await tab.actions.click({"
         '"selector": "[data-testid=\'reset-complex-fixture\']"})\n'
-        "    snapshot = await tab.snapshot()\n"
+        "    snapshot = await tab.snapshot(limit=100)\n"
         "    assert 'Delayed content pending.' in snapshot.text\n"
         f"    print('{marker} user backend complex fixture smoke verified')\n"
         "finally:\n"

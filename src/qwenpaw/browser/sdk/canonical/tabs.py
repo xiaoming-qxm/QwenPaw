@@ -983,14 +983,21 @@ class Tab:
                 None,
             )
             if callable(capture_visual_page):
-                capture = await capture_visual_page(  # pylint: disable=not-callable
-                    tab_id,
-                    scope=visual_scope,
-                    limit=limit,
-                    query=query,
-                    cursor=cursor,
-                    region_owner_chain=region_owner_chain,
-                )
+                if cursor is None:
+                    capture = await capture_visual_page(  # pylint: disable=not-callable
+                        tab_id,
+                        scope=visual_scope,
+                        limit=limit,
+                        query=query,
+                        cursor=None,
+                        region_owner_chain=region_owner_chain,
+                    )
+                else:
+                    capture = await capture_visual_page(  # pylint: disable=not-callable
+                        tab_id,
+                        limit=limit,
+                        cursor=cursor,
+                    )
                 if not isinstance(capture, SourceTraversalCapture):
                     raise BrowserSDKGap(
                         "Canonical visual source traversal returned invalid "
@@ -1526,7 +1533,6 @@ class Tab:
                     limit=limit,
                     continuation=continuation,
                     cursor=cursor,
-                    query=continuation.query,
                 )
             requested_scope = continuation.scope
             requested_query = continuation.query
@@ -1702,9 +1708,13 @@ class Tab:
         source = await self._capture_source_page(
             self.id,
             limit=limit,
-            query=query,
+            query=query if continuation is None else None,
             cursor=(continuation.bridge_cursor if continuation else None),
-            region_owner_chain=self._source_owner_chain(scope, query),
+            region_owner_chain=(
+                self._source_owner_chain(scope, query)
+                if continuation is None
+                else ()
+            ),
             visual_scope=scope,
         )
         if continuation is not None:

@@ -99,12 +99,12 @@ _TAB_FACTORY_SUFFIXES = (
 )
 _CANONICAL_SDK_HINT = (
     "Use the Canonical SDK only: connect with Browser.connect(...), select "
-    "a TabSummary, observe with tab.snapshot(), then use tab.actions.click, "
+    "a TabSummary, observe with tab.snapshot(limit=...), then use tab.actions.click, "
     "paste, scroll, or upload_file instead of private backend dispatch."
 )
 _META_INTROSPECTION_HINT = (
     "Do not use Python object introspection. Connect with Browser.connect(...), "
-    "then use tab.snapshot() and documented tab.actions.* calls directly."
+    "then use tab.snapshot(limit=...) and documented tab.actions.* calls directly."
 )
 
 

@@ -92,6 +92,7 @@ class SnapshotPageHandler:
                 limit=request["limit"],
                 query=request["query"],
                 region_owner_chain=request["region_owner_chain"],
+                visual_region=request["visual_region"],
                 on_generation=note_generation,
             )
         else:
@@ -122,9 +123,9 @@ class SnapshotPageHandler:
             tab_id=tab_id,
             request_context=kwargs.get("request_context") or {},
             capture=capture,
-            include_trusted_bindings=request["visual_region"] is not None,
+            include_trusted_bindings=page.visual_region is not None,
         )
-        visual_region = request["visual_region"]
+        visual_region = page.visual_region
         if isinstance(visual_region, dict):
             payload = await _canonical_visual_grounding_payload(
                 session,
@@ -136,6 +137,7 @@ class SnapshotPageHandler:
             # side channel; they must never cross the relay payload.
             payload.pop("_trusted_bindings", None)
             payload.pop("_trusted_surface_candidates", None)
+            payload.pop("_trusted_regions", None)
         return _tool_response(
             json.dumps(
                 {

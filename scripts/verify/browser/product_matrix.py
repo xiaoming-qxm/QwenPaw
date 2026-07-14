@@ -119,7 +119,7 @@ BROWSER_PRODUCT_CAPABILITIES: tuple[BrowserProductCapability, ...] = (
     BrowserProductCapability(
         capability_id="observation.snapshot",
         product_task="Read a structured accessibility/text snapshot.",
-        public_api=("Tab.snapshot()",),
+        public_api=("Tab.snapshot(limit=...)",),
         isolated_support=_support(
             "supported",
             ("src/qwenpaw/browser/sdk/backends/isolated.py:snapshot",),
@@ -290,7 +290,7 @@ BROWSER_PRODUCT_CAPABILITIES: tuple[BrowserProductCapability, ...] = (
         capability_id="dom.iframe",
         product_task="Target and observe content inside iframes.",
         public_api=(
-            "Tab.snapshot()",
+            "Tab.snapshot(limit=...)",
             "Tab.actions.click(target)",
             "Tab.evaluate(..., read_only=True)",
         ),
@@ -322,7 +322,7 @@ BROWSER_PRODUCT_CAPABILITIES: tuple[BrowserProductCapability, ...] = (
         capability_id="dom.shadow",
         product_task="Target and observe content inside shadow DOM.",
         public_api=(
-            "Tab.snapshot()",
+            "Tab.snapshot(limit=...)",
             "Tab.actions.click(target)",
             "Tab.evaluate(..., read_only=True)",
         ),

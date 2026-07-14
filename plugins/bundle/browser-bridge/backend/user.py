@@ -1181,21 +1181,22 @@ class ChromeExtensionBrowserSession:
         traversal: dict[str, object] = {
             "cursor": cursor,
             "limit": limit,
-            "region_owner_chain": list(region_owner_chain),
         }
-        if query is not None:
-            traversal["query"] = {
-                key: value
-                for key, value in {
-                    "role": query.role,
-                    "name": query.name,
-                    "text": query.text,
-                    "match": query.match,
-                }.items()
-                if isinstance(value, str) and value
-            }
-        if visual_region is not None:
-            traversal["visual_region"] = dict(visual_region)
+        if cursor is None:
+            traversal["region_owner_chain"] = list(region_owner_chain)
+            if query is not None:
+                traversal["query"] = {
+                    key: value
+                    for key, value in {
+                        "role": query.role,
+                        "name": query.name,
+                        "text": query.text,
+                        "match": query.match,
+                    }.items()
+                    if isinstance(value, str) and value
+                }
+            if visual_region is not None:
+                traversal["visual_region"] = dict(visual_region)
         payload = await self._bridge_or_engine_action(
             "snapshot_page",
             tab_id,
@@ -1249,6 +1250,14 @@ class ChromeExtensionBrowserSession:
                 owner=owner,
                 receiver_tab=str(tab_id),
             ),
+            trusted_surface_candidates=(
+                _canonical_surface_candidates_from_session_state(
+                    self._state,
+                    payload,
+                    owner=owner,
+                    receiver_tab=str(tab_id),
+                )
+            ),
         )
         return SourceTraversalCapture(
             capture=capture,
@@ -1260,13 +1269,19 @@ class ChromeExtensionBrowserSession:
         self,
         tab_id: str,
         *,
-        scope: VisualRegion,
+        scope: VisualRegion | None = None,
         limit: int,
         query: TargetQuery | None = None,
         cursor: str | None = None,
         region_owner_chain: tuple[str, ...] = (),
     ) -> SourceTraversalCapture:
         """Page one VisualRegion through the same bridge-owned traversal."""
+        if cursor is not None:
+            return await self.capture_source_page(
+                tab_id,
+                limit=limit,
+                cursor=cursor,
+            )
         if not isinstance(scope, VisualRegion):
             raise TypeError("scope must be a VisualRegion")
         from qwenpaw.browser.sdk.runtime.kernel import (
@@ -2489,6 +2504,7 @@ def _canonical_capture_from_payload(
     expires_at: float | None = None,
     scope: Any = None,
     trusted_bindings: dict[str, dict[str, Any]] | None = None,
+    trusted_surface_candidates: dict[str, dict[str, Any]] | None = None,
 ) -> SnapshotCapture:
     """Convert trusted Bridge side-channel facts into owner-issued handles."""
     context_payload = payload.get("context")
@@ -2620,7 +2636,11 @@ def _canonical_capture_from_payload(
                 ref=ref,
             ),
         )
-    surface_candidates = payload.get("_trusted_surface_candidates", {})
+    surface_candidates = (
+        trusted_surface_candidates
+        if trusted_surface_candidates is not None
+        else payload.get("_trusted_surface_candidates", {})
+    )
     if not isinstance(surface_candidates, dict):
         raise BrowserSDKError(
             "Canonical surface bindings are invalid.",
@@ -2735,10 +2755,15 @@ def _canonical_capture_from_payload(
             ),
             boundary=cast(Any, str(item.get("boundary") or "DEFAULT")),
             accessible=bool(item.get("accessible")),
-            native_identity=str(item.get("native_identity") or ""),
+            native_identity=str(
+                item.get("region_token")
+                or item.get("native_identity")
+                or ""
+            ),
         )
         for item in payload.get("regions", ())
-        if isinstance(item, dict) and item.get("native_identity")
+        if isinstance(item, dict)
+        and (item.get("region_token") or item.get("native_identity"))
     )
     coverage = cast(
         Coverage,
@@ -2883,6 +2908,90 @@ def _canonical_bindings_from_session_state(
             "backend_id": BACKEND_ID,
         }
     return resolved
+
+
+def _canonical_surface_candidates_from_session_state(
+    state: Mapping[str, Any],
+    payload: Mapping[str, Any],
+    *,
+    owner: BrowserRequestBinding,
+    receiver_tab: str,
+) -> dict[str, dict[str, Any]]:
+    """Resolve opaque visual-surface tokens only from bridge-owned state."""
+    raw_candidates = payload.get("surface_candidates", [])
+    if not isinstance(raw_candidates, list):
+        raise BrowserSDKError(
+            "Canonical surface candidates are invalid.",
+            code="snapshot_payload_invalid",
+        )
+    if not raw_candidates:
+        return {}
+    if any(
+        not isinstance(candidate, Mapping)
+        or set(candidate) != {"binding_token"}
+        for candidate in raw_candidates
+    ):
+        raise BrowserSDKError(
+            "Canonical surface candidate projection is malformed.",
+            code="snapshot_payload_invalid",
+        )
+    resolved = _canonical_bindings_from_session_state(
+        state,
+        {"targets": list(raw_candidates)},
+        owner=owner,
+        receiver_tab=receiver_tab,
+    )
+    if any(
+        not str(binding.get("surface_identity") or "")
+        or not str(binding.get("surface_origin") or "")
+        or not str(binding.get("visual_context_ref") or "")
+        or not _canonical_binding_context_is_current(
+            state,
+            binding,
+            receiver_tab=receiver_tab,
+        )
+        for binding in resolved.values()
+    ):
+        raise BrowserSDKError(
+            "Canonical surface candidate is stale or not trusted.",
+            code="target_stale",
+        )
+    return resolved
+
+
+def _canonical_binding_context_is_current(
+    state: Mapping[str, Any],
+    binding: Mapping[str, Any],
+    *,
+    receiver_tab: str,
+) -> bool:
+    """Require a surface candidate to match the live bridge generation."""
+    bound = binding.get("context")
+    contexts = state.get("canonical_context_generations")
+    if not isinstance(bound, Mapping) or not isinstance(contexts, Mapping):
+        return False
+    current = contexts.get(str(receiver_tab))
+    if not isinstance(current, Mapping):
+        return False
+    fields = (
+        "connection_generation",
+        "tab_generation",
+        "frame_generation",
+        "document_generation",
+        "spa_route_generation",
+        "layout_generation",
+    )
+    try:
+        return all(
+            isinstance(bound[field], int)
+            and not isinstance(bound[field], bool)
+            and isinstance(current[field], int)
+            and not isinstance(current[field], bool)
+            and int(bound[field]) == int(current[field])
+            for field in fields
+        )
+    except KeyError:
+        return False
 
 
 def _binding_pairs(

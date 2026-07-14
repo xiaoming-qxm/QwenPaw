@@ -87,6 +87,7 @@ class SourceTraversalPage:
     cursor: str | None
     end_of_collection: bool
     gaps: tuple[CoverageGap, ...] = ()
+    visual_region: dict[str, object] | None = None
 
 
 class CDPSourceTraversalAdapter:
@@ -494,6 +495,7 @@ class SourceTraversalManager:
         limit: int,
         query: TargetQuery | None = None,
         region_owner_chain: tuple[str, ...] | None = None,
+        visual_region: dict[str, object] | None = None,
         on_generation: Callable[[str], None] | None = None,
     ) -> SourceTraversalPage:
         """Replace any tab cursor and return the first source-derived page."""
@@ -519,6 +521,9 @@ class SourceTraversalManager:
             "pending": [_pending_position(root)],
             "query": _query_state(query),
             "region_owner_chain": list(region_owner_chain or ()),
+            "visual_region": (
+                dict(visual_region) if isinstance(visual_region, dict) else None
+            ),
             "unavailable_sources": {},
             "examined": {"AX": 0, "DOM": 0},
             "gaps": [],
@@ -704,6 +709,11 @@ class SourceTraversalManager:
             cursor=next_cursor,
             end_of_collection=end_of_collection,
             gaps=gaps,
+            visual_region=(
+                dict(session["visual_region"])
+                if isinstance(session.get("visual_region"), dict)
+                else None
+            ),
         )
 
     def _stale(

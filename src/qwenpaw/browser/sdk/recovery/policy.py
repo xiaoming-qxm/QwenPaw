@@ -163,7 +163,7 @@ _ERROR_CODE_RECOVERY_TEMPLATES = {
     BrowserErrorCode.OBSERVATION_STALE.value: _RecoveryTemplate(
         BrowserRecoveryAction.CONTINUE,
         "fresh_observation_required",
-        "tab.snapshot()",
+        "tab.snapshot(limit=...)",
         ("repeat_mutation_without_observation",),
     ),
     BrowserErrorCode.OBSERVATION_ENRICHMENT_DENIED.value: _RecoveryTemplate(
@@ -184,7 +184,7 @@ _ERROR_CODE_RECOVERY_TEMPLATES = {
     BrowserErrorCode.CLICK_WITHOUT_NAVIGATION.value: _RecoveryTemplate(
         BrowserRecoveryAction.CONTINUE,
         "click_without_navigation",
-        "tab.snapshot()",
+        "tab.snapshot(limit=...)",
         ("assume_navigation_completed",),
     ),
     BrowserErrorCode.CAPABILITY_MISSING.value: _RecoveryTemplate(
@@ -656,7 +656,7 @@ class BrowserRecoveryPolicy:
                 BrowserRecoveryAction.CONTINUE,
                 reason="click_without_navigation",
                 event=event,
-                required_next_step="tab.snapshot()",
+                required_next_step="tab.snapshot(limit=...)",
                 forbidden=("assume_navigation_completed",),
             )
         return BrowserRecoveryDecision(

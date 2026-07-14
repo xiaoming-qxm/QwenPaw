@@ -188,7 +188,7 @@ def _recovery_hint(signature: BrowserActionSignature) -> str:
     if signature.outcome_class == "stale_observation":
         return (
             "No page progress detected after repeated stale-observation "
-            f"{signature.action or 'browser'} actions. Call tab.snapshot() "
+            f"{signature.action or 'browser'} actions. Call tab.snapshot(limit=...) "
             "or tab.screenshot() before another mutation."
         )
     return (

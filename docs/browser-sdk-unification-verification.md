@@ -79,7 +79,7 @@ model-facing error recovery, and manual live acceptance gates.
 browser = await Browser.connect(context="auto")
 tab = await browser.tabs.active()
 await tab.actions.navigate("https://example.com")
-snapshot = await tab.snapshot()
+snapshot = await tab.snapshot(limit=100)
 info = await tab.page_info()
 diagnostics = await Browser.diagnostics(context="auto")
 ```

@@ -76,7 +76,7 @@ _ERROR_HINTS = {
     "invalid_sdk_usage": (
     "Use the documented Canonical SDK only: connect with "
     "`await Browser.connect(...)`, select a `TabSummary`, observe with "
-    "`await tab.snapshot()`, and use `tab.actions.click`, `paste`, "
+    "`await tab.snapshot(limit=...)`, and use `tab.actions.click`, `paste`, "
     "`tab.actions.scroll`, or `upload_file`. Do not invent browser APIs."
     ),
     "click_without_navigation": (
@@ -110,7 +110,7 @@ _BROWSER_INVARIANT_ERROR_CODES = {
 _CANONICAL_SDK_RECOVERY = (
     "Use the documented Canonical SDK only: connect with "
     "`await Browser.connect(...)`, select a `TabSummary`, observe with "
-    "`await tab.snapshot()`, and use `tab.actions.click`, `paste`, "
+    "`await tab.snapshot(limit=...)`, and use `tab.actions.click`, `paste`, "
     "`tab.actions.scroll(direction=..., amount=...)`, or `upload_file`. "
     "Do not use "
     "`hasattr`, `Tab.extract`, `Tab.metadata`, or `scroll_down`."

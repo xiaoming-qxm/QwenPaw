@@ -49,7 +49,7 @@ changes.
 - Normal model-facing browser work must not use legacy browser entries,
   legacy plugin REPL entries, removed Browser Control SDK modules, or the old
   SDK websocket route.
-- Repeated no-progress clicks without a fresh `tab.snapshot()` or
+- Repeated no-progress clicks without a fresh `tab.snapshot(limit=...)` or
   `tab.screenshot()` are forbidden.
 
 ## Approval Expectations

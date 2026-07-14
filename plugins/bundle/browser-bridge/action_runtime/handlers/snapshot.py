@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from typing import Any
+from uuid import uuid4
 
 from qwenpaw.browser.sdk.runtime.responses import _tool_response
 from qwenpaw.browser.sdk.runtime.snapshot import ObservationBudget
@@ -185,6 +186,21 @@ def _canonical_snapshot_payload(
                 ),
             },
         )
+    regions: list[dict[str, Any]] = []
+    trusted_regions: dict[str, str] = {}
+    for region in capture.regions:
+        token = f"region_{uuid4().hex}"
+        regions.append(
+            {
+                "kind": region.kind,
+                "owner": region.owner,
+                "owner_chain": list(region.owner_chain),
+                "boundary": region.boundary,
+                "accessible": region.accessible,
+                "region_token": token,
+            },
+        )
+        trusted_regions[token] = str(region.native_identity)
     payload = {
         "ok": capture.coverage not in {"UNAVAILABLE", "STALE"},
         "mode": "canonical",
@@ -203,20 +219,11 @@ def _canonical_snapshot_payload(
         ],
         "context": dict(context),
         "targets": targets,
-        "regions": [
-            {
-                "kind": region.kind,
-                "owner": region.owner,
-                "owner_chain": list(region.owner_chain),
-                "boundary": region.boundary,
-                "accessible": region.accessible,
-                "native_identity": region.native_identity,
-            }
-            for region in capture.regions
-        ],
+        "regions": regions,
     }
     if include_trusted_bindings:
         payload["_trusted_bindings"] = trusted_bindings
+        payload["_trusted_regions"] = trusted_regions
     return payload
 
 
@@ -263,7 +270,7 @@ async def _canonical_visual_grounding_payload(
     selected: list[dict[str, Any]] = []
     selected_bindings: dict[str, dict[str, Any]] = {}
     surface_candidates: dict[str, dict[str, Any]] = {}
-    surface_regions: list[dict[str, Any]] = []
+    surface_projection: list[dict[str, str]] = []
     for target in targets:
         if not isinstance(target, dict):
             continue
@@ -335,16 +342,7 @@ async def _canonical_visual_grounding_payload(
             }
             surface_candidates[token] = enriched
             state.canonical_target_bindings[token] = enriched
-            surface_regions.append(
-                {
-                    "kind": "CONTENT",
-                    "owner": str(target.get("owner") or "main"),
-                    "owner_chain": [str(target.get("owner") or "main")],
-                    "boundary": "DEFAULT",
-                    "accessible": False,
-                    "native_identity": surface_identity,
-                },
-            )
+            surface_projection.append({"binding_token": token})
             continue
         selected.append(target)
         selected_bindings[token] = enriched
@@ -362,26 +360,11 @@ async def _canonical_visual_grounding_payload(
         state.canonical_target_bindings[token] = binding
     if selected:
         surface_candidates = {}
-        surface_regions = []
-    gaps = list(payload.get("gaps") or [])
-    regions = list(payload.get("regions") or [])
-    if not selected and surface_regions:
-        regions.extend(surface_regions)
-        gaps.append(
-            {
-                "stage": "CAPTURE",
-                "source": "DOM",
-                "reason": "SOURCE_UNAVAILABLE",
-                "frontier": "semantic-child",
-                "examined": len(surface_regions),
-                "omitted": len(surface_regions),
-            },
-        )
+        surface_projection = []
     return {
         **payload,
         "targets": selected,
-        "regions": regions,
-        "gaps": gaps,
+        "surface_candidates": surface_projection,
         "_trusted_bindings": selected_bindings,
         "_trusted_surface_candidates": surface_candidates,
     }
@@ -415,8 +398,11 @@ async def _canonical_visual_scope_payload(
     ]
     if not closed_regions:
         return None
+    trusted_regions = payload.get("_trusted_regions", {})
+    if not isinstance(trusted_regions, dict):
+        return None
     for region in closed_regions:
-        backend_id = _region_backend_node_id(region)
+        backend_id = _region_backend_node_id(region, trusted_regions)
         if backend_id is None:
             return None
         intersects = await canonical_visual_backend_intersects_region(
@@ -451,8 +437,13 @@ def _is_closed_shadow_gap(value: Any) -> bool:
     )
 
 
-def _region_backend_node_id(region: dict[str, Any]) -> int | None:
-    native_identity = str(region.get("native_identity") or "")
+def _region_backend_node_id(
+    region: dict[str, Any],
+    trusted_regions: dict[str, Any],
+) -> int | None:
+    native_identity = str(
+        trusted_regions.get(str(region.get("region_token") or "")) or "",
+    )
     backend_id = native_identity.removeprefix("backend:")
     return int(backend_id) if backend_id.isdigit() else None
 

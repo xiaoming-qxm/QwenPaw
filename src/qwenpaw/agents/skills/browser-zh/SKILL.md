@@ -23,14 +23,29 @@ if (
     and open_result.opened_tabs
 ):
     tab = await browser.tabs.select(open_result.opened_tabs[0])
-    snapshot = await tab.snapshot()
+    snapshot = await tab.snapshot(limit=50)
 ```
+
+`limit` 为必填且由调用方选择：它只控制这一次返回的页面大小，不限制源端发现。
+深层查询应从不透明 cursor 续读，不要重复发送 query 或 scope：
+
+```python
+page = await tab.snapshot(
+    query=TargetQuery(role="link", name="keyboard", match="contains"),
+    limit=50,
+)
+while page.next_cursor is not None:
+    page = await tab.snapshot(cursor=page.next_cursor, limit=50)
+```
+
+对 `VisualRegion`，未结束的页面其 `Grounding` 为 `INCOMPLETE`；只有终页才会报告
+`EXACT`、`MULTIPLE` 或 `NO_MATCH`。
 
 Action-First, Controlled Primitive：
 
 - primitive 用于标签页生命周期、观察、页面元信息、提取、等待和关闭/释放。
 - `actions.*` 用于页面交互和状态改变。
-- 每次改变页面状态后，下一次 mutation 前先用 `tab.snapshot()` 或
+- 每次改变页面状态后，下一次 mutation 前先用 `tab.snapshot(limit=...)` 或
   `tab.screenshot()` 重新观察。
 
 Canonical 值由 Runtime 签发。`opened_tabs` 中的每个元素，或
@@ -40,7 +55,7 @@ Canonical 值由 Runtime 签发。`opened_tabs` 中的每个元素，或
 `summary.title`、`summary.url` 或 `summary.to_dict()`；任务刚打开标签页时，
 直接选择 `open_result.opened_tabs[0]`，不要先 list 再重新寻找。已选择的 `Tab`
 是操作接收器，不是元数据记录：它没有 `.url` 或 `.title`；URL/标题检查保留在
-`TabSummary` 上，随后在选中的 `Tab` 上调用 `snapshot()` 获取页面证据。只使用新证据中的
+`TabSummary` 上，随后在选中的 `Tab` 上调用 `snapshot(limit=...)` 获取页面证据。只使用新证据中的
 `TargetRef`。每个可能改变页面的 `click` 都必须带有从**动作前**快照构造的 typed
 后置条件；不要裸调用 `click(target)`：
 
@@ -80,7 +95,7 @@ for item in snapshot.targets:
         break
 if search_box is not None:
     terminal = await tab.actions.paste(search_box.ref, "静音键盘")
-    snapshot = await tab.snapshot()
+    snapshot = await tab.snapshot(limit=50)
 ```
 
 对于虚拟化列表，请使用公开的 Canonical 滚动操作，而不是 `scroll_down` 等旧 helper。
@@ -88,11 +103,11 @@ if search_box is not None:
 
 ```python
 terminal = await tab.actions.scroll(direction="down", amount="page")
-snapshot = await tab.snapshot()
+snapshot = await tab.snapshot(limit=50)
 ```
 
 商品/结果页若页面顶部目标淹没了普通语义链接，优先使用已注入的 `TargetQuery`。
-它采用有界语义发现、只交付匹配目标；不要仅为寻找普通链接而扩大截图或
+它在源端遍历时过滤、每个调用方指定大小的页面只交付匹配目标；不要仅为寻找普通链接而扩大截图或
 `VisualRegion`：
 
 ```python
@@ -112,9 +127,9 @@ product_links
 
 当前 Canonical 表面尚未启用 `tab.wait_for(...)`。不要调用它，也不要使用
 固定 sleep。**不要 import asyncio，也不要调用 `asyncio.sleep`（或任何固定等待）。**
-页面改变或加载后直接获取新的 `tab.snapshot()`。
+页面改变或加载后直接获取新的 `tab.snapshot(limit=...)`。
 
-调用视口 `tab.screenshot()` 前，先在同一选中标签页上获取新的 `tab.snapshot()`；
+调用视口 `tab.screenshot()` 前，先在同一选中标签页上获取新的 `tab.snapshot(limit=...)`；
 该快照为图片提供证据上下文。`ScreenshotResult` 提供 task-owned `image`
 `ResourceHandle`，没有本地 `.path`。不要访问截图的未承诺字段；将
 `screenshot` 留作最终表达式以交付它。
@@ -138,7 +153,7 @@ region = VisualRegion(
     visual.visual_context,
     x=0.10, y=0.25, width=0.30, height=0.35,
 )
-ground = await tab.snapshot(scope=region)
+ground = await tab.snapshot(scope=region, limit=50)
 if ground.grounding is Grounding.EXACT:
     target = ground.targets[0]
 ```

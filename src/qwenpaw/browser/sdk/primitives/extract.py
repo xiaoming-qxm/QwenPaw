@@ -15,9 +15,10 @@ async def extract_from_tab(
     instruction: str,
     *,
     format: ExtractionFormat = "text",
+    limit: int,
 ) -> BrowserExtractionResult:
     """Run lightweight text or JSON extraction for a tab."""
-    raw = await _raw_extract(tab, instruction, format=format)
+    raw = await _raw_extract(tab, instruction, format=format, limit=limit)
     text = _result_text(raw)
     if format == "text":
         return BrowserExtractionResult(ok=True, format="text", text=text)
@@ -50,12 +51,13 @@ async def _raw_extract(
     instruction: str,
     *,
     format: ExtractionFormat,
+    limit: int,
 ) -> Any:
     session = tab._session  # pylint: disable=protected-access
     extract = getattr(session, "extract", None)
     if callable(extract):
         return await extract(tab.id, instruction, format=format)
-    observation = await tab.snapshot()
+    observation = await tab.snapshot(limit=limit)
     return observation.text
 
 

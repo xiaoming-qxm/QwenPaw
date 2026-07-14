@@ -24,15 +24,31 @@ if (
     and open_result.opened_tabs
 ):
     tab = await browser.tabs.select(open_result.opened_tabs[0])
-    snapshot = await tab.snapshot()
+    snapshot = await tab.snapshot(limit=50)
 ```
+
+`limit` is required and caller-selected: it controls only this returned page,
+not source discovery. Continue a deep query from its opaque cursor without
+re-sending the query or scope:
+
+```python
+page = await tab.snapshot(
+    query=TargetQuery(role="link", name="keyboard", match="contains"),
+    limit=50,
+)
+while page.next_cursor is not None:
+    page = await tab.snapshot(cursor=page.next_cursor, limit=50)
+```
+
+For `VisualRegion`, a nonterminal page has `Grounding.INCOMPLETE`; only the
+terminal page can report `EXACT`, `MULTIPLE`, or `NO_MATCH`.
 
 Action-First, Controlled Primitive:
 
 - Use primitives for tab lifecycle, observation, page metadata, extraction,
   waiting, and close/release.
 - Use `actions.*` for page interaction and state changes.
-- After any state-changing action, observe again with `tab.snapshot()` or
+- After any state-changing action, observe again with `tab.snapshot(limit=...)` or
   `tab.screenshot()` before the next mutation.
 
 Canonical values are Runtime-issued. An item in `opened_tabs` or the result of
@@ -43,7 +59,7 @@ replacement token. To inspect its safe metadata use `summary.title`,
 `open_result.opened_tabs[0]` directly instead of listing and rediscovering it.
 The selected `Tab` is an operation receiver, not a metadata record: it has no
 `.url` or `.title`. Keep URL/title checks on the `TabSummary`, then call
-`snapshot()` on the selected `Tab` for page evidence.
+`snapshot(limit=...)` on the selected `Tab` for page evidence.
 Use the `TargetRef` from fresh evidence. Every potentially state-changing click
 must carry a typed postcondition constructed from the **pre-action** snapshot;
 do not call `click(target)` without one:
@@ -85,7 +101,7 @@ for item in snapshot.targets:
         break
 if search_box is not None:
     terminal = await tab.actions.paste(search_box.ref, "quiet keyboard")
-    snapshot = await tab.snapshot()
+    snapshot = await tab.snapshot(limit=50)
 ```
 
 For virtualized lists, use the public Canonical scroll action—not legacy
@@ -93,12 +109,12 @@ helpers such as `scroll_down`. Observe again after every page scroll:
 
 ```python
 terminal = await tab.actions.scroll(direction="down", amount="page")
-snapshot = await tab.snapshot()
+snapshot = await tab.snapshot(limit=50)
 ```
 
 For product/result pages where header targets crowd out ordinary semantic links,
-use the injected `TargetQuery` first. It performs bounded semantic discovery but
-delivers only the matching targets, so do not broaden screenshots or
+use the injected `TargetQuery` first. It filters during source traversal and
+delivers only matching targets on each caller-sized page, so do not broaden screenshots or
 `VisualRegion` just to find an ordinary link:
 
 ```python
@@ -120,9 +136,9 @@ and `retry` for safe recovery.
 `tab.wait_for(...)` is not active in the current Canonical surface. Do not
 call it or use fixed sleeps; **never import asyncio or call
 `asyncio.sleep` (or another fixed wait).** To observe a page after it changes
-or loads, take a fresh `tab.snapshot()` instead.
+or loads, take a fresh `tab.snapshot(limit=...)` instead.
 
-Before a viewport `tab.screenshot()`, take a fresh `tab.snapshot()` on that
+Before a viewport `tab.screenshot()`, take a fresh `tab.snapshot(limit=...)` on that
 selected tab; the snapshot supplies the evidence context that binds the image.
 `ScreenshotResult` has a task-owned `image` `ResourceHandle`, never a local
 `.path`. Do not inspect a screenshot's undocumented fields; leave `screenshot`
@@ -148,7 +164,7 @@ region = VisualRegion(
     visual.visual_context,
     x=0.10, y=0.25, width=0.30, height=0.35,
 )
-ground = await tab.snapshot(scope=region)
+ground = await tab.snapshot(scope=region, limit=50)
 if ground.grounding is Grounding.EXACT:
     target = ground.targets[0]
 ```
