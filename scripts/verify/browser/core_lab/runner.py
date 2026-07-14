@@ -1505,10 +1505,12 @@ def _target_control_facts(case: LabCase) -> TargetControlFacts:
         "plugins.bundle.browser-bridge.action_runtime.targets",
     )
     state = state_module.ControlState()
+    root_session_id = "target-lab-session-a"
     context = ref_scope._control_canonical_context(state, tab_id=11)
     token = ref_scope._control_bind_canonical_target(
         state,
         owner_key=("root-a", "owner-a"),
+        root_session_id=root_session_id,
         tab_id=11,
         frame_key="main",
         context=context,
@@ -1521,6 +1523,7 @@ def _target_control_facts(case: LabCase) -> TargetControlFacts:
     )
     facts: dict[str, object] = {
         "owner_key": ("root-a", "owner-a"),
+        "root_session_id": root_session_id,
         "receiver_tab": 11,
         "frame_key": "main",
         "context": context,
