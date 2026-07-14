@@ -12,6 +12,8 @@ from typing import Any
 
 from qwenpaw.browser.governance.error_codes import BrowserErrorCode
 
+from transport.native_messaging import StaleLeaseError, TabOccupiedError
+
 _TRUSTED_READONLY_SNAPSHOT_EVALUATE_PURPOSES = {
     "snapshot.action_targets": "_CONTROL_ACTION_TARGETS_SCRIPT",
     "snapshot.page_state": "_CONTROL_PAGE_STATE_SCRIPT",
@@ -317,11 +319,17 @@ class CDPRelaySession:
             await asyncio.sleep(self._heartbeat_interval)
             if self._closed:
                 return
-            lease = await self.bridge.renew_lease(
-                self.tab_id,
-                self.holder_id,
-                self.lease_version,
-            )
+            try:
+                lease = await self.bridge.renew_lease(
+                    self.tab_id,
+                    self.holder_id,
+                    self.lease_version,
+                )
+            except (StaleLeaseError, TabOccupiedError):
+                # Cleanup may release the lease while this background task is
+                # asleep. That is a normal terminal condition, not an
+                # unobserved task exception.
+                return
             self.lease_version = lease.version
 
     def _start_watchdog(self) -> None:

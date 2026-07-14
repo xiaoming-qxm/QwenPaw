@@ -2208,7 +2208,7 @@ def canonical_api_catalog() -> dict[str, Any]:
                     "async snapshot(*, scope: ObservationScope | None = None, "
                     "query: TargetQuery | None = None, "
                     "cursor: SnapshotCursor | None = None, "
-                    "limit: int) "
+                    "limit: int = 100) "
                     "-> SnapshotResult"
                 ),
                 mutates=False,
@@ -2243,7 +2243,8 @@ def canonical_api_catalog() -> dict[str, Any]:
                     {
                         "name": "limit",
                         "kind": "KEYWORD_ONLY",
-                        "required": True,
+                        "required": False,
+                        "default": 100,
                         "annotation": "int",
                     },
                 ],
