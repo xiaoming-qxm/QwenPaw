@@ -370,7 +370,6 @@ def summarize_browser_tab_ownership(
     events: list[dict[str, Any]] | tuple[BrowserTraceEvent, ...],
 ) -> dict[str, Any]:
     """Summarize tab ownership evidence carried by trace metadata."""
-    counts = {state: 0 for state in TAB_OWNERSHIP_STATES}
     transition_count = 0
     latest_by_tab: dict[str, str] = {}
 
@@ -384,7 +383,6 @@ def summarize_browser_tab_ownership(
         ownership_state = _trace_ownership_state(metadata)
         if not ownership_state:
             continue
-        counts[ownership_state] = counts.get(ownership_state, 0) + 1
         tab_id = str(payload.get("tab_id") or "")
         if tab_id:
             latest_by_tab[tab_id] = ownership_state
@@ -393,6 +391,10 @@ def summarize_browser_tab_ownership(
             or metadata.get("ownership_state_after") is not None
         ):
             transition_count += 1
+
+    counts = {state: 0 for state in TAB_OWNERSHIP_STATES}
+    for ownership_state in latest_by_tab.values():
+        counts[ownership_state] = counts.get(ownership_state, 0) + 1
 
     return {
         "counts": counts,
