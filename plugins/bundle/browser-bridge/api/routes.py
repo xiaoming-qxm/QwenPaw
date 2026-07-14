@@ -24,7 +24,6 @@ from fastapi import (
 )
 from starlette.responses import JSONResponse
 
-from qwenpaw.browser.approval_policy import QwenPawBrowserApprovalPolicy
 from qwenpaw.browser.sdk.backends.registry import get_default_backend_registry
 from qwenpaw.browser.sdk.governance.error_codes import BrowserErrorCode
 from qwenpaw.browser.sdk.telemetry.trace import (
@@ -901,15 +900,6 @@ async def run_extension_self_test() -> dict[str, Any]:
         _diagnostics_check(
             name="isolated_backend",
             diagnostics=isolated_diagnostics,
-        ),
-        _check_payload(
-            name="approval_policy",
-            passed=isinstance(
-                QwenPawBrowserApprovalPolicy(),
-                QwenPawBrowserApprovalPolicy,
-            ),
-            code="approval_policy_available",
-            message="Browser approval policy is available.",
         ),
         _check_payload(
             name="trace_write",

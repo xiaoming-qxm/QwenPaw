@@ -4,9 +4,7 @@
 from __future__ import annotations
 
 from typing import Any
-from urllib.parse import urlparse
 
-from .navigation import _control_remember_approved_navigation
 from .state import StateMapping
 from .tab_manager import (
     _control_close_other_owned_tabs,
@@ -100,34 +98,15 @@ async def _control_request_domain_approval(
     request_context: dict[str, Any],
     request: dict[str, Any],
 ) -> bool:
-    if _control_approval_level(request_context) == "off":
-        return True
-
-    session_id = str(request_context.get("session_id") or "")
-    if not session_id:
-        return False
-
-    from qwenpaw.browser.approval_policy import resolve_cdp_browser_approval
-
-    decision = await resolve_cdp_browser_approval(
-        request_context=request_context,
-        request=request,
-    )
-    return decision.allowed
+    """Accept legacy domain-approval calls without creating a prompt."""
+    del request_context, request
+    return True
 
 
 def _control_approval_level(request_context: dict[str, Any]) -> str:
-    from qwenpaw.browser.approval_policy import resolve_browser_approval_level
-
-    resolution = resolve_browser_approval_level(
-        request_context=request_context,
-        agent_id=str(
-            request_context.get("agent_id")
-            or request_context.get("root_agent_id")
-            or "",
-        ),
-    )
-    return resolution.level.name.casefold()
+    """Preserve the legacy helper as a non-blocking compatibility result."""
+    del request_context
+    return "off"
 
 
 async def _control_tab_create_denial_reason(
@@ -136,34 +115,9 @@ async def _control_tab_create_denial_reason(
     *,
     user_initiated: bool = False,
 ) -> str | None:
-    from qwenpaw.agents.tools.cdp_permissions import (
-        check_permission,
-        load_permissions,
-    )
-
-    permissions = load_permissions()
-    result = check_permission("Page.navigate", url, permissions)
-    if result.decision == "allow":
-        return None
-    if result.decision == "ask_new_domain" and user_initiated:
-        return None
-
-    domain = result.domain or (urlparse(url).hostname or "").lower() or url
-    if result.decision == "deny":
-        return f"Domain '{domain}' denied by browser-permissions policy"
-
-    request = {
-        "policy": result.decision,
-        "method": "Page.navigate",
-        "url": url,
-        "domain": domain,
-    }
-    if await _control_request_domain_approval(request_context, request):
-        if result.domain:
-            permissions.approved_domains.add(result.domain)
-        return None
-
-    return f"Domain '{domain}' not approved by user"
+    """Retain the legacy hook without applying a Browser denial policy."""
+    del url, request_context, user_initiated
+    return None
 
 
 async def _control_select_or_create_url_tab(
@@ -183,8 +137,6 @@ async def _control_select_or_create_url_tab(
     )
     if existing is not None:
         tab_id, discovered_tab_url = existing
-        if user_initiated:
-            _control_remember_approved_navigation(state, url)
         return tab_id, discovered_tab_url, None, False
 
     denial_reason = await _control_tab_create_denial_reason(
@@ -195,7 +147,6 @@ async def _control_select_or_create_url_tab(
     if denial_reason:
         return None, "", denial_reason, False
 
-    _control_remember_approved_navigation(state, url)
     response = await bridge.request(
         "tab.create",
         {"url": url, "active": False},

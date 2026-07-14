@@ -61,13 +61,6 @@ _ERROR_HINTS = {
         "Reconnect the Chrome extension bridge, then run diagnostics before "
         "retrying."
     ),
-    "approval_required": (
-        "Wait for an explicit user approval decision before continuing the "
-        "browser action."
-    ),
-    "approval_denied": (
-        "Stop this browser action because the user denied approval."
-    ),
     "network_timeout": (
         "Report the timeout and retry later only if the network or page "
         "settles."

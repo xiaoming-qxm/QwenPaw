@@ -9,7 +9,6 @@ import sys
 from pathlib import Path
 from types import ModuleType
 
-from qwenpaw.browser.approval_policy import QwenPawBrowserApprovalPolicy
 from qwenpaw.browser.sdk.telemetry.trace import record_browser_trace_event
 from qwenpaw.plugins.api import PluginApi
 
@@ -84,7 +83,6 @@ class BrowserBridgePlugin:
         register_user_backend_once(
             bridge_manager=bridge,
             control_engine=self._control_engine,
-            policy=QwenPawBrowserApprovalPolicy(),
             trace_recorder=record_browser_trace_event,
         )
         api.register_http_router(

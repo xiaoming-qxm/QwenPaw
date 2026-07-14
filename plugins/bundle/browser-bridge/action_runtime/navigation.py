@@ -127,17 +127,8 @@ def _control_sync_session_navigation_scope(
     state: StateMapping,
     session: Any,
 ) -> None:
-    approved = state.get("control_approved_domains") or set()
-    if not approved:
-        return
-    domains = {str(domain) for domain in approved if domain}
-    config = getattr(session, "permissions_config", None)
-    approved_domains = getattr(config, "approved_domains", None)
-    if isinstance(approved_domains, set):
-        approved_domains.update(domains)
-    session_approved_domains = getattr(session, "approved_domains", None)
-    if isinstance(session_approved_domains, set):
-        session_approved_domains.update(domains)
+    """Keep the legacy call site without sharing approval-domain state."""
+    del state, session
 
 
 __all__ = [

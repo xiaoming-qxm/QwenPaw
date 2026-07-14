@@ -131,17 +131,15 @@ _DEGRADED_FALLBACK_STOP_CODES = frozenset(
         BrowserErrorCode.BOUNDARY_USER_INTERVENTION_REQUIRED.value,
     },
 )
+_LEGACY_APPROVAL_ERROR_CODES = frozenset(
+    {
+        BrowserErrorCode.APPROVAL_REQUIRED.value,
+        BrowserErrorCode.APPROVAL_DENIED.value,
+        BrowserErrorCode.APPROVAL_TIMEOUT.value,
+        BrowserErrorCode.APPROVAL_ERROR.value,
+    },
+)
 _ERROR_CODE_RECOVERY_TEMPLATES = {
-    BrowserErrorCode.APPROVAL_DENIED.value: _RecoveryTemplate(
-        BrowserRecoveryAction.BLOCKED,
-        "approval_denied",
-        "stop_browser_action",
-    ),
-    BrowserErrorCode.APPROVAL_REQUIRED.value: _RecoveryTemplate(
-        BrowserRecoveryAction.WAIT_FOR_APPROVAL,
-        "approval_pending",
-        "wait_for_user_approval",
-    ),
     BrowserErrorCode.BRIDGE_DISCONNECTED.value: _RecoveryTemplate(
         BrowserRecoveryAction.BLOCKED,
         "bridge_disconnected",
@@ -490,36 +488,6 @@ class BrowserRecoveryPolicy:
                 required_next_step="handoff_to_user",
                 forbidden=("retry_mutation", "reuse_approval_grant"),
             )
-        approval = _approval_state(evidence)
-        approval_loop = _repeated_approval_domain(
-            evidence,
-            threshold=self.product_policy.repeated_approval_domain_threshold,
-        )
-        if approval_loop is not None:
-            return self._decision(
-                BrowserRecoveryAction.BLOCKED,
-                reason="repeated_approval_domain",
-                event=event,
-                required_next_step="stop_reprompting_same_domain",
-                metadata=approval_loop,
-            )
-        if approval == "pending":
-            return self._decision(
-                BrowserRecoveryAction.WAIT_FOR_APPROVAL,
-                reason="approval_pending",
-                event=event,
-                required_next_step="wait_for_user_approval",
-                metadata=_approval_metadata(evidence),
-            )
-        if approval in {"denied", "timeout", "error"}:
-            return self._decision(
-                BrowserRecoveryAction.BLOCKED,
-                reason=f"approval_{approval}",
-                event=event,
-                required_next_step="stop_browser_action",
-                metadata=_approval_metadata(evidence),
-            )
-
         error_code = _latest_error_code(evidence)
         stale_loop = _repeated_stale_observation(
             evidence,
@@ -574,11 +542,7 @@ class BrowserRecoveryPolicy:
                 next_context=template.next_context,
                 required_next_step=template.required_next_step,
                 forbidden=template.forbidden,
-                metadata=(
-                    _approval_metadata(evidence)
-                    if template.reason == "approval_pending"
-                    else None
-                ),
+                metadata=None,
             )
         tab_churn = _tab_churn(
             evidence,
@@ -878,71 +842,12 @@ def _latest_event(
     return events[-1] if events else None
 
 
-def _approval_state(evidence: BrowserRequestEvidence) -> str:
-    for event in reversed(evidence.trace_events):
-        if event.approval_state:
-            return event.approval_state
-    for metadata in reversed(evidence.tool_metadata):
-        state = metadata.get("approval_state")
-        if state:
-            return str(state)
-    return ""
-
-
-def _approval_metadata(evidence: BrowserRequestEvidence) -> dict[str, Any]:
-    for event in reversed(evidence.trace_events):
-        value = event.metadata.get("approval_request_id")
-        if value:
-            return {
-                "approval_request_id": value,
-                "approval_state": event.approval_state,
-            }
-    for metadata in reversed(evidence.tool_metadata):
-        value = metadata.get("approval_request_id")
-        if value:
-            return {
-                "approval_request_id": value,
-                "approval_state": str(metadata.get("approval_state") or ""),
-            }
-    return {}
-
-
-def _repeated_approval_domain(
-    evidence: BrowserRequestEvidence,
-    *,
-    threshold: int,
-) -> dict[str, Any] | None:
-    threshold = max(2, int(threshold))
-    pending_events = [
-        event
-        for event in evidence.trace_events
-        if str(event.approval_state or "").lower() == "pending"
-    ]
-    if len(pending_events) < threshold:
-        return None
-    latest = pending_events[-1]
-    domain = str(latest.domain or "")
-    if not domain:
-        return None
-    count = 0
-    for event in reversed(pending_events):
-        if str(event.domain or "") != domain:
-            break
-        count += 1
-    if count < threshold:
-        return None
-    return {
-        "domain": domain,
-        "count": count,
-        "threshold": threshold,
-        "approval_state": "pending",
-    }
-
-
 def _latest_error_code(evidence: BrowserRequestEvidence) -> str:
     for event in reversed(evidence.trace_events):
         if event.error_code:
-            return classify_browser_error(event.error_code).code.value
+            code = classify_browser_error(event.error_code).code.value
+            if code not in _LEGACY_APPROVAL_ERROR_CODES:
+                return code
     for metadata in reversed(evidence.tool_metadata):
         value = (
             metadata.get("browser_error_code")
@@ -950,7 +855,9 @@ def _latest_error_code(evidence: BrowserRequestEvidence) -> str:
             or metadata.get("code")
         )
         if value:
-            return classify_browser_error(str(value)).code.value
+            code = classify_browser_error(str(value)).code.value
+            if code not in _LEGACY_APPROVAL_ERROR_CODES:
+                return code
     return ""
 
 

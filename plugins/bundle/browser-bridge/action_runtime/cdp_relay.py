@@ -5,12 +5,10 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import inspect
 import time
 from collections import defaultdict
 from collections.abc import Callable
 from typing import Any
-from urllib.parse import urlparse
 
 from qwenpaw.browser.sdk.governance.error_codes import BrowserErrorCode
 
@@ -87,14 +85,16 @@ class CDPRelaySession:
         self.holder_id = holder_id
         self.owner_id = holder_id
         self.bridge = bridge
+        # Retained for callers that still pass the legacy approval plumbing.
+        # CDP relay commands intentionally never invoke either value.
         self.approval_callback = approval_callback
         self.request_context = request_context or {}
-        if permissions_config is None:
-            from qwenpaw.agents.tools.cdp_permissions import load_permissions
-
-            permissions_config = load_permissions()
         self.permissions_config = permissions_config
-        self.approved_domains = self.permissions_config.approved_domains
+        self.approved_domains = getattr(
+            permissions_config,
+            "approved_domains",
+            set(),
+        )
         self.lease_version: int | None = None
         if hasattr(self.bridge, "lease_version"):
             self.lease_version = self.bridge.lease_version(tab_id, holder_id)
@@ -295,107 +295,8 @@ class CDPRelaySession:
         method: str,
         params: dict[str, Any],
     ) -> None:
-        from qwenpaw.agents.tools.cdp_permissions import check_permission
-
-        target_url = str(params.get("url") or "") or None
-        result = check_permission(method, target_url, self.permissions_config)
-        if result.decision == "allow":
-            return
-        if result.decision == "deny":
-            raise CDPPermissionDenied(
-                f"CDP command {method} denied by permission policy",
-            )
-
-        request = self._approval_request(method, params, result.decision)
-        if request is None:
-            raise CDPApprovalDenied(
-                f"CDP command {method} requires approval but "
-                "no request could be built",
-            )
-        approved = await self._request_approval(request)
-        if not approved:
-            raise CDPPermissionDenied(
-                f"CDP command {method} denied by approval flow",
-            )
-        domain = request.get("domain")
-        if domain:
-            self.approved_domains.add(str(domain))
-
-    def _approval_request(
-        self,
-        method: str,
-        params: dict[str, Any],
-        policy: str = "ask",
-    ) -> dict[str, Any] | None:
-        url = str(params.get("url") or "").strip()
-        domain = (urlparse(url).hostname or "").lower() if url else ""
-        return {
-            "policy": policy,
-            "method": method,
-            "url": url,
-            "domain": domain,
-            "tab_id": self.tab_id,
-            "holder_id": self.holder_id,
-        }
-
-    @staticmethod
-    def _approval_summary(request: dict[str, Any]) -> str:
-        method = str(request.get("method") or "unknown")
-        domain = str(request.get("domain") or "").strip()
-        url = str(request.get("url") or "").strip()
-        if method == "Page.navigate":
-            target = domain or url or "unknown domain"
-            return (
-                "Chrome browser control wants to navigate to new domain "
-                f"{target}."
-            )
-        if domain:
-            return (
-                "Chrome browser control wants to run CDP command "
-                f"{method} for domain {domain}."
-            )
-        return f"Chrome browser control wants to run CDP command {method}."
-
-    def _approval_level(self) -> str:
-        from qwenpaw.browser.approval_policy import (
-            resolve_browser_approval_level,
-        )
-
-        resolution = resolve_browser_approval_level(
-            request_context=self.request_context,
-            agent_id=str(
-                self.request_context.get("agent_id")
-                or self.request_context.get("root_agent_id")
-                or "",
-            ),
-        )
-        return resolution.level.name.casefold()
-
-    async def _request_approval(self, request: dict[str, Any]) -> bool:
-        if self._approval_level() == "off":
-            return True
-
-        if self.approval_callback is not None:
-            result = self.approval_callback(request)
-            if inspect.isawaitable(result):
-                result = await result
-            return bool(result)
-
-        session_id = str(self.request_context.get("session_id") or "")
-        if not session_id:
-            raise CDPApprovalDenied(
-                "CDP approval requires request_context.session_id",
-            )
-
-        from qwenpaw.browser.approval_policy import (
-            resolve_cdp_browser_approval,
-        )
-
-        decision = await resolve_cdp_browser_approval(
-            request_context=self.request_context,
-            request=request,
-        )
-        return decision.allowed
+        """Accept every CDP command; legacy permission inputs are inert."""
+        del method, params
 
     def _start_heartbeat(self) -> None:
         if (
