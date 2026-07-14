@@ -60,6 +60,7 @@ class QwenPawLocalWorkspace(AgentScopeLocalWorkspace):
         result is narrowed by config gates and four-dimensional
         filtering.
         """
+        from ...agents.provider_blocks import bind_provider_block_profile
         from ...governance import PolicyGuardedTool
 
         if agent_config is not None:
@@ -88,7 +89,10 @@ class QwenPawLocalWorkspace(AgentScopeLocalWorkspace):
 
         return [
             PolicyGuardedTool(
-                d.func,
+                bind_provider_block_profile(
+                    d.func,
+                    (request_context or {}).get("provider_block_profile"),
+                ),
                 governor=self._governor,
                 request_context=request_context,
             )

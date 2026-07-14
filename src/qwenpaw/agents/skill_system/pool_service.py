@@ -1126,17 +1126,51 @@ def _resolve_auto_update_targets(
     explicit = entry.get("auto_update_targets")
     if isinstance(explicit, list) and explicit:
         wanted = {str(agent_id) for agent_id in explicit}
-        return [ws for ws in workspaces if ws.get("agent_id") in wanted]
+        candidates = [
+            ws for ws in workspaces if ws.get("agent_id") in wanted
+        ]
+        return [
+            ws
+            for ws in candidates
+            if _is_auto_update_workspace_target(
+                skill_name,
+                entry,
+                ws,
+                allow_missing=True,
+            )
+        ]
 
     targets: list[dict[str, str]] = []
     for ws in workspaces:
-        try:
-            ws_manifest = read_skill_manifest(Path(ws["workspace_dir"]))
-        except Exception:
-            continue
-        if skill_name in (ws_manifest.get("skills") or {}):
+        if _is_auto_update_workspace_target(
+            skill_name,
+            entry,
+            ws,
+            allow_missing=False,
+        ):
             targets.append(ws)
     return targets
+
+
+def _is_auto_update_workspace_target(
+    skill_name: str,
+    pool_entry: dict[str, Any],
+    workspace: dict[str, str],
+    *,
+    allow_missing: bool,
+) -> bool:
+    """Keep builtin auto-update from overwriting customized overrides."""
+    try:
+        workspace_dir = Path(workspace["workspace_dir"])
+        manifest = read_skill_manifest(workspace_dir)
+    except Exception:
+        return False
+    workspace_entry = (manifest.get("skills") or {}).get(skill_name)
+    if not isinstance(workspace_entry, dict):
+        return allow_missing
+    if str(pool_entry.get("source", "") or "") != "builtin":
+        return True
+    return str(workspace_entry.get("source", "") or "") == "builtin"
 
 
 def _push_auto_update_skill(

@@ -2,7 +2,7 @@
 name: browser
 description: "通过 browser(code=...) 使用 Browser SDK，处理网页检索、标签页操作和用户 Chrome 任务。"
 metadata:
-  builtin_skill_version: "15.0"
+  builtin_skill_version: "15.1"
   qwenpaw:
     emoji: ""
     requires: {}
@@ -58,9 +58,9 @@ terminal = await tab.actions.upload_file(target, (resource,))
 - `context="auto"` 是默认值，会选择当前最合适的 backend。
 - `context="user"` 需要用户 Chrome bridge；不可用时明确汇报阻断。
 - `context="isolated"` 用于确定性任务，且不能使用用户 Chrome 状态。
-- 需要登录态、购物车、账号页面或用户已有标签页时，传入
-  `requires_user_state=True`；用户 Chrome 不可用时这类请求 fail closed。
+- 需要登录态、购物车、账号页面或用户已有标签页时，使用
+  `context="user"`；用户 Chrome 不可用时这类请求 fail closed。
 
 不要使用固定 sleep、私有 backend 对象、JavaScript 执行、CSS 定位捷径、底层
 协议逃逸或直接 backend dispatcher。用 typed `tab.wait_for(...)`、新的观察结果
-和 reviewed Canonical capability/help artifacts 恢复。
+和文档中公开的 Canonical API 恢复。

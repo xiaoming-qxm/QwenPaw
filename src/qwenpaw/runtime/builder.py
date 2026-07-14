@@ -11,8 +11,6 @@ injects all dependencies into the agent constructor.
 from __future__ import annotations
 
 import logging
-import inspect
-from functools import wraps
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -848,27 +846,12 @@ class AgentBuilder:
         governor: Any,
     ) -> Any:
         """Wrap a raw tool fn in the repo's standard guard (policy or tool)."""
-        profile = request_context.get("provider_block_profile")
-        if profile is not None:
-            from ..browser.sdk.runtime.result_delivery import (
-                reset_provider_block_profile,
-                set_provider_block_profile,
-            )
+        from ..agents.provider_blocks import bind_provider_block_profile
 
-            original = fn
-
-            @wraps(original)
-            async def profile_bound(*args: Any, **kwargs: Any) -> Any:
-                token = set_provider_block_profile(profile)
-                try:
-                    result = original(*args, **kwargs)
-                    if inspect.isawaitable(result):
-                        return await result
-                    return result
-                finally:
-                    reset_provider_block_profile(token)
-
-            fn = profile_bound
+        fn = bind_provider_block_profile(
+            fn,
+            request_context.get("provider_block_profile"),
+        )
         if governor is not None:
             from ..governance import PolicyGuardedTool
 

@@ -579,13 +579,16 @@ def _validate_canonical_prepared_blocks(
         prepare_required_blocks,
     )
 
+    required_count = sum(
+        len(record.required_blocks) for record in envelope.records
+    )
+    if required_count == 0:
+        return
+
     profile = current_provider_block_profile()
     if not isinstance(profile, ProviderBlockProfile):
         raise ValueError("provider block profile is unavailable")
     projected = BrowserResultProjector().project(envelope, profile=profile)
-    required_count = sum(
-        len(record.required_blocks) for record in envelope.records
-    )
     projected_required = sum(1 for block in projected if block.kind != "text")
     if projected_required != required_count:
         raise ValueError("required Browser block was dropped")

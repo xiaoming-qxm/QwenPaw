@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+import inspect
 from dataclasses import dataclass, field
+from functools import wraps
 from typing import Any, cast
 
 from qwenpaw.browser.sdk.canonical.contracts import (
@@ -13,6 +15,8 @@ from qwenpaw.browser.sdk.canonical.contracts import (
 from qwenpaw.browser.sdk.runtime.result_delivery import (
     BlockKind,
     ProjectedBlock,
+    reset_provider_block_profile,
+    set_provider_block_profile,
 )
 
 
@@ -74,6 +78,28 @@ def build_provider_block_profile(
         ),
         formatter=formatter,
     )
+
+
+def bind_provider_block_profile(
+    fn: Any,
+    profile: object | None,
+) -> Any:
+    """Bind one immutable provider profile around a tool invocation."""
+    if profile is None:
+        return fn
+
+    @wraps(fn)
+    async def profile_bound(*args: Any, **kwargs: Any) -> Any:
+        token = set_provider_block_profile(profile)
+        try:
+            result = fn(*args, **kwargs)
+            if inspect.isawaitable(result):
+                return await result
+            return result
+        finally:
+            reset_provider_block_profile(token)
+
+    return profile_bound
 
 
 def prepare_required_blocks(
@@ -188,6 +214,7 @@ __all__ = [
     "PreparedBlocks",
     "PROVIDER_FINGERPRINT",
     "ProviderBlockProfile",
+    "bind_provider_block_profile",
     "build_provider_block_profile",
     "prepare_required_blocks",
 ]

@@ -1,8 +1,8 @@
 ---
 name: browser
-description: "Use browser(code=...) with the Browser SDK for web research, tab work, user Chrome tasks, and advanced browser diagnostics."
+description: "Use browser(code=...) with the Browser SDK for web research, tab work, and user Chrome tasks."
 metadata:
-  builtin_skill_version: "12.0"
+  builtin_skill_version: "12.1"
   qwenpaw:
     emoji: ""
     requires: {}
@@ -62,11 +62,10 @@ terminal = await tab.actions.upload_file(target, (resource,))
   is unavailable.
 - `context="isolated"` is for deterministic work that must not use the user's
   Chrome state.
-- Pass `requires_user_state=True` when login state, carts, accounts, or
-  existing user tabs are required; such requests fail closed if user Chrome is
-  unavailable.
+- Use `context="user"` when login state, carts, accounts, or existing user
+  tabs are required; that request fails closed if user Chrome is unavailable.
 
 Do not use fixed sleeps, private backend objects, JavaScript execution,
 CSS-target shortcuts, low-level protocol escape hatches, or direct backend
 dispatchers. Recover with typed `tab.wait_for(...)`, fresh observations, and
-the reviewed Canonical capability/help artifacts.
+the documented Canonical APIs.
