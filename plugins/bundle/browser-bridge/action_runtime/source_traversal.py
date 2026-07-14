@@ -19,6 +19,7 @@ from qwenpaw.browser.sdk.canonical.contracts import (
     Coverage,
     CoverageGap,
     TargetQuery,
+    coverage_from_gaps,
 )
 from qwenpaw.browser.sdk.primitives.matching import normalize_visible_text
 from qwenpaw.browser.sdk.runtime.snapshot import (
@@ -40,6 +41,7 @@ from .targets import (
 
 _TRAVERSALS_KEY = "canonical_source_traversals"
 _TAB_CURSORS_KEY = "canonical_source_traversal_tabs"
+_INVALIDATED_CURSORS_KEY = "canonical_source_traversal_invalidated"
 
 
 class SourceTraversalUnavailable(RuntimeError):
@@ -58,6 +60,7 @@ class SourceTraversalStep:
     nodes: tuple[ProbeNode, ...] = ()
     children: tuple[str, ...] = ()
     unavailable_sources: tuple[str, ...] = ()
+    gaps: tuple[CoverageGap, ...] = ()
 
 
 class SourceTraversalSource(Protocol):
@@ -134,7 +137,7 @@ class CDPSourceTraversalAdapter:
             owner_chain=owner_chain,
             hidden_by_ancestor=hidden_by_ancestor,
         )
-        children = _child_positions(raw, effective_chain, hidden)
+        children, gaps = _child_positions(raw, effective_chain, hidden)
         ax_nodes: tuple[ProbeNode, ...] = ()
         unavailable: tuple[str, ...] = ()
         backend_id = raw.get("backendNodeId") or raw.get("backendDOMNodeId")
@@ -163,6 +166,7 @@ class CDPSourceTraversalAdapter:
             nodes=(*ax_nodes, *dom_nodes),
             children=children,
             unavailable_sources=unavailable,
+            gaps=gaps,
         )
 
     async def _send(
@@ -293,8 +297,9 @@ def _child_positions(
     raw: dict[str, Any],
     owner_chain: tuple[str, ...],
     hidden_by_ancestor: bool,
-) -> tuple[str, ...]:
+) -> tuple[tuple[str, ...], tuple[CoverageGap, ...]]:
     children: list[str] = []
+    gaps: list[CoverageGap] = []
     raw_children = raw.get("children")
     if isinstance(raw_children, list):
         children.extend(
@@ -305,16 +310,27 @@ def _child_positions(
     backend_id = raw.get("backendNodeId") or raw.get("backendDOMNodeId")
     if isinstance(backend_id, int) and backend_id > 0:
         content_document = raw.get("contentDocument")
-        if isinstance(content_document, dict) and not raw.get("crossOrigin"):
-            frame_id = str(content_document.get("frameId") or "").strip()
-            frame_owner = frame_id or f"backend-{backend_id}"
-            children.append(
-                _position_from_node(
-                    content_document,
-                    (*owner_chain, f"frame:{frame_owner}"),
-                    False,
-                ),
-            )
+        if isinstance(content_document, dict):
+            if raw.get("crossOrigin"):
+                gaps.append(
+                    CoverageGap(
+                        stage="CAPTURE",
+                        detail=CaptureGap(
+                            source="FRAME",
+                            reason="CROSS_ORIGIN",
+                        ),
+                    ),
+                )
+            else:
+                frame_id = str(content_document.get("frameId") or "").strip()
+                frame_owner = frame_id or f"backend-{backend_id}"
+                children.append(
+                    _position_from_node(
+                        content_document,
+                        (*owner_chain, f"frame:{frame_owner}"),
+                        False,
+                    ),
+                )
         shadow_roots = raw.get("shadowRoots")
         if isinstance(shadow_roots, list):
             for shadow in shadow_roots:
@@ -324,6 +340,15 @@ def _child_positions(
                     shadow.get("shadowRootType") or "closed",
                 ).lower()
                 if shadow_type != "open":
+                    gaps.append(
+                        CoverageGap(
+                            stage="CAPTURE",
+                            detail=CaptureGap(
+                                source="SHADOW",
+                                reason="CLOSED_SHADOW",
+                            ),
+                        ),
+                    )
                     continue
                 children.append(
                     _position_from_node(
@@ -332,7 +357,7 @@ def _child_positions(
                         hidden_by_ancestor,
                     ),
                 )
-    return tuple(children)
+    return tuple(children), tuple(gaps)
 
 
 def _is_transport_timeout(exc: BaseException) -> bool:
@@ -380,11 +405,12 @@ class SourceTraversalManager:
         self._sessions()[cursor] = {
             "tab_id": int(tab_id),
             "generation": str(generation),
-            "pending": [root],
+            "pending": [_pending_position(root)],
             "query": _query_state(query),
             "region_owner_chain": list(region_owner_chain or ()),
             "unavailable_sources": {},
             "examined": {"AX": 0, "DOM": 0},
+            "gaps": [],
         }
         self._tab_cursors()[str(int(tab_id))] = cursor
         return await self._page(
@@ -404,7 +430,16 @@ class SourceTraversalManager:
     ) -> SourceTraversalPage:
         """Resume exactly one current tab cursor from its source position."""
         _validate_limit(limit)
-        session = self._session(cursor)
+        session = self._sessions().get(str(cursor))
+        if not isinstance(session, dict):
+            invalidated = self._invalidated_cursor(cursor)
+            if invalidated is not None:
+                if int(invalidated["tab_id"]) != int(tab_id):
+                    raise ValueError(
+                        "source traversal cursor belongs to another tab",
+                    )
+                return self._invalidated_page(invalidated)
+            raise ValueError("source traversal cursor is unknown")
         if int(session["tab_id"]) != int(tab_id):
             raise ValueError("source traversal cursor belongs to another tab")
         if self.active_cursor_for_tab(tab_id) != cursor:
@@ -433,7 +468,11 @@ class SourceTraversalManager:
 
     def invalidate_tab(self, tab_id: int) -> bool:
         """Release a cursor when trusted receiver state becomes invalid."""
-        return self.cancel_tab(tab_id)
+        cursor = self.active_cursor_for_tab(tab_id)
+        if cursor is None:
+            return False
+        self._invalidate(cursor)
+        return True
 
     def active_cursor_for_tab(self, tab_id: int) -> str | None:
         value = self._tab_cursors().get(str(int(tab_id)))
@@ -452,7 +491,14 @@ class SourceTraversalManager:
     ) -> SourceTraversalPage:
         session = self._session(cursor)
         expected_generation = str(session["generation"])
-        generation_before = await source.generation()
+        try:
+            generation_before = await source.generation()
+        except SourceTraversalUnavailable as exc:
+            if not self._is_active(tab_id, cursor):
+                return self._stale(cursor, expected_generation, session)
+            return self._unavailable(cursor, expected_generation, exc)
+        if not self._is_active(tab_id, cursor):
+            return self._stale(cursor, expected_generation, session)
         if generation_before != expected_generation:
             return self._stale(cursor, generation_before, session)
 
@@ -464,26 +510,47 @@ class SourceTraversalManager:
         region_owner_chain = tuple(session.get("region_owner_chain") or ())
 
         while pending and len(targets) < limit:
-            position = pending.pop()
-            if not isinstance(position, str) or not position:
-                raise ValueError("source traversal position is invalid")
+            position, processed, child_index = _pending_data(pending.pop())
             try:
                 step = await source.step(position)
             except SourceTraversalUnavailable as exc:
+                if not self._is_active(tab_id, cursor):
+                    return self._stale(cursor, expected_generation, session)
                 _record_unavailable(session, exc.source, exc.code)
                 if exc.source == "DOM":
                     pending.clear()
                 continue
+            if not self._is_active(tab_id, cursor):
+                return self._stale(cursor, expected_generation, session)
             if not isinstance(step, SourceTraversalStep):
                 raise TypeError(
                     "source traversal adapter returned invalid step",
                 )
+            if processed:
+                if child_index >= len(step.children):
+                    continue
+                if child_index + 1 < len(step.children):
+                    pending.append(
+                        _pending_position(
+                            position,
+                            child_index + 1,
+                            processed=True,
+                        ),
+                    )
+                child = step.children[child_index]
+                if isinstance(child, str) and child:
+                    pending.append(_pending_position(child))
+                continue
+
             _record_step(session, step)
-            pending.extend(
-                child
-                for child in reversed(step.children)
-                if isinstance(child, str) and child
-            )
+            if len(step.children) == 1:
+                child = step.children[0]
+                if isinstance(child, str) and child:
+                    pending.append(_pending_position(child))
+            elif step.children:
+                pending.append(
+                    _pending_position(position, 0, processed=True),
+                )
             merged = _merge_step(step)
             if len(merged) > 1:
                 raise ValueError("source traversal step must address one node")
@@ -494,13 +561,21 @@ class SourceTraversalManager:
             ):
                 targets.append(merged[0])
 
-        generation_after = await source.generation()
+        try:
+            generation_after = await source.generation()
+        except SourceTraversalUnavailable as exc:
+            if not self._is_active(tab_id, cursor):
+                return self._stale(cursor, expected_generation, session)
+            return self._unavailable(cursor, expected_generation, exc)
+        if not self._is_active(tab_id, cursor):
+            return self._stale(cursor, expected_generation, session)
         if generation_after != expected_generation:
             return self._stale(cursor, generation_after, session)
 
         end_of_collection = not pending
         sources = _sources(session)
-        coverage = _coverage(sources)
+        gaps = _gaps(session)
+        coverage = _coverage(sources, gaps)
         next_cursor = None if end_of_collection else cursor
         if end_of_collection:
             self._release(cursor)
@@ -511,6 +586,7 @@ class SourceTraversalManager:
             sources=sources,
             cursor=next_cursor,
             end_of_collection=end_of_collection,
+            gaps=gaps,
         )
 
     def _stale(
@@ -546,6 +622,13 @@ class SourceTraversalManager:
             self._state[_TRAVERSALS_KEY] = sessions
         return sessions
 
+    def _invalidated(self) -> dict[str, dict[str, object]]:
+        invalidated = self._state.get(_INVALIDATED_CURSORS_KEY)
+        if not isinstance(invalidated, dict):
+            invalidated = {}
+            self._state[_INVALIDATED_CURSORS_KEY] = invalidated
+        return invalidated
+
     def _tab_cursors(self) -> dict[str, str]:
         cursors = self._state.get(_TAB_CURSORS_KEY)
         if not isinstance(cursors, dict):
@@ -565,6 +648,63 @@ class SourceTraversalManager:
             tab_id = str(session.get("tab_id") or "")
             if self._tab_cursors().get(tab_id) == cursor:
                 self._tab_cursors().pop(tab_id, None)
+
+    def _invalidate(self, cursor: str) -> None:
+        session = self._sessions().get(str(cursor))
+        if not isinstance(session, dict):
+            return
+        self._invalidated()[str(cursor)] = {
+            "tab_id": int(session["tab_id"]),
+            "generation": str(session["generation"]),
+            "sources": _sources(session),
+        }
+        self._release(cursor)
+
+    def _invalidated_cursor(self, cursor: str) -> dict[str, object] | None:
+        record = self._invalidated().get(str(cursor))
+        return record if isinstance(record, dict) else None
+
+    def _invalidated_page(
+        self,
+        invalidated: dict[str, object],
+    ) -> SourceTraversalPage:
+        sources = invalidated.get("sources")
+        if not isinstance(sources, tuple) or not all(
+            isinstance(source, SourceOutcome) for source in sources
+        ):
+            raise ValueError("source traversal invalidation state is invalid")
+        return SourceTraversalPage(
+            generation=str(invalidated["generation"]),
+            coverage="STALE",
+            targets=(),
+            sources=sources,
+            cursor=None,
+            end_of_collection=True,
+            gaps=(
+                CoverageGap(
+                    stage="CAPTURE",
+                    detail=CaptureGap(
+                        source="DOCUMENT",
+                        reason="GENERATION_MISMATCH",
+                    ),
+                ),
+            ),
+        )
+
+    def _is_active(self, tab_id: int, cursor: str) -> bool:
+        return (
+            self.active_cursor_for_tab(tab_id) == cursor
+            and isinstance(self._sessions().get(str(cursor)), dict)
+        )
+
+    def _unavailable(
+        self,
+        cursor: str,
+        generation: str,
+        error: SourceTraversalUnavailable,
+    ) -> SourceTraversalPage:
+        self._release(cursor)
+        return _unavailable_page(generation, error)
 
 
 def invalidate_source_traversals(
@@ -663,6 +803,37 @@ def _query_from_state(value: object) -> dict[str, str] | None:
     }
 
 
+def _pending_position(
+    position: str,
+    child_index: int = 0,
+    *,
+    processed: bool = False,
+) -> dict[str, object]:
+    return {
+        "position": position,
+        "processed": processed,
+        "child_index": child_index,
+    }
+
+
+def _pending_data(value: object) -> tuple[str, bool, int]:
+    if not isinstance(value, dict):
+        raise ValueError("source traversal pending state is invalid")
+    position = value.get("position")
+    processed = value.get("processed")
+    child_index = value.get("child_index")
+    if (
+        not isinstance(position, str)
+        or not position
+        or not isinstance(processed, bool)
+        or isinstance(child_index, bool)
+        or not isinstance(child_index, int)
+        or child_index < 0
+    ):
+        raise ValueError("source traversal pending state is invalid")
+    return position, processed, child_index
+
+
 def _record_step(
     session: dict[str, object],
     step: SourceTraversalStep,
@@ -676,6 +847,12 @@ def _record_step(
             examined[source] = int(examined[source]) + 1
     for source in step.unavailable_sources:
         _record_unavailable(session, source, "source_unavailable")
+    gaps = session["gaps"]
+    if not isinstance(gaps, list) or not all(
+        isinstance(gap, CoverageGap) for gap in step.gaps
+    ):
+        raise ValueError("source traversal state is invalid")
+    gaps.extend(step.gaps)
 
 
 def _record_unavailable(
@@ -707,12 +884,24 @@ def _sources(session: dict[str, object]) -> tuple[SourceOutcome, ...]:
     )
 
 
-def _coverage(sources: tuple[SourceOutcome, ...]) -> Coverage:
+def _gaps(session: dict[str, object]) -> tuple[CoverageGap, ...]:
+    gaps = session.get("gaps")
+    if not isinstance(gaps, list) or not all(
+        isinstance(gap, CoverageGap) for gap in gaps
+    ):
+        raise ValueError("source traversal state is invalid")
+    return tuple(gaps)
+
+
+def _coverage(
+    sources: tuple[SourceOutcome, ...],
+    gaps: tuple[CoverageGap, ...],
+) -> Coverage:
     if not any(source.available for source in sources):
         return "UNAVAILABLE"
     if any(not source.available for source in sources):
         return "PARTIAL"
-    return "COMPLETE"
+    return coverage_from_gaps(gaps)
 
 
 def _matches(

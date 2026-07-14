@@ -109,6 +109,7 @@ from qwenpaw.browser.sdk.runtime.snapshot import (
 from ..action_runtime.handlers.protocol import (
     _issue_trusted_command_envelope,
 )
+from ..action_runtime.source_traversal import invalidate_source_traversals
 
 BACKEND_ID = "user.chrome_extension"
 PROVIDER_FINGERPRINT = "provider-v1"
@@ -2244,6 +2245,7 @@ class ChromeExtensionBrowserSession:
         started = perf_counter()
         tab_id_int = int(tab_id)
         try:
+            invalidate_source_traversals(self._state, tab_id=tab_id_int)
             await self._hide_banner_best_effort(tab_id_int)
             await self.bridge.request(
                 "tab.detach",
