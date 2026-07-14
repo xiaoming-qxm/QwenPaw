@@ -130,6 +130,7 @@ test = [
 ]
 dev = [
     "pre-commit>=4.2.0",
+    "types-pyyaml>=6.0",
 ]
 local = [
     "huggingface_hub>=0.20.0",
