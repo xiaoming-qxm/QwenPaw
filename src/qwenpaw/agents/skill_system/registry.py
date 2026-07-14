@@ -863,7 +863,9 @@ def migrate_pool_builtin_language_fields() -> bool:
     )
 
 
-def ensure_skill_pool_initialized() -> bool:
+def ensure_skill_pool_initialized(
+    workspace_dir: Path | None = None,
+) -> bool:
     """Ensure the local skill pool exists and built-ins are synced into it."""
     pool_dir = get_skill_pool_dir()
     created = False
@@ -880,11 +882,16 @@ def ensure_skill_pool_initialized() -> bool:
         import_builtin_skills()
     else:
         migrate_pool_builtin_language_fields()
-        return _migrate_canonical_browser_skill_contract()
+        return _migrate_canonical_browser_skill_contract(
+            workspace_dir=workspace_dir,
+        )
     return created
 
 
-def _migrate_canonical_browser_skill_contract() -> bool:
+def _migrate_canonical_browser_skill_contract(
+    *,
+    workspace_dir: Path | None,
+) -> bool:
     """Refresh the one stale Browser instruction contract released in v12/v15.
 
     Builtins otherwise follow the normal review-driven update workflow. This
@@ -918,6 +925,21 @@ def _migrate_canonical_browser_skill_contract() -> bool:
         {},
     ).get(current_version)
     if target_version != variant.version_text:
+        target_versions = {
+            version
+            for versions in _CANONICAL_BROWSER_CONTRACT_MIGRATIONS.values()
+            for version in versions.values()
+        }
+        if (
+            current_version == variant.version_text
+            and variant.version_text in target_versions
+        ):
+            return bool(
+                _migrate_canonical_browser_workspace_copies(
+                    language=language,
+                    workspace_dir=workspace_dir,
+                ),
+            )
         return False
 
     try:
@@ -936,6 +958,7 @@ def _migrate_canonical_browser_skill_contract() -> bool:
 
     migrated_workspaces = _migrate_canonical_browser_workspace_copies(
         language=language,
+        workspace_dir=workspace_dir,
     )
     logger.info(
         "Migrated Browser skill contract from %s to %s in %d workspace(s)",
@@ -949,6 +972,7 @@ def _migrate_canonical_browser_skill_contract() -> bool:
 def _migrate_canonical_browser_workspace_copies(
     *,
     language: str,
+    workspace_dir: Path | None,
 ) -> int:
     """Replace stale builtin Browser copies without relying on auto-update."""
     source_dir = safe_skill_dir(
@@ -963,8 +987,22 @@ def _migrate_canonical_browser_workspace_copies(
         for versions in _CANONICAL_BROWSER_CONTRACT_MIGRATIONS.values()
         for version in versions
     }
+    workspaces = list_workspaces()
+    if workspace_dir is not None:
+        explicit_workspace_dir = Path(workspace_dir).expanduser()
+        explicit_key = str(explicit_workspace_dir.resolve())
+        listed = {
+            str(Path(item["workspace_dir"]).expanduser().resolve())
+            for item in workspaces
+            if item.get("workspace_dir")
+        }
+        if explicit_key not in listed:
+            workspaces.append(
+                {"workspace_dir": str(explicit_workspace_dir)},
+            )
+
     migrated = 0
-    for workspace in list_workspaces():
+    for workspace in workspaces:
         raw_workspace_dir = workspace.get("workspace_dir")
         if not raw_workspace_dir:
             continue

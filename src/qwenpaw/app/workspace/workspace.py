@@ -489,7 +489,7 @@ class Workspace:
         )
 
         try:
-            ensure_skill_pool_initialized()
+            ensure_skill_pool_initialized(self.workspace_dir)
         except Exception as e:
             logger.warning(
                 f"Skill pool initialization failed (non-fatal): {e}",
