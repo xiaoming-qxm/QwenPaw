@@ -24,7 +24,7 @@ from qwenpaw.browser.runtime.result_delivery import (
 )
 
 
-user_backend = import_module("plugins.bundle.browser-bridge.backend.user")
+user_backend = import_module("plugins.bundle.chrome.backend.user")
 
 
 def test_synchronize_required_cases_and_current_build_evidence_exist() -> None:

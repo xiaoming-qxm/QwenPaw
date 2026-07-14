@@ -10,7 +10,7 @@ describe("buildCommandSuggestions", () => {
         expect.objectContaining({
           command: "/browser",
           value: "browser ",
-          description: "chat.commands.browserBridge.description",
+          description: "chat.commands.chrome.description",
         }),
       ]),
     );

@@ -54,13 +54,13 @@ def test_user_chrome_visual_grounding_and_action_truth(
 
 def test_user_chrome_visual_path_uses_native_hit_geometry_and_input() -> None:
     targets = Path(
-        "plugins/bundle/browser-bridge/action_runtime/targets.py",
+        "plugins/bundle/chrome/action_runtime/targets.py",
     ).read_text(encoding="utf-8")
     interactions = Path(
-        "plugins/bundle/browser-bridge/action_runtime/interactions.py",
+        "plugins/bundle/chrome/action_runtime/interactions.py",
     ).read_text(encoding="utf-8")
     user = Path(
-        "plugins/bundle/browser-bridge/backend/user.py",
+        "plugins/bundle/chrome/backend/user.py",
     ).read_text(encoding="utf-8")
     sources = "\n".join((targets, interactions, user))
 

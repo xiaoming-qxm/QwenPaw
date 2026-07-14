@@ -6,13 +6,13 @@ import { renderWithProviders } from "@/test/common_setup";
 import enMessages from "@/locales/en.json";
 import zhMessages from "@/locales/zh.json";
 import {
-  BrowserBridgeReadiness,
-  type BrowserBridgeReadinessStatus,
-} from "./browserBridgeReadiness";
+  ChromeReadiness,
+  type ChromeReadinessStatus,
+} from "./chromeReadiness";
 
 function status(
-  overrides: Partial<BrowserBridgeReadinessStatus> = {},
-): BrowserBridgeReadinessStatus {
+  overrides: Partial<ChromeReadinessStatus> = {},
+): ChromeReadinessStatus {
   return {
     installed: true,
     connected: false,
@@ -61,9 +61,9 @@ function status(
           browser_context: "user",
           available: false,
           status: "unavailable",
-          code: "browser_bridge_disconnected",
-          message: "Browser bridge is not connected.",
-          hint_key: "browser_bridge_disconnected",
+          code: "chrome_disconnected",
+          message: "Chrome is not connected.",
+          hint_key: "chrome_disconnected",
           message_fallback:
             "Reload the extension or reopen the target browser tab.",
           features: ["snapshot", "click"],
@@ -76,15 +76,15 @@ function status(
 }
 
 function renderReadiness(
-  nextStatus: BrowserBridgeReadinessStatus | null,
-  overrides: Partial<ComponentProps<typeof BrowserBridgeReadiness>> = {},
+  nextStatus: ChromeReadinessStatus | null,
+  overrides: Partial<ComponentProps<typeof ChromeReadiness>> = {},
 ) {
   const onRefresh = vi.fn();
   const onRunSelfTest = vi.fn();
   const onOpenChrome = vi.fn();
   const onCopyDiagnostics = vi.fn();
   renderWithProviders(
-    <BrowserBridgeReadiness
+    <ChromeReadiness
       loading={false}
       onCopyDiagnostics={onCopyDiagnostics}
       onOpenChrome={onOpenChrome}
@@ -102,7 +102,7 @@ function renderReadiness(
   };
 }
 
-describe("BrowserBridgeReadiness", () => {
+describe("ChromeReadiness", () => {
   it("ships English and Chinese product explanation copy", () => {
     const keys = [
       "connected",
@@ -118,7 +118,7 @@ describe("BrowserBridgeReadiness", () => {
     ];
 
     for (const messages of [enMessages, zhMessages]) {
-      const explain = messages.browserBridge.explain as Record<string, string>;
+      const explain = messages.chrome.explain as Record<string, string>;
       for (const key of keys) {
         expect(explain[key]).toEqual(expect.any(String));
         expect(explain[key].length).toBeGreaterThan(0);
@@ -158,7 +158,7 @@ describe("BrowserBridgeReadiness", () => {
 
   it("renders waiting and disconnected repair states", () => {
     const { rerender } = renderWithProviders(
-      <BrowserBridgeReadiness
+      <ChromeReadiness
         loading={false}
         onCopyDiagnostics={vi.fn()}
         onOpenChrome={vi.fn()}
@@ -170,10 +170,10 @@ describe("BrowserBridgeReadiness", () => {
 
     expect(screen.getByText("Waiting for Chrome")).toBeInTheDocument();
     expect(screen.getByText("Reload extension")).toBeInTheDocument();
-    expect(screen.getByText("browser_bridge_disconnected")).toBeInTheDocument();
+    expect(screen.getByText("chrome_disconnected")).toBeInTheDocument();
 
     rerender(
-      <BrowserBridgeReadiness
+      <ChromeReadiness
         loading={false}
         onCopyDiagnostics={vi.fn()}
         onOpenChrome={vi.fn()}

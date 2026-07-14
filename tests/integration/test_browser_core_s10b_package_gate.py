@@ -32,7 +32,7 @@ _RETIRED_ROOT_TOKENS = (
     "_control_current_snapshot_ref",
     "ContractMode.LEGACY",
 )
-_BRIDGE_ROOT = "qwenpaw/_plugins/bundle/browser-bridge/"
+_BRIDGE_ROOT = "qwenpaw/_plugins/bundle/chrome/"
 _REQUIRED_BRIDGE_PATHS = {
     _BRIDGE_ROOT + "plugin.json",
     _BRIDGE_ROOT + "main.py",
@@ -43,7 +43,7 @@ _REQUIRED_BRIDGE_PATHS = {
     _BRIDGE_ROOT + "action_runtime/snapshot_builder.py",
     _BRIDGE_ROOT + "action_runtime/targets.py",
     _BRIDGE_ROOT
-    + "assets/extensions/qwenpaw-browser-bridge/service_worker.js",
+    + "assets/extensions/chrome/service_worker.js",
 }
 
 
@@ -138,8 +138,8 @@ assert config.browser_contract_rollout.default == "CANONICAL"
 assert not hasattr(config, "browser_legacy_admission")
 plugin_dir = _bundled_plugins_dir().resolve()
 assert plugin_dir.is_relative_to(installed_dir)
-assert (plugin_dir / "browser-bridge" / "plugin.json").is_file()
-assert (plugin_dir / "browser-bridge" / "api" / "routes.py").is_file()
+assert (plugin_dir / "chrome" / "plugin.json").is_file()
+assert (plugin_dir / "chrome" / "api" / "routes.py").is_file()
 
 async def load_bridge():
     PluginStateStore().set_enabled("chrome", True)
