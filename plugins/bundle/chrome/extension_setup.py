@@ -88,9 +88,9 @@ def _extension_source_dir() -> Path:
     plugin_root = _plugin_root()
     return _first_existing_path(
         [
-            plugin_root / "assets" / "extensions" / "qwenpaw-chrome",
+            plugin_root / "assets" / "extensions" / "chrome",
         ],
-        "Browser bridge extension assets",
+        "Chrome extension assets",
     )
 
 

@@ -67,7 +67,7 @@ BRIDGE_SYMBOL_PATHS = (
     "plugins/bundle/chrome/backend/user.py",
     "plugins/bundle/chrome/engine_impl.py",
     "plugins/bundle/chrome/transport/native_messaging.py",
-    "plugins/bundle/chrome/assets/extensions/qwenpaw-chrome/service_worker.js",
+    "plugins/bundle/chrome/assets/extensions/chrome/service_worker.js",
 )
 _BRIDGE_SYMBOL_ROOTS = (
     (

@@ -61,7 +61,7 @@ EXTENSION_MANIFEST_PATH = (
     PLUGIN_ROOT
     / "assets"
     / "extensions"
-    / "qwenpaw-chrome"
+    / "chrome"
     / "manifest.json"
 )
 

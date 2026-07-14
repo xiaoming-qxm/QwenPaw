@@ -395,7 +395,7 @@ BROWSER_PRODUCT_CAPABILITIES: tuple[BrowserProductCapability, ...] = (
                 "plugins/bundle/chrome/action_runtime/handlers/"
                 "capabilities.py:DownloadHandler",
                 "plugins/bundle/chrome/assets/extensions/"
-                "qwenpaw-chrome/service_worker.js:download.read",
+                "chrome/service_worker.js:download.read",
             ),
             backend_symbols=(
                 "handler:download",

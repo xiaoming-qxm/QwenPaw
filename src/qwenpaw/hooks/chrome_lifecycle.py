@@ -22,9 +22,9 @@ from ..runtime.phases import Phase
 
 logger = logging.getLogger(__name__)
 
-BROWSER_BRIDGE_CLEANUP_EXTRA = "chrome_cleanup"
-BROWSER_BRIDGE_CLEANUP_ERROR_EXTRA = "chrome_cleanup_error"
-BROWSER_BRIDGE_KERNEL_CLEANUP_EXTRA = "chrome_kernel_cleanup"
+CHROME_CLEANUP_EXTRA = "chrome_cleanup"
+CHROME_CLEANUP_ERROR_EXTRA = "chrome_cleanup_error"
+CHROME_KERNEL_CLEANUP_EXTRA = "chrome_kernel_cleanup"
 
 
 class ChromeLifecycleCleanupHook(LifecycleHook):
@@ -70,10 +70,10 @@ class ChromeLifecycleCleanupHook(LifecycleHook):
                 cleanup_reason=cleanup_reason,
                 preserve_owned_tabs=preserve_owned_tabs,
             )
-            ctx.extras[BROWSER_BRIDGE_CLEANUP_EXTRA] = dict(result or {})
+            ctx.extras[CHROME_CLEANUP_EXTRA] = dict(result or {})
             cleanup_errors = int((result or {}).get("cleanup_errors", 0))
             if cleanup_errors:
-                ctx.extras[BROWSER_BRIDGE_CLEANUP_ERROR_EXTRA] = {
+                ctx.extras[CHROME_CLEANUP_ERROR_EXTRA] = {
                     "cleanup_errors": cleanup_errors,
                     "error_code": "browser_cleanup_failed",
                 }
@@ -87,7 +87,7 @@ class ChromeLifecycleCleanupHook(LifecycleHook):
                 released_borrowed_tabs=0,
                 error_code="browser_cleanup_failed",
             )
-            ctx.extras[BROWSER_BRIDGE_CLEANUP_ERROR_EXTRA] = {
+            ctx.extras[CHROME_CLEANUP_ERROR_EXTRA] = {
                 "error_type": type(exc).__name__,
                 "message": str(exc),
             }
@@ -135,7 +135,7 @@ class ChromeLifecycleCleanupHook(LifecycleHook):
                 ),
             )
         ctx.extras[
-            BROWSER_BRIDGE_KERNEL_CLEANUP_EXTRA
+            CHROME_KERNEL_CLEANUP_EXTRA
         ] = await cleanup_browser_kernels_for_lifecycle(
             session_id=session_id,
             root_session_id=root_session_id,
@@ -457,9 +457,9 @@ def _duration_ms(started: float) -> float:
 
 
 __all__ = [
-    "BROWSER_BRIDGE_CLEANUP_ERROR_EXTRA",
-    "BROWSER_BRIDGE_CLEANUP_EXTRA",
-    "BROWSER_BRIDGE_KERNEL_CLEANUP_EXTRA",
+    "CHROME_CLEANUP_ERROR_EXTRA",
+    "CHROME_CLEANUP_EXTRA",
+    "CHROME_KERNEL_CLEANUP_EXTRA",
     "ChromeLifecycleCleanupHook",
     "cleanup_chrome_request_resources",
 ]

@@ -19,7 +19,7 @@ The main process remains responsible for:
 - Browser trace and progress metadata.
 - Recovery classification and runtime outcome metadata.
 - Backend registry selection.
-- Browser bridge and Chrome extension runtime ownership.
+- Chrome extension runtime ownership.
 
 ## Reused V10 Contract
 

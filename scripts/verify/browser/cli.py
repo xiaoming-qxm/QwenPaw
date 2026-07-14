@@ -133,13 +133,13 @@ FORBIDDEN_TOOLS = (
     _join_removed_tool_token("Remote", "Bridge"),
     _join_removed_tool_token("/ws/", "browser-sdk"),
 )
-BROWSER_BRIDGE_ENTROPY_LEGACY_TOKENS = (
+CHROME_ENTROPY_LEGACY_TOKENS = (
     _join_removed_tool_token("browser", "_use"),
     _join_removed_tool_token("Desktop", "Screenshot"),
     _join_removed_tool_token("Desktop", "ScreenShot"),
     _join_removed_tool_token("View", "Video"),
 )
-BROWSER_BRIDGE_ENTROPY_SITE_TOKENS = (
+CHROME_ENTROPY_SITE_TOKENS = (
     "Taobao",
     "淘宝",
     "Loop Engineering",
@@ -148,14 +148,14 @@ BROWSER_BRIDGE_ENTROPY_SITE_TOKENS = (
     "tmall",
     "amazon",
 )
-BROWSER_BRIDGE_ENTROPY_ALLOWED_SCENARIO_PATHS = (
+CHROME_ENTROPY_ALLOWED_SCENARIO_PATHS = (
     "scripts/verify/browser/cli.py",
     "scripts/verify/browser/truth_audit.py",
 )
-BROWSER_BRIDGE_ENTROPY_EXCLUDED_PATHS = (
+CHROME_ENTROPY_EXCLUDED_PATHS = (
     "scripts/verify/browser/product_matrix.py",
 )
-BROWSER_BRIDGE_ENTROPY_GENERIC_COMMERCE_PATHS = (
+CHROME_ENTROPY_GENERIC_COMMERCE_PATHS = (
     "plugins/bundle/chrome/action_runtime/snapshot_builder.py",
     "plugins/bundle/chrome/action_runtime/targets.py",
 )
@@ -510,7 +510,7 @@ def _chrome_entropy_scan_paths(root: Path) -> tuple[Path, ...]:
     skill_root = plugin_root / "skills/chrome"
     if skill_root.exists():
         candidates.extend(sorted(skill_root.glob("*.md")))
-    excluded = set(BROWSER_BRIDGE_ENTROPY_EXCLUDED_PATHS)
+    excluded = set(CHROME_ENTROPY_EXCLUDED_PATHS)
     return tuple(
         path
         for path in candidates
@@ -522,10 +522,10 @@ def _chrome_entropy_violations_for_text(
     relative_path: str,
     text: str,
 ) -> list[dict[str, str]]:
-    if relative_path in BROWSER_BRIDGE_ENTROPY_ALLOWED_SCENARIO_PATHS:
+    if relative_path in CHROME_ENTROPY_ALLOWED_SCENARIO_PATHS:
         return []
     violations: list[dict[str, str]] = []
-    for token in BROWSER_BRIDGE_ENTROPY_LEGACY_TOKENS:
+    for token in CHROME_ENTROPY_LEGACY_TOKENS:
         if _legacy_entropy_token_present(text, token):
             violations.append(
                 _entropy_violation(
@@ -534,7 +534,7 @@ def _chrome_entropy_violations_for_text(
                     "legacy_tool",
                 ),
             )
-    for token in BROWSER_BRIDGE_ENTROPY_SITE_TOKENS:
+    for token in CHROME_ENTROPY_SITE_TOKENS:
         if _site_entropy_token_allowed(relative_path, token):
             continue
         if _entropy_token_present(text, token):
@@ -561,7 +561,7 @@ def _legacy_entropy_token_present(text: str, token: str) -> bool:
 
 def _site_entropy_token_allowed(relative_path: str, token: str) -> bool:
     return (
-        relative_path in BROWSER_BRIDGE_ENTROPY_GENERIC_COMMERCE_PATHS
+        relative_path in CHROME_ENTROPY_GENERIC_COMMERCE_PATHS
         and token in {"shopping cart", "购物车"}
     )
 
@@ -7380,7 +7380,7 @@ def _local_plugin_fingerprint() -> str:
             plugin_root
             / "assets"
             / "extensions"
-            / "qwenpaw-chrome"
+            / "chrome"
             / "manifest.json",
             plugin_root / "api" / "routes.py",
         ],
