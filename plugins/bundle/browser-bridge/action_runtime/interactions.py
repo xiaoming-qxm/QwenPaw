@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import Awaitable, Callable, Mapping
 from time import monotonic
@@ -73,6 +74,17 @@ _CANONICAL_FORBIDDEN_TARGET_KEYS = {
     "backendNodeId",
     "nodeId",
 }
+
+
+async def _bring_tab_to_front_for_native_input(session: Any) -> None:
+    """Use the existing CDP relay to foreground the controlled page."""
+    try:
+        await session.send("Page.bringToFront")
+    except Exception as exc:
+        raise BrowserSDKError(
+            "Cannot foreground the controlled tab for native input",
+            code="native_input_activation_failed",
+        ) from exc
 
 
 async def _canonical_execute_interaction(
@@ -481,6 +493,7 @@ async def canonical_native_interaction_control(
         prepared: tuple[dict[str, object], ...],
         arguments: dict[str, object],
     ) -> object:
+        await _bring_tab_to_front_for_native_input(session)
         points: list[tuple[float, float]] = []
         bindings: list[dict[str, Any]] = []
         for item in prepared:
@@ -514,13 +527,20 @@ async def canonical_native_interaction_control(
                         code="target_stale",
                     )
                 binding["use_state"] = "CONSUMED"
-        await _dispatch_canonical_pointer(
+        native_receipt = await _dispatch_canonical_pointer(
             session,
             action=action,
             points=tuple(points),
             arguments=arguments,
         )
-        return {"tab_id": tab_id}
+        return {
+            "tab_id": tab_id,
+            **(
+                native_receipt
+                if isinstance(native_receipt, Mapping)
+                else {}
+            ),
+        }
 
     result = await _canonical_execute_interaction(
         state,
@@ -538,7 +558,13 @@ async def _dispatch_canonical_pointer(
     action: str,
     points: tuple[tuple[float, float], ...],
     arguments: dict[str, object],
-) -> None:
+) -> dict[str, object] | None:
+    if action == "scroll":
+        return await _dispatch_canonical_scroll(
+            session,
+            points=points,
+            arguments=arguments,
+        )
     if action == "hover" and len(points) == 1:
         await session.send(
             "Input.dispatchMouseEvent",
@@ -549,7 +575,7 @@ async def _dispatch_canonical_pointer(
                 "button": "none",
             },
         )
-        return
+        return None
     if action == "drag" and len(points) == 2:
         source, destination = points
         await session.send(
@@ -582,7 +608,7 @@ async def _dispatch_canonical_pointer(
                 "clickCount": 1,
             },
         )
-        return
+        return None
     if action != "click" or len(points) != 1:
         raise BrowserSDKError(
             "Canonical pointer action shape is invalid",
@@ -613,6 +639,124 @@ async def _dispatch_canonical_pointer(
                 "modifiers": modifiers,
             },
         )
+    return None
+
+
+async def _dispatch_canonical_scroll(
+    session: Any,
+    *,
+    points: tuple[tuple[float, float], ...],
+    arguments: dict[str, object],
+) -> dict[str, object]:
+    """Inject one wheel event and return its native viewport receipt."""
+    if len(points) > 1:
+        raise BrowserSDKError(
+            "Canonical scroll accepts at most one target",
+            code="interaction_action_invalid",
+        )
+    direction = str(arguments.get("direction") or "down")
+    amount = str(arguments.get("amount") or "page")
+    if direction not in {"up", "down", "left", "right"}:
+        raise BrowserSDKError(
+            "Canonical scroll direction is invalid",
+            code="interaction_action_invalid",
+        )
+    if amount not in {"line", "page", "start", "end"}:
+        raise BrowserSDKError(
+            "Canonical scroll amount is invalid",
+            code="interaction_action_invalid",
+        )
+    before = await _canonical_scroll_position(session)
+    if amount == "line":
+        magnitude = 120.0
+    elif amount == "page":
+        magnitude = 640.0
+    else:
+        magnitude = 1_000_000.0
+    sign = -1.0 if direction in {"up", "left"} else 1.0
+    delta_x = sign * magnitude if direction in {"left", "right"} else 0.0
+    delta_y = sign * magnitude if direction in {"up", "down"} else 0.0
+    x, y = (
+        points[0]
+        if points
+        else await _canonical_scroll_viewport_center(session)
+    )
+    await session.send(
+        "Input.dispatchMouseEvent",
+        {
+            "type": "mouseWheel",
+            "x": x,
+            "y": y,
+            "deltaX": delta_x,
+            "deltaY": delta_y,
+        },
+    )
+    await asyncio.sleep(0)
+    after = await _canonical_scroll_position(session)
+    return {
+        "scroll_receipt": {
+            "before": before,
+            "after": after,
+            "moved": before != after,
+        },
+    }
+
+
+async def _canonical_scroll_viewport_center(
+    session: Any,
+) -> tuple[float, float]:
+    """Choose a neutral viewport point when scroll has no bound target."""
+    payload = await session.send("Page.getLayoutMetrics")
+    if not isinstance(payload, Mapping):
+        return (1.0, 1.0)
+    for key in ("cssVisualViewport", "visualViewport"):
+        viewport = payload.get(key)
+        if not isinstance(viewport, Mapping):
+            continue
+        width = viewport.get("clientWidth")
+        height = viewport.get("clientHeight")
+        if (
+            isinstance(width, (int, float))
+            and isinstance(height, (int, float))
+            and width > 0
+            and height > 0
+        ):
+            return (float(width) / 2.0, float(height) / 2.0)
+    return (1.0, 1.0)
+
+
+async def _canonical_scroll_position(
+    session: Any,
+) -> tuple[float, float]:
+    """Read the current scroll from trusted layout metrics, not page script."""
+    payload = await session.send("Page.getLayoutMetrics")
+    if not isinstance(payload, Mapping):
+        raise BrowserSDKError(
+            "Canonical scroll receipt is unavailable",
+            code="scroll_receipt_unavailable",
+        )
+    for key in (
+        "cssVisualViewport",
+        "visualViewport",
+        "cssLayoutViewport",
+        "layoutViewport",
+    ):
+        viewport = payload.get(key)
+        if not isinstance(viewport, Mapping):
+            continue
+        x = viewport.get("pageX")
+        y = viewport.get("pageY")
+        if (
+            isinstance(x, (int, float))
+            and not isinstance(x, bool)
+            and isinstance(y, (int, float))
+            and not isinstance(y, bool)
+        ):
+            return float(x), float(y)
+    raise BrowserSDKError(
+        "Canonical scroll receipt is unavailable",
+        code="scroll_receipt_unavailable",
+    )
 
 
 def _canonical_modifier_mask(raw: object) -> int:

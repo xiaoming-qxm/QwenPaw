@@ -189,6 +189,12 @@ class QwenPawBrowserApprovalPolicy:
         """Request one uncached exact Canonical Browser approval."""
         if not isinstance(preview, ActionPreview):
             raise TypeError("preview must be an ActionPreview")
+        if _current_approval_level_resolution().level == ToolExecutionLevel.OFF:
+            return BrowserExactApprovalResolution(
+                pending=None,
+                decision=ApprovalDecision.APPROVED,
+                grant=issue_exact_grant(preview, now=self._grant_clock()),
+            )
         context = _canonical_approval_context(preview)
         payload = _canonical_preview_payload(preview)
         summary = ApprovalRequestSummary(

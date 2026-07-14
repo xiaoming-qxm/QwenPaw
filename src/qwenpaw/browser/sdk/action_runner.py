@@ -975,6 +975,40 @@ class ActionRunner:
                     approval_grant = candidate_grant
             if approval_grant is None:
                 return _blocked_run_result(preflight, contract)
+        if contract.api_id == "browser.tabs.open":
+            if preflight.preview is None or dispatcher is None:
+                return _blocked_run_result(preflight, contract)
+            return await self._run_tab_create_attempt(
+                preflight=preflight,
+                binding=binding,
+                contract=contract,
+                arguments=arguments,
+                approval_grant=approval_grant,
+                dispatcher=dispatcher,
+            )
+        if (
+            contract.api_id == "tab.actions.scroll"
+            and expectation is None
+        ):
+            if (
+                preflight.preview is None
+                or dispatcher is None
+                or preflight.decision
+                not in {
+                    PreflightDecision.READY,
+                    PreflightDecision.EXACT_APPROVAL,
+                }
+            ):
+                return _blocked_run_result(preflight, contract)
+            return await self._run_receipted_scroll_attempt(
+                preflight=preflight,
+                binding=binding,
+                contract=contract,
+                ordered_targets=ordered_targets,
+                arguments=arguments,
+                approval_grant=approval_grant,
+                dispatcher=dispatcher,
+            )
         if (
             preflight.preview is not None
             and expectation is not None
@@ -1004,6 +1038,202 @@ class ActionRunner:
                 receipt_status_query=receipt_status_query,
             )
         return _blocked_run_result(preflight, contract)
+
+    async def _run_tab_create_attempt(
+        self,
+        *,
+        preflight: ActionPreflight,
+        binding: BrowserRequestBinding,
+        contract: BrowserAPIContract,
+        arguments: Mapping[str, object],
+        approval_grant: ApprovalGrant | None,
+        dispatcher: Callable[..., Awaitable[object]],
+    ) -> ActionResult:
+        """Create one owner-bound tab without requiring a prior receiver."""
+        preview = preflight.preview
+        assert preview is not None
+        pending = PendingActionStore(
+            registry=self._registry,
+            binding=binding,
+        ).create(
+            logical_api=contract.api_id,
+            ordered_target_bindings=preview.ordered_targets,
+            critical_arguments=preview._critical_arguments,
+            state_binding_digest=preview.state_binding_digest,
+            expectation_digest=preview.expectation_digest,
+            classified_effects=preview.effects,
+            receiver_tab_ref=preview.tab_ref or "",
+            context_ref=preview.state_revision,
+            operation_id=preview.operation_id,
+            operation_fingerprint=preview.operation_fingerprint,
+        )
+        dispatch_grant = approval_grant or issue_exact_grant(
+            preview,
+            now=self._clock(),
+        )
+        command_payload: dict[str, object] = {
+            "arguments": dict(arguments),
+            "root_task_id": binding.root_task_id,
+            "browser_owner_id": binding.browser_owner_id,
+            "session_id": binding.root_session_id,
+            "owner_lease_generation": binding.lease_generation,
+            "binding_hash": preview.binding_hash,
+            "approval_grant_id": dispatch_grant.grant_id,
+        }
+        command = pending.issue_command_with_id(
+            f"browser-command-{secrets.token_urlsafe(24)}",
+            "INITIAL",
+            command_payload,
+        )
+        dispatch_context = preflight.dispatch_context(
+            dispatch_grant,
+            command=command,
+        )
+        await self._registry.consume_grant_for_dispatch(dispatch_context)
+        dispatch_fact = await dispatcher(
+            command=command,
+            dispatch_context=dispatch_context,
+        )
+        opened_tabs = _opened_tabs_from_dispatch(dispatch_fact)
+        if not opened_tabs:
+            self._registry.fence_uncertain_action(
+                binding,
+                pending.operation_id,
+            )
+            return ActionResult(
+                operation_id=pending.operation_id,
+                status="UNCERTAIN",
+                retry="RECONCILE_ONLY",
+                problem=Problem(
+                    code="tab_create_outcome_incomplete",
+                    phase="VERIFY",
+                    safe_message=(
+                        "Tab creation completed without a verified tab result."
+                    ),
+                ),
+                classified_effects=tuple(
+                    item.value for item in pending.classified_effects
+                ),
+                commands=(pending.command_facts[command.command_id],),
+                dispatch=dispatch_fact,
+            )
+        return ActionResult(
+            operation_id=pending.operation_id,
+            status="SUCCEEDED",
+            retry="NONE",
+            classified_effects=tuple(
+                item.value for item in pending.classified_effects
+            ),
+            commands=(pending.command_facts[command.command_id],),
+            dispatch=dispatch_fact,
+            opened_tabs=opened_tabs,
+        )
+
+    async def _run_receipted_scroll_attempt(
+        self,
+        *,
+        preflight: ActionPreflight,
+        binding: BrowserRequestBinding,
+        contract: BrowserAPIContract,
+        ordered_targets: tuple[tuple[str, TargetRef], ...],
+        arguments: Mapping[str, object],
+        approval_grant: ApprovalGrant | None,
+        dispatcher: Callable[..., Awaitable[object]],
+    ) -> ActionResult:
+        """Dispatch one low-risk scroll with a Bridge-native receipt."""
+        preview = preflight.preview
+        assert preview is not None
+        pending = PendingActionStore(
+            registry=self._registry,
+            binding=binding,
+        ).create(
+            logical_api=contract.api_id,
+            ordered_target_bindings=preview.ordered_targets,
+            critical_arguments=preview._critical_arguments,
+            state_binding_digest=preview.state_binding_digest,
+            expectation_digest=preview.expectation_digest,
+            classified_effects=preview.effects,
+            receiver_tab_ref=preview.tab_ref or "",
+            context_ref=preview.state_revision,
+            operation_id=preview.operation_id,
+            operation_fingerprint=preview.operation_fingerprint,
+        )
+        dispatch_grant = approval_grant or issue_exact_grant(
+            preview,
+            now=self._clock(),
+        )
+        command_payload: dict[str, object] = {
+            "arguments": dict(arguments),
+            "root_task_id": binding.root_task_id,
+            "browser_owner_id": binding.browser_owner_id,
+            "session_id": binding.root_session_id,
+            "owner_lease_generation": binding.lease_generation,
+            "binding_hash": preview.binding_hash,
+            "approval_grant_id": dispatch_grant.grant_id,
+        }
+        command = pending.issue_command_with_id(
+            f"browser-command-{secrets.token_urlsafe(24)}",
+            "INITIAL",
+            command_payload,
+        )
+        dispatch_context = preflight.dispatch_context(
+            dispatch_grant,
+            command=command,
+        )
+        await self._registry.consume_grant_for_dispatch(dispatch_context)
+        for _, target in ordered_targets:
+            self._registry.consume_single_use_target(
+                target,
+                receiver_tab=dispatch_context._receiver_tab_key,
+                owner=binding,
+            )
+        dispatch_fact = await dispatcher(
+            command=command,
+            dispatch_context=dispatch_context,
+        )
+        pending.command_facts[command.command_id] = replace(
+            pending.command_facts[command.command_id],
+            observed_state="COMPLETED",
+        )
+        if _scroll_dispatch_succeeded(dispatch_fact):
+            return project_action_truth(
+                operation_id=pending.operation_id,
+                classified_effects=pending.classified_effects,
+                commands=(pending.command_facts[command.command_id],),
+                dispatch=DispatchFact.SENT,
+                commit=FactOutcome.OBSERVED,
+                effect_facts=tuple(
+                    EffectFact(category, FactOutcome.OBSERVED)
+                    for category in pending.classified_effects
+                ),
+                postcondition=PostconditionFact.PASSED,
+            )
+        if _scroll_dispatch_rejected(dispatch_fact):
+            return project_action_truth(
+                operation_id=pending.operation_id,
+                classified_effects=pending.classified_effects,
+                commands=(pending.command_facts[command.command_id],),
+                dispatch=DispatchFact.SENT,
+                commit=FactOutcome.NOT_COMMITTED,
+                effect_facts=tuple(
+                    EffectFact(category, FactOutcome.NOT_OBSERVED)
+                    for category in pending.classified_effects
+                ),
+                postcondition=PostconditionFact.FAILED,
+            )
+        self._registry.fence_uncertain_action(binding, pending.operation_id)
+        return project_action_truth(
+            operation_id=pending.operation_id,
+            classified_effects=pending.classified_effects,
+            commands=(pending.command_facts[command.command_id],),
+            dispatch=DispatchFact.SENT,
+            commit=FactOutcome.UNKNOWN,
+            effect_facts=tuple(
+                EffectFact(category, FactOutcome.UNKNOWN)
+                for category in pending.classified_effects
+            ),
+            postcondition=PostconditionFact.UNKNOWN,
+        )
 
     async def _run_armed_attempt(
         self,
@@ -1536,6 +1766,53 @@ def _upload_outcome_from_dispatch(value: object) -> UploadOutcome | None:
         items=closed,
         aggregate=_classify_upload_outcome(closed),
     )
+
+
+def _opened_tabs_from_dispatch(value: object) -> tuple[TabSummary, ...]:
+    """Accept only dispatcher-returned owner-bound tab summaries."""
+    if not isinstance(value, Mapping):
+        return ()
+    raw_tabs = value.get("opened_tabs")
+    if not isinstance(raw_tabs, (tuple, list)):
+        return ()
+    opened = tuple(raw_tabs)
+    if not opened or not all(isinstance(tab, TabSummary) for tab in opened):
+        return ()
+    return cast(tuple[TabSummary, ...], opened)
+
+
+def _scroll_dispatch_succeeded(value: object) -> bool:
+    """Accept only a complete Bridge-native scroll receipt."""
+    if getattr(value, "ok", None) is not True:
+        return False
+    data = getattr(value, "data", None)
+    if not isinstance(data, Mapping):
+        return False
+    receipt = data.get("scroll_receipt")
+    if not isinstance(receipt, Mapping):
+        return False
+    before = receipt.get("before")
+    after = receipt.get("after")
+    moved = receipt.get("moved")
+    if (
+        not isinstance(before, (tuple, list))
+        or not isinstance(after, (tuple, list))
+        or len(before) != 2
+        or len(after) != 2
+        or not isinstance(moved, bool)
+    ):
+        return False
+    if any(
+        not isinstance(item, (int, float)) or isinstance(item, bool)
+        for item in (*before, *after)
+    ):
+        return False
+    return moved == (tuple(before) != tuple(after))
+
+
+def _scroll_dispatch_rejected(value: object) -> bool:
+    """Recognize an explicit backend rejection without guessing outcome."""
+    return getattr(value, "ok", None) is False
 
 
 async def _project_armed_terminal(

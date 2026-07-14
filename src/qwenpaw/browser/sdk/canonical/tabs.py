@@ -171,13 +171,18 @@ class TabActions:
                     code="download_dispatcher_missing",
                 )
             download_call = cast(Callable[..., Awaitable[object]], download)
-            command_payload = getattr(command, "_payload", None)
-            operation = _resource_operation_from_payload(command_payload)
+            raw_command_payload = getattr(command, "_payload", None)
+            operation = _resource_operation_from_payload(raw_command_payload)
             if getattr(command, "command_id", "") != operation.command_id:
                 raise BrowserSDKError(
                     "Canonical download command identity is invalid",
                     code="download_command_invalid",
                 )
+            command_payload = _command_arguments(
+                command,
+                code="download_command_invalid",
+                message="Canonical download command is invalid",
+            )
             capture = await _invoke_async(
                 download_call,
                 self._receiver_tab,
@@ -370,12 +375,11 @@ class TabActions:
                     "Canonical interaction dispatcher is unavailable",
                     code="interaction_dispatcher_missing",
                 )
-            command_payload = getattr(command, "_payload", None)
-            if not isinstance(command_payload, Mapping):
-                raise BrowserSDKError(
-                    "Canonical interaction command is invalid",
-                    code="interaction_command_invalid",
-                )
+            command_payload = _command_arguments(
+                command,
+                code="interaction_command_invalid",
+                message="Canonical interaction command is invalid",
+            )
             dispatch_call = cast(Callable[..., Awaitable[object]], dispatch)
             return await _invoke_async(
                 dispatch_call,
@@ -413,7 +417,36 @@ class TabActions:
             arguments={"direction": direction, "amount": amount},
             expectation=expect,
             timeout_ms=timeout_ms,
+            dispatcher=self._scroll_dispatcher(target),
         )
+
+    def _scroll_dispatcher(self, target: TargetRef | None) -> Dispatch:
+        async def dispatch_scroll(
+            *,
+            command: object,
+            dispatch_context: object,
+        ) -> object:
+            dispatch = getattr(self._session, "dispatch_scroll", None)
+            if not callable(dispatch):
+                raise BrowserSDKError(
+                    "Canonical scroll dispatcher is unavailable",
+                    code="scroll_dispatcher_missing",
+                )
+            command_payload = _command_arguments(
+                command,
+                code="scroll_command_invalid",
+                message="Canonical scroll command is invalid",
+            )
+            dispatch_call = cast(Callable[..., Awaitable[object]], dispatch)
+            return await _invoke_async(
+                dispatch_call,
+                self._receiver_tab,
+                target=target,
+                dispatch_context=dispatch_context,
+                command_payload=command_payload,
+            )
+
+        return dispatch_scroll
 
     async def fill(
         self,
@@ -597,12 +630,11 @@ class TabActions:
                     code="upload_dispatcher_missing",
                 )
             upload_call = cast(Callable[..., Awaitable[object]], upload)
-            command_payload = getattr(command, "_payload", None)
-            if not isinstance(command_payload, Mapping):
-                raise BrowserSDKError(
-                    "Canonical upload command payload is invalid",
-                    code="upload_command_invalid",
-                )
+            command_payload = _command_arguments(
+                command,
+                code="upload_command_invalid",
+                message="Canonical upload command payload is invalid",
+            )
             private_paths = self._resources.resolve_upload_paths(resources)
             return await _invoke_async(
                 upload_call,
@@ -679,12 +711,11 @@ class TabActions:
                     code="paste_dispatcher_missing",
                 )
             paste_call = cast(Callable[..., Awaitable[object]], paste)
-            command_payload = getattr(command, "_payload", None)
-            if not isinstance(command_payload, Mapping):
-                raise BrowserSDKError(
-                    "Canonical paste command payload is invalid",
-                    code="paste_command_invalid",
-                )
+            command_payload = _command_arguments(
+                command,
+                code="paste_command_invalid",
+                message="Canonical paste command payload is invalid",
+            )
             return await _invoke_async(
                 paste_call,
                 self._receiver_tab,
@@ -764,7 +795,9 @@ class TabActions:
                 else None
             ),
         )
-        return cast(ActionResult, result)
+        typed = cast(ActionResult, result)
+        record_browser_result(typed)
+        return typed
 
     def _require_target(self, target: TargetRef) -> None:
         if not isinstance(target, TargetRef):
@@ -823,6 +856,10 @@ class Tab:
     )
 
     def __post_init__(self) -> None:
+        self._refresh_actions()
+
+    def _refresh_actions(self) -> None:
+        """Bind actions to the latest owner-scoped observation state."""
         condition_receiver = None
         if self._observations is not None and self._resources is not None:
             condition_receiver = ConditionReceiver(
@@ -855,6 +892,23 @@ class Tab:
                 ),
             ),
         )
+
+    def _replace_observation_store(self, capture: SnapshotCapture) -> None:
+        if self._owner_binding is None:
+            raise _capability_blocked("tab.snapshot")
+        previous_generation = (
+            self._observations.generation
+            if self._observations is not None
+            else 0
+        )
+        self._observations = ObservationStore(
+            owner_key=self._owner_binding.owner_key,
+            root_session_id=self._owner_binding.root_session_id,
+            tab_id=self.id,
+            context=capture.context,
+            generation=previous_generation + 1,
+        )
+        self._refresh_actions()
 
     async def close(self) -> ActionResult:
         """Route explicit close through the sole ActionRunner."""
@@ -993,13 +1047,18 @@ class Tab:
                 Callable[..., Awaitable[object]],
                 capture_pdf,
             )
-            command_payload = getattr(command, "_payload", None)
-            operation = _resource_operation_from_payload(command_payload)
+            raw_command_payload = getattr(command, "_payload", None)
+            operation = _resource_operation_from_payload(raw_command_payload)
             if getattr(command, "command_id", "") != operation.command_id:
                 raise BrowserSDKError(
                     "Canonical page PDF command identity is invalid",
                     code="page_pdf_command_invalid",
                 )
+            command_payload = _command_arguments(
+                command,
+                code="page_pdf_command_invalid",
+                message="Canonical page PDF command is invalid",
+            )
             capture = await _invoke_async(
                 capture_pdf_call,
                 self.id,
@@ -1187,25 +1246,36 @@ class Tab:
         requested_scope = scope or CurrentSurface()
         if isinstance(requested_scope, VisualRegion):
             return await self._snapshot_visual_region(requested_scope)
-        if self._session is None or self._observations is None:
+        if self._session is None:
             raise _capability_blocked("tab.snapshot")
-        owner_chain = _scope_owner_chain(
-            self._observations,
-            requested_scope,
+        if self._observations is None and (
+            not isinstance(requested_scope, CurrentSurface)
+            or (query is not None and query.region is not None)
+        ):
+            raise _capability_blocked("tab.snapshot")
+        owner_chain = (
+            _scope_owner_chain(self._observations, requested_scope)
+            if self._observations is not None
+            else None
         )
         query_owner_chain = (
             _region_owner_chain(self._observations, query.region)
-            if query is not None and query.region is not None
+            if (
+                self._observations is not None
+                and query is not None
+                and query.region is not None
+            )
             else None
         )
         requested_limit, effective_limit, clamp_gap = _snapshot_limit(limit)
+        discovery_budget = 4096 if query is not None else 512
         capture = await self._session.capture_snapshot(
             self.id,
             scope=requested_scope,
             budget=ObservationBudget(
-                capture_nodes=512,
+                capture_nodes=discovery_budget,
                 output_targets=effective_limit,
-                hard_maximum=512,
+                hard_maximum=discovery_budget,
             ),
         )
         if not isinstance(capture, SnapshotCapture):
@@ -1213,6 +1283,8 @@ class Tab:
                 "Canonical snapshot producer returned invalid evidence.",
                 action="tab.snapshot",
             )
+        self._replace_observation_store(capture)
+        assert self._observations is not None
         candidates = tuple(capture.targets)
         if owner_chain is not None:
             candidates = tuple(
@@ -1267,6 +1339,7 @@ class Tab:
             )
             for summary in target_summaries
         )
+        self._refresh_actions()
         region_summaries = tuple(
             _region_summary(self._observations, region)
             for region in capture.regions
@@ -1373,9 +1446,9 @@ class Tab:
             self.id,
             scope=scope,
             budget=ObservationBudget(
-                capture_nodes=512,
-                output_targets=32,
-                hard_maximum=512,
+                capture_nodes=4096,
+                output_targets=4096,
+                hard_maximum=4096,
             ),
         )
         if not isinstance(capture, SnapshotCapture):
@@ -1449,7 +1522,18 @@ class Tab:
                 evidence=observation.ref,
                 observation=observation,
                 model_text=(
-                    f"grounding={grounding.value}; candidates={len(summaries)}"
+                    "\n".join(
+                        (
+                            f"grounding={grounding.value}; "
+                            f"candidates={len(summaries)}",
+                            _snapshot_model_text(
+                                status=status,
+                                coverage=coverage,
+                                gaps=gaps,
+                                targets=summaries,
+                            ),
+                        ),
+                    )
                 ),
                 targets=summaries,
                 regions=region_summaries,
@@ -1573,6 +1657,29 @@ class Tab:
         """Capture one exact non-mutating image variant and ingest bytes."""
         if self._session is None or self._resources is None:
             raise _capability_blocked("tab.screenshot")
+        if scope == "viewport" and self._observations is None:
+            result = ScreenshotResult(
+                operation_id=issue_operation_id(),
+                status="BLOCKED",
+                retry="AFTER_OBSERVATION",
+                problem=Problem(
+                    code="observation_required",
+                    phase="PREFLIGHT",
+                    safe_message=(
+                        "Capture a fresh snapshot of this exact tab before "
+                        "requesting a viewport screenshot."
+                    ),
+                ),
+                scope=scope,
+            )
+            record_browser_result(result)
+            return result
+        if scope == "viewport" and (
+            self._target_registry is None or self._owner_binding is None
+        ):
+            raise _capability_blocked(
+                "tab.screenshot.viewport.visual_context",
+            )
         captured = await self._session.screenshot_exact(self.id, scope=scope)
         if not isinstance(captured, ScreenshotCapture):
             raise BrowserSDKGap(
@@ -1595,20 +1702,30 @@ class Tab:
             )
             record_browser_result(result)
             return result
-        if scope == "viewport" and (
-            self._target_registry is None
-            or self._owner_binding is None
-            or self._observations is None
-        ):
-            raise _capability_blocked(
-                "tab.screenshot.viewport.visual_context",
-            )
         handle = await self._resources.ingest_output(
             TrustedOutputSource.from_bytes(captured.data),
             media_type=captured.media_type,
             name=captured.name,
             required_delivery=True,
         )
+        try:
+            await self._resources.promote_required((handle,))
+        except ResourceStoreError:
+            result = ScreenshotResult(
+                operation_id=issue_operation_id(),
+                status="FAILED",
+                retry="FORBIDDEN",
+                problem=Problem(
+                    code="artifact_promotion_failed",
+                    phase="TRANSPORT",
+                    safe_message=(
+                        "Required screenshot image promotion failed."
+                    ),
+                ),
+                scope=scope,
+            )
+            record_browser_result(result)
+            return result
         invariant_gap = None
         if not captured.invariant_unchanged:
             invariant_gap = CoverageGap(
@@ -1730,10 +1847,13 @@ class BrowserTabs:
         """Route create-and-navigate without changing selected Tab."""
         _require_safe_http_url(url)
         self._require_create_capacity()
-        return await self._run_mutation(
+        result = await self._run_mutation(
             "browser.tabs.open",
             arguments={"url": url},
+            dispatcher=self._open_dispatcher(url),
         )
+        record_browser_result(result)
+        return result
 
     async def new(self) -> ActionResult:
         """Route blank task-tab creation without implicit selection."""
@@ -1747,16 +1867,26 @@ class BrowserTabs:
                 "Canonical tab registry is unavailable",
                 code="browser_ownership_context_missing",
             )
-        return self._target_registry.list_tab_summaries(
+        summaries = self._target_registry.list_tab_summaries(
             self._owner_binding,
             max_visible_tabs=self._max_visible_tabs,
         )
+        record_browser_result(
+            ActionResult(
+                operation_id=issue_operation_id(),
+                status="SUCCEEDED",
+                retry="NONE",
+                already_satisfied=True,
+            ),
+        )
+        return summaries
 
     async def _run_mutation(
         self,
         api_id: str,
         *,
         arguments: dict[str, object],
+        dispatcher: Dispatch | None = None,
     ) -> ActionResult:
         if self._action_runner is None:
             raise BrowserSDKError(
@@ -1773,8 +1903,59 @@ class BrowserTabs:
             expectation=None,
             state=None,
             deadline=None,
+            dispatcher=dispatcher,
         )
         return cast(ActionResult, result)
+
+    def _open_dispatcher(self, url: str) -> Dispatch:
+        async def dispatch_open(
+            *,
+            command: object,
+            dispatch_context: object,
+        ) -> object:
+            del command, dispatch_context
+            create_tab = getattr(self._session, "create_tab", None)
+            if not callable(create_tab):
+                raise BrowserSDKError(
+                    "Canonical tab-create dispatcher is unavailable",
+                    code="tab_create_dispatcher_missing",
+                )
+            created = await _invoke_async(create_tab, url)
+            if not isinstance(created, Mapping):
+                raise BrowserSDKError(
+                    "Canonical tab-create dispatcher returned invalid data",
+                    code="tab_create_result_invalid",
+                )
+            if (
+                self._target_registry is None
+                or self._owner_binding is None
+            ):
+                raise BrowserSDKError(
+                    "Canonical tab registry is unavailable",
+                    code="browser_ownership_context_missing",
+                )
+            tab_id = str(created.get("id") or "").strip()
+            tab_url = str(created.get("url") or url).strip()
+            parsed = urlsplit(tab_url)
+            if not tab_id or parsed.scheme not in {"http", "https"}:
+                raise BrowserSDKError(
+                    "Canonical tab-create dispatcher returned invalid identity",
+                    code="tab_create_result_invalid",
+                )
+            origin = f"{parsed.scheme}://{parsed.netloc}"
+            summary = self._target_registry.issue_tab_summary(
+                self._owner_binding,
+                receiver_tab=tab_id,
+                origin=origin,
+                state_revision=f"created:{tab_id}",
+                layout_revision="created",
+                safe_title=str(created.get("title") or ""),
+                safe_url=tab_url,
+                provenance="TASK_CREATED",
+            )
+            return {"opened_tabs": (summary,)}
+
+        return dispatch_open
 
     async def active(self) -> Tab:
         if (
@@ -1922,6 +2103,20 @@ def _deadline(timeout_ms: int | None) -> float | None:
     if timeout_ms <= 0:
         raise ValueError("timeout_ms must be positive")
     return monotonic() + timeout_ms / 1000
+
+
+def _command_arguments(
+    command: object,
+    *,
+    code: str,
+    message: str,
+) -> Mapping[str, object]:
+    """Expose only sealed public action arguments at the backend boundary."""
+    payload = getattr(command, "_payload", None)
+    arguments = payload.get("arguments") if isinstance(payload, Mapping) else None
+    if not isinstance(arguments, Mapping):
+        raise BrowserSDKError(message, code=code)
+    return arguments
 
 
 def _resource_operation_from_payload(

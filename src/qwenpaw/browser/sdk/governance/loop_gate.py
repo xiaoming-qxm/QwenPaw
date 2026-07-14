@@ -14,10 +14,9 @@ from ..recovery import (
     BrowserRecoveryDecision,
     BrowserProductPolicy,
     BrowserRecoveryPolicy,
-    BrowserRequestEvidence,
     collect_browser_request_evidence,
 )
-from ..telemetry.trace import BrowserTraceEvent, BrowserTraceStore
+from ..telemetry.trace import BrowserTraceStore
 
 
 class BrowserGate(StopGate):
@@ -66,18 +65,6 @@ class BrowserGate(StopGate):
                 reason=decision.reason,
                 final_message=_final_message(decision),
             )
-        budget = _retry_budget(decision, self._policy.product_policy)
-        if not _consume_budget(
-            agent,
-            _retry_budget_key(evidence, decision),
-            budget,
-        ):
-            exhausted = _budget_exhausted(decision)
-            return StopHandlerResult(
-                action=StopAction.TERMINATE,
-                reason=exhausted.reason,
-                final_message=_final_message(exhausted),
-            )
         return StopHandlerResult(
             action=StopAction.INTERRUPT_AND_CONTINUE,
             reason=decision.reason,
@@ -104,81 +91,6 @@ def register_browser_loop_gate_provider_once() -> None:
     """Register BrowserGate through the generic React Loop provider API."""
 
     register_loop_gate_provider(BrowserLoopGateProvider())
-
-
-def _consume_budget(agent: Any, key: str, budget: int) -> bool:
-    if budget <= 0:
-        return False
-    state = getattr(agent, "_browser_gate_retry_budget", None)
-    if not isinstance(state, dict):
-        state = {}
-        setattr(agent, "_browser_gate_retry_budget", state)
-    used = int(state.get(key, 0))
-    if used >= budget:
-        return False
-    state[key] = used + 1
-    return True
-
-
-def _retry_budget(
-    decision: BrowserRecoveryDecision,
-    product_policy: BrowserProductPolicy,
-) -> int:
-    if decision.action == BrowserRecoveryAction.RETRY_WITH_CONTEXT:
-        return 1
-    if decision.action == BrowserRecoveryAction.WAIT_FOR_APPROVAL:
-        return 1
-    if decision.reason == "fresh_observation_required":
-        return 2
-    if decision.reason in {
-        "click_without_navigation",
-        "invalid_sdk_usage",
-        "low_information_observation",
-        "network_timeout",
-        "no_progress",
-        "observation_enrichment_denied",
-    }:
-        return product_policy.strategy_shift_budget
-    return 0
-
-
-def _retry_budget_key(
-    evidence: BrowserRequestEvidence,
-    decision: BrowserRecoveryDecision,
-) -> str:
-    event = evidence.trace_events[-1] if evidence.trace_events else None
-    return "|".join(
-        (
-            evidence.request_scope_key,
-            decision.action.value,
-            decision.reason,
-            decision.requested_context,
-            decision.selected_context,
-            _event_value(event, "action"),
-            _event_value(event, "tab_id") or _event_value(event, "domain"),
-        ),
-    )
-
-
-def _event_value(event: BrowserTraceEvent | None, key: str) -> str:
-    if event is None:
-        return ""
-    return str(getattr(event, key, "") or "")
-
-
-def _budget_exhausted(
-    decision: BrowserRecoveryDecision,
-) -> BrowserRecoveryDecision:
-    return BrowserRecoveryDecision(
-        action=BrowserRecoveryAction.BLOCKED,
-        reason="retry_budget_exhausted",
-        requested_context=decision.requested_context,
-        selected_context=decision.selected_context,
-        next_context=decision.next_context,
-        required_next_step="stop_or_ask_user",
-        forbidden=decision.forbidden,
-        metadata=dict(decision.metadata),
-    )
 
 
 def _continuation_message(decision: BrowserRecoveryDecision) -> str:

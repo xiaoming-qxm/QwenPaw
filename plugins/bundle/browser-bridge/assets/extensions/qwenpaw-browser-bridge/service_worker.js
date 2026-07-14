@@ -713,6 +713,24 @@ async function ensureTabAvailable(params) {
   };
 }
 
+async function activateTab(params) {
+  const tabId = params && params.tabId;
+  if (tabId === undefined || tabId === null) {
+    throw new Error("tabId required");
+  }
+  const existing = await chrome.tabs.get(tabId);
+  assertTabNotProtected(existing);
+  const tab = existing.active
+    ? existing
+    : await chrome.tabs.update(tabId, { active: true });
+  return {
+    tabId,
+    active: Boolean(tab && tab.active),
+    windowId: tab && tab.windowId,
+    ownershipState: tabOwnershipState(tabId, tab),
+  };
+}
+
 async function closeTab(params) {
   const tabId = params && params.tabId;
   if (tabId === undefined || tabId === null) {
@@ -1074,6 +1092,8 @@ async function handleMessage(message) {
         return jsonRpcResult(id, await detachDebugger(params.tabId));
       case "tab.ensure":
         return jsonRpcResult(id, await ensureTabAvailable(params));
+      case "tab.activate":
+        return jsonRpcResult(id, await activateTab(params));
       case "tab.close":
         return jsonRpcResult(id, await closeTab(params));
       case "tab.create":

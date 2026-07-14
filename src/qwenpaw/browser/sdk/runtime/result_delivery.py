@@ -16,7 +16,7 @@ from ..canonical.contracts import (
     issue_operation_id,
     validate_result_contract,
 )
-from ..governance.errors import BrowserSDKError
+from ..governance.errors import BrowserPolicyDenied, BrowserSDKError
 
 if TYPE_CHECKING:
     from qwenpaw.agents.provider_blocks import ProviderBlockProfile
@@ -106,6 +106,31 @@ def _syntax_error_failure() -> ActionResult:
     )
 
 
+def _kernel_guard_failure(error: BrowserPolicyDenied) -> ActionResult:
+    """Project rejected Browser code as recoverable SDK misuse."""
+    imported = str(error.metadata.get("import") or "")
+    detail = (
+        "Browser, VisualRegion, and Grounding are predeclared; remove the "
+        "browser_sdk import."
+        if imported == "browser_sdk"
+        else "Use only the documented Canonical Browser SDK surface."
+    )
+    return ActionResult(
+        operation_id=issue_operation_id(),
+        status="FAILED",
+        problem=Problem(
+            code="invalid_sdk_usage",
+            phase="PREFLIGHT",
+            safe_message=f"Browser code was rejected before execution. {detail}",
+            remediation=(
+                "Use the predeclared Browser values and documented Canonical "
+                "SDK calls; do not import browser SDK packages."
+            ),
+        ),
+        retry="SAFE",
+    )
+
+
 def _synthetic_uncertain() -> ActionResult:
     return ActionResult(
         operation_id=issue_operation_id(),
@@ -167,6 +192,9 @@ class BrowserExecutionCollector:
                 (
                     _syntax_error_failure()
                     if isinstance(error, SyntaxError)
+                    else _kernel_guard_failure(error)
+                    if isinstance(error, BrowserPolicyDenied)
+                    and error.action == "browser_kernel_guard"
                     else _synthetic_failure(
                         "Browser code raised before result delivery "
                         "completed.",

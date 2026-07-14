@@ -13,7 +13,8 @@ Example:
 import base64
 import logging
 import os
-from typing import List, Sequence, Tuple, Type, Any, Union, Optional
+from types import SimpleNamespace
+from typing import ClassVar, List, Sequence, Tuple, Type, Any, Union, Optional
 from urllib.parse import unquote, urlparse
 
 from agentscope.formatter import FormatterBase, OpenAIChatFormatter
@@ -833,6 +834,26 @@ def _create_file_block_support_formatter(
     class FileBlockSupportFormatter(base_formatter_class):
         """Formatter with file block support for tool results."""
 
+        supported_blocks: ClassVar[frozenset[str]] = frozenset(
+            {"text", "data", "image"},
+        )
+        image_media_types: ClassVar[frozenset[str]] = frozenset(
+            _SUPPORTED_IMAGE_EXTENSIONS.values(),
+        )
+        artifact_media_types: ClassVar[frozenset[str]] = frozenset()
+
+        def prepare_blocks(self, blocks):
+            """Prove required Browser blocks retain their identity."""
+            return tuple(
+                {
+                    "kind": str(getattr(block, "kind", "")),
+                    "resource_id": str(
+                        getattr(block, "resource_id", ""),
+                    ),
+                }
+                for block in blocks
+            )
+
         def __init__(self, **kwargs):
             # Expand the Anthropic formatter's supported_input_media_types
             # to include video — third-party Anthropic-compatible
@@ -1272,7 +1293,48 @@ def build_provider_block_profile(model: Any, formatter: Any):
     """Build the trusted Browser block profile for Agent construction."""
     from .provider_blocks import build_provider_block_profile as build
 
-    return build(model, formatter)
+    return build(_provider_block_capability_source(model), formatter)
+
+
+def _provider_block_capability_source(model: Any) -> Any:
+    """Find explicit Browser block capabilities below retry wrappers."""
+    current = model
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if getattr(current, "supported_blocks", None):
+            return current
+        provider_id = str(getattr(current, "_provider_id", "") or "")
+        model_id = str(getattr(current, "model", "") or "")
+        if provider_id and model_id:
+            provider = ProviderManager.get_instance().get_provider(provider_id)
+            model_info = (
+                provider.get_model_info(model_id)
+                if provider is not None
+                else None
+            )
+            if model_info is not None:
+                supports_image = bool(model_info.supports_image)
+                return SimpleNamespace(
+                    model_key=f"{provider_id}:{model_id}",
+                    supported_blocks=frozenset(
+                        {"text", "data", "image"}
+                        if supports_image
+                        else {"text", "data"},
+                    ),
+                    image_media_types=(
+                        frozenset(_SUPPORTED_IMAGE_EXTENSIONS.values())
+                        if supports_image
+                        else frozenset()
+                    ),
+                    artifact_media_types=frozenset(),
+                )
+        current = getattr(current, "_inner", None) or getattr(
+            current,
+            "_model",
+            None,
+        )
+    return model
 
 
 def _create_formatter_instance(

@@ -1114,8 +1114,15 @@ class ChromeExtensionBrowserSession:
         budget: Any,
     ) -> SnapshotCapture:
         """Return a registry-issued Canonical capture from trusted payload."""
-        del budget
-        payload = await self._bridge_or_engine_action("snapshot", tab_id)
+        payload = await self._bridge_or_engine_action(
+            "snapshot",
+            tab_id,
+            budget={
+                "capture_nodes": int(budget.capture_nodes),
+                "output_targets": int(budget.output_targets),
+                "hard_maximum": int(budget.hard_maximum),
+            },
+        )
         if not isinstance(payload, dict):
             raise BrowserSDKError(
                 "Canonical snapshot returned an invalid payload.",
@@ -1668,6 +1675,59 @@ class ChromeExtensionBrowserSession:
         return await self.action(
             tab_id,
             action,
+            dispatch_context=dispatch_context,
+            command_payload=command_payload,
+            _canonical_target_tokens=target_tokens,
+            _canonical_native_facts=native_facts,
+            _canonical_surface_policy_facts=surface_policy_facts,
+        )
+
+    async def dispatch_scroll(
+        self,
+        tab_id: str,
+        *,
+        target: TargetRef | None,
+        dispatch_context: DispatchContext,
+        command_payload: Mapping[str, object],
+    ) -> object:
+        """Dispatch one receiver-bound scroll with optional exact target."""
+        target_tokens: dict[str, str] = {}
+        native_facts: dict[str, tuple[tuple[str, str | int], ...]] = {}
+        surface_policy_facts: dict[str, dict[str, object]] = {}
+        if target is not None:
+            binding = dispatch_context._registry.resolve_target(
+                target,
+                receiver_tab=str(tab_id),
+                owner=dispatch_context._owner_binding,
+            )
+            token = str(binding.bridge_token or getattr(target, "ref", ""))
+            if not token:
+                raise BrowserSDKError(
+                    "Canonical Bridge target token is unavailable",
+                    code="target_binding_invalid",
+                )
+            target_tokens["target"] = token
+            native_facts["target"] = binding.native_identity
+            if binding.surface_policy_proof:
+                proof_refs = set(
+                    str(dispatch_context.effect_proof_ref or "").split("|"),
+                )
+                if binding.surface_policy_proof not in proof_refs:
+                    raise BrowserSDKError(
+                        "trusted surface policy proof is not sealed",
+                        code="effect_proof_invalid",
+                    )
+                surface_policy_facts["target"] = {
+                    "origin": binding.surface_origin,
+                    "surface_identity": binding.surface_identity,
+                    "revision": binding.surface_policy_revision,
+                    "evidence_ref": binding.surface_policy_evidence,
+                    "effect_ceiling": binding.effect_ceiling,
+                    "expires_at": binding.surface_policy_expires_at,
+                }
+        return await self.action(
+            tab_id,
+            "scroll",
             dispatch_context=dispatch_context,
             command_payload=command_payload,
             _canonical_target_tokens=target_tokens,

@@ -14,9 +14,21 @@ from urllib.parse import urlparse
 
 from qwenpaw.browser.sdk.governance.error_codes import BrowserErrorCode
 
-_TRUSTED_READONLY_EVALUATE_PURPOSES = {
+_TRUSTED_READONLY_SNAPSHOT_EVALUATE_PURPOSES = {
     "snapshot.action_targets": "_CONTROL_ACTION_TARGETS_SCRIPT",
     "snapshot.page_state": "_CONTROL_PAGE_STATE_SCRIPT",
+}
+SCREENSHOT_VIEWPORT_METRICS_EXPRESSION = (
+    "({x:Number(window.scrollX||0),y:Number(window.scrollY||0),"
+    "dpr:Number(window.devicePixelRatio||1),focusedBackendNode:null})"
+)
+SCREENSHOT_FOCUSED_NODE_EXPRESSION = "document.activeElement || null"
+_TRUSTED_READONLY_SCREENSHOT_EVALUATE_PURPOSES = {
+    "screenshot.viewport_metrics": (
+        SCREENSHOT_VIEWPORT_METRICS_EXPRESSION,
+        True,
+    ),
+    "screenshot.focused_node": (SCREENSHOT_FOCUSED_NODE_EXPRESSION, False),
 }
 _TRUSTED_READONLY_EVALUATE_PARAM_KEYS = frozenset(
     {"expression", "returnByValue", "awaitPromise", "timeout"},
@@ -183,7 +195,9 @@ class CDPRelaySession:
             raise CDPPermissionDenied(
                 f"CDP command {method} denied by trusted readonly policy",
             )
-        expected_expression = _trusted_readonly_expression(purpose)
+        expected_expression, expected_return_by_value = (
+            _trusted_readonly_evaluate_spec(purpose)
+        )
         if str(params.get("expression") or "") != expected_expression:
             raise CDPPermissionDenied(
                 "CDP Runtime.evaluate expression denied by trusted "
@@ -201,7 +215,7 @@ class CDPRelaySession:
             and 0 < float(timeout) <= _TRUSTED_READONLY_EVALUATE_TIMEOUT_MS
         )
         if (
-            params.get("returnByValue") is not True
+            params.get("returnByValue") is not expected_return_by_value
             or params.get("awaitPromise") is not False
             or not timeout_ok
         ):
@@ -446,12 +460,22 @@ def _is_bridge_request_timeout(exc: BaseException) -> bool:
     return "timed out" in message and "request" in message
 
 
-def _trusted_readonly_expression(purpose: str) -> str:
-    attribute = _TRUSTED_READONLY_EVALUATE_PURPOSES.get(str(purpose or ""))
+def _trusted_readonly_evaluate_spec(purpose: str) -> tuple[str, bool]:
+    """Return the exact expression and serialization mode for one probe."""
+    normalized_purpose = str(purpose or "")
+    screenshot_probe = _TRUSTED_READONLY_SCREENSHOT_EVALUATE_PURPOSES.get(
+        normalized_purpose,
+    )
+    if screenshot_probe is not None:
+        return screenshot_probe
+
+    attribute = _TRUSTED_READONLY_SNAPSHOT_EVALUATE_PURPOSES.get(
+        normalized_purpose,
+    )
     if attribute is None:
         raise CDPPermissionDenied(
             "CDP Runtime.evaluate purpose denied by trusted readonly policy",
         )
     from . import snapshot_builder
 
-    return str(getattr(snapshot_builder, attribute))
+    return str(getattr(snapshot_builder, attribute)), True

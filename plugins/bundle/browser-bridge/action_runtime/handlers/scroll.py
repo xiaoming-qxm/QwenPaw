@@ -3,12 +3,13 @@
 
 from __future__ import annotations
 
-import asyncio
 from dataclasses import dataclass
 from typing import Any
 
+from qwenpaw.browser.sdk.governance.errors import BrowserSDKError
+
 from ..errors import BrowserBridgeRecoverableError
-from ..interactions import canonical_interaction_control
+from ..interactions import canonical_native_interaction_control
 from ..state import ControlState
 from .navigate import _json_response
 from .protocol import ActionMeta
@@ -26,7 +27,6 @@ class ScrollHandler:
         bridge: Any,
         **kwargs: Any,
     ):
-        del holder_id, bridge
         try:
             labels = (
                 ("target",)
@@ -35,13 +35,15 @@ class ScrollHandler:
                 )
                 else ()
             )
-            return await canonical_interaction_control(
+            return await canonical_native_interaction_control(
                 state,
+                holder_id=holder_id,
+                bridge=bridge,
                 action="scroll",
                 target_labels=labels,
                 kwargs=kwargs,
             )
-        except (BrowserBridgeRecoverableError, asyncio.TimeoutError) as exc:
+        except (BrowserBridgeRecoverableError, BrowserSDKError, ValueError) as exc:
             return _json_response(
                 {"ok": False, "mode": "control", "error": str(exc)},
             )

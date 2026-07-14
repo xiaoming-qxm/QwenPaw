@@ -46,6 +46,13 @@ _CANONICAL_ACTIONABLE_ROLES = {
     "treeitem",
 }
 
+_CANONICAL_NON_VISIBLE_DOM_TAGS = frozenset(
+    {"noscript", "script", "style", "template"},
+)
+_CANONICAL_STRUCTURAL_ARIA_ROLES = frozenset(
+    {"generic", "none", "presentation"},
+)
+
 
 async def canonical_visual_candidate_backend_ids(
     session: Any,
@@ -208,6 +215,41 @@ async def canonical_visual_geometry_in_region(
         sum(quad[index] for index in (1, 3, 5, 7)) / 4,
     )
     return _canonical_geometry_digest(quad), point
+
+
+async def canonical_visual_backend_intersects_region(
+    session: Any,
+    backend_id: int,
+    request: dict[str, Any],
+) -> bool | None:
+    """Prove whether one private native surface intersects VisualRegion."""
+    quad = await _canonical_visual_quad(session, backend_id)
+    if quad is None:
+        return None
+    viewport = _visual_request_value(request, "viewport")
+    if (
+        not isinstance(viewport, tuple)
+        or len(viewport) != 2
+        or not all(isinstance(item, (int, float)) for item in viewport)
+    ):
+        return None
+    width, height = float(viewport[0]), float(viewport[1])
+    if width <= 0 or height <= 0:
+        return None
+    region_left = float(request.get("x") or 0) * width
+    region_top = float(request.get("y") or 0) * height
+    region_right = region_left + float(request.get("width") or 0) * width
+    region_bottom = region_top + float(request.get("height") or 0) * height
+    quad_left = min(quad[0::2])
+    quad_right = max(quad[0::2])
+    quad_top = min(quad[1::2])
+    quad_bottom = max(quad[1::2])
+    return not (
+        quad_right <= region_left
+        or quad_left >= region_right
+        or quad_bottom <= region_top
+        or quad_top >= region_bottom
+    )
 
 
 async def canonical_visual_target_is_current_hit(
@@ -456,7 +498,7 @@ def canonical_probe_nodes_from_ax(
 def canonical_probe_nodes_from_dom(
     payload: dict[str, Any],
 ) -> tuple[ProbeNode, ...]:
-    """Normalize bounded DOM without label-, class-, or scenario-ranking."""
+    """Normalize actionable or explicit-semantic DOM probe nodes."""
     return canonical_probe_surface_from_dom(payload).nodes
 
 
@@ -469,20 +511,36 @@ def canonical_probe_surface_from_dom(payload: dict[str, Any]) -> ProbeBatch:
     nodes: list[ProbeNode] = []
     regions: list[ProbeRegion] = []
     gaps: list[CoverageGap] = []
-    pending: list[tuple[dict[str, Any], tuple[str, ...]]] = [
-        (root, ("main",)),
+    pending: list[tuple[dict[str, Any], tuple[str, ...], bool]] = [
+        (root, ("main",), False),
     ]
     while pending:
-        raw, owner_chain = pending.pop()
+        raw, owner_chain, hidden_by_ancestor = pending.pop()
         frame_id = str(raw.get("frameId") or "").strip()
         if frame_id and owner_chain[-1] == "main":
             owner_chain = (*owner_chain, f"frame:{frame_id}")
         owner = owner_chain[-1]
         attributes = _canonical_dom_attributes(raw.get("attributes"))
         tag = str(raw.get("nodeName") or "").strip().lower()
+        hidden_by_ancestor = (
+            hidden_by_ancestor or tag in _CANONICAL_NON_VISIBLE_DOM_TAGS
+        )
         role = str(attributes.get("role") or _canonical_native_role(tag))
+        is_explicitly_semantic = (
+            "role" in attributes
+            and role not in _CANONICAL_STRUCTURAL_ARIA_ROLES
+        )
         backend_id = raw.get("backendNodeId") or raw.get("backendDOMNodeId")
-        if isinstance(backend_id, int) and backend_id > 0 and role:
+        if (
+            not hidden_by_ancestor
+            and isinstance(backend_id, int)
+            and backend_id > 0
+            and role
+            and (
+                role in _CANONICAL_ACTIONABLE_ROLES
+                or is_explicitly_semantic
+            )
+        ):
             name = next(
                 (
                     attributes[key]
@@ -541,7 +599,7 @@ def canonical_probe_surface_from_dom(payload: dict[str, Any]) -> ProbeBatch:
                 ),
             )
             if accessible and isinstance(content_document, dict):
-                pending.append((content_document, frame_chain))
+                pending.append((content_document, frame_chain, False))
             else:
                 gaps.append(
                     CoverageGap(
@@ -577,7 +635,7 @@ def canonical_probe_surface_from_dom(payload: dict[str, Any]) -> ProbeBatch:
                     ),
                 )
                 if is_open:
-                    pending.append((shadow, shadow_chain))
+                    pending.append((shadow, shadow_chain, hidden_by_ancestor))
                 else:
                     gaps.append(
                         CoverageGap(
@@ -591,7 +649,7 @@ def canonical_probe_surface_from_dom(payload: dict[str, Any]) -> ProbeBatch:
         children = raw.get("children")
         if isinstance(children, list):
             pending.extend(
-                (child, owner_chain)
+                (child, owner_chain, hidden_by_ancestor)
                 for child in reversed(children)
                 if isinstance(child, dict)
             )

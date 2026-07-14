@@ -335,7 +335,14 @@ def _control_request_context() -> dict[str, Any]:
                 "agent_id": call_context.agent_id,
             },
         )
-        request_context = call_context.extra.get("request_context")
+        request_context = getattr(call_context, "request_context", None)
+        if not isinstance(request_context, dict):
+            extra = getattr(call_context, "extra", {})
+            request_context = (
+                extra.get("request_context")
+                if isinstance(extra, dict)
+                else None
+            )
         if isinstance(request_context, dict):
             for key, value in request_context.items():
                 if key not in context:

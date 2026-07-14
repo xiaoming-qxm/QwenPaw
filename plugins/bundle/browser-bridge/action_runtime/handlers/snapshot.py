@@ -25,6 +25,7 @@ from ..state import ControlState
 from ..tab_manager import _control_ensure_tab_available, _control_page_id
 from ..navigation import _control_tab_id
 from ..targets import (
+    canonical_visual_backend_intersects_region,
     canonical_visual_candidate_backend_ids,
     canonical_visual_geometry_in_region,
     canonical_visual_target_is_current_hit,
@@ -67,15 +68,16 @@ class SnapshotHandler:
                 grace_ms=50.0,
             )
         visual_region = kwargs.get("visual_region")
+        raw_budget = kwargs.get("budget")
         budget = None
         if isinstance(visual_region, dict):
-            raw_budget = visual_region.get("budget")
-            if isinstance(raw_budget, dict):
-                budget = ObservationBudget(
-                    capture_nodes=int(raw_budget["capture_nodes"]),
-                    output_targets=int(raw_budget["output_targets"]),
-                    hard_maximum=int(raw_budget["hard_maximum"]),
-                )
+            raw_budget = visual_region.get("budget", raw_budget)
+        if isinstance(raw_budget, dict):
+            budget = ObservationBudget(
+                capture_nodes=int(raw_budget["capture_nodes"]),
+                output_targets=int(raw_budget["output_targets"]),
+                hard_maximum=int(raw_budget["hard_maximum"]),
+            )
         capture = await build_canonical_snapshot(session, budget=budget)
         _control_clear_observation_required(state, tab_id)
         _control_clear_visual_observation(state, tab_id)
@@ -222,13 +224,19 @@ async def _canonical_visual_grounding_payload(
     request: dict[str, Any],
 ) -> dict[str, Any]:
     """Keep every bounded hit candidate without proximity selection."""
-    if payload.get("coverage") != "COMPLETE":
+    scoped_payload = await _canonical_visual_scope_payload(
+        session,
+        payload=payload,
+        request=request,
+    )
+    if scoped_payload is None:
         return {
             **payload,
             "targets": [],
             "_trusted_bindings": {},
             "_trusted_surface_candidates": {},
         }
+    payload = scoped_payload
     (
         grounding_state,
         _surface_backend_ids,
@@ -262,6 +270,10 @@ async def _canonical_visual_grounding_payload(
         native_id = _binding_backend_node_id(binding)
         if native_id is None:
             continue
+        executable = bool(target.get("executable"))
+        role = str(target.get("role") or "").lower()
+        if not executable and role not in {"canvas", "map"}:
+            continue
         geometry = await canonical_visual_geometry_in_region(
             session,
             native_id,
@@ -269,7 +281,6 @@ async def _canonical_visual_grounding_payload(
         )
         if geometry is None:
             continue
-        executable = bool(target.get("executable"))
         if not await canonical_visual_target_is_current_hit(
             session,
             backend_id=native_id,
@@ -301,7 +312,6 @@ async def _canonical_visual_grounding_payload(
             "use_state": "FRESH",
         }
         if not executable:
-            role = str(target.get("role") or "").lower()
             if (
                 role not in {"canvas", "map"}
                 or native_id not in _surface_backend_ids
@@ -371,6 +381,76 @@ async def _canonical_visual_grounding_payload(
         "_trusted_bindings": selected_bindings,
         "_trusted_surface_candidates": surface_candidates,
     }
+
+
+async def _canonical_visual_scope_payload(
+    session: Any,
+    *,
+    payload: dict[str, Any],
+    request: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Discard only shadow omissions proven outside the requested region."""
+    coverage = str(payload.get("coverage") or "UNAVAILABLE")
+    if coverage == "COMPLETE":
+        return payload
+    if coverage != "PARTIAL":
+        return None
+    gaps = payload.get("gaps")
+    if not isinstance(gaps, list) or not gaps or not all(
+        _is_closed_shadow_gap(gap) for gap in gaps
+    ):
+        return None
+    regions = payload.get("regions")
+    if not isinstance(regions, list):
+        return None
+    closed_regions = [
+        region
+        for region in regions
+        if isinstance(region, dict)
+        and str(region.get("boundary") or "") == "CLOSED_SHADOW"
+    ]
+    if not closed_regions:
+        return None
+    for region in closed_regions:
+        backend_id = _region_backend_node_id(region)
+        if backend_id is None:
+            return None
+        intersects = await canonical_visual_backend_intersects_region(
+            session,
+            backend_id,
+            request,
+        )
+        if intersects is not False:
+            return None
+    return {
+        **payload,
+        "coverage": "COMPLETE",
+        "gaps": [],
+        "regions": [
+            region
+            for region in regions
+            if not (
+                isinstance(region, dict)
+                and str(region.get("boundary") or "")
+                == "CLOSED_SHADOW"
+            )
+        ],
+    }
+
+
+def _is_closed_shadow_gap(value: Any) -> bool:
+    return (
+        isinstance(value, dict)
+        and str(value.get("stage") or "") == "CAPTURE"
+        and str(value.get("source") or "") == "SHADOW"
+        and str(value.get("reason") or "") == "CLOSED_SHADOW"
+    )
+
+
+def _region_backend_node_id(region: dict[str, Any]) -> int | None:
+    native_identity = str(region.get("native_identity") or "")
+    backend_id = native_identity.removeprefix("backend:")
+    return int(backend_id) if backend_id.isdigit() else None
 
 
 def _binding_backend_node_id(binding: dict[str, Any]) -> int | None:

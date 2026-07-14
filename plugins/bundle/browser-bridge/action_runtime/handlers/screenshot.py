@@ -8,6 +8,10 @@ from dataclasses import dataclass
 from typing import Any
 
 from qwenpaw.browser.sdk.runtime.responses import _tool_response
+from ..cdp_relay import (
+    SCREENSHOT_FOCUSED_NODE_EXPRESSION,
+    SCREENSHOT_VIEWPORT_METRICS_EXPRESSION,
+)
 from ..navigation import _control_tab_id
 from ..coordinates import _control_image_size
 from ..session_manager import _control_get_session
@@ -141,17 +145,15 @@ async def _canonical_screenshot_invariant(
     generation = (
         str(frame.get("loaderId") or "") if isinstance(frame, dict) else ""
     )
-    runtime = await session.send(
+    runtime = await session.send_trusted_readonly(
         "Runtime.evaluate",
         {
-            "expression": (
-                "({x:Number(window.scrollX||0),y:Number(window.scrollY||0),"
-                "dpr:Number(window.devicePixelRatio||1),"
-                "focusedBackendNode:null})"
-            ),
+            "expression": SCREENSHOT_VIEWPORT_METRICS_EXPRESSION,
             "returnByValue": True,
             "awaitPromise": False,
+            "timeout": 1000,
         },
+        purpose="screenshot.viewport_metrics",
     )
     result = runtime.get("result") if isinstance(runtime, dict) else None
     value = result.get("value") if isinstance(result, dict) else None
@@ -159,13 +161,15 @@ async def _canonical_screenshot_invariant(
         value = {}
     focused_backend_node = None
     try:
-        focused = await session.send(
+        focused = await session.send_trusted_readonly(
             "Runtime.evaluate",
             {
-                "expression": "document.activeElement || null",
+                "expression": SCREENSHOT_FOCUSED_NODE_EXPRESSION,
                 "returnByValue": False,
                 "awaitPromise": False,
+                "timeout": 1000,
             },
+            purpose="screenshot.focused_node",
         )
         focused_result = (
             focused.get("result") if isinstance(focused, dict) else None

@@ -26,6 +26,7 @@ CDP_CAPABILITY_MAP: dict[str, str] = {
     "DOM.getContentQuads": "perceive",
     "DOM.getNodeForLocation": "perceive",
     "DOM.describeNode": "perceive",
+    "DOM.requestNode": "perceive",
     "DOM.querySelector": "perceive",
     "DOM.performSearch": "perceive",
     "DOM.getSearchResults": "perceive",
@@ -35,11 +36,13 @@ CDP_CAPABILITY_MAP: dict[str, str] = {
     "DOM.scrollIntoViewIfNeeded": "perceive",
     "DOMSnapshot.captureSnapshot": "perceive",
     "Page.enable": "perceive",
+    "Page.getFrameTree": "perceive",
     "Page.getNavigationHistory": "perceive",
     "Page.getLayoutMetrics": "perceive",
     # screenshot
     "Page.captureScreenshot": "screenshot",
     # input
+    "Page.bringToFront": "input",
     "Page.handleJavaScriptDialog": "input",
     "Input.dispatchMouseEvent": "input",
     "Input.dispatchKeyEvent": "input",

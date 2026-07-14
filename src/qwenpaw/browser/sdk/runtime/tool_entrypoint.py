@@ -81,8 +81,10 @@ _ERROR_HINTS = {
         "another mutating action."
     ),
     "invalid_sdk_usage": (
-        "Retry with documented Browser SDK methods and arguments; do not "
-        "invent browser APIs."
+    "Use the documented Canonical SDK only: connect with "
+    "`await Browser.connect(...)`, select a `TabSummary`, observe with "
+    "`await tab.snapshot()`, and use `tab.actions.click`, `paste`, "
+    "`tab.actions.scroll`, or `upload_file`. Do not invent browser APIs."
     ),
     "click_without_navigation": (
         "Observe the page after the click before deciding whether to retry, "
@@ -112,6 +114,14 @@ _BROWSER_INVARIANT_ERROR_CODES = {
     "browser_stale_lease",
     "browser_tab_occupied",
 }
+_CANONICAL_SDK_RECOVERY = (
+    "Use the documented Canonical SDK only: connect with "
+    "`await Browser.connect(...)`, select a `TabSummary`, observe with "
+    "`await tab.snapshot()`, and use `tab.actions.click`, `paste`, "
+    "`tab.actions.scroll(direction=..., amount=...)`, or `upload_file`. "
+    "Do not use "
+    "`hasattr`, `Tab.extract`, `Tab.metadata`, or `scroll_down`."
+)
 
 
 @tool_descriptor(
@@ -214,6 +224,11 @@ async def browser(
             error_code=_result_error_code(result.error),
             metadata={
                 "error_type": result.error.get("type", ""),
+                "error_message": result.error.get("message", ""),
+                "recovery_hint": _error_hint(
+                    result.error,
+                    _result_error_code(result.error),
+                ),
             },
         )
         trace_events = trace_store.list(session_id)[trace_start_index:]
@@ -548,7 +563,7 @@ def _canonical_artifact_blocks(
     blocks: list[DataBlock] = []
     for record in envelope.records:
         for required in record.required_blocks:
-            if required.kind != "artifact":
+            if required.kind not in {"artifact", "image"}:
                 continue
             handle = required.payload
             if (
@@ -556,7 +571,7 @@ def _canonical_artifact_blocks(
                 or str(handle.id) != required.resource_id
                 or str(handle.media_type) != required.media_type
             ):
-                raise ValueError("required artifact binding is invalid")
+                raise ValueError("required resource binding is invalid")
             data = resolve_promoted_handle_bytes(handle)
             blocks.append(
                 DataBlock(
@@ -661,6 +676,10 @@ def _error_summary_text(error: dict[str, Any]) -> str:
 
 
 def _error_hint(error: dict[str, Any], code: str) -> str:
+    canonical_hint = _canonical_sdk_usage_hint(error)
+    if canonical_hint:
+        return canonical_hint
+
     value = error.get("recovery_hint")
     if isinstance(value, str) and value.strip():
         return value.strip()
@@ -674,6 +693,23 @@ def _error_hint(error: dict[str, Any], code: str) -> str:
         if isinstance(hint_key, str) and hint_key in _ERROR_HINTS:
             return _ERROR_HINTS[hint_key]
     return _ERROR_HINTS.get(code, "")
+
+
+def _canonical_sdk_usage_hint(error: dict[str, Any]) -> str:
+    """Return a concrete recovery path for common model-invented SDK calls."""
+    message = str(error.get("message") or "").lower()
+    error_type = str(error.get("type") or "")
+    unsupported_attributes = (
+        "'tab' object has no attribute",
+        "'tabactions' object has no attribute",
+    )
+    if error_type == "AttributeError" and any(
+        marker in message for marker in unsupported_attributes
+    ):
+        return _CANONICAL_SDK_RECOVERY
+    if error_type == "NameError" and "hasattr" in message:
+        return _CANONICAL_SDK_RECOVERY
+    return ""
 
 
 def _result_error_code(error: dict[str, Any]) -> str:
