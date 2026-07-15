@@ -11,7 +11,7 @@ import json
 from typing import Any, Callable
 
 from qwenpaw.browser.runtime.responses import logger
-from qwenpaw.browser.canonical.contracts import CaptureGap, CoverageGap
+from qwenpaw.browser.api.contracts import CaptureGap, CoverageGap
 from qwenpaw.browser.governance.errors import BrowserSDKError
 from qwenpaw.browser.runtime.snapshot import (
     ProbeBatch,

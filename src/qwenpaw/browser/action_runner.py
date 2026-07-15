@@ -16,7 +16,7 @@ from time import monotonic
 from typing import Any, Literal, cast
 from urllib.parse import urlsplit
 
-from .canonical.contracts import (
+from .api.contracts import (
     ActionExpectation,
     ActionResult,
     BrowserCondition,
@@ -36,7 +36,7 @@ from .canonical.contracts import (
     _serialize_browser_condition,
     issue_operation_id,
 )
-from .canonical.action_contract import BrowserAPIContract
+from .api.action_contract import BrowserAPIContract
 from .condition_evaluator import (
     ConditionBaseline,
     ConditionEvaluation,

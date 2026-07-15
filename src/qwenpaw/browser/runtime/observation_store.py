@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from typing import Callable, Literal
 from uuid import uuid4
 
-from ..canonical.contracts import (
+from ..api.contracts import (
     ContextVersion,
     Coverage,
     CoverageGap,

@@ -480,7 +480,7 @@ def _normalize_api_id(
 @lru_cache(maxsize=1)
 def _public_browser_api_ids() -> frozenset[str]:
     try:
-        from ..canonical.contracts import api_catalog
+        from ..api.contracts import api_catalog
     except Exception:  # pragma: no cover - import-cycle fallback
         return frozenset()
     return frozenset(

@@ -35,8 +35,8 @@ LEGACY_PUBLIC_PATHS = (
     "src/qwenpaw/browser/primitives/tabs.py",
     "src/qwenpaw/browser/runtime/proxy.py",
     "src/qwenpaw/browser/runtime/guard.py",
-    "src/qwenpaw/browser/generated/api_catalog.json",
-    "src/qwenpaw/browser/generated/capabilities.json",
+    "src/qwenpaw/browser/generated/api/api_catalog.json",
+    "src/qwenpaw/browser/generated/api/capabilities.json",
     "src/qwenpaw/browser/generated/help/index.md",
 )
 BRIDGE_SYMBOL_PATHS = (

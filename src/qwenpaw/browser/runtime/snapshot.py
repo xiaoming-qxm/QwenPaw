@@ -8,7 +8,7 @@ from collections import defaultdict, deque
 from dataclasses import dataclass, replace
 from typing import Any, Literal, Protocol
 
-from ..canonical.contracts import (
+from ..api.contracts import (
     CaptureGap,
     ContextVersion,
     Coverage,

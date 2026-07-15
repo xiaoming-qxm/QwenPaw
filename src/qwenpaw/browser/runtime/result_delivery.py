@@ -7,7 +7,7 @@ from contextvars import ContextVar, Token
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, cast
 
-from ..canonical.contracts import (
+from ..api.contracts import (
     ActionResult,
     Problem,
     RichBrowserResult,

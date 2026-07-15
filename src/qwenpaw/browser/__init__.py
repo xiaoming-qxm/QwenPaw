@@ -10,14 +10,14 @@ from .backends.registry import (
     BrowserBackendRegistry,
     get_default_backend_registry,
 )
-from .canonical.contracts import (
+from .api.contracts import (
     BrowserCondition,
     ResourceHandle,
     TabSummary,
     TargetRef,
 )
-from .canonical.facade import Browser
-from .canonical.tabs import BrowserTabs, Tab, TabActions
+from .api.facade import Browser
+from .api.tabs import BrowserTabs, Tab, TabActions
 from .docs.capabilities import (
     browser_capabilities,
     browser_sdk_help,

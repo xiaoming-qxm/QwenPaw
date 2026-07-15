@@ -15,7 +15,7 @@ from time import monotonic
 from typing import Callable, Literal, Protocol, TypeAlias
 from uuid import uuid4
 
-from ..canonical.contracts import (
+from ..api.contracts import (
     ActionExpectation,
     BrowserPrompt,
     ContextVersion,

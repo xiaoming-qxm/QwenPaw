@@ -17,7 +17,7 @@ from urllib.parse import urlparse
 
 from qwenpaw.browser.backends.registry import get_default_backend_registry
 from qwenpaw.browser.action_runner import DispatchContext
-from qwenpaw.browser.canonical.contracts import (
+from qwenpaw.browser.api.contracts import (
     ActionResult,
     BrowserPrompt,
     CaptureGap,

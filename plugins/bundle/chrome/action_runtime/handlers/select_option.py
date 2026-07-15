@@ -7,7 +7,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
-from qwenpaw.browser.canonical.contracts import (
+from qwenpaw.browser.api.contracts import (
     Coverage,
     OptionChoice,
     OptionSummary,

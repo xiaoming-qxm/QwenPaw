@@ -2,7 +2,7 @@
 """Browser SDK code runtime."""
 
 from .executor import BrowserCodeExecutor, InProcessBrowserCodeExecutor
-from ..canonical.guard import CapabilityGuard
+from ..api.guard import CapabilityGuard
 from .kernel import (
     BrowserExecutionContext,
     BrowserKernelManager,

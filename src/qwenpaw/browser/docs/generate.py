@@ -12,10 +12,10 @@ from pathlib import Path
 from typing import Any, Literal, get_args, get_origin
 
 GENERATED_DIR = Path(__file__).resolve().parents[1] / "generated"
-CANONICAL_GENERATED_DIR = GENERATED_DIR / "canonical"
-CATALOG_PATH = CANONICAL_GENERATED_DIR / "api_catalog.json"
-CAPABILITIES_PATH = CANONICAL_GENERATED_DIR / "capabilities.json"
-HELP_INDEX_PATH = CANONICAL_GENERATED_DIR / "help" / "index.md"
+API_GENERATED_DIR = GENERATED_DIR / "api"
+CATALOG_PATH = API_GENERATED_DIR / "api_catalog.json"
+CAPABILITIES_PATH = API_GENERATED_DIR / "capabilities.json"
+HELP_INDEX_PATH = API_GENERATED_DIR / "help" / "index.md"
 SUPPORT_MANIFEST_PATH = GENERATED_DIR / "browser-support.json"
 _CANONICAL_RELEASE_TRUTH: dict[str, str | int] = {
     "build_fingerprint": "build-1",
@@ -40,7 +40,7 @@ def build_api_catalog(
     """Build the public API catalog payload from real public methods."""
     if mode != "canonical":
         raise ValueError("Only the Canonical Browser contract is generated")
-    from ..canonical.contracts import api_catalog
+    from ..api.contracts import api_catalog
 
     payload = api_catalog()
     payload["apis"].extend(_canonical_resource_entries())
@@ -128,7 +128,7 @@ def build_help_payload(
 
 
 def write_generated_artifacts(
-    output_dir: Path = CANONICAL_GENERATED_DIR,
+    output_dir: Path = API_GENERATED_DIR,
     *,
     mode: Literal["canonical"] = "canonical",
 ) -> None:
@@ -152,7 +152,7 @@ def write_generated_artifacts(
 
 
 def check_generated_artifacts(
-    output_dir: Path = CANONICAL_GENERATED_DIR,
+    output_dir: Path = API_GENERATED_DIR,
     *,
     mode: Literal["canonical"] = "canonical",
 ) -> bool:
@@ -238,7 +238,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="select the Canonical public contract surface",
     )
     args = parser.parse_args(argv)
-    output_dir = CANONICAL_GENERATED_DIR
+    output_dir = API_GENERATED_DIR
     if args.check:
         return (
             0 if check_generated_artifacts(output_dir, mode=args.mode) else 1
@@ -263,7 +263,7 @@ def _canonical_resource_entries() -> list[dict[str, Any]]:
             "api_id": "browser.resources.list",
             "public_name": "browser.resources.list",
             "callable_path": (
-                "qwenpaw.browser.canonical.facade:BrowserResources.list"
+                "qwenpaw.browser.api.facade:BrowserResources.list"
             ),
             "signature": "list() -> list[ResourceHandle]",
             "parameters": [],
@@ -275,7 +275,7 @@ def _canonical_resource_entries() -> list[dict[str, Any]]:
             "api_id": "browser.resources.require",
             "public_name": "browser.resources.require",
             "callable_path": (
-                "qwenpaw.browser.canonical.facade:BrowserResources.require"
+                "qwenpaw.browser.api.facade:BrowserResources.require"
             ),
             "signature": "require(resource_id: str) -> ResourceHandle",
             "parameters": [
@@ -294,8 +294,7 @@ def _canonical_resource_entries() -> list[dict[str, Any]]:
             "api_id": "browser.resources.from_workspace",
             "public_name": "browser.resources.from_workspace",
             "callable_path": (
-                "qwenpaw.browser.canonical.facade:"
-                "BrowserResources.from_workspace"
+                "qwenpaw.browser.api.facade:" "BrowserResources.from_workspace"
             ),
             "signature": "from_workspace(path: str) -> ResourceHandle",
             "parameters": [

@@ -3,11 +3,11 @@
 
 from __future__ import annotations
 
-from .canonical.action_contract import (
+from .api.action_contract import (
     BrowserAPIContract,
     BrowserTargetContract,
 )
-from .canonical.contracts import api_catalog
+from .api.contracts import api_catalog
 from .governance.errors import BrowserSDKError
 
 

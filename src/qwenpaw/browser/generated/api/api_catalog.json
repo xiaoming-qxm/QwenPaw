@@ -2,7 +2,7 @@
   "apis": [
     {
       "api_id": "browser.close",
-      "callable_path": "qwenpaw.browser.canonical.facade:Browser.close",
+      "callable_path": "qwenpaw.browser.api.facade:Browser.close",
       "invalidates_observation": false,
       "kind": "lifecycle",
       "mutates": true,
@@ -17,7 +17,7 @@
     },
     {
       "api_id": "browser.connect",
-      "callable_path": "qwenpaw.browser.canonical.facade:Browser.connect",
+      "callable_path": "qwenpaw.browser.api.facade:Browser.connect",
       "invalidates_observation": false,
       "kind": "lifecycle",
       "mutates": false,
@@ -40,7 +40,7 @@
     },
     {
       "api_id": "tab.actions.navigate",
-      "callable_path": "qwenpaw.browser.canonical.tabs:TabActions.navigate",
+      "callable_path": "qwenpaw.browser.api.tabs:TabActions.navigate",
       "invalidates_observation": false,
       "kind": "action",
       "mutates": true,
@@ -83,7 +83,7 @@
     },
     {
       "api_id": "tab.actions.back",
-      "callable_path": "qwenpaw.browser.canonical.tabs:TabActions.back",
+      "callable_path": "qwenpaw.browser.api.tabs:TabActions.back",
       "invalidates_observation": false,
       "kind": "action",
       "mutates": true,
@@ -120,7 +120,7 @@
     },
     {
       "api_id": "tab.actions.forward",
-      "callable_path": "qwenpaw.browser.canonical.tabs:TabActions.forward",
+      "callable_path": "qwenpaw.browser.api.tabs:TabActions.forward",
       "invalidates_observation": false,
       "kind": "action",
       "mutates": true,
@@ -157,7 +157,7 @@
     },
     {
       "api_id": "tab.actions.reload",
-      "callable_path": "qwenpaw.browser.canonical.tabs:TabActions.reload",
+      "callable_path": "qwenpaw.browser.api.tabs:TabActions.reload",
       "invalidates_observation": false,
       "kind": "action",
       "mutates": true,
@@ -194,7 +194,7 @@
     },
     {
       "api_id": "tab.actions.click",
-      "callable_path": "qwenpaw.browser.canonical.tabs:TabActions.click",
+      "callable_path": "qwenpaw.browser.api.tabs:TabActions.click",
       "invalidates_observation": false,
       "kind": "action",
       "mutates": true,
@@ -258,7 +258,7 @@
     },
     {
       "api_id": "tab.actions.hover",
-      "callable_path": "qwenpaw.browser.canonical.tabs:TabActions.hover",
+      "callable_path": "qwenpaw.browser.api.tabs:TabActions.hover",
       "invalidates_observation": false,
       "kind": "action",
       "mutates": true,
@@ -294,7 +294,7 @@
     },
     {
       "api_id": "tab.actions.drag",
-      "callable_path": "qwenpaw.browser.canonical.tabs:TabActions.drag",
+      "callable_path": "qwenpaw.browser.api.tabs:TabActions.drag",
       "invalidates_observation": false,
       "kind": "action",
       "mutates": true,
@@ -343,7 +343,7 @@
     },
     {
       "api_id": "tab.actions.scroll",
-      "callable_path": "qwenpaw.browser.canonical.tabs:TabActions.scroll",
+      "callable_path": "qwenpaw.browser.api.tabs:TabActions.scroll",
       "invalidates_observation": false,
       "kind": "action",
       "mutates": true,
@@ -394,7 +394,7 @@
     },
     {
       "api_id": "tab.actions.fill",
-      "callable_path": "qwenpaw.browser.canonical.tabs:TabActions.fill",
+      "callable_path": "qwenpaw.browser.api.tabs:TabActions.fill",
       "invalidates_observation": false,
       "kind": "action",
       "mutates": true,
@@ -443,7 +443,7 @@
     },
     {
       "api_id": "tab.actions.type_text",
-      "callable_path": "qwenpaw.browser.canonical.tabs:TabActions.type_text",
+      "callable_path": "qwenpaw.browser.api.tabs:TabActions.type_text",
       "invalidates_observation": false,
       "kind": "action",
       "mutates": true,
@@ -492,7 +492,7 @@
     },
     {
       "api_id": "tab.actions.press_key",
-      "callable_path": "qwenpaw.browser.canonical.tabs:TabActions.press_key",
+      "callable_path": "qwenpaw.browser.api.tabs:TabActions.press_key",
       "invalidates_observation": false,
       "kind": "action",
       "mutates": true,
@@ -548,7 +548,7 @@
     },
     {
       "api_id": "tab.actions.set_checked",
-      "callable_path": "qwenpaw.browser.canonical.tabs:TabActions.set_checked",
+      "callable_path": "qwenpaw.browser.api.tabs:TabActions.set_checked",
       "invalidates_observation": false,
       "kind": "action",
       "mutates": true,
@@ -597,7 +597,7 @@
     },
     {
       "api_id": "tab.actions.select_option",
-      "callable_path": "qwenpaw.browser.canonical.tabs:TabActions.select_option",
+      "callable_path": "qwenpaw.browser.api.tabs:TabActions.select_option",
       "invalidates_observation": false,
       "kind": "action",
       "mutates": true,
@@ -646,7 +646,7 @@
     },
     {
       "api_id": "tab.actions.upload_file",
-      "callable_path": "qwenpaw.browser.canonical.tabs:TabActions.upload_file",
+      "callable_path": "qwenpaw.browser.api.tabs:TabActions.upload_file",
       "invalidates_observation": false,
       "kind": "action",
       "mutates": true,
@@ -695,7 +695,7 @@
     },
     {
       "api_id": "tab.actions.download_file",
-      "callable_path": "qwenpaw.browser.canonical.tabs:TabActions.download_file",
+      "callable_path": "qwenpaw.browser.api.tabs:TabActions.download_file",
       "invalidates_observation": false,
       "kind": "action",
       "mutates": true,
@@ -738,7 +738,7 @@
     },
     {
       "api_id": "tab.actions.paste",
-      "callable_path": "qwenpaw.browser.canonical.tabs:TabActions.paste",
+      "callable_path": "qwenpaw.browser.api.tabs:TabActions.paste",
       "invalidates_observation": false,
       "kind": "action",
       "mutates": true,
@@ -787,7 +787,7 @@
     },
     {
       "api_id": "tab.close",
-      "callable_path": "qwenpaw.browser.canonical.tabs:Tab.close",
+      "callable_path": "qwenpaw.browser.api.tabs:Tab.close",
       "invalidates_observation": false,
       "kind": "primitive",
       "mutates": true,
@@ -802,7 +802,7 @@
     },
     {
       "api_id": "browser.tabs.open",
-      "callable_path": "qwenpaw.browser.canonical.tabs:BrowserTabs.open",
+      "callable_path": "qwenpaw.browser.api.tabs:BrowserTabs.open",
       "invalidates_observation": false,
       "kind": "primitive",
       "mutates": true,
@@ -824,7 +824,7 @@
     },
     {
       "api_id": "browser.tabs.new",
-      "callable_path": "qwenpaw.browser.canonical.tabs:BrowserTabs.new",
+      "callable_path": "qwenpaw.browser.api.tabs:BrowserTabs.new",
       "invalidates_observation": false,
       "kind": "primitive",
       "mutates": true,
@@ -839,7 +839,7 @@
     },
     {
       "api_id": "tab.print_to_pdf",
-      "callable_path": "qwenpaw.browser.canonical.tabs:Tab.print_to_pdf",
+      "callable_path": "qwenpaw.browser.api.tabs:Tab.print_to_pdf",
       "invalidates_observation": false,
       "kind": "primitive",
       "mutates": true,
@@ -862,7 +862,7 @@
     },
     {
       "api_id": "tab.snapshot",
-      "callable_path": "qwenpaw.browser.canonical.tabs:Tab.snapshot",
+      "callable_path": "qwenpaw.browser.api.tabs:Tab.snapshot",
       "invalidates_observation": false,
       "kind": "primitive",
       "mutates": false,
@@ -906,7 +906,7 @@
     },
     {
       "api_id": "tab.read",
-      "callable_path": "qwenpaw.browser.canonical.tabs:Tab.read",
+      "callable_path": "qwenpaw.browser.api.tabs:Tab.read",
       "invalidates_observation": false,
       "kind": "primitive",
       "mutates": false,
@@ -942,7 +942,7 @@
     },
     {
       "api_id": "tab.screenshot",
-      "callable_path": "qwenpaw.browser.canonical.tabs:Tab.screenshot",
+      "callable_path": "qwenpaw.browser.api.tabs:Tab.screenshot",
       "invalidates_observation": false,
       "kind": "primitive",
       "mutates": false,
@@ -965,7 +965,7 @@
     },
     {
       "api_id": "tab.wait_for",
-      "callable_path": "qwenpaw.browser.canonical.tabs:Tab.wait_for",
+      "callable_path": "qwenpaw.browser.api.tabs:Tab.wait_for",
       "invalidates_observation": false,
       "kind": "primitive",
       "mutates": false,
@@ -1000,7 +1000,7 @@
     },
     {
       "api_id": "browser.resources.list",
-      "callable_path": "qwenpaw.browser.canonical.facade:BrowserResources.list",
+      "callable_path": "qwenpaw.browser.api.facade:BrowserResources.list",
       "invalidates_observation": false,
       "kind": "primitive",
       "mutates": false,
@@ -1015,7 +1015,7 @@
     },
     {
       "api_id": "browser.resources.require",
-      "callable_path": "qwenpaw.browser.canonical.facade:BrowserResources.require",
+      "callable_path": "qwenpaw.browser.api.facade:BrowserResources.require",
       "invalidates_observation": false,
       "kind": "primitive",
       "mutates": false,
@@ -1037,7 +1037,7 @@
     },
     {
       "api_id": "browser.resources.from_workspace",
-      "callable_path": "qwenpaw.browser.canonical.facade:BrowserResources.from_workspace",
+      "callable_path": "qwenpaw.browser.api.facade:BrowserResources.from_workspace",
       "invalidates_observation": false,
       "kind": "primitive",
       "mutates": false,

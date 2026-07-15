@@ -16,7 +16,7 @@ from uuid import uuid4
 
 from qwenpaw.constant import WORKING_DIR
 
-from ..canonical.contracts import (
+from ..api.contracts import (
     CleanupInfo,
     ContextVersion,
     Notice,

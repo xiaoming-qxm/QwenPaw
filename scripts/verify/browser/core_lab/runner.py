@@ -878,7 +878,7 @@ async def _run_visual_canvas_production(
     case: LabCase,
 ) -> _VisualProductionObservation:
     """Execute actual snapshot, User promotion, and Bridge input seams."""
-    contracts = import_module("qwenpaw.browser.canonical.contracts")
+    contracts = import_module("qwenpaw.browser.api.contracts")
     condition_runtime = import_module(
         "qwenpaw.browser.condition_evaluator",
     )
@@ -887,7 +887,7 @@ async def _run_visual_canvas_production(
     policy_runtime = import_module("qwenpaw.browser.governance.policy")
     action_runtime = import_module("qwenpaw.browser.action_runner")
     api_contracts = import_module(
-        "qwenpaw.browser.canonical.action_contract",
+        "qwenpaw.browser.api.action_contract",
     )
     snapshot_handler = import_module(
         "plugins.bundle.chrome.action_runtime.handlers.snapshot",

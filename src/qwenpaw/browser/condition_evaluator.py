@@ -11,7 +11,7 @@ from hashlib import sha256
 import json
 from typing import Literal, Protocol, cast
 
-from .canonical.contracts import (
+from .api.contracts import (
     BrowserCondition,
     BrowserPrompt,
     CleanupInfo,

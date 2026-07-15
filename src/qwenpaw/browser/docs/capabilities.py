@@ -198,7 +198,7 @@ def _generated_capabilities() -> dict[str, Any]:
     artifact = (
         resources.files("qwenpaw.browser")
         / "generated"
-        / "canonical"
+        / "api"
         / "capabilities.json"
     )
     return json.loads(artifact.read_text(encoding="utf-8"))

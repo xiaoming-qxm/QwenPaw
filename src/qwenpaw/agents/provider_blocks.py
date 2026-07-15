@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from functools import wraps
 from typing import Any, cast
 
-from qwenpaw.browser.canonical.contracts import (
+from qwenpaw.browser.api.contracts import (
     Problem,
     TransportProblemDetails,
 )

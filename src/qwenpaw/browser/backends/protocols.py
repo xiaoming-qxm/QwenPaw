@@ -33,7 +33,7 @@ from ..primitives.types import (
 )
 
 if TYPE_CHECKING:
-    from ..canonical.contracts import (
+    from ..api.contracts import (
         BrowserPrompt,
         ContextVersion,
         OptionChoice,

@@ -8,7 +8,7 @@ import inspect
 from types import CodeType
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
-from ..canonical.guard import CapabilityGuard
+from ..api.guard import CapabilityGuard
 
 if TYPE_CHECKING:
     from .kernel import BrowserExecutionContext
@@ -151,8 +151,8 @@ def _new_namespace(
         BrowserSDKGap,
     )
 
-    from ..canonical.proxy import BrowserProxyClass as browser_proxy
-    from ..canonical.proxy import value_namespace
+    from ..api.proxy import BrowserProxyClass as browser_proxy
+    from ..api.proxy import value_namespace
 
     connect_browser = browser_proxy.connect
     namespace: dict[str, Any] = {"__builtins__": guard.safe_builtins()}

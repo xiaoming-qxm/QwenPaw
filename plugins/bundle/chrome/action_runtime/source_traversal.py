@@ -14,7 +14,7 @@ from dataclasses import dataclass, replace
 from typing import Any, Protocol
 from uuid import uuid4
 
-from qwenpaw.browser.canonical.contracts import (
+from qwenpaw.browser.api.contracts import (
     CaptureGap,
     Coverage,
     CoverageGap,

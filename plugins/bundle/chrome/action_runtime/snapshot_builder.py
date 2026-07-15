@@ -10,7 +10,7 @@ import asyncio
 import hashlib
 import re
 from typing import Any
-from qwenpaw.browser.canonical.contracts import (
+from qwenpaw.browser.api.contracts import (
     ContextVersion,
     Coverage,
     CurrentSurface,

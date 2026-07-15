@@ -50,7 +50,7 @@ from .resources import (
     ResourceStoreError,
     resolve_promoted_handle_bytes,
 )
-from ..canonical.contracts import ResourceHandle
+from ..api.contracts import ResourceHandle
 
 register_isolated_backend_once()
 register_browser_loop_gate_provider_once()

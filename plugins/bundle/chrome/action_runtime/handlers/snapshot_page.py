@@ -7,7 +7,7 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
-from qwenpaw.browser.canonical.contracts import (
+from qwenpaw.browser.api.contracts import (
     ContextVersion,
     CurrentSurface,
     TargetQuery,
