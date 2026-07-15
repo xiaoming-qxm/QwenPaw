@@ -442,16 +442,7 @@ class Runtime:
         from ..schemas import AgentRequest
 
         if isinstance(request, dict):
-            forbidden = {
-                "browser_contract_rollout",
-            }
-            if forbidden.intersection(request):
-                raise ValueError("Browser rollout fields are host-only")
             request = AgentRequest(**request)
-        elif any(
-            hasattr(request, field) for field in ("browser_contract_rollout",)
-        ):
-            raise ValueError("Browser rollout fields are host-only")
         if not getattr(request, "session_id", None):
             request.session_id = uuid.uuid4().hex
         if not getattr(request, "user_id", None):

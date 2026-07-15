@@ -52,7 +52,6 @@ from ..envs import load_envs_into_environ
 from ..providers.provider_manager import ProviderManager
 from ..local_models.manager import LocalModelManager
 from .migration import (
-    migrate_browser_contract_rollout_config,
     migrate_legacy_workspace_to_default_agent,
     migrate_legacy_skills_to_skill_pool,
     ensure_default_agent_exists,
@@ -276,7 +275,6 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
         )
 
     logger.debug("Checking for legacy config migration...")
-    migrate_browser_contract_rollout_config()
     migrate_legacy_workspace_to_default_agent()
     ensure_default_agent_exists()
     migrate_legacy_skills_to_skill_pool()

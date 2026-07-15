@@ -2126,26 +2126,8 @@ class SecurityConfig(BaseModel):
         return cleaned
 
 
-class BrowserContractRolloutConfig(BaseModel):
-    """Host-owned revisioned default for new Browser root sessions."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    revision: int = Field(default=1, ge=0, strict=True)
-    default: Literal["CANONICAL"] = "CANONICAL"
-
-
 class Config(BaseModel):
     """Root config (config.json)."""
-
-    @model_validator(mode="before")
-    @classmethod
-    def reject_retired_browser_admission(cls, data: Any) -> Any:
-        """Reject the removed S10A Legacy-admission configuration field."""
-        retired_field = "browser_" + "legacy_admission"
-        if isinstance(data, dict) and retired_field in data:
-            raise ValueError(f"{retired_field} has been retired")
-        return data
 
     channels: ChannelConfig = ChannelConfig()
     mcp: MCPConfig = MCPConfig()
@@ -2155,9 +2137,6 @@ class Config(BaseModel):
     last_dispatch: Optional[LastDispatchConfig] = None
     security: SecurityConfig = Field(default_factory=SecurityConfig)
     acp: ACPConfig = Field(default_factory=ACPConfig)
-    browser_contract_rollout: BrowserContractRolloutConfig = Field(
-        default_factory=BrowserContractRolloutConfig,
-    )
     show_tool_details: bool = True
     user_timezone: str = Field(
         default_factory=detect_system_timezone,
