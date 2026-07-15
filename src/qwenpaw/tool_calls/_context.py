@@ -1,13 +1,12 @@
 # -*- coding: utf-8 -*-
 """Per-call runtime handle for tool execution lifecycle."""
+
 from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
-
-from qwenpaw.browser.runtime.session_owner import ContractMode
 
 
 class CancelReason(StrEnum):
@@ -33,7 +32,6 @@ class ToolCallContext:
     root_session_id: str
     root_task_id: str
     browser_owner_id: str
-    contract_mode: ContractMode
     lease_generation: int
 
     started_at: float

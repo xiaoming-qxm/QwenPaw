@@ -58,9 +58,6 @@ from .migration import (
     ensure_default_agent_exists,
     ensure_qa_agent_exists,
 )
-from ..runtime.root_request_coordinator import (
-    initialize_browser_contract_rollout,
-)
 
 # Apply log level on load so reload child process gets same level as CLI.
 logger = setup_logger(os.environ.get(LOG_LEVEL_ENV, "info"))
@@ -280,7 +277,6 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
     logger.debug("Checking for legacy config migration...")
     migrate_browser_contract_rollout_config()
-    await initialize_browser_contract_rollout()
     migrate_legacy_workspace_to_default_agent()
     ensure_default_agent_exists()
     migrate_legacy_skills_to_skill_pool()

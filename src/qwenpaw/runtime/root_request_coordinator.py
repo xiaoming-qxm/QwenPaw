@@ -6,15 +6,11 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 from ..browser.runtime.session_owner import (
-    BrowserContractRolloutSnapshot,
-    BrowserOwnerRegistryError,
     BrowserRequestBinding,
     BrowserSessionOwnerRegistry,
-    ContractMode,
     ResumeToken,
     RootTaskOutcome,
 )
@@ -106,19 +102,6 @@ async def run_root_request(
     resume_token: str | None = None,
 ) -> AsyncIterator[object]:
     """Issue trusted identity outside Runtime and stream one request."""
-    rollout_revision = 1
-    rollout_default: ContractMode | None = None
-    if (
-        resume_token is None
-        and inherited_binding is None
-        and not await _OWNER_REGISTRY.has_contract_mode(
-            trusted_root_session_id,
-        )
-    ):
-        rollout = _load_browser_contract_rollout()
-        await _OWNER_REGISTRY.initialize_rollout(rollout)
-        rollout_revision = rollout.revision
-        rollout_default = rollout.default
     binding = await _OWNER_REGISTRY.begin_request(
         root_session_id=trusted_root_session_id,
         source=(
@@ -128,8 +111,6 @@ async def run_root_request(
             if inherited_binding is not None
             else "user"
         ),
-        rollout_revision=rollout_revision,
-        rollout_default=rollout_default,
         resume_token=resume_token,
         inherited_binding=inherited_binding,
     )
@@ -231,47 +212,10 @@ async def sweep_expired_root_tasks() -> tuple[tuple[str, str], ...]:
     return expired
 
 
-def _load_browser_contract_rollout(
-    config_path: Path | None = None,
-) -> BrowserContractRolloutSnapshot:
-    """Strictly read one host-owned rollout snapshot for a first binding."""
-    from ..config.utils import load_config_strict
-
-    try:
-        config = load_config_strict(config_path)
-        rollout = config.browser_contract_rollout
-        return BrowserContractRolloutSnapshot(
-            revision=rollout.revision,
-            default=ContractMode(rollout.default),
-            legacy_admission="CLOSED",
-        )
-    except BrowserOwnerRegistryError:
-        raise
-    except Exception as exc:
-        raise BrowserOwnerRegistryError(
-            "browser_rollout_unavailable",
-        ) from exc
-
-
-async def initialize_browser_contract_rollout(
-    config_path: Path | None = None,
-) -> BrowserContractRolloutSnapshot:
-    """Freeze startup admission before the app accepts Browser requests."""
-    snapshot = _load_browser_contract_rollout(config_path)
-    await _OWNER_REGISTRY.initialize_rollout(snapshot)
-    return snapshot
-
-
-def _trusted_rollout_default() -> ContractMode:
-    """Return the last process-validated host default for evidence."""
-    return _OWNER_REGISTRY.trusted_rollout_default()
-
-
 __all__ = [
     "RootRequestControl",
     "RootTaskLifecycleEvent",
     "TrustedRootDisposition",
     "run_root_request",
-    "initialize_browser_contract_rollout",
     "sweep_expired_root_tasks",
 ]

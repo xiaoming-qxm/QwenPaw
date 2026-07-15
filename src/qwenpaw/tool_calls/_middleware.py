@@ -46,7 +46,6 @@ class ToolCoordinatorMiddleware(MiddlewareBase):
         root_session_id = request_context.get("root_session_id", "")
         root_task_id = request_context.get("root_task_id", "")
         browser_owner_id = request_context.get("browser_owner_id", "")
-        contract_mode = request_context.get("contract_mode")
         lease_generation = request_context.get("lease_generation", 0)
 
         async for item in self._coordinator.execute(
@@ -57,7 +56,6 @@ class ToolCoordinatorMiddleware(MiddlewareBase):
             root_session_id=root_session_id,
             root_task_id=root_task_id,
             browser_owner_id=browser_owner_id,
-            contract_mode=contract_mode,
             lease_generation=lease_generation,
             request_context=request_context,
             background_result_processor=self._background_result_processor,

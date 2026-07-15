@@ -51,7 +51,6 @@ from .resources import (
     resolve_promoted_handle_bytes,
 )
 from ..canonical.contracts import ResourceHandle
-from .session_owner import ContractMode
 
 register_isolated_backend_once()
 register_browser_loop_gate_provider_once()
@@ -62,10 +61,12 @@ _ERROR_HINTS = {
         "retrying."
     ),
     "network_timeout": (
-        "Report the timeout and retry later only if the network or page " "settles."
+        "Report the timeout and retry later only if the network or page "
+        "settles."
     ),
     "observation_stale": (
-        "Take a fresh browser observation before attempting another " "mutating action."
+        "Take a fresh browser observation before attempting another "
+        "mutating action."
     ),
     "observation_enrichment_denied": (
         "Use an available visual observation source before attempting "
@@ -83,11 +84,15 @@ _ERROR_HINTS = {
         "Add or use a generic Browser SDK capability instead of a one-off "
         "workaround."
     ),
-    "chrome_disconnected": ("Reload the extension or reopen the target browser tab."),
+    "chrome_disconnected": (
+        "Reload the extension or reopen the target browser tab."
+    ),
     "browser_backend_unavailable": (
         "Refresh the status after the backend is available."
     ),
-    "chrome_action_runtime_missing": ("Restart QwenPaw or reload the Chrome plugin."),
+    "chrome_action_runtime_missing": (
+        "Restart QwenPaw or reload the Chrome plugin."
+    ),
     "isolated_backend_unavailable": (
         "Install or restart the isolated browser runtime."
     ),
@@ -210,8 +215,7 @@ async def browser(
             root_session_id=root_session_id,
             root_task_id=trusted_binding[1],
             browser_owner_id=trusted_binding[2],
-            contract_mode=trusted_binding[3],
-            lease_generation=trusted_binding[4],
+            lease_generation=trusted_binding[3],
             code=code,
             context=context,  # type: ignore[arg-type]
             request_scope_key=request_scope_key,
@@ -290,7 +294,8 @@ async def browser(
             TextBlock(
                 type="text",
                 text=(
-                    "FAILED TRANSPORT: required Browser artifact could not " "be mapped"
+                    "FAILED TRANSPORT: required Browser artifact could not "
+                    "be mapped"
                 ),
             ),
         )
@@ -322,7 +327,7 @@ def _current_root_session_id(session_id: str) -> str:
         return session_id or "default"
 
 
-def _current_browser_binding() -> tuple[str, str, str, ContractMode, int] | None:
+def _current_browser_binding() -> tuple[str, str, str, int] | None:
     """Read only registry-issued identity copied into ToolCallContext."""
     try:
         from qwenpaw.tool_calls import get_call_context
@@ -341,14 +346,12 @@ def _current_browser_binding() -> tuple[str, str, str, ContractMode, int] | None
     browser_owner_id = str(
         getattr(call_context, "browser_owner_id", "") or "",
     ).strip()
-    mode = getattr(call_context, "contract_mode", None)
     generation = getattr(call_context, "lease_generation", 0)
     identities_valid = all(
         (root_session_id, root_task_id, browser_owner_id),
     )
     if (
         not identities_valid
-        or not isinstance(mode, ContractMode)
         or not isinstance(generation, int)
         or generation <= 0
     ):
@@ -357,7 +360,6 @@ def _current_browser_binding() -> tuple[str, str, str, ContractMode, int] | None
         root_session_id,
         root_task_id,
         browser_owner_id,
-        mode,
         generation,
     )
 
@@ -606,7 +608,9 @@ def _validate_prepared_blocks(
         prepare_required_blocks,
     )
 
-    required_count = sum(len(record.required_blocks) for record in envelope.records)
+    required_count = sum(
+        len(record.required_blocks) for record in envelope.records
+    )
     if required_count == 0:
         return
 
@@ -647,7 +651,9 @@ def _summary_text(
         ):
             return "FAILED TRANSPORT: required resource block was dropped"
         return "\n".join(
-            block.text for block in projected if block.kind == "text" and block.text
+            block.text
+            for block in projected
+            if block.kind == "text" and block.text
         )
     if result.error:
         text = _error_summary_text(result.error)
@@ -747,7 +753,9 @@ def _error_diagnostics_summary(error: dict[str, Any], code: str) -> str:
 
 def _diagnostics_dict_summary(diagnostics: dict[str, Any]) -> str:
     backend_id = str(
-        diagnostics.get("backend_id") or diagnostics.get("selected_backend_id") or "",
+        diagnostics.get("backend_id")
+        or diagnostics.get("selected_backend_id")
+        or "",
     ).strip()
     status = str(diagnostics.get("status") or "unavailable").strip()
     code = str(diagnostics.get("code") or "").strip()

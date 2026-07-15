@@ -19,7 +19,6 @@ from ..governance.resolver import BrowserContextResolver
 from ..primitives.types import BrowserOwnershipContext, ResolvedBrowserContext
 from ..runtime.kernel import get_current_execution_context
 from ..runtime.resources import ResourceStore, get_or_create_resource_store
-from ..runtime.session_owner import ContractMode
 from .contracts import ResourceHandle
 from .tabs import BrowserTabs
 
@@ -252,7 +251,6 @@ def execution_binding(execution: Any):
         root_session_id=execution.root_session_id,
         root_task_id=execution.root_task_id,
         browser_owner_id=execution.browser_owner_id,
-        contract_mode=execution.contract_mode,
         lease_generation=execution.lease_generation,
     )
 

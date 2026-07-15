@@ -225,7 +225,10 @@ class AgentBuilder:
 
         request_context[
             "provider_block_profile"
-        ] = build_provider_block_profile(model, _formatter)
+        ] = build_provider_block_profile(
+            model,
+            _formatter,
+        )
 
         # Built once and shared: the agent's native offloader, and (when
         # ``offload_dialog`` is on) scroll's optional dialog archive.
@@ -488,7 +491,6 @@ class AgentBuilder:
                 "browser_owner_id": (
                     getattr(ctx, "browser_owner_id", "") or ""
                 ),
-                "contract_mode": getattr(ctx, "contract_mode", None),
                 "lease_generation": getattr(ctx, "lease_generation", 0),
             },
         )

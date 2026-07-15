@@ -20,7 +20,6 @@ from .result_delivery import (
     install_result_collector,
     reset_result_collector,
 )
-from .session_owner import ContractMode
 
 _DEFAULT_IDLE_TTL_SECONDS = 300.0
 
@@ -34,7 +33,6 @@ class BrowserExecutionContext:
     root_session_id: str
     root_task_id: str
     browser_owner_id: str
-    contract_mode: ContractMode
     lease_generation: int
     requires_user_state: bool | None = None
     browser_intent: BrowserIntent | None = None
@@ -54,7 +52,10 @@ class BrowserKernelResult:
 
 _CURRENT_EXECUTION_CONTEXT: ContextVar[
     BrowserExecutionContext | None
-] = ContextVar("qwenpaw_browser_execution_context", default=None)
+] = ContextVar(
+    "qwenpaw_browser_execution_context",
+    default=None,
+)
 _CURRENT_ARTIFACTS: ContextVar[list[BrowserArtifact] | None] = ContextVar(
     "qwenpaw_browser_artifacts",
     default=None,
@@ -144,7 +145,6 @@ class BrowserKernelRuntime:
         root_session_id: str,
         root_task_id: str,
         browser_owner_id: str,
-        contract_mode: ContractMode,
         lease_generation: int,
         requires_user_state: bool | None = None,
         browser_intent: BrowserIntent | None = None,
@@ -157,7 +157,6 @@ class BrowserKernelRuntime:
             root_session_id=root_session_id,
             root_task_id=root_task_id,
             browser_owner_id=browser_owner_id,
-            contract_mode=contract_mode,
             lease_generation=lease_generation,
             requires_user_state=requires_user_state,
             browser_intent=browser_intent,
@@ -263,7 +262,6 @@ class BrowserKernel:
             context=execution_context.context,
             root_task_id=execution_context.root_task_id,
             browser_owner_id=execution_context.browser_owner_id,
-            contract_mode=execution_context.contract_mode,
             lease_generation=execution_context.lease_generation,
             requires_user_state=execution_context.requires_user_state,
             browser_intent=execution_context.browser_intent,

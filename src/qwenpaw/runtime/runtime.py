@@ -485,7 +485,6 @@ class Runtime:
             root_session_id=root_session_id,
             root_task_id=binding.root_task_id,
             browser_owner_id=binding.browser_owner_id,
-            contract_mode=binding.contract_mode,
             lease_generation=binding.lease_generation,
             root_agent_id=root_agent_id,
             workspace_dir=workspace_dir,

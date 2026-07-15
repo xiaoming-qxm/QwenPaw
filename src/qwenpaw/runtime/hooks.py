@@ -26,8 +26,6 @@ from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from ..browser.runtime.session_owner import ContractMode
-
 from ..exceptions import HookCycleError
 from .phases import Phase
 
@@ -93,13 +91,12 @@ class HookContext:
     root_session_id: str
     root_task_id: str
     browser_owner_id: str
-    contract_mode: ContractMode
     lease_generation: int
     root_agent_id: str
     workspace_dir: Path | None
 
     # ── Containers (read by hooks; never mutated) ──
-    workspace: (Any)  # forward ref: app/workspace/workspace.py:Workspace
+    workspace: Any  # forward ref: app/workspace/workspace.py:Workspace
     app_services: Any  # forward ref: AppServiceManager
 
     # ── Per-request mutable state, filled in across phases ──
