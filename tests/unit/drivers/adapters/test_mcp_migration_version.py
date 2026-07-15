@@ -191,3 +191,28 @@ async def test_migration_folds_env_ref_upgrade_step(
     }
     assert mcp.migration_version == CURRENT_MCP_MIGRATION_VERSION
     assert len(captured_saves) == 1
+    # The v1->v2 upgrade also cleared the plaintext ${VAR} record from the
+    # store; env: refs resolve from the environment and never persist.
+    assert "mcp/wind" not in await store.list_refs()
+
+
+@pytest.mark.asyncio
+async def test_migration_rolls_back_watermark_on_persist_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def _boom(*_args: object) -> None:
+        raise RuntimeError("disk full")
+
+    monkeypatch.setattr(cfg_config, "save_agent_config", _boom)
+    store = AsyncCredentialStore(tmp_path / "credentials.yaml")
+    manager = DriverManager(tmp_path / "drivers", store)
+    mcp = _mcp({"wind": _client()}, version=0)
+
+    with pytest.raises(RuntimeError, match="disk full"):
+        await migrate_legacy_mcp_if_needed(_ws(mcp), manager)
+
+    # Watermark rolled back to the un-persisted (on-disk) value, so the next
+    # start re-runs the migration instead of trusting a version that was
+    # never written to agent.json (idempotent).
+    assert mcp.migration_version == 0

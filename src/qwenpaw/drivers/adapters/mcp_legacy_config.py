@@ -133,10 +133,16 @@ async def migrate_legacy_mcp_if_needed(
 
     await asyncio.to_thread(_write_report, driver_manager.cards_dir, report)
 
-    # Persist the watermark only after all steps succeed; on partial failure
-    # the version stays put and the next start re-runs (idempotent).
+    # Persist the watermark last.  save_agent_config serializes ws._config, so
+    # the bump must precede the write; roll it back if the write fails so the
+    # in-memory watermark never claims a state that is not on disk, and the
+    # next start re-runs the migration (idempotent).
     mcp.migration_version = CURRENT_MCP_MIGRATION_VERSION
-    await asyncio.to_thread(_persist_mcp_migration_version, ws)
+    try:
+        await asyncio.to_thread(_persist_mcp_migration_version, ws)
+    except Exception:  # pylint: disable=broad-except
+        mcp.migration_version = current
+        raise
     return report
 
 
