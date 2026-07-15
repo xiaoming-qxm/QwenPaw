@@ -74,10 +74,8 @@ _ERROR_HINTS = {
         "another mutating action."
     ),
     "invalid_sdk_usage": (
-        "Use the documented Canonical SDK only: connect with "
-        "`await Browser.connect(...)`, select a `TabSummary`, observe with "
-        "`await tab.snapshot(limit=...)`, and use `tab.actions.click`, `paste`, "
-        "`tab.actions.scroll`, or `upload_file`. Do not invent browser APIs."
+        "Use only the documented Browser SDK. Observe, act, and verify. If "
+        "unsure of an API or its arguments, call `await Browser.help(...)`."
     ),
     "click_without_navigation": (
         "Observe the page after the click before deciding whether to retry, "
@@ -107,13 +105,46 @@ _BROWSER_INVARIANT_ERROR_CODES = {
     "browser_stale_lease",
     "browser_tab_occupied",
 }
+_BROWSER_TOOL_DESCRIPTION = (
+    "Operate a live browser — including the user's own logged-in Chrome — by "
+    "running async\n"
+    "Python against the Browser SDK. It is a perceive -> act -> verify loop, "
+    "not\n"
+    "fire-and-forget: sending a command is not the same as it working, so you "
+    "must confirm\n"
+    "effects yourself.\n"
+    "\n"
+    "Call it:\n"
+    "- code: module-level async Python (use await); no return — leave the "
+    "value as the last\n"
+    "  expression and the tool records it.\n"
+    "- context: \"auto\" (default) | \"isolated\" | \"user\". \"user\" acts "
+    "as the real user with\n"
+    "  real login and real consequences — pick it only when the task truly "
+    "needs that.\n"
+    "  Start with: browser = await Browser.connect(context=\"auto\")\n"
+    "\n"
+    "Rules (do not violate):\n"
+    "1. Observe -> act on what you observed -> observe again. Never act on a "
+    "stale view.\n"
+    "2. After any change, confirm it took effect; if it did not clearly "
+    "succeed, re-observe\n"
+    "   and recover from the reason reported — never blindly retry a write.\n"
+    "3. Use only the documented semantic API — no raw CDP / JS / CSS "
+    "selectors / fixed sleeps\n"
+    "   / private objects (they are rejected).\n"
+    "\n"
+    "Don't guess an API or its arguments — look it up in code:\n"
+    "  await Browser.help()              -> what you can do, and how to "
+    "drill in\n"
+    "  await Browser.help(api_id=\"...\")  -> one API's exact usage and "
+    "constraints\n"
+)
 _CANONICAL_SDK_RECOVERY = (
-    "Use the documented Canonical SDK only: connect with "
-    "`await Browser.connect(...)`, select a `TabSummary`, observe with "
-    "`await tab.snapshot(limit=...)`, and use `tab.actions.click`, `paste`, "
-    "`tab.actions.scroll(direction=..., amount=...)`, or `upload_file`. "
-    "Do not use "
-    "`hasattr`, `Tab.extract`, `Tab.metadata`, or `scroll_down`."
+    "Use only the documented Browser SDK. Connect with "
+    "`await Browser.connect(...)`, observe with a snapshot, act, then "
+    "verify the effect. If unsure of an API or its arguments, call "
+    '`await Browser.help(api_id="...")` before retrying.'
 )
 
 
@@ -121,10 +152,7 @@ _CANONICAL_SDK_RECOVERY = (
     name="browser",
     enabled_by_default=True,
     async_execution=True,
-    description=(
-        "Execute Python code in the unified Browser SDK. Use "
-        '`browser = await Browser.connect(context="auto")` inside code.'
-    ),
+    description=_BROWSER_TOOL_DESCRIPTION,
 )
 async def browser(
     code: str,

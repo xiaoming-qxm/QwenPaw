@@ -890,16 +890,17 @@
         },
         {
           "annotation": "int",
+          "default": 100,
           "kind": "KEYWORD_ONLY",
           "name": "limit",
-          "required": true
+          "required": false
         }
       ],
       "public_name": "tab.snapshot",
       "requires_observation": false,
       "return_type": "SnapshotResult",
       "satisfies_observation": true,
-      "signature": "async snapshot(*, scope: ObservationScope | None = None, query: TargetQuery | None = None, cursor: SnapshotCursor | None = None, limit: int) -> SnapshotResult",
+      "signature": "async snapshot(*, scope: ObservationScope | None = None, query: TargetQuery | None = None, cursor: SnapshotCursor | None = None, limit: int = 100) -> SnapshotResult",
       "summary": "Capture one caller-sized source page for this Tab receiver.",
       "visibility": "default"
     },

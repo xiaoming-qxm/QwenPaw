@@ -164,6 +164,13 @@ class Browser:
             ownership_context=ownership,
         )
 
+    @classmethod
+    async def help(cls, api_id: str | None = None) -> str:
+        """Return model-facing Browser SDK usage help without a connection."""
+        from ..docs.capabilities import browser_sdk_help
+
+        return browser_sdk_help(api_id=api_id)
+
     async def close(self) -> None:
         """Release the current SDK lease only."""
         self._closed = True

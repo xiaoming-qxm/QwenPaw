@@ -59,11 +59,6 @@ _ENV_LOCK = threading.Lock()
 _builtin_cache: dict[str, Any] = {}
 _BUILTIN_CACHE_LOCK = threading.Lock()
 
-_CANONICAL_BROWSER_SKILL_NAME = "browser"
-_CANONICAL_BROWSER_CONTRACT_MIGRATIONS = {
-    "en": {"12.0": "12.2", "12.1": "12.2"},
-    "zh": {"15.0": "15.2", "15.1": "15.2"},
-}
 _MAKE_SKILL_NAME = "make-skill"
 _MAKE_SKILL_BROWSER_CONTRACT_MIGRATIONS = {
     "en": {"1.1": "1.2"},
@@ -71,20 +66,33 @@ _MAKE_SKILL_BROWSER_CONTRACT_MIGRATIONS = {
 }
 _TARGETED_BUILTIN_SKILL_CONTRACTS = (
     (
-        _CANONICAL_BROWSER_SKILL_NAME,
-        _CANONICAL_BROWSER_CONTRACT_MIGRATIONS,
-    ),
-    (
         _MAKE_SKILL_NAME,
         _MAKE_SKILL_BROWSER_CONTRACT_MIGRATIONS,
     ),
 )
-_LEGACY_BROWSER_SKILL_NAMES = (
+_DEFUNCT_BROWSER_SKILL_NAMES = (
+    "browser",
     "browser-sdk",
     "browser_visible",
     "browser_cdp",
     "browser-control",
 )
+
+
+def _purge_defunct_browser_skills(
+    *,
+    workspace_skills_dir: Path,
+    skills: dict[str, Any],
+) -> None:
+    """Purge stale browser skills while retaining customized skills."""
+    for name in _DEFUNCT_BROWSER_SKILL_NAMES:
+        entry = normalize_skill_manifest_entry(skills.get(name))
+        if str(entry.get("source", "") or "") == "customized":
+            continue
+        skills.pop(name, None)
+        skill_dir = workspace_skills_dir / name
+        if skill_dir.exists():
+            shutil.rmtree(skill_dir, ignore_errors=True)
 
 
 # ---------------------------------------------------------------------------
@@ -1269,104 +1277,6 @@ def reconcile_pool_manifest() -> dict[str, Any]:
     )
 
 
-def _normalize_workspace_channels(value: Any) -> list[str]:
-    if isinstance(value, list):
-        channels = [str(item) for item in value if str(item or "").strip()]
-    else:
-        channels = []
-    return channels or ["all"]
-
-
-def _merge_workspace_browser_channels(
-    entries: list[dict[str, Any]],
-) -> list[str]:
-    merged: list[str] = []
-    for entry in entries:
-        for channel in _normalize_workspace_channels(entry.get("channels")):
-            if channel == "all":
-                return ["all"]
-            if channel not in merged:
-                merged.append(channel)
-    return merged or ["all"]
-
-
-def _select_packaged_browser_skill_dir() -> Path | None:
-    registry = _get_packaged_builtin_registry()
-    variant = _select_builtin_variant(
-        registry,
-        _CANONICAL_BROWSER_SKILL_NAME,
-        preferred_language=get_builtin_skill_language_preference(),
-    )
-    return variant.skill_dir if variant is not None else None
-
-
-def _migrate_workspace_browser_skill(
-    *,
-    workspace_skills_dir: Path,
-    skills: dict[str, Any],
-    builtin_versions: dict[str, str],
-) -> None:
-    legacy_names = [
-        name
-        for name in _LEGACY_BROWSER_SKILL_NAMES
-        if name in skills or (workspace_skills_dir / name).exists()
-    ]
-    if not legacy_names:
-        return
-
-    browser_dir = workspace_skills_dir / _CANONICAL_BROWSER_SKILL_NAME
-    if not (browser_dir / "SKILL.md").exists():
-        packaged_dir = _select_packaged_browser_skill_dir()
-        if packaged_dir is not None:
-            try:
-                browser_dir.parent.mkdir(parents=True, exist_ok=True)
-                copy_skill_dir(packaged_dir, browser_dir)
-            except Exception:
-                logger.warning(
-                    "Failed to materialize canonical browser skill",
-                    exc_info=True,
-                )
-                return
-
-    existing_browser = normalize_skill_manifest_entry(
-        skills.get(_CANONICAL_BROWSER_SKILL_NAME),
-    )
-    legacy_entries = [
-        normalize_skill_manifest_entry(skills.get(name))
-        for name in legacy_names
-    ]
-    state_entries = [existing_browser, *legacy_entries]
-    enabled_entries = [
-        entry for entry in state_entries if entry.get("enabled", False)
-    ]
-
-    next_browser = dict(existing_browser)
-    next_browser["enabled"] = bool(enabled_entries)
-    next_browser["channels"] = _merge_workspace_browser_channels(
-        enabled_entries or state_entries,
-    )
-    next_browser.setdefault(
-        "source",
-        "builtin"
-        if _CANONICAL_BROWSER_SKILL_NAME in builtin_versions
-        else "customized",
-    )
-    for key in ("config", "tags", "installed_from"):
-        if key in next_browser:
-            continue
-        for entry in legacy_entries:
-            if key in entry:
-                next_browser[key] = entry.get(key)
-                break
-
-    skills[_CANONICAL_BROWSER_SKILL_NAME] = next_browser
-    for name in legacy_names:
-        skills.pop(name, None)
-        legacy_dir = workspace_skills_dir / name
-        if legacy_dir.exists():
-            shutil.rmtree(legacy_dir, ignore_errors=True)
-
-
 def reconcile_workspace_manifest(workspace_dir: Path) -> dict[str, Any]:
     """Reconcile one workspace manifest with the filesystem.
 
@@ -1397,10 +1307,9 @@ def reconcile_workspace_manifest(workspace_dir: Path) -> dict[str, Any]:
         payload.setdefault("skills", {})
         skills = payload["skills"]
 
-        _migrate_workspace_browser_skill(
+        _purge_defunct_browser_skills(
             workspace_skills_dir=workspace_skills_dir,
             skills=skills,
-            builtin_versions=builtin_versions,
         )
 
         discovered = {

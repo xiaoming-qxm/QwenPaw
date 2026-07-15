@@ -98,13 +98,12 @@ _TAB_FACTORY_SUFFIXES = (
     ".tabs.select",
 )
 _CANONICAL_SDK_HINT = (
-    "Use the Canonical SDK only: connect with Browser.connect(...), select "
-    "a TabSummary, observe with tab.snapshot(limit=...), then use tab.actions.click, "
-    "paste, scroll, or upload_file instead of private backend dispatch."
+    "Use only the documented Browser SDK. Observe, act, and verify. If unsure "
+    "of an API or its arguments, call Browser.help(...)."
 )
 _META_INTROSPECTION_HINT = (
-    "Do not use Python object introspection. Connect with Browser.connect(...), "
-    "then use tab.snapshot(limit=...) and documented tab.actions.* calls directly."
+    "Do not use Python object introspection. Use only the documented Browser "
+    "SDK; if unsure of an API or its arguments, call Browser.help(...)."
 )
 
 
@@ -316,8 +315,8 @@ class _GuardVisitor(ast.NodeVisitor):
         if parts[-1:] == ["evaluate"]:
             self._guard.deny_invalid_sdk_usage(
                 "evaluate",
-                "Use Browser.capabilities(...) and documented primitives or "
-                "actions instead of public JavaScript evaluation.",
+                "Use documented primitives or actions and inspect them with "
+                "Browser.help(...) instead of public JavaScript evaluation.",
             )
         if "cdp" in parts or any("cdp" in part for part in parts):
             self._guard.deny_invalid_sdk_usage(
@@ -327,16 +326,16 @@ class _GuardVisitor(ast.NodeVisitor):
         if parts[-1:] == ["action"]:
             self._guard.deny_invalid_sdk_usage(
                 "session.action",
-                "Use canonical tab.actions.* methods instead of public string "
-                "dispatch.",
+                "Use documented Browser SDK actions instead of public string "
+                "dispatch. If unsure of an API, call Browser.help(...).",
             )
         if len(parts) >= 3 and parts[-2] == "actions":
             old_name = parts[-1]
             if old_name in OLD_PUBLIC_ACTIONS:
                 self._guard.deny_invalid_sdk_usage(
                     f"{'.'.join(parts[-3:])}",
-                    "Use the canonical generated Browser SDK action name from "
-                    "Browser.capabilities(...) or Browser.help(...).",
+                    "Use the documented Browser SDK action name from "
+                    "Browser.help(...).",
                 )
 
     def _is_sdk_object_chain(self, chain: list[str]) -> bool:
@@ -450,8 +449,9 @@ class _CanonicalTargetVisitor(ast.NodeVisitor):
             ):
                 self._guard.deny_invalid_sdk_usage(
                     f"tab.actions.{action}.legacy_target_shape",
-                    "Pass a Runtime-issued TargetRef from canonical snapshot "
-                    "evidence.",
+                    "Use an observed target supplied by the documented API. "
+                    "If unsure of an API or its arguments, call "
+                    "Browser.help(...).",
                 )
         self.generic_visit(node)
 

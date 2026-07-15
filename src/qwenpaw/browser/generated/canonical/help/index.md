@@ -2,8 +2,8 @@
 
 Generated from `api_catalog.json`.
 
-Use `Browser.capabilities(scope="actions")` for compact indexes.
-Use `Browser.help(api_id="tab.actions.click")` for one API.
+Call `await Browser.help()` for this overview.
+Call `await Browser.help(api_id="tab.actions.click")` for one API.
 
 ## Actions
 

@@ -14,8 +14,8 @@ class _BrowserFactoryProxy:
     __slots__ = ()
 
     def __getattribute__(self, name: str) -> Any:
-        if name == "connect":
-            return Browser.connect
+        if name in {"connect", "help"}:
+            return getattr(Browser, name)
         if name in {"__repr__", "__str__"}:
             return object.__getattribute__(self, name)
         raise BrowserPolicyDenied(
