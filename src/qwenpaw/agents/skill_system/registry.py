@@ -70,8 +70,7 @@ _TARGETED_BUILTIN_SKILL_CONTRACTS = (
         _MAKE_SKILL_BROWSER_CONTRACT_MIGRATIONS,
     ),
 )
-_DEFUNCT_BROWSER_SKILL_NAMES = (
-    "browser",
+_LEGACY_BROWSER_SKILL_NAMES = (
     "browser-sdk",
     "browser_visible",
     "browser_cdp",
@@ -79,13 +78,13 @@ _DEFUNCT_BROWSER_SKILL_NAMES = (
 )
 
 
-def _purge_defunct_browser_skills(
+def _purge_legacy_browser_skill_aliases(
     *,
     workspace_skills_dir: Path,
     skills: dict[str, Any],
 ) -> None:
-    """Purge stale browser skills while retaining customized skills."""
-    for name in _DEFUNCT_BROWSER_SKILL_NAMES:
+    """Purge stale browser aliases while retaining customized skills."""
+    for name in _LEGACY_BROWSER_SKILL_NAMES:
         entry = normalize_skill_manifest_entry(skills.get(name))
         if str(entry.get("source", "") or "") == "customized":
             continue
@@ -1307,7 +1306,7 @@ def reconcile_workspace_manifest(workspace_dir: Path) -> dict[str, Any]:
         payload.setdefault("skills", {})
         skills = payload["skills"]
 
-        _purge_defunct_browser_skills(
+        _purge_legacy_browser_skill_aliases(
             workspace_skills_dir=workspace_skills_dir,
             skills=skills,
         )
