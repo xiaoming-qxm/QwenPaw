@@ -9,7 +9,6 @@ from types import CodeType
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from ..canonical.guard import CapabilityGuard
-from .session_owner import ContractMode
 
 if TYPE_CHECKING:
     from .kernel import BrowserExecutionContext
@@ -75,8 +74,6 @@ class InProcessBrowserCodeExecutor:
             execution_context.root_task_id,
             execution_context.browser_owner_id,
         )
-        if execution_context.contract_mode is not ContractMode.CANONICAL:
-            raise RuntimeError("canonical_contract_required")
         guard = self._guard
         namespace = self._namespaces.setdefault(
             namespace_key,

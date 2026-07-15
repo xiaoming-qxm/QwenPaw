@@ -151,8 +151,6 @@ class BrowserKernelRuntime:
         request_scope_key: str = "",
     ) -> BrowserKernelResult:
         """Execute code in a session-scoped browser kernel."""
-        if contract_mode is not ContractMode.CANONICAL:
-            raise RuntimeError("canonical_contract_required")
         execution_context = BrowserExecutionContext(
             session_id=session_id,
             context=context,

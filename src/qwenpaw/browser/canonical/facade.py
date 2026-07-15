@@ -106,9 +106,9 @@ class Browser:
     ) -> "Browser":
         """Connect using only registry-issued execution identity."""
         execution = get_current_execution_context()
-        if execution is None or execution.contract_mode is not ContractMode.CANONICAL:
+        if execution is None:
             raise BrowserSDKError(
-                "Browser requires trusted " + "CANONICAL execution context.",
+                "Browser requires a trusted execution context.",
                 code="browser_ownership_context_missing",
                 action="browser.connect",
             )
