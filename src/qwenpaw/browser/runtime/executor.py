@@ -8,7 +8,7 @@ import inspect
 from types import CodeType
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
-from ..canonical.guard import CanonicalCapabilityGuard
+from ..canonical.guard import CapabilityGuard
 from .session_owner import ContractMode
 
 if TYPE_CHECKING:
@@ -52,9 +52,9 @@ class InProcessBrowserCodeExecutor:
     def __init__(
         self,
         *,
-        guard: CanonicalCapabilityGuard | None = None,
+        guard: CapabilityGuard | None = None,
     ) -> None:
-        self._guard = guard or CanonicalCapabilityGuard()
+        self._guard = guard or CapabilityGuard()
         self._namespaces: dict[
             tuple[str, str],
             dict[str, Any],
@@ -125,7 +125,7 @@ class InProcessBrowserCodeExecutor:
         }
 
 
-def _compile_code(code: str, guard: CanonicalCapabilityGuard) -> CodeType:
+def _compile_code(code: str, guard: CapabilityGuard) -> CodeType:
     tree = guard.parse(code)
     if tree.body and isinstance(tree.body[-1], ast.Expr):
         last_expr = tree.body[-1]
@@ -143,7 +143,7 @@ def _compile_code(code: str, guard: CanonicalCapabilityGuard) -> CodeType:
 
 
 def _new_namespace(
-    guard: CanonicalCapabilityGuard,
+    guard: CapabilityGuard,
 ) -> dict[str, Any]:
     from ..governance.errors import (
         BrowserContextConflict,
@@ -155,7 +155,7 @@ def _new_namespace(
     )
 
     from ..canonical.proxy import BrowserProxyClass as browser_proxy
-    from ..canonical.proxy import canonical_value_namespace
+    from ..canonical.proxy import value_namespace
 
     connect_browser = browser_proxy.connect
     namespace: dict[str, Any] = {"__builtins__": guard.safe_builtins()}
@@ -171,7 +171,7 @@ def _new_namespace(
             "connect_browser": connect_browser,
         },
     )
-    namespace.update(canonical_value_namespace())
+    namespace.update(value_namespace())
     return namespace
 
 

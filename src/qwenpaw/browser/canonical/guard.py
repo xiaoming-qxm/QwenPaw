@@ -108,7 +108,7 @@ _META_INTROSPECTION_HINT = (
 
 
 @dataclass(frozen=True)
-class _CanonicalBaseGuard:
+class _BaseCapabilityGuard:
     """Validate browser snippets before Python evaluation."""
 
     disallowed_import_roots: frozenset[str] = DISALLOWED_IMPORT_ROOTS
@@ -223,7 +223,7 @@ class _CanonicalBaseGuard:
 
 
 class _GuardVisitor(ast.NodeVisitor):
-    def __init__(self, guard: _CanonicalBaseGuard) -> None:
+    def __init__(self, guard: _BaseCapabilityGuard) -> None:
         self._guard = guard
         self._imported_sleep_names: set[str] = set()
         self._sdk_object_names: set[str] = set(_INITIAL_SDK_OBJECT_NAMES)
@@ -411,22 +411,22 @@ def _literal_string(node: ast.AST | None) -> str:
     return ""
 
 
-class CanonicalCapabilityGuard(_CanonicalBaseGuard):
+class CapabilityGuard(_BaseCapabilityGuard):
     """Mode-specific guard type for canonical namespaces."""
 
     def parse(self, code: str) -> ast.Module:
         """Reject inline legacy target shapes using the catalog contract."""
         tree = super().parse(code)
-        _CanonicalTargetVisitor(self).visit(tree)
+        _TargetVisitor(self).visit(tree)
         return tree
 
 
-class _CanonicalTargetVisitor(ast.NodeVisitor):
-    def __init__(self, guard: CanonicalCapabilityGuard) -> None:
-        from .proxy import canonical_action_target_parameters
+class _TargetVisitor(ast.NodeVisitor):
+    def __init__(self, guard: CapabilityGuard) -> None:
+        from .proxy import action_target_parameters
 
         self._guard = guard
-        self._targets = canonical_action_target_parameters()
+        self._targets = action_target_parameters()
 
     def visit_Call(self, node: ast.Call) -> None:  # noqa: N802
         action = _action_name(node.func)
@@ -472,4 +472,4 @@ def _is_inline_legacy_target(node: ast.expr) -> bool:
     )
 
 
-__all__ = ["CanonicalCapabilityGuard"]
+__all__ = ["CapabilityGuard"]

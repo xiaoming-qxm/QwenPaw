@@ -20,7 +20,7 @@ from ..condition_evaluator import (
     ResourceOperationBinding,
     TargetFacts,
 )
-from ..contract_runtime import canonical_mutation_contract
+from ..contract_runtime import mutation_contract
 from ..governance.errors import BrowserSDKError, BrowserSDKGap
 from ..primitives.matching import normalize_visible_text
 from ..runtime.resources import (
@@ -800,7 +800,7 @@ class TabActions:
         result = await self._action_runner.run(
             binding=cast(BrowserRequestBinding, self._owner_binding),
             receiver_tab=self._receiver_summary,
-            contract=canonical_mutation_contract(api_id),
+            contract=mutation_contract(api_id),
             ordered_targets=ordered_targets,
             arguments=arguments,
             expectation=expectation,
@@ -1383,7 +1383,7 @@ class Tab:
         result = await self._action_runner.run(
             binding=cast(BrowserRequestBinding, self._owner_binding),
             receiver_tab=self._tab_summary,
-            contract=canonical_mutation_contract(api_id),
+            contract=mutation_contract(api_id),
             ordered_targets=(),
             arguments=arguments or {},
             expectation=expectation,
@@ -2250,7 +2250,7 @@ class BrowserTabs:
         result = await self._action_runner.run(
             binding=cast(BrowserRequestBinding, self._owner_binding),
             receiver_tab=None,
-            contract=canonical_mutation_contract(api_id),
+            contract=mutation_contract(api_id),
             ordered_targets=(),
             arguments=arguments,
             expectation=None,

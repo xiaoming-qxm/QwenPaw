@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Canonical Browser facade physically separated from LEGACY."""
+"""Browser SDK facade."""
 
 from __future__ import annotations
 
@@ -42,7 +42,7 @@ class BrowserResources:
 
 @dataclass(slots=True)
 class Browser:
-    """Canonical connected Browser bound to trusted runtime identity."""
+    """Connected Browser bound to trusted runtime identity."""
 
     session: Any
     context: ResolvedBrowserContext
@@ -106,13 +106,9 @@ class Browser:
     ) -> "Browser":
         """Connect using only registry-issued execution identity."""
         execution = get_current_execution_context()
-        if (
-            execution is None
-            or execution.contract_mode is not ContractMode.CANONICAL
-        ):
+        if execution is None or execution.contract_mode is not ContractMode.CANONICAL:
             raise BrowserSDKError(
-                "Canonical Browser requires trusted "
-                + "CANONICAL execution context.",
+                "Browser requires trusted " + "CANONICAL execution context.",
                 code="browser_ownership_context_missing",
                 action="browser.connect",
             )

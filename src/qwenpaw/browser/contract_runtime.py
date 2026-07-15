@@ -7,13 +7,13 @@ from .canonical.action_contract import (
     BrowserAPIContract,
     BrowserTargetContract,
 )
-from .canonical.contracts import canonical_api_catalog
+from .canonical.contracts import api_catalog
 from .governance.errors import BrowserSDKError
 
 
-def canonical_mutation_contract(api_id: str) -> BrowserAPIContract:
+def mutation_contract(api_id: str) -> BrowserAPIContract:
     """Materialize one reviewed Canonical mutation catalog row."""
-    for entry in canonical_api_catalog()["apis"]:
+    for entry in api_catalog()["apis"]:
         if entry["api_id"] != api_id:
             continue
         if not entry["mutates"] or api_id == "browser.close":
@@ -51,4 +51,4 @@ def canonical_mutation_contract(api_id: str) -> BrowserAPIContract:
     )
 
 
-__all__ = ["canonical_mutation_contract"]
+__all__ = ["mutation_contract"]

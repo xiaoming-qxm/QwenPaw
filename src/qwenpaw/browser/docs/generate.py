@@ -40,9 +40,9 @@ def build_api_catalog(
     """Build the public API catalog payload from real public methods."""
     if mode != "canonical":
         raise ValueError("Only the Canonical Browser contract is generated")
-    from ..canonical.contracts import canonical_api_catalog
+    from ..canonical.contracts import api_catalog
 
-    payload = canonical_api_catalog()
+    payload = api_catalog()
     payload["apis"].extend(_canonical_resource_entries())
     _validate_canonical_resource_surface(payload)
     payload.update(_CANONICAL_RELEASE_TRUTH)

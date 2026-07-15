@@ -62,12 +62,10 @@ _ERROR_HINTS = {
         "retrying."
     ),
     "network_timeout": (
-        "Report the timeout and retry later only if the network or page "
-        "settles."
+        "Report the timeout and retry later only if the network or page " "settles."
     ),
     "observation_stale": (
-        "Take a fresh browser observation before attempting another "
-        "mutating action."
+        "Take a fresh browser observation before attempting another " "mutating action."
     ),
     "observation_enrichment_denied": (
         "Use an available visual observation source before attempting "
@@ -85,15 +83,11 @@ _ERROR_HINTS = {
         "Add or use a generic Browser SDK capability instead of a one-off "
         "workaround."
     ),
-    "chrome_disconnected": (
-        "Reload the extension or reopen the target browser tab."
-    ),
+    "chrome_disconnected": ("Reload the extension or reopen the target browser tab."),
     "browser_backend_unavailable": (
         "Refresh the status after the backend is available."
     ),
-    "chrome_action_runtime_missing": (
-        "Restart QwenPaw or reload the Chrome plugin."
-    ),
+    "chrome_action_runtime_missing": ("Restart QwenPaw or reload the Chrome plugin."),
     "isolated_backend_unavailable": (
         "Install or restart the isolated browser runtime."
     ),
@@ -118,11 +112,11 @@ _BROWSER_TOOL_DESCRIPTION = (
     "- code: module-level async Python (use await); no return — leave the "
     "value as the last\n"
     "  expression and the tool records it.\n"
-    "- context: \"auto\" (default) | \"isolated\" | \"user\". \"user\" acts "
+    '- context: "auto" (default) | "isolated" | "user". "user" acts '
     "as the real user with\n"
     "  real login and real consequences — pick it only when the task truly "
     "needs that.\n"
-    "  Start with: browser = await Browser.connect(context=\"auto\")\n"
+    '  Start with: browser = await Browser.connect(context="auto")\n'
     "\n"
     "Rules (do not violate):\n"
     "1. Observe -> act on what you observed -> observe again. Never act on a "
@@ -137,7 +131,7 @@ _BROWSER_TOOL_DESCRIPTION = (
     "Don't guess an API or its arguments — look it up in code:\n"
     "  await Browser.help()              -> what you can do, and how to "
     "drill in\n"
-    "  await Browser.help(api_id=\"...\")  -> one API's exact usage and "
+    '  await Browser.help(api_id="...")  -> one API\'s exact usage and '
     "constraints\n"
 )
 _CANONICAL_SDK_RECOVERY = (
@@ -286,18 +280,17 @@ async def browser(
     ]
     try:
         if result.envelope is not None:
-            _validate_canonical_prepared_blocks(result.envelope)
-            content.extend(_canonical_artifact_blocks(result.envelope))
+            _validate_prepared_blocks(result.envelope)
+            content.extend(_artifact_blocks(result.envelope))
         else:
-            content.extend(_artifact_blocks(result))
+            content.extend(_kernel_artifact_blocks(result))
     except (ResourceStoreError, TypeError, ValueError):
         ok = False
         content.append(
             TextBlock(
                 type="text",
                 text=(
-                    "FAILED TRANSPORT: required Browser artifact could not "
-                    "be mapped"
+                    "FAILED TRANSPORT: required Browser artifact could not " "be mapped"
                 ),
             ),
         )
@@ -329,9 +322,7 @@ def _current_root_session_id(session_id: str) -> str:
         return session_id or "default"
 
 
-def _current_browser_binding() -> (
-    tuple[str, str, str, ContractMode, int] | None
-):
+def _current_browser_binding() -> tuple[str, str, str, ContractMode, int] | None:
     """Read only registry-issued identity copied into ToolCallContext."""
     try:
         from qwenpaw.tool_calls import get_call_context
@@ -443,7 +434,7 @@ def _metadata(
 
 
 def _safe_terminal_metadata(terminal: object) -> dict[str, Any]:
-    """Project only reviewed user-safe Canonical terminal facts."""
+    """Project only reviewed user-safe terminal facts."""
     problem = getattr(terminal, "problem", None)
     problem_code = str(getattr(problem, "code", "") or "")
     payload: dict[str, Any] = {
@@ -560,7 +551,7 @@ def _decision_to_dict(
     }
 
 
-def _artifact_blocks(result: BrowserKernelResult) -> list[DataBlock]:
+def _kernel_artifact_blocks(result: BrowserKernelResult) -> list[DataBlock]:
     blocks: list[DataBlock] = []
     for artifact in result.artifacts:
         if not artifact.url or not artifact.media_type:
@@ -577,7 +568,7 @@ def _artifact_blocks(result: BrowserKernelResult) -> list[DataBlock]:
     return blocks
 
 
-def _canonical_artifact_blocks(
+def _artifact_blocks(
     envelope: BrowserExecutionEnvelope,
 ) -> list[DataBlock]:
     """Map protected promoted handles without a host locator."""
@@ -606,7 +597,7 @@ def _canonical_artifact_blocks(
     return blocks
 
 
-def _validate_canonical_prepared_blocks(
+def _validate_prepared_blocks(
     envelope: BrowserExecutionEnvelope,
 ) -> None:
     """Require final formatter preparation to preserve every block."""
@@ -615,9 +606,7 @@ def _validate_canonical_prepared_blocks(
         prepare_required_blocks,
     )
 
-    required_count = sum(
-        len(record.required_blocks) for record in envelope.records
-    )
+    required_count = sum(len(record.required_blocks) for record in envelope.records)
     if required_count == 0:
         return
 
@@ -648,7 +637,7 @@ def _summary_text(
         projected = BrowserResultProjector().project(
             result.envelope,
             profile=type(
-                "CanonicalProjectionProfile",
+                "ProjectionProfile",
                 (),
                 {"text": True, "data": True, "image": True, "artifact": True},
             )(),
@@ -658,9 +647,7 @@ def _summary_text(
         ):
             return "FAILED TRANSPORT: required resource block was dropped"
         return "\n".join(
-            block.text
-            for block in projected
-            if block.kind == "text" and block.text
+            block.text for block in projected if block.kind == "text" and block.text
         )
     if result.error:
         text = _error_summary_text(result.error)
@@ -697,9 +684,9 @@ def _error_summary_text(error: dict[str, Any]) -> str:
 
 
 def _error_hint(error: dict[str, Any], code: str) -> str:
-    canonical_hint = _canonical_sdk_usage_hint(error)
-    if canonical_hint:
-        return canonical_hint
+    usage_hint = _sdk_usage_hint(error)
+    if usage_hint:
+        return usage_hint
 
     value = error.get("recovery_hint")
     if isinstance(value, str) and value.strip():
@@ -716,7 +703,7 @@ def _error_hint(error: dict[str, Any], code: str) -> str:
     return _ERROR_HINTS.get(code, "")
 
 
-def _canonical_sdk_usage_hint(error: dict[str, Any]) -> str:
+def _sdk_usage_hint(error: dict[str, Any]) -> str:
     """Return a concrete recovery path for common model-invented SDK calls."""
     message = str(error.get("message") or "").lower()
     error_type = str(error.get("type") or "")
@@ -760,9 +747,7 @@ def _error_diagnostics_summary(error: dict[str, Any], code: str) -> str:
 
 def _diagnostics_dict_summary(diagnostics: dict[str, Any]) -> str:
     backend_id = str(
-        diagnostics.get("backend_id")
-        or diagnostics.get("selected_backend_id")
-        or "",
+        diagnostics.get("backend_id") or diagnostics.get("selected_backend_id") or "",
     ).strip()
     status = str(diagnostics.get("status") or "unavailable").strip()
     code = str(diagnostics.get("code") or "").strip()

@@ -6,7 +6,7 @@ from __future__ import annotations
 from typing import Any
 
 from ..governance.errors import BrowserPolicyDenied
-from .contracts import canonical_api_catalog, canonical_value_namespace
+from .contracts import api_catalog, value_namespace
 from .facade import Browser
 
 
@@ -30,10 +30,10 @@ class _BrowserFactoryProxy:
 BrowserProxyClass = _BrowserFactoryProxy()
 
 
-def canonical_action_target_parameters() -> dict[str, tuple[str, ...]]:
+def action_target_parameters() -> dict[str, tuple[str, ...]]:
     """Derive target-bearing action parameters from the sole catalog."""
     result: dict[str, tuple[str, ...]] = {}
-    for entry in canonical_api_catalog()["apis"]:
+    for entry in api_catalog()["apis"]:
         api_id = str(entry["api_id"])
         if not api_id.startswith("tab.actions."):
             continue
@@ -49,6 +49,6 @@ def canonical_action_target_parameters() -> dict[str, tuple[str, ...]]:
 
 __all__ = [
     "BrowserProxyClass",
-    "canonical_action_target_parameters",
-    "canonical_value_namespace",
+    "action_target_parameters",
+    "value_namespace",
 ]

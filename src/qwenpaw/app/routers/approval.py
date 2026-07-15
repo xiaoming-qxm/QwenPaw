@@ -114,7 +114,7 @@ async def post_approval_approve(
     if exact_only and requested_scope not in {"", ApprovalScope.EXACT.value}:
         raise HTTPException(
             status_code=422,
-            detail="Canonical Browser approvals accept exact scope only",
+            detail="Browser approvals accept exact scope only",
         )
     if requested_scope:
         try:
@@ -123,7 +123,7 @@ async def post_approval_approve(
             if exact_only:
                 raise HTTPException(
                     status_code=422,
-                    detail="Canonical Browser approvals accept exact only",
+                    detail="Browser approvals accept exact only",
                 ) from exc
             logger.info(
                 "Approval approve: unknown scope %r, defaulting to exact",

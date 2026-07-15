@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Single collector and projector for canonical Browser execution facts."""
+"""Single collector and projector for Browser execution facts."""
 
 from __future__ import annotations
 

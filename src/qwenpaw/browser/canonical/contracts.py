@@ -1885,7 +1885,7 @@ def _canonical_action_entry(
     )
 
 
-def canonical_api_catalog() -> dict[str, Any]:
+def api_catalog() -> dict[str, Any]:
     """Return the S0 canonical lifecycle-only API catalog."""
     return {
         "version": 1,
@@ -2412,7 +2412,7 @@ OPAQUE_VALUE_NAMES = (
 )
 
 
-def canonical_value_namespace() -> dict[str, type[Any]]:
+def value_namespace() -> dict[str, type[Any]]:
     """Return the canonical public values from this single defining module."""
     names = PUBLIC_CONSTRUCTOR_NAMES + OPAQUE_VALUE_NAMES
     return {name: globals()[name] for name in names}
@@ -2486,8 +2486,8 @@ __all__ = [
     "WorkflowRequirement",
     "can_prove_global_unique",
     "can_prove_negative",
-    "canonical_api_catalog",
-    "canonical_value_namespace",
+    "api_catalog",
+    "value_namespace",
     "coverage_from_gaps",
     "issue_operation_id",
     "validate_result_contract",
