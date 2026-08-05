@@ -167,6 +167,16 @@ jobs:
           Copy-Item -Force $installer.FullName $target
           Write-Host "Staged: $target"
 
+      # Upload before UI verification so a package is available for manual
+      # Windows validation even when a later end-to-end check fails.
+      - name: Upload Tauri Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: qwenpaw-windows-installer-${{ steps.version.outputs.version }}
+          path: dist/QwenPaw-Tauri-${{ steps.version.outputs.version }}-Windows-setup.exe
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Verify desktop (Tauri Windows)
         timeout-minutes: 10
         uses: ./.github/actions/verify-tauri-windows
