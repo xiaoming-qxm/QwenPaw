@@ -175,12 +175,35 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+      - name: Stage current Chrome plugin for package validation
+        shell: pwsh
+        run: |
+          $target = Join-Path $env:USERPROFILE ".qwenpaw\plugins\chrome"
+          New-Item -ItemType Directory -Force -Path $target | Out-Null
+          Copy-Item -Recurse -Force "plugins/bundle/chrome/*" $target
+
       - name: Verify desktop (Tauri Windows)
         timeout-minutes: 10
         uses: ./.github/actions/verify-tauri-windows
         with:
           dashscope-api-key: ${{ secrets.QWENPAW_DASHSCOPE_API_KEY }}
           allow-flaky-llm: "true"
+
+      - name: Verify packaged Chrome Native Messaging
+        timeout-minutes: 5
+        shell: pwsh
+        env:
+          PYTHONIOENCODING: utf-8
+        run: python scripts/verify/chrome_native_messaging_windows.py
+
+      - name: Upload Chrome Native Messaging verification logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chrome-native-messaging-windows-${{ steps.version.outputs.version }}
+          path: dist/verify-chrome-native-messaging
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Stop desktop server
         if: always()
